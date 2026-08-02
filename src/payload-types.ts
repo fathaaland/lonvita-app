@@ -69,6 +69,17 @@ export interface Config {
   collections: {
     users: User;
     media: Media;
+    municipalities: Municipality;
+    'event-categories': EventCategory;
+    profiles: Profile;
+    'user-roles': UserRole;
+    events: Event;
+    registrations: Registration;
+    'event-media': EventMedia;
+    'event-feedback': EventFeedback;
+    'organizer-requests': OrganizerRequest;
+    'organizer-payouts': OrganizerPayout;
+    'auth-identities': AuthIdentity;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -78,13 +89,24 @@ export interface Config {
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    municipalities: MunicipalitiesSelect<false> | MunicipalitiesSelect<true>;
+    'event-categories': EventCategoriesSelect<false> | EventCategoriesSelect<true>;
+    profiles: ProfilesSelect<false> | ProfilesSelect<true>;
+    'user-roles': UserRolesSelect<false> | UserRolesSelect<true>;
+    events: EventsSelect<false> | EventsSelect<true>;
+    registrations: RegistrationsSelect<false> | RegistrationsSelect<true>;
+    'event-media': EventMediaSelect<false> | EventMediaSelect<true>;
+    'event-feedback': EventFeedbackSelect<false> | EventFeedbackSelect<true>;
+    'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
+    'organizer-payouts': OrganizerPayoutsSelect<false> | OrganizerPayoutsSelect<true>;
+    'auth-identities': AuthIdentitiesSelect<false> | AuthIdentitiesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
   };
   db: {
-    defaultIDType: string;
+    defaultIDType: number;
   };
   fallbackLocale: null;
   globals: {};
@@ -122,7 +144,17 @@ export interface UserAuthOperations {
  * via the `definition` "users".
  */
 export interface User {
-  id: string;
+  id: number;
+  /**
+   * Platform-level role — controls Payload admin access, not community roles.
+   */
+  role: 'admin' | 'user';
+  tenants?:
+    | {
+        tenant: number | Municipality;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -144,11 +176,30 @@ export interface User {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "municipalities".
+ */
+export interface Municipality {
+  id: number;
+  name: string;
+  /**
+   * Who is allowed to create events in this municipality.
+   */
+  rulesForCreation?: string | null;
+  /**
+   * The user who administers this municipality.
+   */
+  adminUser?: (number | null) | User;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
  */
 export interface Media {
-  id: string;
+  id: number;
   alt: string;
+  prefix?: string | null;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -163,10 +214,243 @@ export interface Media {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-categories".
+ */
+export interface EventCategory {
+  id: number;
+  /**
+   * e.g. Kultura, Příroda, Vzdělávání
+   */
+  name: string;
+  /**
+   * Icon identifier used by the frontend (e.g. a lucide-react icon name).
+   */
+  icon?: string | null;
+  /**
+   * Color used to render this category in the app (hex or design token).
+   */
+  color?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "profiles".
+ */
+export interface Profile {
+  id: number;
+  /**
+   * 1:1 link to the account this profile belongs to.
+   */
+  user: number | User;
+  fullName: string;
+  /**
+   * The user's home municipality.
+   */
+  municipality: number | Municipality;
+  /**
+   * Organizer payout account. Only visible/editable by the profile owner.
+   */
+  payoutIban?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "user-roles".
+ */
+export interface UserRole {
+  id: number;
+  user: number | User;
+  /**
+   * The municipality this role applies to.
+   */
+  municipality: number | Municipality;
+  role: 'participant' | 'organizer' | 'admin';
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events".
+ */
+export interface Event {
+  id: number;
+  title: string;
+  description?: string | null;
+  municipality: number | Municipality;
+  dateTime: string;
+  locationText: string;
+  capacity: number;
+  /**
+   * The profile organizing this event.
+   */
+  organizer: number | Profile;
+  category: number | EventCategory;
+  /**
+   * Cover image shown in event listings.
+   */
+  image?: (number | null) | Media;
+  isPaid?: boolean | null;
+  /**
+   * Price in the smallest currency unit (e.g. haléře), used with Stripe.
+   */
+  priceCents?: number | null;
+  /**
+   * Soft-delete marker — preserves attendance history when an event is removed.
+   */
+  deletedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "registrations".
+ */
+export interface Registration {
+  id: number;
+  event: number | Event;
+  profile: number | Profile;
+  /**
+   * "Smí přijít" — whether the registration itself is allowed, not whether they attended.
+   */
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  /**
+   * What actually happened — set by the organizer after the event.
+   */
+  attendanceStatus?: ('not_marked' | 'attended' | 'no_show') | null;
+  /**
+   * The organizer profile that marked attendance.
+   */
+  attendanceMarkedBy?: (number | null) | Profile;
+  paymentStatus?: ('not_required' | 'pending' | 'paid' | 'refunded') | null;
+  /**
+   * Soft-delete marker — preserves attendance history.
+   */
+  deletedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-media".
+ */
+export interface EventMedia {
+  id: number;
+  event: number | Event;
+  media: number | Media;
+  uploadedBy: number | User;
+  visibility: 'private' | 'municipality' | 'public';
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-feedback".
+ */
+export interface EventFeedback {
+  id: number;
+  /**
+   * One feedback entry per attended registration.
+   */
+  registration: number | Registration;
+  satisfactionRating: number;
+  /**
+   * Did you feel welcome?
+   */
+  feltWelcomeRating?: number | null;
+  /**
+   * Did you meet someone new?
+   */
+  metSomeoneNew?: boolean | null;
+  /**
+   * Did you come alone?
+   */
+  cameAlone?: boolean | null;
+  comment?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizer-requests".
+ */
+export interface OrganizerRequest {
+  id: number;
+  user: number | User;
+  municipality: number | Municipality;
+  /**
+   * Approving a request should create a matching User Role of "organizer".
+   */
+  status: 'pending' | 'approved' | 'rejected';
+  /**
+   * Optional note from the requester about why they want to organize events.
+   */
+  message?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizer-payouts".
+ */
+export interface OrganizerPayout {
+  id: number;
+  profile: number | Profile;
+  amountCents: number;
+  currency: string;
+  status: 'pending' | 'processing' | 'paid' | 'failed';
+  /**
+   * Stripe transfer ID once the payout has been sent.
+   */
+  stripeTransferId?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "auth-identities".
+ */
+export interface AuthIdentity {
+  id: number;
+  user: number | User;
+  /**
+   * The Auth0 "sub" claim, e.g. auth0|abc123 or google-oauth2|123.
+   */
+  providerSubject: string;
+  provider: string;
+  connection?: string | null;
+  /**
+   * database | social
+   */
+  providerType?: string | null;
+  email?: string | null;
+  emailVerified?: boolean | null;
+  lastLoginAt?: string | null;
+  lastSyncedAt?: string | null;
+  /**
+   * Raw Auth0 session.user payload, cached for reference.
+   */
+  profile?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
-  id: string;
+  id: number;
   key: string;
   data:
     | {
@@ -183,20 +467,64 @@ export interface PayloadKv {
  * via the `definition` "payload-locked-documents".
  */
 export interface PayloadLockedDocument {
-  id: string;
+  id: number;
   document?:
     | ({
         relationTo: 'users';
-        value: string | User;
+        value: number | User;
       } | null)
     | ({
         relationTo: 'media';
-        value: string | Media;
+        value: number | Media;
+      } | null)
+    | ({
+        relationTo: 'municipalities';
+        value: number | Municipality;
+      } | null)
+    | ({
+        relationTo: 'event-categories';
+        value: number | EventCategory;
+      } | null)
+    | ({
+        relationTo: 'profiles';
+        value: number | Profile;
+      } | null)
+    | ({
+        relationTo: 'user-roles';
+        value: number | UserRole;
+      } | null)
+    | ({
+        relationTo: 'events';
+        value: number | Event;
+      } | null)
+    | ({
+        relationTo: 'registrations';
+        value: number | Registration;
+      } | null)
+    | ({
+        relationTo: 'event-media';
+        value: number | EventMedia;
+      } | null)
+    | ({
+        relationTo: 'event-feedback';
+        value: number | EventFeedback;
+      } | null)
+    | ({
+        relationTo: 'organizer-requests';
+        value: number | OrganizerRequest;
+      } | null)
+    | ({
+        relationTo: 'organizer-payouts';
+        value: number | OrganizerPayout;
+      } | null)
+    | ({
+        relationTo: 'auth-identities';
+        value: number | AuthIdentity;
       } | null);
   globalSlug?: string | null;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   updatedAt: string;
   createdAt: string;
@@ -206,10 +534,10 @@ export interface PayloadLockedDocument {
  * via the `definition` "payload-preferences".
  */
 export interface PayloadPreference {
-  id: string;
+  id: number;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   key?: string | null;
   value?:
@@ -229,7 +557,7 @@ export interface PayloadPreference {
  * via the `definition` "payload-migrations".
  */
 export interface PayloadMigration {
-  id: string;
+  id: number;
   name?: string | null;
   batch?: number | null;
   updatedAt: string;
@@ -240,6 +568,13 @@ export interface PayloadMigration {
  * via the `definition` "users_select".
  */
 export interface UsersSelect<T extends boolean = true> {
+  role?: T;
+  tenants?:
+    | T
+    | {
+        tenant?: T;
+        id?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -263,6 +598,7 @@ export interface UsersSelect<T extends boolean = true> {
  */
 export interface MediaSelect<T extends boolean = true> {
   alt?: T;
+  prefix?: T;
   updatedAt?: T;
   createdAt?: T;
   url?: T;
@@ -274,6 +610,157 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "municipalities_select".
+ */
+export interface MunicipalitiesSelect<T extends boolean = true> {
+  name?: T;
+  rulesForCreation?: T;
+  adminUser?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-categories_select".
+ */
+export interface EventCategoriesSelect<T extends boolean = true> {
+  name?: T;
+  icon?: T;
+  color?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "profiles_select".
+ */
+export interface ProfilesSelect<T extends boolean = true> {
+  user?: T;
+  fullName?: T;
+  municipality?: T;
+  payoutIban?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "user-roles_select".
+ */
+export interface UserRolesSelect<T extends boolean = true> {
+  user?: T;
+  municipality?: T;
+  role?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "events_select".
+ */
+export interface EventsSelect<T extends boolean = true> {
+  title?: T;
+  description?: T;
+  municipality?: T;
+  dateTime?: T;
+  locationText?: T;
+  capacity?: T;
+  organizer?: T;
+  category?: T;
+  image?: T;
+  isPaid?: T;
+  priceCents?: T;
+  deletedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "registrations_select".
+ */
+export interface RegistrationsSelect<T extends boolean = true> {
+  event?: T;
+  profile?: T;
+  status?: T;
+  attendanceStatus?: T;
+  attendanceMarkedBy?: T;
+  paymentStatus?: T;
+  deletedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-media_select".
+ */
+export interface EventMediaSelect<T extends boolean = true> {
+  event?: T;
+  media?: T;
+  uploadedBy?: T;
+  visibility?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-feedback_select".
+ */
+export interface EventFeedbackSelect<T extends boolean = true> {
+  registration?: T;
+  satisfactionRating?: T;
+  feltWelcomeRating?: T;
+  metSomeoneNew?: T;
+  cameAlone?: T;
+  comment?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizer-requests_select".
+ */
+export interface OrganizerRequestsSelect<T extends boolean = true> {
+  user?: T;
+  municipality?: T;
+  status?: T;
+  message?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizer-payouts_select".
+ */
+export interface OrganizerPayoutsSelect<T extends boolean = true> {
+  profile?: T;
+  amountCents?: T;
+  currency?: T;
+  status?: T;
+  stripeTransferId?: T;
+  periodStart?: T;
+  periodEnd?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "auth-identities_select".
+ */
+export interface AuthIdentitiesSelect<T extends boolean = true> {
+  user?: T;
+  providerSubject?: T;
+  provider?: T;
+  connection?: T;
+  providerType?: T;
+  email?: T;
+  emailVerified?: T;
+  lastLoginAt?: T;
+  lastSyncedAt?: T;
+  profile?: T;
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
