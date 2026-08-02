@@ -1,6 +1,49 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
+
+import { enqueueEmail } from '@/lib/queue/queues'
 
 import { isLoggedIn } from './access/shared'
+
+const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
+  approved: 'Vaše přihláška byla schválena',
+  declined: 'Vaše přihláška byla zamítnuta',
+}
+
+const sendStatusChangeEmail: CollectionAfterChangeHook = async ({
+  doc,
+  previousDoc,
+  operation,
+  req,
+}) => {
+  if (operation !== 'update' || doc.status === previousDoc?.status) return doc
+  if (!REGISTRATION_STATUS_SUBJECT[doc.status]) return doc
+
+  try {
+    const profileId = typeof doc.profile === 'object' ? doc.profile.id : doc.profile
+    const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
+
+    const [profile, event] = await Promise.all([
+      req.payload.findByID({ collection: 'profiles', id: profileId, depth: 1, overrideAccess: true }),
+      req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true }),
+    ])
+
+    const user = typeof profile.user === 'object' ? profile.user : null
+    if (!user?.email) return doc
+
+    const approved = doc.status === 'approved'
+    await enqueueEmail({
+      to: user.email,
+      subject: `${REGISTRATION_STATUS_SUBJECT[doc.status]}: ${event.title}`,
+      body: approved
+        ? `<p>Dobrý den ${profile.fullName},</p><p>vaše přihláška na akci <strong>${event.title}</strong> byla schválena.</p>`
+        : `<p>Dobrý den ${profile.fullName},</p><p>vaše přihláška na akci <strong>${event.title}</strong> byla bohužel zamítnuta.</p>`,
+    })
+  } catch (error) {
+    req.payload.logger.error(`Failed to enqueue registration status email: ${error}`)
+  }
+
+  return doc
+}
 
 export const Registrations: CollectionConfig = {
   slug: 'registrations',
@@ -87,5 +130,8 @@ export const Registrations: CollectionConfig = {
       },
     },
   ],
+  hooks: {
+    afterChange: [sendStatusChangeEmail],
+  },
   timestamps: true,
 }

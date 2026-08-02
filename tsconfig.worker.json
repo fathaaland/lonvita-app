@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./worker/dist",
+    "noEmit": false,
+    "module": "esnext",
+    "moduleResolution": "bundler"
+  },
+  "include": ["src/lib/logger.ts", "src/lib/valkey/**/*.ts", "src/lib/queue/**/*.ts", "worker/src/**/*.ts"]
+}

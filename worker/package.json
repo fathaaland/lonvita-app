@@ -1,0 +1,11 @@
+{
+  "name": "@lonvita/worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --dir .. exec tsc -p tsconfig.worker.json",
+    "start": "PAYLOAD_MIGRATING=true pnpm --dir .. exec tsx worker/src/run.ts",
+    "dev": "PAYLOAD_MIGRATING=true pnpm --dir .. exec tsx watch worker/src/run.ts"
+  }
+}
