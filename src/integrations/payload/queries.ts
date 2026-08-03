@@ -535,3 +535,38 @@ export async function getMyRoles(userId: string): Promise<AppRole[]> {
   const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`);
   return result.docs.map((r) => r.role);
 }
+
+// --- Consents / notification preferences ------------------------------------------------
+
+const CONSENT_VERSION = "1.0";
+
+type PayloadConsent = { id: number; type: string; revokedAt?: string | null };
+
+/** Whether the user currently has an active (non-revoked) marketing consent. */
+export async function getMarketingConsent(userId: string): Promise<boolean> {
+  const where = buildWhereParams({ user: { equals: userId }, type: { equals: "marketing" } });
+  const query = buildQuery({ sort: "-createdAt", limit: 1, depth: 0 });
+  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`);
+  const latest = result.docs[0];
+  return Boolean(latest && !latest.revokedAt);
+}
+
+/** Grants a fresh marketing consent, or revokes the current active one. */
+export async function setMarketingConsent(userId: string, enabled: boolean): Promise<void> {
+  if (enabled) {
+    await post("/consents", {
+      user: userId,
+      type: "marketing",
+      version: CONSENT_VERSION,
+      grantedAt: new Date().toISOString(),
+    });
+    return;
+  }
+  const where = buildWhereParams({ user: { equals: userId }, type: { equals: "marketing" } });
+  const query = buildQuery({ sort: "-createdAt", limit: 1, depth: 0 });
+  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`);
+  const active = result.docs.find((c) => !c.revokedAt);
+  if (active) {
+    await patch(`/consents/${active.id}`, { revokedAt: new Date().toISOString() });
+  }
+}

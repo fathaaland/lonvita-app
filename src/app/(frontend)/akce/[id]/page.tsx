@@ -21,10 +21,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, CalendarPlus } from "lucide-react";
 import { formatEventDate, formatEventTime } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/stripe";
+import { buildIcsEvent, downloadIcs } from "@/lib/ics";
 
 interface Reg { id: string; user_id: string; status: string; full_name: string; payment_status: string }
 
@@ -105,6 +106,18 @@ function EventDetailContent() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleAddToCalendar = () => {
+    if (!event) return;
+    const ics = buildIcsEvent({
+      uid: event.id,
+      title: event.title,
+      description: event.description,
+      location: event.location_text,
+      startsAt: event.date_time,
+    });
+    downloadIcs(`${event.title.replace(/\s+/g, "-")}.ics`, ics);
   };
 
   if (loading) return <Loading />;
@@ -191,6 +204,10 @@ function EventDetailContent() {
             </div>
           )}
         </div>
+
+        <Button variant="outline" onClick={handleAddToCalendar} className="w-full h-12">
+          <CalendarPlus className="h-4 w-4" /> Přidat do kalendáře
+        </Button>
 
         <div>
           <h2 className="text-lg font-bold mb-2">Popis akce</h2>

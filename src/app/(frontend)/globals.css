@@ -38,13 +38,15 @@
     --popover: 0 0% 100%;
     --popover-foreground: var(--brand-graphite);
 
-    /* Primary – Lonvita purple */
-    --primary: var(--brand-purple);
+    /* Primary – Lonvita purple, darkened from the brand hue (299 39% 61%) to clear
+       WCAG AA 4.5:1 against white button text — --brand-purple itself stays untouched
+       for the logo/eyebrow/text-only contexts where 61% already passes. */
+    --primary: 299 39% 50%;
     --primary-foreground: 0 0% 100%;
     --primary-soft: var(--brand-purple-pale);
 
-    /* Accent – purple light (used as soft fills) */
-    --accent: var(--brand-purple);
+    /* Accent – same darkened purple, used as soft fills */
+    --accent: 299 39% 50%;
     --accent-foreground: 0 0% 100%;
     --accent-soft: var(--brand-purple-pale);
 
@@ -55,11 +57,12 @@
     --muted: 27 35% 90%;
     --muted-foreground: 0 0% 35%;
 
-    --destructive: 4 64% 58%;
+    /* 52% (not the original 58%) — passes AA 4.5:1 against white text */
+    --destructive: 4 64% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    /* Success – sage */
-    --success: 100 22% 45%;
+    /* Success – sage, darkened from 45% to 40% for the same reason */
+    --success: 100 22% 40%;
     --success-foreground: 0 0% 100%;
     --success-soft: var(--brand-sage-pale);
 
@@ -69,7 +72,10 @@
 
     --border: var(--brand-sand);
     --input: 30 18% 85%;
-    --ring: var(--brand-purple);
+    /* Matches the darkened --primary — the original brand-purple ring only had 2.81:1
+       against the ivory background, below the 3:1 WCAG 1.4.11 non-text minimum for a
+       keyboard focus indicator people actually need to see. */
+    --ring: 299 39% 50%;
 
     --radius: 1rem;
 
@@ -109,7 +115,7 @@
     --secondary-foreground: var(--brand-ivory);
     --muted: 0 0% 22%;
     --muted-foreground: 30 18% 75%;
-    --destructive: 4 64% 60%;
+    --destructive: 4 64% 52%;
     --destructive-foreground: 0 0% 100%;
     --success: 100 22% 60%;
     --success-foreground: var(--brand-graphite);
@@ -147,6 +153,13 @@
   }
   input, textarea, select {
     font-size: 1rem !important;
+  }
+  /* Baseline keyboard focus indicator (WCAG 2.4.7) for the many hand-rolled buttons/links
+     in this app that don't go through the shadcn Button component's own focus-visible
+     ring. Harmless to double up on components that already have one. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 }
 

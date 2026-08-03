@@ -42,6 +42,9 @@ next-env.d.ts
 
 /media
 
+# DB dumps — may contain real personal data, never commit
+/backups
+
 # Playwright
 node_modules/
 /test-results/

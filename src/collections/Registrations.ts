@@ -46,6 +46,25 @@ const sendStatusChangeEmail: CollectionAfterChangeHook = async ({
         ? `<p>Dobrý den ${fullName},</p><p>vaše přihláška na akci <strong>${event.title}</strong> byla schválena.</p>`
         : `<p>Dobrý den ${fullName},</p><p>vaše přihláška na akci <strong>${event.title}</strong> byla bohužel zamítnuta.</p>`,
     })
+
+    // 24h reminder — scheduled once at approval time (brief §A5: "levné a užitečné").
+    // Known simplification: if the registration is later cancelled/rejected or the event
+    // moves, the reminder still fires as originally scheduled — a dedicated notifications
+    // table to track/cancel it isn't warranted yet at pilot scale (see ERD §4 on reminders).
+    if (approved) {
+      const reminderAt = new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000
+      const delay = reminderAt - Date.now()
+      if (delay > 0) {
+        await enqueueEmail(
+          {
+            to: user.email,
+            subject: `Připomínka: ${event.title} zítra`,
+            body: `<p>Dobrý den ${fullName},</p><p>připomínáme, že zítra vás čeká akce <strong>${event.title}</strong> — ${event.locationText}.</p>`,
+          },
+          { jobId: `reminder-${doc.id}`, delay },
+        )
+      }
+    }
   } catch (error) {
     req.payload.logger.error(`Failed to enqueue registration status email: ${error}`)
   }

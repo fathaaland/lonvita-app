@@ -14,14 +14,19 @@ export const getQueue = (): Queue<QueueJobEnvelope, unknown, JobName> => {
   return queueInstance
 }
 
-const enqueueJob = (job: QueueJobEnvelope, jobId?: string) => {
-  return getQueue().add(job.jobType, job, jobId ? { jobId } : {})
+type EnqueueOptions = { jobId?: string; delay?: number }
+
+const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions) => {
+  return getQueue().add(job.jobType, job, {
+    ...(options?.jobId ? { jobId: options.jobId } : {}),
+    ...(options?.delay ? { delay: options.delay } : {}),
+  })
 }
 
-export async function enqueueEmail(data: EmailJobData) {
-  return enqueueJob({ jobType: JOB_NAMES.SEND_EMAIL, payload: data })
+export async function enqueueEmail(data: EmailJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.SEND_EMAIL, payload: data }, options)
 }
 
-export async function enqueueNotification(data: NotificationJobData) {
-  return enqueueJob({ jobType: JOB_NAMES.PUSH_NOTIFICATION, payload: data })
+export async function enqueueNotification(data: NotificationJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.PUSH_NOTIFICATION, payload: data }, options)
 }

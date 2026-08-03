@@ -3,13 +3,20 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { hasPendingOrganizerRequest, getMyRegistrationsWithEvents } from "@/integrations/payload/queries";
+import {
+  hasPendingOrganizerRequest,
+  getMyRegistrationsWithEvents,
+  getMarketingConsent,
+  setMarketingConsent,
+} from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useFontSize } from "@/contexts/FontSizeContext";
-import { LogOut, Type, UserPlus, Settings, ArrowLeft } from "lucide-react";
+import { LogOut, Type, UserPlus, Settings, ArrowLeft, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { PayoutIbanCard } from "@/components/PayoutIbanCard";
 import { VolunteerCard } from "@/components/VolunteerCard";
@@ -20,6 +27,27 @@ function ProfileContent() {
   const { size, setSize } = useFontSize();
   const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [stats, setStats] = useState({ upcoming: 0, attended: 0, volunteerHours: 0 });
+  const [marketingConsent, setMarketingConsentState] = useState(false);
+  const [savingConsent, setSavingConsent] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    getMarketingConsent(String(user.id)).then(setMarketingConsentState);
+  }, [user]);
+
+  const toggleMarketingConsent = async (checked: boolean) => {
+    if (!user) return;
+    setSavingConsent(true);
+    setMarketingConsentState(checked);
+    try {
+      await setMarketingConsent(String(user.id), checked);
+    } catch {
+      setMarketingConsentState(!checked);
+      toast.error("Nepodařilo se uložit nastavení.");
+    } finally {
+      setSavingConsent(false);
+    }
+  };
 
   useEffect(() => {
     if (!user || isOrganizer) return;
@@ -88,6 +116,30 @@ function ProfileContent() {
                   <span className={s === "normal" ? "text-base" : s === "large" ? "text-lg" : "text-2xl"}>A</span>
                 </Button>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <Mail className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                <div>
+                  <Label htmlFor="marketing-consent" className="text-base font-semibold">
+                    Novinky a tipy na akce e-mailem
+                  </Label>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Potvrzení o přihláškách dostáváte vždy — tohle je jen navíc.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="marketing-consent"
+                checked={marketingConsent}
+                onCheckedChange={toggleMarketingConsent}
+                disabled={savingConsent}
+              />
             </div>
           </CardContent>
         </Card>
