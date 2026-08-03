@@ -80,7 +80,7 @@ const run = async () => {
     password: string
     fullName: string
     platformRole: 'admin' | 'user'
-    communityRole: 'admin' | 'organizer' | null
+    communityRole: 'municipality_admin' | 'organizer' | null
   }) => {
     payload.logger.info(`Seeding user ${input.email}…`)
 
@@ -181,7 +181,7 @@ const run = async () => {
     password: 'admin1234',
     fullName: 'Admin obce',
     platformRole: 'admin',
-    communityRole: 'admin',
+    communityRole: 'municipality_admin',
   })
 
   await seedAccount({

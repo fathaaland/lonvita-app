@@ -201,9 +201,9 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     dateTime: input.dateTimeIso,
     locationText: input.locationText,
     capacity: input.capacity,
-    organizer: input.organizerUserId,
-    municipality: input.municipalityId,
-    category: input.categoryId,
+    organizer: Number(input.organizerUserId),
+    municipality: Number(input.municipalityId),
+    category: Number(input.categoryId),
     status: "active",
     isPaid: false,
     isVolunteering: input.isVolunteering ?? false,
@@ -266,8 +266,8 @@ export async function getUserRegistrations(userId: string): Promise<Registration
 
 export async function createRegistration(eventId: string, userId: string): Promise<RegistrationRow> {
   const doc = await post<PayloadRegistration>("/registrations", {
-    event: eventId,
-    user: userId,
+    event: Number(eventId),
+    user: Number(userId),
     status: "pending",
   });
   return mapRegistration(doc);
@@ -498,8 +498,8 @@ export async function createOrganizerRequest(
   description: string,
 ): Promise<void> {
   await post("/organizer-requests", {
-    user: userId,
-    municipality: municipalityId,
+    user: Number(userId),
+    municipality: Number(municipalityId),
     description,
     status: "pending",
   });
@@ -526,7 +526,7 @@ export async function updateProfile(profileId: string, data: Record<string, unkn
 
 // --- User roles -----------------------------------------------------------------------
 
-export type AppRole = "admin" | "organizer" | "participant";
+export type AppRole = "municipality_admin" | "organizer" | "participant" | "prescriber";
 
 type PayloadUserRole = { id: number; role: AppRole; municipality: number | { id: number } };
 
@@ -555,7 +555,7 @@ export async function getMarketingConsent(userId: string): Promise<boolean> {
 export async function setMarketingConsent(userId: string, enabled: boolean): Promise<void> {
   if (enabled) {
     await post("/consents", {
-      user: userId,
+      user: Number(userId),
       type: "marketing",
       version: CONSENT_VERSION,
       grantedAt: new Date().toISOString(),

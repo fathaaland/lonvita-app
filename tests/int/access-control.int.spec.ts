@@ -46,7 +46,7 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     })
     await payload.create({
       collection: 'user-roles',
-      data: { user: adminOfA.id, municipality: municipalityA.id, role: 'admin' },
+      data: { user: adminOfA.id, municipality: municipalityA.id, role: 'municipality_admin' },
       overrideAccess: true,
     })
 

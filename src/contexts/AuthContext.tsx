@@ -71,8 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profile,
         roles,
         loading,
-        isAdmin: roles.includes("admin"),
-        isOrganizer: roles.includes("organizer") || roles.includes("admin"),
+        isAdmin: roles.includes("municipality_admin"),
+        isOrganizer: roles.includes("organizer") || roles.includes("municipality_admin"),
         // Intervention/social-prescribing module isn't wired up in this backend yet.
         isPrescriber: false,
         signOut,

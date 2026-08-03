@@ -310,7 +310,10 @@ export interface UserRole {
    * The municipality this role applies to.
    */
   municipality: number | Municipality;
-  role: 'participant' | 'organizer' | 'admin';
+  /**
+   * Enum matches ERD §0.2 pilot roles. "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
+   */
+  role: 'participant' | 'organizer' | 'municipality_admin' | 'prescriber';
   updatedAt: string;
   createdAt: string;
 }

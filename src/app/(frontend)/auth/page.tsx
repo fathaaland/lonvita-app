@@ -111,7 +111,7 @@ export default function AuthPage() {
         const loggedInUser = await loginWithPassword(parsed.data.email, parsed.data.password);
         const roles = await getMyRoles(String(loggedInUser.id));
         // Full reload so AuthContext (and everything gated on it) picks up the new session.
-        window.location.href = roles.includes("admin") ? "/admin-obce" : "/";
+        window.location.href = roles.includes("municipality_admin") ? "/admin-obce" : "/";
       } catch {
         toast.error("Nesprávný e-mail nebo heslo.");
         setLoading(false);

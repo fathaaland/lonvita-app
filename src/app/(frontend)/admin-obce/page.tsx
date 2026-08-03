@@ -213,7 +213,7 @@ function AdminContent() {
 export default function AdminPage() {
   return (
     <RequireAuth>
-      <RequireRole role="admin">
+      <RequireRole role="municipality_admin">
         <AdminContent />
       </RequireRole>
     </RequireAuth>

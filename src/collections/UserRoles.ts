@@ -46,8 +46,16 @@ export const UserRoles: CollectionConfig = {
       options: [
         { label: 'Participant', value: 'participant' },
         { label: 'Organizer', value: 'organizer' },
-        { label: 'Admin', value: 'admin' },
+        { label: 'Municipality Admin', value: 'municipality_admin' },
+        {
+          label: 'Prescriber (plán)',
+          value: 'prescriber',
+        },
       ],
+      admin: {
+        description:
+          'Enum matches ERD §0.2 pilot roles. "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).',
+      },
     },
   ],
   hooks: {

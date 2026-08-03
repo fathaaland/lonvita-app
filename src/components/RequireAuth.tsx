@@ -35,11 +35,11 @@ export function RequireRole({
   role,
 }: {
   children: ReactNode;
-  role: "admin" | "organizer";
+  role: "municipality_admin" | "organizer";
 }) {
   const { loading, isAdmin, isOrganizer } = useAuth();
   const router = useRouter();
-  const ok = role === "admin" ? isAdmin : isOrganizer;
+  const ok = role === "municipality_admin" ? isAdmin : isOrganizer;
 
   useEffect(() => {
     if (!loading && !ok) router.replace("/");

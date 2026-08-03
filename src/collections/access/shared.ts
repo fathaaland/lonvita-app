@@ -2,14 +2,14 @@ import type { Access } from 'payload'
 
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
-/** IDs of municipalities where this user holds an "admin" UserRole (municipality-level, not platform Users.role). */
+/** IDs of municipalities where this user holds a "municipality_admin" UserRole (municipality-level, not platform Users.role). */
 const getAdministeredMunicipalityIds = async (
   payload: import('payload').Payload,
   userId: number,
 ): Promise<string[]> => {
   const result = await payload.find({
     collection: 'user-roles',
-    where: { and: [{ user: { equals: userId } }, { role: { equals: 'admin' } }] },
+    where: { and: [{ user: { equals: userId } }, { role: { equals: 'municipality_admin' } }] },
     depth: 0,
     limit: 200,
     overrideAccess: true,
@@ -19,7 +19,7 @@ const getAdministeredMunicipalityIds = async (
 
 /**
  * Allows platform admins (Users.role === 'admin') everywhere, plus municipality admins
- * (a "user-roles" row with role "admin") scoped to the municipalities they administer.
+ * (a "user-roles" row with role "municipality_admin") scoped to the municipalities they administer.
  * Used by collections where a municipality admin needs to manage rows without being a
  * platform-level admin — e.g. approving an organizer request creates a user-roles row.
  */

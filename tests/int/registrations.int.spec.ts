@@ -70,14 +70,14 @@ describe('Registrations & EventFeedback', () => {
     it('blocks a second active registration for the same user+event', async () => {
       const first = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id, status: 'pending' },
+        data: { event: event.id, user: participant.id, status: 'pending', paymentStatus: 'none' },
         overrideAccess: true,
       })
 
       await expect(
         payload.create({
           collection: 'registrations',
-          data: { event: event.id, user: participant.id, status: 'pending' },
+          data: { event: event.id, user: participant.id, status: 'pending', paymentStatus: 'none' },
           overrideAccess: true,
         }),
       ).rejects.toThrow(/already registered/)
@@ -88,7 +88,7 @@ describe('Registrations & EventFeedback', () => {
     it('allows re-registering after the earlier registration was cancelled', async () => {
       const cancelled = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id, status: 'pending' },
+        data: { event: event.id, user: participant.id, status: 'pending', paymentStatus: 'none' },
         overrideAccess: true,
       })
       await payload.update({
@@ -100,7 +100,7 @@ describe('Registrations & EventFeedback', () => {
 
       const reRegistered = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id, status: 'pending' },
+        data: { event: event.id, user: participant.id, status: 'pending', paymentStatus: 'none' },
         overrideAccess: true,
       })
       expect(reRegistered.id).toBeDefined()
@@ -112,7 +112,7 @@ describe('Registrations & EventFeedback', () => {
     it('a plain participant cannot hard-delete their own registration (admin-only delete)', async () => {
       const reg = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id, status: 'pending' },
+        data: { event: event.id, user: participant.id, status: 'pending', paymentStatus: 'none' },
         overrideAccess: true,
       })
 
@@ -131,7 +131,7 @@ describe('Registrations & EventFeedback', () => {
     it('soft-deleted registrations are excluded from access-controlled reads', async () => {
       const reg = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id, status: 'pending' },
+        data: { event: event.id, user: participant.id, status: 'pending', paymentStatus: 'none' },
         overrideAccess: true,
       })
       await payload.update({
@@ -172,12 +172,12 @@ describe('Registrations & EventFeedback', () => {
       })
       notAttendedReg = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id, status: 'approved', attendanceStatus: 'not_marked' },
+        data: { event: event.id, user: participant.id, status: 'approved', paymentStatus: 'none', attendanceStatus: 'not_marked' },
         overrideAccess: true,
       })
       attendedReg = await payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: secondParticipant.id, status: 'approved', attendanceStatus: 'attended' },
+        data: { event: event.id, user: secondParticipant.id, status: 'approved', paymentStatus: 'none', attendanceStatus: 'attended' },
         overrideAccess: true,
       })
     })

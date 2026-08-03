@@ -26,7 +26,7 @@ function OnboardingContent() {
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState<"zena" | "muz" | "jine" | "neuvedeno">("neuvedeno");
   const [interests, setInterests] = useState<string[]>([]);
-  const [homeArea, setHomeArea] = useState<string | null>(null);
+  const [homeArea, setHomeArea] = useState<string>("");
   const [areas, setAreas] = useState<Area[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [saving, setSaving] = useState(false);
@@ -61,8 +61,8 @@ function OnboardingContent() {
       await updateProfile(profile.id, {
         dateOfBirth: dob || null,
         gender,
-        interests,
-        homeArea,
+        interests: interests.map(Number),
+        homeArea: homeArea ? Number(homeArea) : null,
         onboardingCompleted: true,
       });
       toast.success("Vítejte v Lonvitě!");
@@ -198,7 +198,7 @@ function OnboardingContent() {
                     Vyberte část obce, ve které bydlíte.
                   </p>
                 </div>
-                <Select value={homeArea ?? undefined} onValueChange={setHomeArea}>
+                <Select value={homeArea} onValueChange={setHomeArea}>
                   <SelectTrigger className="h-12 text-base">
                     <MapPin className="h-5 w-5 text-muted-foreground mr-1" />
                     <SelectValue placeholder="Vyberte část obce" />
