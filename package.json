@@ -16,7 +16,10 @@
     "start": "cross-env NODE_OPTIONS=--no-deprecation next start",
     "test": "pnpm run test:int && pnpm run test:e2e",
     "test:e2e": "cross-env NODE_OPTIONS=\"--no-deprecation --import=tsx/esm\" playwright test --config=playwright.config.ts",
-    "test:int": "cross-env NODE_OPTIONS=--no-deprecation vitest run --config ./vitest.config.mts"
+    "test:int": "cross-env NODE_OPTIONS=--no-deprecation vitest run --config ./vitest.config.mts",
+    "worker:build": "pnpm --dir worker run build",
+    "worker:dev": "pnpm --dir worker run dev",
+    "worker:start": "pnpm --dir worker run start"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.26.0",
@@ -24,6 +27,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1101.0",
     "@hookform/resolvers": "^3.10.0",
     "@payloadcms/db-postgres": "3.87.0",
+    "@payloadcms/email-resend": "3.87.0",
     "@payloadcms/next": "3.87.0",
     "@payloadcms/plugin-multi-tenant": "3.87.0",
     "@payloadcms/richtext-lexical": "3.87.0",
@@ -60,6 +64,7 @@
     "@stripe/stripe-js": "^9.2.0",
     "@tanstack/react-query": "^5.83.0",
     "auth0": "^6.1.0",
+    "bullmq": "^6.0.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -71,6 +76,7 @@
     "file-saver": "^2.0.5",
     "graphql": "^16.8.1",
     "input-otp": "^1.4.2",
+    "ioredis": "^6.0.0",
     "jose": "^6.2.7",
     "lucide-react": "^0.462.0",
     "next": "16.2.6",
@@ -82,6 +88,7 @@
     "react-hook-form": "^7.61.1",
     "react-resizable-panels": "^2.1.9",
     "recharts": "^2.15.4",
+    "resend": "^6.18.1",
     "sharp": "0.34.2",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.1",

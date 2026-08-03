@@ -1,7 +1,57 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
+
+import { enqueueEmail } from '@/lib/queue/queues'
 
 import { isLoggedIn } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
+
+const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
+  approved: 'Vaše přihláška byla schválena',
+  rejected: 'Vaše přihláška byla zamítnuta',
+}
+
+const sendStatusChangeEmail: CollectionAfterChangeHook = async ({
+  doc,
+  previousDoc,
+  operation,
+  req,
+}) => {
+  if (operation !== 'update' || doc.status === previousDoc?.status) return doc
+  if (!REGISTRATION_STATUS_SUBJECT[doc.status]) return doc
+
+  try {
+    const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
+    const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
+
+    const [profiles, user, event] = await Promise.all([
+      req.payload.find({
+        collection: 'profiles',
+        where: { user: { equals: userId } },
+        limit: 1,
+        depth: 0,
+        overrideAccess: true,
+      }),
+      req.payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }),
+      req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true }),
+    ])
+
+    if (!user?.email) return doc
+    const fullName = profiles.docs[0]?.fullName ?? 'účastníku'
+
+    const approved = doc.status === 'approved'
+    await enqueueEmail({
+      to: user.email,
+      subject: `${REGISTRATION_STATUS_SUBJECT[doc.status]}: ${event.title}`,
+      body: approved
+        ? `<p>Dobrý den ${fullName},</p><p>vaše přihláška na akci <strong>${event.title}</strong> byla schválena.</p>`
+        : `<p>Dobrý den ${fullName},</p><p>vaše přihláška na akci <strong>${event.title}</strong> byla bohužel zamítnuta.</p>`,
+    })
+  } catch (error) {
+    req.payload.logger.error(`Failed to enqueue registration status email: ${error}`)
+  }
+
+  return doc
+}
 
 export const Registrations: CollectionConfig = {
   slug: 'registrations',
@@ -146,6 +196,7 @@ export const Registrations: CollectionConfig = {
         return data
       },
     ],
+    afterChange: [sendStatusChangeEmail],
   },
   timestamps: true,
 }
