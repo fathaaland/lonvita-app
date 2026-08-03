@@ -6,8 +6,11 @@ import {
   getEvent,
   getEventRegistrationsForManage,
   updateRegistrationStatus,
+  updateAttendance,
   ManageRegistrationRow,
+  AttendanceStatus,
 } from "@/integrations/payload/queries";
+import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
@@ -15,12 +18,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Clock } from "lucide-react";
+import { Check, X, Clock, UserCheck, UserX, CalendarOff } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+const ATTENDANCE_OPTIONS: { value: AttendanceStatus; label: string; icon: typeof UserCheck }[] = [
+  { value: "attended", label: "Přišel/a", icon: UserCheck },
+  { value: "no_show", label: "Nedorazil/a", icon: UserX },
+  { value: "excused", label: "Omluven/a", icon: CalendarOff },
+];
 
 function ManageEventContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const { user } = useAuth();
   const [regs, setRegs] = useState<ManageRegistrationRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,6 +52,16 @@ function ManageEventContent() {
       load();
     } catch {
       toast.error("Nepodařilo se uložit změnu.");
+    }
+  };
+
+  const markAttendance = async (regId: string, status: AttendanceStatus) => {
+    if (!user) return;
+    try {
+      await updateAttendance(regId, status, String(user.id));
+      load();
+    } catch {
+      toast.error("Nepodařilo se uložit docházku.");
     }
   };
 
@@ -74,6 +95,27 @@ function ManageEventContent() {
                 <Button onClick={() => updateStatus(r.id, "rejected")} variant="outline" className="h-11">
                   <X className="h-4 w-4" />Zamítnout
                 </Button>
+              </div>
+            )}
+
+            {r.status === "approved" && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold text-muted-foreground">Docházka</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {ATTENDANCE_OPTIONS.map(({ value, label, icon: Icon }) => {
+                    const active = r.attendance_status === value;
+                    return (
+                      <Button
+                        key={value}
+                        onClick={() => markAttendance(r.id, value)}
+                        variant={active ? "default" : "outline"}
+                        className={cn("h-11 text-xs px-1", active && value === "no_show" && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+                      >
+                        <Icon className="h-4 w-4" />{label}
+                      </Button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </CardContent></Card>

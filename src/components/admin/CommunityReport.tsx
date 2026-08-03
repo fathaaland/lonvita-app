@@ -28,6 +28,18 @@ interface Props {
 
 interface Narrative { summary: string; whatChanged: string }
 
+/** "62/100, roste" or "nedostatek dat" when below the §6.7 sample-size threshold. */
+function formatDatavitaScore(metrics: ReportMetrics): string {
+  if (metrics.datavita.current === null) return "nedostatek dat";
+  return `${metrics.datavita.current}/100 a ${metrics.datavita.trend}`;
+}
+
+function formatDatavitaDelta(metrics: ReportMetrics): string {
+  if (metrics.datavita.current === null) return "Nedostatek dat pro výpočet indexu za toto období.";
+  const d = metrics.datavita.delta90d;
+  return `Datavita se za 90 dní změnila o ${d >= 0 ? "+" : ""}${d} bodů.`;
+}
+
 /** Deterministic, no-AI narrative built straight from the computed metrics. */
 function buildNarrative(metrics: ReportMetrics, municipalityName: string): Narrative {
   const c = metrics.current;
@@ -39,13 +51,13 @@ function buildNarrative(metrics: ReportMetrics, municipalityName: string): Narra
   const summary =
     `V období ${metrics.periodFrom} – ${metrics.periodTo} proběhlo v obci ${municipalityName} ` +
     `${c.eventsCount} akcí s ${c.participantsUnique} unikátními účastníky a ${c.approvedRegistrations} ` +
-    `schválenými přihláškami. Komunitní index (Datavita) je ${metrics.datavita.current}/100 a ${metrics.datavita.trend}.`;
+    `schválenými přihláškami. Komunitní index (Datavita) je ${formatDatavitaScore(metrics)}.`;
 
   const whatChanged =
     `Počet akcí se oproti ${metrics.previousLabel} ${eventsDelta >= 0 ? "zvýšil" : "snížil"} o ${Math.abs(eventsDelta)}, ` +
     `počet unikátních účastníků se ${participantsDelta >= 0 ? "zvýšil" : "snížil"} o ${Math.abs(participantsDelta)}. ` +
     `Aktivních organizátorů: ${c.activeOrganizers} (${c.newOrganizers} nových). ` +
-    `Datavita se za 90 dní změnila o ${metrics.datavita.delta90d >= 0 ? "+" : ""}${metrics.datavita.delta90d} bodů.`;
+    formatDatavitaDelta(metrics);
 
   return { summary, whatChanged };
 }
@@ -86,9 +98,9 @@ ${tbl}
 ${n.whatChanged}
 
 ## Datavita
-${dv.current}/100, ${dv.trend} (${dv.delta90d >= 0 ? "+" : ""}${dv.delta90d} bodů za 90 dní).
+${dv.current === null ? "Nedostatek dat za toto období (potřeba alespoň 30 aktivních účastníků a 5 akcí)." : `${dv.current}/100, ${dv.trend} (${dv.delta90d >= 0 ? "+" : ""}${dv.delta90d} bodů za 90 dní).
 Participace ${dv.participation}, organizace ${dv.organization} — rozpad ukazuje, zda růst
-komunity stojí především na účasti lidí, nebo na aktivitě organizátorů.
+komunity stojí především na účasti lidí, nebo na aktivitě organizátorů.`}
 
 ## Metodická poznámka
 Data z klouzavého 90denního okna (${metrics.periodFrom} – ${metrics.periodTo}), srovnání
@@ -187,9 +199,11 @@ proběhl ${new Date().toLocaleString("cs-CZ")}. Nezahrnuje adresy bydliště ú�
 
           new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun("Datavita")] }),
           new Paragraph({ children: [new TextRun(
-            `${dv.current}/100, ${dv.trend} (${dv.delta90d >= 0 ? "+" : ""}${dv.delta90d} bodů za 90 dní). ` +
-            `Participace ${dv.participation}, organizace ${dv.organization} — rozpad ukazuje, zda růst ` +
-            `komunity stojí především na účasti lidí, nebo na aktivitě organizátorů.`,
+            dv.current === null
+              ? "Nedostatek dat za toto období (potřeba alespoň 30 aktivních účastníků a 5 akcí)."
+              : `${dv.current}/100, ${dv.trend} (${dv.delta90d >= 0 ? "+" : ""}${dv.delta90d} bodů za 90 dní). ` +
+                `Participace ${dv.participation}, organizace ${dv.organization} — rozpad ukazuje, zda růst ` +
+                `komunity stojí především na účasti lidí, nebo na aktivitě organizátorů.`,
           )] }),
 
           new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun("Metodická poznámka")] }),
@@ -254,11 +268,15 @@ proběhl ${new Date().toLocaleString("cs-CZ")}. Nezahrnuje adresy bydliště ú�
 
           <div className="text-xs bg-muted/50 rounded-lg p-3 space-y-1">
             <p className="font-bold">Datavita</p>
-            <p>
-              {metrics.datavita.current}/100 · {metrics.datavita.trend}
-              {" "}({metrics.datavita.delta90d >= 0 ? "+" : ""}{metrics.datavita.delta90d} za 90 dní) ·
-              participace {metrics.datavita.participation}, organizace {metrics.datavita.organization}
-            </p>
+            {metrics.datavita.current === null ? (
+              <p>Nedostatek dat za toto období (potřeba alespoň 30 aktivních účastníků a 5 akcí).</p>
+            ) : (
+              <p>
+                {metrics.datavita.current}/100 · {metrics.datavita.trend}
+                {" "}({metrics.datavita.delta90d >= 0 ? "+" : ""}{metrics.datavita.delta90d} za 90 dní) ·
+                participace {metrics.datavita.participation}, organizace {metrics.datavita.organization}
+              </p>
+            )}
           </div>
 
           {!narrative && (

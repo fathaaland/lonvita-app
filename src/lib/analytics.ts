@@ -16,6 +16,7 @@ export interface EventRow {
   created_at: string;
   is_paid?: boolean;
   price_cents?: number | null;
+  is_volunteering?: boolean;
 }
 
 export interface RegistrationRow {
@@ -26,6 +27,7 @@ export interface RegistrationRow {
   created_at: string;
   payment_status?: string;
   amount_paid_cents?: number | null;
+  attendance_status?: "not_marked" | "attended" | "no_show" | "excused";
 }
 
 export interface CategoryRow {
@@ -39,6 +41,16 @@ export interface ProfileRow {
   id: string;
   full_name: string;
   created_at: string;
+  date_of_birth?: string | null;
+}
+
+/** Age on a given date from an ISO date-of-birth string — shared by the Datavita calc and the report. */
+export function ageOn(dobIso: string, on: Date): number {
+  const dob = new Date(dobIso);
+  let age = on.getFullYear() - dob.getFullYear();
+  const m = on.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && on.getDate() < dob.getDate())) age--;
+  return age;
 }
 
 export function periodStart(period: Period): Date | null {
@@ -179,21 +191,139 @@ export function weeklySeries(events: EventRow[], regs: RegistrationRow[], weeks 
   return out;
 }
 
-/* ===== Datavita score (retrospektivní) =====
- * Kompozitní index vitality komunity 0-100 počítaný per týden zpětně.
- * Váhy:  40 % aktivní účast (unikátní přihlášení), 25 % naplněnost akcí,
- *        20 % počet akcí, 15 % nárůst uživatelů.
- * Normalizace: rolling max přes zobrazené okno (min. 1).
+/* ===== Datavita score =====
+ * Kompozitní index vitality komunity 0-100, podle funkční spec dashboardu obce (sekce 6):
+ *
+ *   D1 (participace) = 0,5 × Míra_zapojení + 0,5 × Retence
+ *   D2 (organizace)  = 0,5 × Organizátoři_index + 0,5 × Podíl_dobrovolníků
+ *   Datavita_jádro   = 0,5 × D1 + 0,5 × D2
+ *
+ * Bezpečnostní práh: < 30 aktivních účastníků NEBO < 5 akcí v okně → score = null
+ * ("nedostatek dat"), přesně podle spec §6.7.
+ *
+ * Dvě záměrné odchylky od plné spec, dokud pro ně nemáme datový podklad:
+ *  - Míra_zapojení dělí aktivní účastníky počtem REGISTROVANÝCH profilů 50+, ne skutečnou
+ *    populací obce 50+ (tu obec zatím nikam nezadává) — fáze 1 aproximace, stejně jako
+ *    v src/lib/report.ts.
+ *  - Organizátoři_index normalizuje syrový počet organizátorů (ne na 1000 obyvatel 50+,
+ *    tu populaci nemáme) proti vlastnímu klouzavému ročnímu průměru — self-referenční,
+ *    jak spec pro fázi 1 povoluje.
+ *  - Equity modifikátor (D3/D4a/D4b, ±10 bodů) NENÍ implementovaný — D3 (geografické
+ *    pokrytí) potřebuje vazbu Events → MunicipalityAreas, kterou zatím events nemají.
+ *    Score je tedy jen Datavita_jádro, bez equity úpravy.
  */
+
+export const DATAVITA_MIN_PARTICIPANTS = 30;
+export const DATAVITA_MIN_EVENTS = 5;
+
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function activeParticipantIds(events: EventRow[], regs: RegistrationRow[], ws: number, we: number): Set<string> {
+  const eventIds = new Set(events.filter((e) => {
+    const t = new Date(e.date_time).getTime();
+    return t >= ws && t < we;
+  }).map((e) => e.id));
+  return new Set(
+    regs
+      .filter((r) => r.attendance_status === "attended" && eventIds.has(r.event_id))
+      .map((r) => r.user_id),
+  );
+}
+
+/** Trailing self-referential baseline for Organizátoři_index — average organizer count over
+ * windows of the same length as `windowLengthMs`, looking back up to a year before `windowStart`. */
+function trailingOrganizerReference(events: EventRow[], windowStart: number, windowLengthMs: number): number {
+  const lookbackMs = 365 * 24 * 60 * 60 * 1000;
+  const counts: number[] = [];
+  let cursor = windowStart;
+  const earliest = windowStart - lookbackMs;
+  while (cursor - windowLengthMs >= earliest) {
+    cursor -= windowLengthMs;
+    const orgIds = new Set(
+      events
+        .filter((e) => {
+          const t = new Date(e.date_time).getTime();
+          return t >= cursor && t < cursor + windowLengthMs;
+        })
+        .map((e) => e.organizer_id),
+    );
+    counts.push(orgIds.size);
+  }
+  return counts.length ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
+}
+
+export interface DatavitaWindowResult {
+  score: number | null; // null = "nedostatek dat" (§6.7)
+  participation: number; // D1, 0..100
+  organization: number; // D2, 0..100
+  engagementRate: number; // 0..1
+  retentionRate: number; // 0..1
+  organizerIndex: number; // 0..100
+  volunteerShare: number; // 0..1
+  activeParticipants: number;
+  eventsCount: number;
+}
+
+export function computeDatavitaWindow(
+  events: EventRow[],
+  regs: RegistrationRow[],
+  profiles50Plus: Set<string>,
+  windowStart: number,
+  windowEnd: number,
+  prevParticipants: Set<string>,
+): DatavitaWindowResult {
+  const wEvents = events.filter((e) => {
+    const t = new Date(e.date_time).getTime();
+    return t >= windowStart && t < windowEnd;
+  });
+  const participants = activeParticipantIds(events, regs, windowStart, windowEnd);
+
+  const denominator = profiles50Plus.size || 1;
+  const engagementRate = Math.min(1, participants.size / denominator);
+
+  const returning = Array.from(prevParticipants).filter((uid) => participants.has(uid)).length;
+  const retentionRate = prevParticipants.size ? returning / prevParticipants.size : 0;
+
+  const orgIds = new Set(wEvents.map((e) => e.organizer_id));
+  const reference = trailingOrganizerReference(events, windowStart, windowEnd - windowStart);
+  const organizerIndex = reference > 0
+    ? Math.min(100, (orgIds.size / reference) * 100)
+    : orgIds.size > 0 ? 100 : 0;
+
+  const volunteerEventIds = new Set(wEvents.filter((e) => e.is_volunteering).map((e) => e.id));
+  const volunteerParticipants = new Set(
+    regs
+      .filter((r) => r.attendance_status === "attended" && volunteerEventIds.has(r.event_id))
+      .map((r) => r.user_id),
+  );
+  const volunteerShare = participants.size ? volunteerParticipants.size / participants.size : 0;
+
+  const d1 = 0.5 * (engagementRate * 100) + 0.5 * (retentionRate * 100);
+  const d2 = 0.5 * organizerIndex + 0.5 * (volunteerShare * 100);
+  const core = 0.5 * d1 + 0.5 * d2;
+
+  const insufficientData = participants.size < DATAVITA_MIN_PARTICIPANTS || wEvents.length < DATAVITA_MIN_EVENTS;
+
+  return {
+    score: insufficientData ? null : Math.round(core),
+    participation: Math.round(d1),
+    organization: Math.round(d2),
+    engagementRate,
+    retentionRate,
+    organizerIndex,
+    volunteerShare,
+    activeParticipants: participants.size,
+    eventsCount: wEvents.length,
+  };
+}
 
 export interface DatavitaPoint {
   week: string;
   weekStart: string; // ISO
-  score: number; // 0..100
+  score: number | null; // 0..100, null = nedostatek dat
   events: number;
   activeUsers: number;
-  newUsers: number;
-  fillRate: number; // 0..1
+  fillRate: number; // 0..1, kept for the "naplněnost" chart card
 }
 
 export function datavitaSeries(
@@ -203,31 +333,27 @@ export function datavitaSeries(
   weeks = 26,
 ): DatavitaPoint[] {
   const today = startOfWeek(new Date());
+  const now = new Date();
+  const profiles50Plus = new Set(
+    profiles.filter((p) => p.date_of_birth && ageOn(p.date_of_birth, now) >= 50).map((p) => p.id),
+  );
   const approved = regs.filter((r) => r.status === "approved");
-  const raw: Omit<DatavitaPoint, "score">[] = [];
+
+  const out: DatavitaPoint[] = [];
+  let prevParticipants = new Set<string>();
 
   for (let i = weeks - 1; i >= 0; i--) {
     const wStart = new Date(today);
     wStart.setDate(wStart.getDate() - i * 7);
-    const wEnd = new Date(wStart);
-    wEnd.setDate(wEnd.getDate() + 7);
     const ws = wStart.getTime();
-    const we = wEnd.getTime();
+    const we = ws + ONE_WEEK_MS;
+
+    const result = computeDatavitaWindow(events, regs, profiles50Plus, ws, we, prevParticipants);
 
     const wEvents = events.filter((e) => {
       const t = new Date(e.date_time).getTime();
       return t >= ws && t < we;
     });
-    const wRegs = approved.filter((r) => {
-      const t = new Date(r.created_at).getTime();
-      return t >= ws && t < we;
-    });
-    const activeUsers = new Set(wRegs.map((r) => r.user_id)).size;
-    const newUsers = profiles.filter((p) => {
-      const t = new Date(p.created_at).getTime();
-      return t >= ws && t < we;
-    }).length;
-
     const fillRates: number[] = [];
     for (const e of wEvents) {
       if (!e.capacity) continue;
@@ -236,37 +362,30 @@ export function datavitaSeries(
     }
     const fillRate = fillRates.length ? fillRates.reduce((a, b) => a + b, 0) / fillRates.length : 0;
 
-    raw.push({
+    out.push({
       week: fmtWeek(wStart),
       weekStart: wStart.toISOString(),
-      events: wEvents.length,
-      activeUsers,
-      newUsers,
+      score: result.score,
+      events: result.eventsCount,
+      activeUsers: result.activeParticipants,
       fillRate,
     });
+
+    prevParticipants = activeParticipantIds(events, regs, ws, we);
   }
 
-  const maxEvents = Math.max(1, ...raw.map((r) => r.events));
-  const maxActive = Math.max(1, ...raw.map((r) => r.activeUsers));
-  const maxNew = Math.max(1, ...raw.map((r) => r.newUsers));
-
-  return raw.map((r) => {
-    const score =
-      0.40 * (r.activeUsers / maxActive) +
-      0.25 * r.fillRate +
-      0.20 * (r.events / maxEvents) +
-      0.15 * (r.newUsers / maxNew);
-    return { ...r, score: Math.round(score * 100) };
-  });
+  return out;
 }
 
-export function datavitaTrend(series: DatavitaPoint[]): { current: number; delta: number } {
-  if (series.length === 0) return { current: 0, delta: 0 };
+export function datavitaTrend(series: DatavitaPoint[]): { current: number | null; delta: number } {
+  if (series.length === 0) return { current: null, delta: 0 };
   const current = series[series.length - 1].score;
-  const prev = series.length >= 5
-    ? series.slice(-8, -4).reduce((a, b) => a + b.score, 0) / Math.max(1, series.slice(-8, -4).length)
-    : current;
-  const recent = series.slice(-4).reduce((a, b) => a + b.score, 0) / Math.max(1, series.slice(-4).length);
+  const scored = (pts: DatavitaPoint[]) => pts.map((p) => p.score).filter((s): s is number => s !== null);
+  const prevScores = scored(series.slice(-8, -4));
+  const recentScores = scored(series.slice(-4));
+  const prev = prevScores.length ? prevScores.reduce((a, b) => a + b, 0) / prevScores.length : current;
+  const recent = recentScores.length ? recentScores.reduce((a, b) => a + b, 0) / recentScores.length : current;
+  if (prev === null || recent === null) return { current, delta: 0 };
   return { current, delta: Math.round(recent - prev) };
 }
 

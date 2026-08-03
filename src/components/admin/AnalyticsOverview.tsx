@@ -62,6 +62,8 @@ import {
   topPaidEvents,
   datavitaSeries,
   datavitaTrend,
+  DATAVITA_MIN_PARTICIPANTS,
+  DATAVITA_MIN_EVENTS,
 } from "@/lib/analytics";
 
 interface Props {
@@ -181,54 +183,68 @@ export function AnalyticsOverview({
                 Kompozitní skóre vitality komunity · posledních 26 týdnů
               </p>
             </div>
-            <div className="text-right">
-              <p className="text-3xl font-extrabold leading-none tabular-nums">{dvTrend.current}</p>
-              <p
-                className={`text-xs font-bold tabular-nums ${
-                  dvTrend.delta > 0
-                    ? "text-success"
-                    : dvTrend.delta < 0
-                    ? "text-destructive"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {dvTrend.delta > 0 ? "▲" : dvTrend.delta < 0 ? "▼" : "•"} {Math.abs(dvTrend.delta)} vs. měsíc zpět
+            {dvTrend.current !== null && (
+              <div className="text-right">
+                <p className="text-3xl font-extrabold leading-none tabular-nums">{dvTrend.current}</p>
+                <p
+                  className={`text-xs font-bold tabular-nums ${
+                    dvTrend.delta > 0
+                      ? "text-success"
+                      : dvTrend.delta < 0
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {dvTrend.delta > 0 ? "▲" : dvTrend.delta < 0 ? "▼" : "•"} {Math.abs(dvTrend.delta)} vs. měsíc zpět
+                </p>
+              </div>
+            )}
+          </div>
+          {dvTrend.current === null ? (
+            <div className="py-6 text-center space-y-1">
+              <p className="text-sm font-semibold">Nedostatek dat</p>
+              <p className="text-xs text-muted-foreground">
+                Potřeba alespoň {DATAVITA_MIN_PARTICIPANTS} aktivních účastníků a {DATAVITA_MIN_EVENTS} akcí za posledních 7 dní.
               </p>
             </div>
-          </div>
-          <div className="h-32">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dvSeries} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="dvGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="week" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" interval={3} />
-                <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={[0, 100]} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
-                  formatter={(v: number) => [`${v}`, "Skóre"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="score"
-                  stroke="hsl(var(--accent))"
-                  strokeWidth={2.5}
-                  fill="url(#dvGrad)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-          <p className="text-[11px] text-muted-foreground leading-snug">
-            Váhy: 40 % aktivní účast · 25 % naplněnost · 20 % počet akcí · 15 % noví uživatelé.
-          </p>
+          ) : (
+            <>
+              <div className="h-32">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dvSeries} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="dvGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity={0.5} />
+                        <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="week" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" interval={3} />
+                    <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={[0, 100]} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                      formatter={(v: number) => [`${v}`, "Skóre"]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="score"
+                      stroke="hsl(var(--accent))"
+                      strokeWidth={2.5}
+                      fill="url(#dvGrad)"
+                      connectNulls={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                D1 participace (zapojení + retence) · D2 organizace (organizátoři + dobrovolníci). Equity úprava zatím není zapojená.
+              </p>
+            </>
+          )}
         </CardContent>
       </Card>
 

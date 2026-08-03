@@ -1,13 +1,13 @@
 "use client";
 
-import { Home, CalendarHeart, PlusCircle, User } from "lucide-react";
+import { Home, CalendarHeart, PlusCircle, User, Shield } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
 export function BottomNav() {
-  const { user, isOrganizer } = useAuth();
+  const { user, isAdmin, isOrganizer } = useAuth();
   const pathname = usePathname();
 
   if (!user) return null;
@@ -17,6 +17,7 @@ export function BottomNav() {
     { to: "/", icon: Home, label: "Domů" },
     { to: "/moje-akce", icon: CalendarHeart, label: "Moje akce" },
     ...(isOrganizer ? [{ to: "/vytvorit", icon: PlusCircle, label: "Vytvořit" }] : []),
+    ...(isAdmin ? [{ to: "/admin-obce", icon: Shield, label: "Obec" }] : []),
     { to: "/profil", icon: User, label: "Profil" },
   ];
 

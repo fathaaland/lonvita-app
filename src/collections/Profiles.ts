@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isLoggedIn } from './access/shared'
+import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 
 export const Profiles: CollectionConfig = {
   slug: 'profiles',
@@ -13,16 +14,13 @@ export const Profiles: CollectionConfig = {
     defaultColumns: ['fullName', 'municipality', 'updatedAt'],
   },
   access: {
-    read: isLoggedIn,
+    read: ({ req: { user } }) => (user ? notDeleted : false),
     create: isLoggedIn,
     update: ({ req: { user } }) => {
       if (!user) return false
       return { user: { equals: user.id } }
     },
-    delete: ({ req: { user } }) => {
-      if (!user) return false
-      return { user: { equals: user.id } }
-    },
+    delete: adminOnlyDelete,
   },
   fields: [
     {
@@ -116,6 +114,7 @@ export const Profiles: CollectionConfig = {
       name: 'volunteerSince',
       type: 'date',
     },
+    deletedAtField,
   ],
   timestamps: true,
 }

@@ -8,30 +8,24 @@ import {
   getAuthMode,
   loginWithPassword,
   requestNativePasswordReset,
-  demoLogin,
-  DemoRole,
 } from "@/integrations/payload/client";
-import { listMunicipalities, MunicipalityRow } from "@/integrations/payload/queries";
+import { listMunicipalities, getMyRoles, MunicipalityRow } from "@/integrations/payload/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Mail, Lock, User as UserIcon, MapPin, Shield, Megaphone, PartyPopper } from "lucide-react";
+import { Mail, Lock, User as UserIcon, MapPin } from "lucide-react";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
-
-const DEMO_ROLE_OPTIONS: { role: DemoRole; label: string; icon: typeof Shield }[] = [
-  { role: "admin", label: "Admin obce", icon: Shield },
-  { role: "organizer", label: "Pořadatel", icon: Megaphone },
-  { role: "participant", label: "Účastník", icon: PartyPopper },
-];
 
 const signUpSchema = z.object({
   email: z.string().trim().email("Zadejte platný e-mail").max(255),
   password: z.string().min(8, "Heslo musí mít alespoň 8 znaků").max(128),
   full_name: z.string().trim().min(2, "Zadejte celé jméno").max(80),
   municipality: z.string().min(1, "Vyberte obec"),
+  consent_accepted: z.boolean().refine((v) => v === true, "Musíte souhlasit s podmínkami používání"),
 });
 
 export default function AuthPage() {
@@ -42,8 +36,9 @@ export default function AuthPage() {
   const [fullName, setFullName] = useState("");
   const [municipality, setMunicipality] = useState("");
   const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name">[]>([]);
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [demoLoadingRole, setDemoLoadingRole] = useState<DemoRole | null>(null);
 
   useEffect(() => {
     getAuthMode().then((m) => setAuthUsesAuth0(m.auth0));
@@ -69,7 +64,13 @@ export default function AuthPage() {
     e.preventDefault();
 
     if (mode === "signup") {
-      const parsed = signUpSchema.safeParse({ email, password, full_name: fullName, municipality });
+      const parsed = signUpSchema.safeParse({
+        email,
+        password,
+        full_name: fullName,
+        municipality,
+        consent_accepted: consentAccepted,
+      });
       if (!parsed.success) {
         toast.error(parsed.error.issues[0].message);
         return;
@@ -81,6 +82,8 @@ export default function AuthPage() {
           password: parsed.data.password,
           fullName: parsed.data.full_name,
           municipality: parsed.data.municipality,
+          consentAccepted: parsed.data.consent_accepted,
+          marketingConsent,
         });
         toast.success("Účet vytvořen. Můžete se přihlásit.");
         setMode("signin");
@@ -105,9 +108,10 @@ export default function AuthPage() {
       }
       setLoading(true);
       try {
-        await loginWithPassword(parsed.data.email, parsed.data.password);
+        const loggedInUser = await loginWithPassword(parsed.data.email, parsed.data.password);
+        const roles = await getMyRoles(String(loggedInUser.id));
         // Full reload so AuthContext (and everything gated on it) picks up the new session.
-        window.location.href = "/";
+        window.location.href = roles.includes("admin") ? "/admin-obce" : "/";
       } catch {
         toast.error("Nesprávný e-mail nebo heslo.");
         setLoading(false);
@@ -117,17 +121,6 @@ export default function AuthPage() {
 
   const signInGoogle = () => {
     redirectToLogin({ returnTo: "/", connection: "google-oauth2" });
-  };
-
-  const handleDemoLogin = async (role: DemoRole) => {
-    setDemoLoadingRole(role);
-    try {
-      const result = await demoLogin(role);
-      window.location.href = result.redirectTo;
-    } catch {
-      toast.error("Demo přihlášení se nezdařilo.");
-      setDemoLoadingRole(null);
-    }
   };
 
   const handleForgot = async () => {
@@ -161,29 +154,6 @@ export default function AuthPage() {
         </div>
 
         <div className="px-4 pb-8 relative z-10 space-y-4">
-          {authUsesAuth0 === false && (
-            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
-              <div className="text-center">
-                <p className="text-base font-semibold">✨ Vyzkoušejte si aplikaci</p>
-                <p className="text-sm text-muted-foreground">Přihlaste se jedním klikem jako:</p>
-              </div>
-              <div className="space-y-2">
-                {DEMO_ROLE_OPTIONS.map(({ role, label, icon: Icon }) => (
-                  <Button
-                    key={role}
-                    type="button"
-                    variant="outline"
-                    disabled={demoLoadingRole !== null}
-                    onClick={() => handleDemoLogin(role)}
-                    className="w-full h-12 text-base justify-start gap-3"
-                  >
-                    <Icon className="h-5 w-5" />
-                    {demoLoadingRole === role ? "Přihlašuji…" : label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
           <form onSubmit={handleSubmit} className="space-y-3">
             {mode === "signup" && (
               <div className="space-y-1.5">
@@ -249,6 +219,27 @@ export default function AuthPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {mode === "signup" && (
+              <div className="space-y-2.5 pt-1">
+                <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={consentAccepted}
+                    onCheckedChange={(v) => setConsentAccepted(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>Souhlasím s podmínkami používání Lonvity.</span>
+                </label>
+                <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={marketingConsent}
+                    onCheckedChange={(v) => setMarketingConsent(v === true)}
+                    className="mt-0.5"
+                  />
+                  <span>Chci dostávat novinky a tipy na akce e-mailem (nepovinné).</span>
+                </label>
               </div>
             )}
 

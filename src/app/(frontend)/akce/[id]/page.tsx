@@ -9,7 +9,7 @@ import {
   getOrganizerName,
   getEventRegistrationsWithNames,
   createRegistration,
-  deleteRegistration,
+  cancelRegistration,
   CategoryRow,
 } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -97,7 +97,7 @@ function EventDetailContent() {
     if (!myReg) return;
     setSubmitting(true);
     try {
-      await deleteRegistration(myReg.id);
+      await cancelRegistration(myReg.id);
       toast.success("Přihláška zrušena.");
       load();
     } catch {

@@ -1,6 +1,7 @@
 import type { CollectionConfig, Where } from 'payload'
 
 import { isLoggedIn } from './access/shared'
+import { deletedAtField, adminOnlyDelete } from './shared/softDelete'
 
 export const EventMedia: CollectionConfig = {
   slug: 'event-media',
@@ -15,13 +16,18 @@ export const EventMedia: CollectionConfig = {
   access: {
     read: ({ req: { user } }): Where => {
       if (!user) {
-        return { or: [{ visibility: { equals: 'public' } }] }
+        return { and: [{ deletedAt: { exists: false } }, { visibility: { equals: 'public' } }] }
       }
       return {
-        or: [
-          { visibility: { equals: 'public' } },
-          { visibility: { equals: 'municipality' } },
-          { uploadedBy: { equals: user.id } },
+        and: [
+          { deletedAt: { exists: false } },
+          {
+            or: [
+              { visibility: { equals: 'public' } },
+              { visibility: { equals: 'municipality' } },
+              { uploadedBy: { equals: user.id } },
+            ],
+          },
         ],
       }
     },
@@ -30,10 +36,7 @@ export const EventMedia: CollectionConfig = {
       if (!user) return false
       return { uploadedBy: { equals: user.id } }
     },
-    delete: ({ req: { user } }) => {
-      if (!user) return false
-      return { uploadedBy: { equals: user.id } }
-    },
+    delete: adminOnlyDelete,
   },
   fields: [
     {
@@ -65,6 +68,7 @@ export const EventMedia: CollectionConfig = {
         { label: 'Public', value: 'public' },
       ],
     },
+    deletedAtField,
   ],
   timestamps: true,
 }

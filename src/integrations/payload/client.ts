@@ -133,6 +133,8 @@ type RegisterInput = {
   password: string;
   fullName: string;
   municipality: string;
+  consentAccepted: boolean;
+  marketingConsent: boolean;
 };
 
 export async function registerAccount(input: RegisterInput): Promise<{ redirectTo: string }> {
@@ -150,13 +152,6 @@ export async function getAuthMode(): Promise<{ auth0: boolean }> {
   } catch {
     return { auth0: false };
   }
-}
-
-export type DemoRole = "admin" | "organizer" | "participant";
-
-/** One-click demo login (no-Auth0 mode only) — see /api/auth/demo-login. */
-export async function demoLogin(role: DemoRole): Promise<{ redirectTo: string }> {
-  return post<{ ok: true; redirectTo: string }>("/auth/demo-login", { role });
 }
 
 /**

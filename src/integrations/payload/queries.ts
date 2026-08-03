@@ -3,7 +3,7 @@
  * already expect — snake_case field names, same nesting — so pages mostly only need their
  * data-fetching `useEffect` rewritten, not their JSX.
  */
-import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
+import { buildQuery, buildWhereParams, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
 
@@ -111,6 +111,7 @@ export type EventRow = {
   status?: "active" | "full" | "finished" | "cancelled";
   is_paid?: boolean;
   price_cents?: number | null;
+  is_volunteering?: boolean;
   cancellation_policy: "none" | "cancel_24h" | "cancel_48h" | "cancel_7d";
 };
 
@@ -131,6 +132,7 @@ type PayloadEvent = {
   status?: EventRow["status"];
   isPaid?: boolean;
   priceCents?: number | null;
+  isVolunteering?: boolean;
   cancellationPolicy?: EventRow["cancellation_policy"];
 };
 
@@ -155,6 +157,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   status: e.status,
   is_paid: e.isPaid,
   price_cents: e.priceCents ?? null,
+  is_volunteering: e.isVolunteering,
   cancellation_policy: e.cancellationPolicy ?? "cancel_48h",
 });
 
@@ -187,6 +190,7 @@ type CreateEventInput = {
   organizerUserId: string;
   municipalityId: string;
   categoryId: string;
+  isVolunteering?: boolean;
 };
 
 /** Paid events aren't supported yet (Stripe integration deferred) — always created free. */
@@ -202,6 +206,7 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     category: input.categoryId,
     status: "active",
     isPaid: false,
+    isVolunteering: input.isVolunteering ?? false,
     cancellationPolicy: "cancel_48h",
   });
   return mapEvent(doc);
@@ -221,11 +226,14 @@ export type RegistrationRow = {
   status: "pending_payment" | "pending" | "approved" | "rejected" | "cancelled";
 };
 
+export type AttendanceStatus = "not_marked" | "attended" | "no_show" | "excused";
+
 type PayloadRegistration = {
   id: number;
   event: number | { id: number };
   user: number | { id: number };
   status: RegistrationRow["status"];
+  attendanceStatus?: AttendanceStatus;
 };
 
 const mapRegistration = (r: PayloadRegistration): RegistrationRow => ({
@@ -267,10 +275,6 @@ export async function createRegistration(eventId: string, userId: string): Promi
 
 export async function cancelRegistration(registrationId: string): Promise<void> {
   await patch(`/registrations/${registrationId}`, { status: "cancelled" });
-}
-
-export async function deleteRegistration(registrationId: string): Promise<void> {
-  await del(`/registrations/${registrationId}`);
 }
 
 export async function updateRegistrationStatus(
@@ -351,6 +355,7 @@ export async function getOrganizerName(userId: string): Promise<string | null> {
 export type ManageRegistrationRow = {
   id: string;
   status: RegistrationRow["status"];
+  attendance_status: AttendanceStatus;
   user_id: string;
   full_name: string;
   phone: string | null;
@@ -382,10 +387,24 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
     return {
       id: String(r.id),
       status: r.status,
+      attendance_status: r.attendanceStatus ?? "not_marked",
       user_id: uid,
       full_name: info?.fullName ?? "Účastník",
       phone: info?.phone ?? null,
     };
+  });
+}
+
+/** Organizer marks what actually happened, on the manage-event page. */
+export async function updateAttendance(
+  registrationId: string,
+  attendanceStatus: AttendanceStatus,
+  markedByUserId: string,
+): Promise<void> {
+  await patch(`/registrations/${registrationId}`, {
+    attendanceStatus,
+    attendanceMarkedAt: new Date().toISOString(),
+    attendanceMarkedBy: markedByUserId,
   });
 }
 

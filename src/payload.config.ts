@@ -21,6 +21,8 @@ import { OrganizerRequests } from './collections/OrganizerRequests'
 import { OrganizerPayouts } from './collections/OrganizerPayouts'
 import { AuthIdentities } from './collections/AuthIdentities'
 import { MunicipalityAreas } from './collections/MunicipalityAreas'
+import { Consents } from './collections/Consents'
+import { AuditLog } from './collections/AuditLog'
 import { s3ClientConfig } from './lib/s3/client'
 
 const filename = fileURLToPath(import.meta.url)
@@ -51,6 +53,8 @@ export default buildConfig({
     OrganizerPayouts,
     AuthIdentities,
     MunicipalityAreas,
+    Consents,
+    AuditLog,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

@@ -26,6 +26,7 @@ type PayloadEventAdmin = {
   createdAt: string;
   isPaid?: boolean;
   priceCents?: number | null;
+  isVolunteering?: boolean;
 };
 
 export async function getMunicipalityEventsForAdmin(municipalityId: string): Promise<EventRow[]> {
@@ -43,6 +44,7 @@ export async function getMunicipalityEventsForAdmin(municipalityId: string): Pro
     created_at: e.createdAt,
     is_paid: e.isPaid,
     price_cents: e.priceCents ?? null,
+    is_volunteering: e.isVolunteering,
   }));
 }
 
@@ -54,6 +56,7 @@ type PayloadRegistrationAdmin = {
   createdAt: string;
   paymentStatus?: string;
   amountPaidCents?: number | null;
+  attendanceStatus?: string;
 };
 
 export async function getRegistrationsForEventIds(eventIds: string[]): Promise<RegistrationRow[]> {
@@ -69,6 +72,7 @@ export async function getRegistrationsForEventIds(eventIds: string[]): Promise<R
     created_at: r.createdAt,
     payment_status: r.paymentStatus,
     amount_paid_cents: r.amountPaidCents ?? null,
+    attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
   }));
 }
 

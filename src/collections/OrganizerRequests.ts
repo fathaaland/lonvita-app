@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { writeAuditLog } from './shared/auditLog'
 
 export const OrganizerRequests: CollectionConfig = {
   slug: 'organizer-requests',
@@ -72,5 +73,22 @@ export const OrganizerRequests: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
   ],
+  hooks: {
+    afterChange: [
+      ({ doc, previousDoc, req, operation }) => {
+        if (operation !== 'update' || previousDoc?.status === doc.status) return
+        if (doc.status !== 'approved' && doc.status !== 'rejected') return
+        writeAuditLog(req.payload, {
+          action: 'organizer-requests.decide',
+          actor: req.user?.id ?? null,
+          targetCollection: 'organizer-requests',
+          targetId: doc.id,
+          municipality:
+            typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
+          metadata: { requestedBy: doc.user, decision: doc.status },
+        })
+      },
+    ],
+  },
   timestamps: true,
 }

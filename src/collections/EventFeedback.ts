@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isLoggedIn } from './access/shared'
+import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 
 export const EventFeedback: CollectionConfig = {
   slug: 'event-feedback',
@@ -13,10 +14,10 @@ export const EventFeedback: CollectionConfig = {
     defaultColumns: ['registration', 'satisfactionRating', 'updatedAt'],
   },
   access: {
-    read: isLoggedIn,
+    read: ({ req: { user } }) => (user ? notDeleted : false),
     create: isLoggedIn,
     update: isLoggedIn,
-    delete: isLoggedIn,
+    delete: adminOnlyDelete,
   },
   fields: [
     {
@@ -63,6 +64,7 @@ export const EventFeedback: CollectionConfig = {
       name: 'comment',
       type: 'textarea',
     },
+    deletedAtField,
   ],
   hooks: {
     beforeValidate: [

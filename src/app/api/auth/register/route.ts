@@ -5,12 +5,16 @@ import config from '@payload-config'
 import { createAuth0DatabaseUser, deleteAuth0User } from '@/lib/auth/auth0/management'
 import { isAuth0Configured } from '@/lib/auth/auth0/is-configured'
 
+const CONSENT_VERSION = '1.0'
+
 type RegisterBody = {
   email?: string
   password?: string
   passwordConfirm?: string
   fullName?: string
   municipality?: string
+  consentAccepted?: boolean
+  marketingConsent?: boolean
 }
 
 const validate = (body: RegisterBody): string | null => {
@@ -29,6 +33,9 @@ const validate = (body: RegisterBody): string | null => {
   if (!body.municipality) {
     return 'Please choose your municipality.'
   }
+  if (!body.consentAccepted) {
+    return 'You must agree to the terms to create an account.'
+  }
   return null
 }
 
@@ -44,6 +51,7 @@ export async function POST(request: Request) {
     Pick<RegisterBody, 'password' | 'fullName' | 'municipality'>
   >
   const municipality = Number(municipalityRaw)
+  const marketingConsent = Boolean(body.marketingConsent)
   const useAuth0 = isAuth0Configured()
 
   const payload = await getPayload({ config })
@@ -116,6 +124,20 @@ export async function POST(request: Request) {
           email,
           emailVerified: false,
         },
+        overrideAccess: true,
+      })
+    }
+
+    const grantedAt = new Date().toISOString()
+    await payload.create({
+      collection: 'consents',
+      data: { user: payloadUser.id, type: 'platform_terms', version: CONSENT_VERSION, grantedAt },
+      overrideAccess: true,
+    })
+    if (marketingConsent) {
+      await payload.create({
+        collection: 'consents',
+        data: { user: payloadUser.id, type: 'marketing', version: CONSENT_VERSION, grantedAt },
         overrideAccess: true,
       })
     }

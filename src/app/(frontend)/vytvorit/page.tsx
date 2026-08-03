@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -32,6 +33,7 @@ function CreateEventContent() {
     title: "", description: "", date: "", time: "",
     location_text: "", capacity: "10", category_id: "",
   });
+  const [isVolunteering, setIsVolunteering] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -59,6 +61,7 @@ function CreateEventContent() {
         organizerUserId: String(user.id),
         municipalityId: profile.municipality_id,
         categoryId: parsed.data.category_id,
+        isVolunteering,
       });
       toast.success("Akce vytvořena!");
       router.push("/");
@@ -110,6 +113,11 @@ function CreateEventContent() {
           <Label htmlFor="cap" className="text-base">Kapacita *</Label>
           <Input id="cap" type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className="h-12 mt-1.5" />
         </div>
+
+        <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+          <Checkbox checked={isVolunteering} onCheckedChange={(v) => setIsVolunteering(v === true)} className="mt-0.5" />
+          <span>Tohle je dobrovolnická aktivita.</span>
+        </label>
 
         <p className="text-sm text-muted-foreground">
           Placené akce zatím nejsou podporované — všechny akce jsou zdarma.

@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isLoggedIn } from './access/shared'
+import { adminOnlyDelete, notDeleted } from './shared/softDelete'
 
 export const Events: CollectionConfig = {
   slug: 'events',
@@ -15,10 +16,10 @@ export const Events: CollectionConfig = {
   access: {
     // Public marketplace listing — the frontend filters by municipality itself
     // (matches the existing Index.tsx query pattern: .eq('municipality_id', muniId)).
-    read: () => true,
+    read: () => notDeleted,
     create: isLoggedIn,
     update: isLoggedIn,
-    delete: isLoggedIn,
+    delete: adminOnlyDelete,
   },
   fields: [
     {
@@ -98,6 +99,14 @@ export const Events: CollectionConfig = {
       relationTo: 'media',
       admin: {
         description: 'Cover image shown in event listings.',
+      },
+    },
+    {
+      name: 'isVolunteering',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: {
+        description: 'Tagged by the organizer at creation — feeds the Datavita "share of volunteers" metric.',
       },
     },
     {

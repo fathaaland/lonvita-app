@@ -81,6 +81,8 @@ export interface Config {
     'organizer-payouts': OrganizerPayout;
     'auth-identities': AuthIdentity;
     'municipality-areas': MunicipalityArea;
+    consents: Consent;
+    'audit-log': AuditLog;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -102,6 +104,8 @@ export interface Config {
     'organizer-payouts': OrganizerPayoutsSelect<false> | OrganizerPayoutsSelect<true>;
     'auth-identities': AuthIdentitiesSelect<false> | AuthIdentitiesSelect<true>;
     'municipality-areas': MunicipalityAreasSelect<false> | MunicipalityAreasSelect<true>;
+    consents: ConsentsSelect<false> | ConsentsSelect<true>;
+    'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -268,6 +272,10 @@ export interface Profile {
   volunteerFocus?: string[] | null;
   volunteerNote?: string | null;
   volunteerSince?: string | null;
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
+   */
+  deletedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -330,6 +338,10 @@ export interface Event {
    * Cover image shown in event listings.
    */
   image?: (number | null) | Media;
+  /**
+   * Tagged by the organizer at creation — feeds the Datavita "share of volunteers" metric.
+   */
+  isVolunteering?: boolean | null;
   isPaid?: boolean | null;
   /**
    * Price in the smallest currency unit (e.g. haléře), used with Stripe.
@@ -356,18 +368,24 @@ export interface Registration {
    */
   status: 'pending_payment' | 'pending' | 'approved' | 'rejected' | 'cancelled';
   /**
-   * What actually happened — set by the organizer after the event. Not used by the current frontend yet.
+   * What actually happened — set by the organizer after the event, on the manage-event page.
    */
-  attendanceStatus?: ('not_marked' | 'attended' | 'no_show') | null;
+  attendanceStatus?: ('not_marked' | 'attended' | 'no_show' | 'excused') | null;
+  attendanceMarkedAt?: string | null;
   /**
    * The organizer who marked attendance.
    */
   attendanceMarkedBy?: (number | null) | User;
+  attendanceNote?: string | null;
   paymentStatus: 'none' | 'paid' | 'refunded' | 'failed';
   stripeSessionId?: string | null;
   stripePaymentIntentId?: string | null;
   amountPaidCents?: number | null;
   refundedAt?: string | null;
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
+   */
+  deletedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -381,6 +399,10 @@ export interface EventMedia {
   media: number | Media;
   uploadedBy: number | User;
   visibility: 'private' | 'municipality' | 'public';
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
+   */
+  deletedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -408,6 +430,10 @@ export interface EventFeedback {
    */
   cameAlone?: boolean | null;
   comment?: string | null;
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
+   */
+  deletedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -476,6 +502,62 @@ export interface AuthIdentity {
    * Raw Auth0 session.user payload, cached for reference.
    */
   profile?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Append-only consent log — GDPR foundation (brief A3). Existing rows are never edited except revokedAt; a changed policy version is a new row, not an update.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "consents".
+ */
+export interface Consent {
+  id: number;
+  user: number | User;
+  /**
+   * Schema allows more types later (wellbeing_measurement, media_publication…) without a migration — see ERD §2.4.
+   */
+  type: 'platform_terms' | 'marketing';
+  /**
+   * Version of the consent text the user agreed to, e.g. "1.0".
+   */
+  version: string;
+  grantedAt: string;
+  /**
+   * Revoking does not delete the row or any participation history it relates to.
+   */
+  revokedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation, organizer-request decisions. Not writable or deletable through the API.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-log".
+ */
+export interface AuditLog {
+  id: number;
+  /**
+   * e.g. "user-roles.grant", "consents.revoke", "organizer-requests.decide".
+   */
+  action: string;
+  /**
+   * Who performed the action. Empty for system-triggered entries.
+   */
+  actor?: (number | null) | User;
+  targetCollection: string;
+  targetId: string;
+  municipality?: (number | null) | Municipality;
+  metadata?:
     | {
         [k: string]: unknown;
       }
@@ -566,6 +648,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'municipality-areas';
         value: number | MunicipalityArea;
+      } | null)
+    | ({
+        relationTo: 'consents';
+        value: number | Consent;
+      } | null)
+    | ({
+        relationTo: 'audit-log';
+        value: number | AuditLog;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -699,6 +789,7 @@ export interface ProfilesSelect<T extends boolean = true> {
   volunteerFocus?: T;
   volunteerNote?: T;
   volunteerSince?: T;
+  deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -730,6 +821,7 @@ export interface EventsSelect<T extends boolean = true> {
   status?: T;
   category?: T;
   image?: T;
+  isVolunteering?: T;
   isPaid?: T;
   priceCents?: T;
   cancellationPolicy?: T;
@@ -746,12 +838,15 @@ export interface RegistrationsSelect<T extends boolean = true> {
   user?: T;
   status?: T;
   attendanceStatus?: T;
+  attendanceMarkedAt?: T;
   attendanceMarkedBy?: T;
+  attendanceNote?: T;
   paymentStatus?: T;
   stripeSessionId?: T;
   stripePaymentIntentId?: T;
   amountPaidCents?: T;
   refundedAt?: T;
+  deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -764,6 +859,7 @@ export interface EventMediaSelect<T extends boolean = true> {
   media?: T;
   uploadedBy?: T;
   visibility?: T;
+  deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -778,6 +874,7 @@ export interface EventFeedbackSelect<T extends boolean = true> {
   metSomeoneNew?: T;
   cameAlone?: T;
   comment?: T;
+  deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -839,6 +936,33 @@ export interface MunicipalityAreasSelect<T extends boolean = true> {
   centerLat?: T;
   centerLng?: T;
   radiusM?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "consents_select".
+ */
+export interface ConsentsSelect<T extends boolean = true> {
+  user?: T;
+  type?: T;
+  version?: T;
+  grantedAt?: T;
+  revokedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-log_select".
+ */
+export interface AuditLogSelect<T extends boolean = true> {
+  action?: T;
+  actor?: T;
+  targetCollection?: T;
+  targetId?: T;
+  municipality?: T;
+  metadata?: T;
   updatedAt?: T;
   createdAt?: T;
 }

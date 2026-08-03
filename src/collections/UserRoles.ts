@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { writeAuditLog } from './shared/auditLog'
 
 export const UserRoles: CollectionConfig = {
   slug: 'user-roles',
@@ -74,6 +75,19 @@ export const UserRoles: CollectionConfig = {
         }
 
         return data
+      },
+    ],
+    afterChange: [
+      ({ doc, req, operation }) => {
+        if (operation !== 'create') return
+        writeAuditLog(req.payload, {
+          action: 'user-roles.grant',
+          actor: req.user?.id ?? null,
+          targetCollection: 'user-roles',
+          targetId: doc.id,
+          municipality: typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
+          metadata: { grantedTo: doc.user, role: doc.role },
+        })
       },
     ],
   },

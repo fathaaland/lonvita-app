@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
 import { isLoggedIn } from './access/shared'
+import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 
 export const Registrations: CollectionConfig = {
   slug: 'registrations',
@@ -13,10 +14,10 @@ export const Registrations: CollectionConfig = {
     defaultColumns: ['event', 'user', 'status', 'paymentStatus', 'updatedAt'],
   },
   access: {
-    read: isLoggedIn,
+    read: ({ req: { user } }) => (user ? notDeleted : false),
     create: isLoggedIn,
     update: isLoggedIn,
-    delete: isLoggedIn,
+    delete: adminOnlyDelete,
   },
   fields: [
     {
@@ -55,11 +56,16 @@ export const Registrations: CollectionConfig = {
         { label: 'Not marked', value: 'not_marked' },
         { label: 'Attended', value: 'attended' },
         { label: 'No-show', value: 'no_show' },
+        { label: 'Excused', value: 'excused' },
       ],
       admin: {
-        description:
-          'What actually happened — set by the organizer after the event. Not used by the current frontend yet.',
+        description: 'What actually happened — set by the organizer after the event, on the manage-event page.',
       },
+    },
+    {
+      name: 'attendanceMarkedAt',
+      type: 'date',
+      admin: { position: 'sidebar' },
     },
     {
       name: 'attendanceMarkedBy',
@@ -67,7 +73,13 @@ export const Registrations: CollectionConfig = {
       relationTo: 'users',
       admin: {
         description: 'The organizer who marked attendance.',
+        position: 'sidebar',
       },
+    },
+    {
+      name: 'attendanceNote',
+      type: 'text',
+      admin: { position: 'sidebar' },
     },
     {
       name: 'paymentStatus',
@@ -101,6 +113,7 @@ export const Registrations: CollectionConfig = {
       type: 'date',
       admin: { position: 'sidebar' },
     },
+    deletedAtField,
   ],
   hooks: {
     beforeValidate: [
@@ -111,10 +124,17 @@ export const Registrations: CollectionConfig = {
           return data
         }
 
+        // A cancelled registration doesn't block re-registering — both rows stay in
+        // history (cancel + re-register), which matches append-only event tracking (brief §A2)
+        // better than the old hard-delete-and-recreate flow did.
         const existing = await req.payload.find({
           collection: 'registrations',
           where: {
-            and: [{ event: { equals: data.event } }, { user: { equals: data.user } }],
+            and: [
+              { event: { equals: data.event } },
+              { user: { equals: data.user } },
+              { status: { not_equals: 'cancelled' } },
+            ],
           },
           limit: 1,
         })

@@ -8,7 +8,7 @@ import type {
   RegistrationRow,
   ProfileRow,
 } from "./analytics";
-import { datavitaSeries } from "./analytics";
+import { ageOn, computeDatavitaWindow } from "./analytics";
 
 export interface ProfileWithDob extends ProfileRow {
   date_of_birth?: string | null;
@@ -34,21 +34,13 @@ export interface ReportMetrics {
   previous: PeriodMetrics;
   totalMembers50Plus: number;
   datavita: {
-    current: number;
-    previous: number; // ~90 dní zpět
+    current: number | null; // null = nedostatek dat (§6.7)
+    previous: number | null;
     delta90d: number;
-    participation: number; // 0..100
-    organization: number; // 0..100
-    trend: "roste" | "klesá" | "stabilní";
+    participation: number; // D1, 0..100
+    organization: number; // D2, 0..100
+    trend: "roste" | "klesá" | "stabilní" | "nedostatek dat";
   };
-}
-
-function ageOn(dobIso: string, on: Date): number {
-  const dob = new Date(dobIso);
-  let age = on.getFullYear() - dob.getFullYear();
-  const m = on.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && on.getDate() < dob.getDate())) age--;
-  return age;
 }
 
 function fmtDate(d: Date): string {
@@ -79,7 +71,10 @@ function windowMetrics(
       wEventIds.has(r.event_id),
   );
 
-  const participants = new Set(wRegs.map((r) => r.user_id));
+  // "Míra zapojení" and retention track who actually showed up, not who was merely approved.
+  const participants = new Set(
+    regs.filter((r) => r.attendance_status === "attended" && wEventIds.has(r.event_id)).map((r) => r.user_id),
+  );
 
   // Fill rate — jen akce s kapacitou
   const fills: number[] = [];
@@ -127,7 +122,7 @@ function windowMetrics(
   );
   const prevParticipants = new Set(
     regs
-      .filter((r) => r.status === "approved" && prevEventIds.has(r.event_id))
+      .filter((r) => r.attendance_status === "attended" && prevEventIds.has(r.event_id))
       .map((r) => r.user_id),
   );
   let returning = 0;
@@ -177,33 +172,42 @@ export function computeReportMetrics(
     prevPrevStart, prevPrevEnd,
   );
 
-  // Datavita rozpad
-  const series = datavitaSeries(events, regs, profiles, 26);
-  const last = series[series.length - 1]?.score ?? 0;
-  const idx90 = Math.max(0, series.length - 13); // ~13 týdnů zpět = 90 dní
-  const prev90 = series[idx90]?.score ?? last;
-  const delta = last - prev90;
-
-  // Participation = 40% aktivní účast + 25% naplněnost (poměrová váha 40/65 a 25/65)
-  // Organization = 20% počet akcí + 15% noví uživatelé (poměrová váha 20/35 a 15/35)
-  const recent = series.slice(-4);
-  const maxActive = Math.max(1, ...series.map((s) => s.activeUsers));
-  const maxEvents = Math.max(1, ...series.map((s) => s.events));
-  const maxNew = Math.max(1, ...series.map((s) => s.newUsers));
-  const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-  const participation = Math.round(
-    100 *
-      ((40 / 65) * avg(recent.map((r) => r.activeUsers / maxActive)) +
-        (25 / 65) * avg(recent.map((r) => r.fillRate))),
+  // Datavita — stejné jádro (D1/D2, §6) jako sparkline na dashboardu, jen na 90denních oknech.
+  const prevPrevEnd90 = new Date(previousStart);
+  const prevPrevStart90 = new Date(prevPrevEnd90); prevPrevStart90.setDate(prevPrevStart90.getDate() - 90);
+  const prevParticipantsForCurrent = new Set(
+    regs
+      .filter((r) => {
+        if (r.attendance_status !== "attended") return false;
+        const ev = events.find((e) => e.id === r.event_id);
+        if (!ev) return false;
+        const t = new Date(ev.date_time).getTime();
+        return t >= previousStart.getTime() && t < previousEnd.getTime();
+      })
+      .map((r) => r.user_id),
   );
-  const organization = Math.round(
-    100 *
-      ((20 / 35) * avg(recent.map((r) => r.events / maxEvents)) +
-        (15 / 35) * avg(recent.map((r) => r.newUsers / maxNew))),
+  const prevParticipantsForPrevious = new Set(
+    regs
+      .filter((r) => {
+        if (r.attendance_status !== "attended") return false;
+        const ev = events.find((e) => e.id === r.event_id);
+        if (!ev) return false;
+        const t = new Date(ev.date_time).getTime();
+        return t >= prevPrevStart90.getTime() && t < prevPrevEnd90.getTime();
+      })
+      .map((r) => r.user_id),
   );
 
-  const trend: "roste" | "klesá" | "stabilní" =
-    delta >= 3 ? "roste" : delta <= -3 ? "klesá" : "stabilní";
+  const dvCurrent = computeDatavitaWindow(
+    events, regs, profiles50Plus, currentStart.getTime(), currentEnd.getTime(), prevParticipantsForCurrent,
+  );
+  const dvPrevious = computeDatavitaWindow(
+    events, regs, profiles50Plus, previousStart.getTime(), previousEnd.getTime(), prevParticipantsForPrevious,
+  );
+
+  const delta = dvCurrent.score !== null && dvPrevious.score !== null ? dvCurrent.score - dvPrevious.score : 0;
+  const trend: "roste" | "klesá" | "stabilní" | "nedostatek dat" =
+    dvCurrent.score === null ? "nedostatek dat" : delta >= 3 ? "roste" : delta <= -3 ? "klesá" : "stabilní";
 
   const quarter = Math.floor(now.getMonth() / 3) + 1;
   const periodLabel = `${quarter}. čtvrtletí ${now.getFullYear()}`;
@@ -217,11 +221,11 @@ export function computeReportMetrics(
     previous,
     totalMembers50Plus: profiles50Plus.size,
     datavita: {
-      current: last,
-      previous: prev90,
+      current: dvCurrent.score,
+      previous: dvPrevious.score,
       delta90d: delta,
-      participation,
-      organization,
+      participation: dvCurrent.participation,
+      organization: dvCurrent.organization,
       trend,
     },
   };
