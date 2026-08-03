@@ -1,0 +1,199 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   Lonvita – Design System
+   Dle Brand Manuálu 2026
+   Všechny barvy v HSL.
+======================================== */
+
+@layer base {
+  :root {
+    /* Brand palette (HSL) */
+    /* Purple #C471C5 */
+    --brand-purple: 299 39% 61%;
+    --brand-purple-light: 298 60% 78%;
+    --brand-purple-dark: 298 34% 46%;
+    --brand-purple-pale: 300 55% 91%;   /* #F2E0F2 */
+    /* Ivory #F8EFE7 */
+    --brand-ivory: 27 60% 94%;
+    /* Graphite #2F2F2F */
+    --brand-graphite: 0 0% 18%;
+    --brand-graphite-mid: 0 0% 29%;      /* #4A4A4A */
+    /* Sage #A8B8A1 */
+    --brand-sage: 100 13% 67%;
+    --brand-sage-pale: 108 30% 92%;      /* #E8F0E6 */
+    /* Sand #D8CFC5 */
+    --brand-sand: 30 18% 81%;
+    --brand-sand-pale: 30 25% 92%;       /* #F0EBE5 */
+
+    /* Surface */
+    --background: var(--brand-ivory);
+    --foreground: var(--brand-graphite);
+
+    --card: 0 0% 100%;
+    --card-foreground: var(--brand-graphite);
+
+    --popover: 0 0% 100%;
+    --popover-foreground: var(--brand-graphite);
+
+    /* Primary – Lonvita purple */
+    --primary: var(--brand-purple);
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: var(--brand-purple-pale);
+
+    /* Accent – purple light (used as soft fills) */
+    --accent: var(--brand-purple);
+    --accent-foreground: 0 0% 100%;
+    --accent-soft: var(--brand-purple-pale);
+
+    /* Secondary – sand */
+    --secondary: var(--brand-sand);
+    --secondary-foreground: var(--brand-graphite);
+
+    --muted: 27 35% 90%;
+    --muted-foreground: 0 0% 35%;
+
+    --destructive: 4 64% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success – sage */
+    --success: 100 22% 45%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: var(--brand-sage-pale);
+
+    --warning: 38 90% 50%;
+    --warning-foreground: var(--brand-graphite);
+    --warning-soft: 38 90% 95%;
+
+    --border: var(--brand-sand);
+    --input: 30 18% 85%;
+    --ring: var(--brand-purple);
+
+    --radius: 1rem;
+
+    /* Sidebar (kept for shadcn compat) */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: var(--brand-graphite);
+    --sidebar-primary: var(--brand-purple);
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: var(--brand-purple-pale);
+    --sidebar-accent-foreground: var(--brand-purple-dark);
+    --sidebar-border: var(--brand-sand);
+    --sidebar-ring: var(--brand-purple);
+
+    /* Shadows */
+    --shadow-sm: 0 2px 6px -2px hsl(0 0% 18% / 0.06);
+    --shadow-md: 0 6px 16px -4px hsl(0 0% 18% / 0.10);
+    --shadow-lg: 0 18px 36px -12px hsl(0 0% 18% / 0.16);
+    --shadow-card: 0 4px 18px -8px hsl(299 39% 30% / 0.15);
+
+    --font-scale: 1;
+  }
+
+  .dark {
+    --background: var(--brand-graphite);
+    --foreground: var(--brand-ivory);
+    --card: 0 0% 12%;
+    --card-foreground: var(--brand-ivory);
+    --popover: 0 0% 12%;
+    --popover-foreground: var(--brand-ivory);
+    --primary: 298 60% 72%;
+    --primary-foreground: var(--brand-graphite);
+    --primary-soft: 298 30% 25%;
+    --accent: 298 60% 72%;
+    --accent-foreground: var(--brand-graphite);
+    --accent-soft: 298 30% 25%;
+    --secondary: 0 0% 22%;
+    --secondary-foreground: var(--brand-ivory);
+    --muted: 0 0% 22%;
+    --muted-foreground: 30 18% 75%;
+    --destructive: 4 64% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 100 22% 60%;
+    --success-foreground: var(--brand-graphite);
+    --success-soft: 100 15% 25%;
+    --warning: 38 90% 60%;
+    --warning-foreground: var(--brand-graphite);
+    --warning-soft: 38 40% 22%;
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 298 60% 72%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-size: calc(17px * var(--font-scale));
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'DM Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.055em;
+    @apply font-extrabold text-foreground;
+  }
+  button, a, [role="button"] {
+    @apply min-h-[44px];
+  }
+  input, textarea, select {
+    font-size: 1rem !important;
+  }
+}
+
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
+  }
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  .font-display {
+    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.055em;
+  }
+  .font-serif-display {
+    font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.055em;
+  }
+  /* Lonvita eyebrow — malý fialový uppercase label nad titulky sekcí */
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: hsl(var(--brand-purple-dark));
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .eyebrow-sage { color: hsl(var(--brand-sage)); }
+  .eyebrow-sand { color: hsl(var(--brand-sand)); }
+  .eyebrow-ivory { color: hsl(var(--brand-ivory) / 0.7); }
+
+  .text-brand-purple { color: hsl(var(--brand-purple)); }
+  .text-brand-purple-dark { color: hsl(var(--brand-purple-dark)); }
+  .bg-brand-purple { background-color: hsl(var(--brand-purple)); }
+  .bg-brand-purple-pale { background-color: hsl(var(--brand-purple-pale)); }
+  .bg-brand-graphite { background-color: hsl(var(--brand-graphite)); }
+  .bg-brand-graphite-mid { background-color: hsl(var(--brand-graphite-mid)); }
+  .bg-brand-ivory { background-color: hsl(var(--brand-ivory)); }
+  .bg-brand-sand { background-color: hsl(var(--brand-sand)); }
+  .bg-brand-sand-pale { background-color: hsl(var(--brand-sand-pale)); }
+  .bg-brand-sage-pale { background-color: hsl(var(--brand-sage-pale)); }
+  .text-brand-sage { color: hsl(var(--brand-sage)); }
+  .text-brand-graphite-mid { color: hsl(var(--brand-graphite-mid)); }
+  .border-brand-sand-pale { border-color: hsl(var(--brand-sand-pale)); }
+  .border-brand-purple { border-color: hsl(var(--brand-purple)); }
+}

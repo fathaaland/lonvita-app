@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { auth0, AUTH0_CALLBACK_PATH } from '@/lib/auth/auth0/client'
+import { isAuth0Configured } from '@/lib/auth/auth0/is-configured'
 import { CURRENT_PATH_HEADER } from '@/lib/auth/redirect'
 
 import type { NextRequest } from 'next/server'
@@ -30,9 +31,21 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set('x-correlation-id', correlationId)
   requestHeaders.set(CURRENT_PATH_HEADER, pathname)
 
-  // Let the Auth0 SDK own its own mounted routes (/auth/login, /auth/callback,
+  // Let the Auth0 SDK own its own mounted sub-routes (/auth/login, /auth/callback,
   // /auth/logout, /auth/profile, /auth/access-token) plus the configured callback path.
-  if (pathname.startsWith(AUTH0_ROUTE) || pathname === AUTH0_CALLBACK_PATH) {
+  // The bare "/auth" path itself is our own sign-in page and must NOT be intercepted here.
+  if (pathname.startsWith(`${AUTH0_ROUTE}/`) || pathname === AUTH0_CALLBACK_PATH) {
+    if (!isAuth0Configured()) {
+      // No Auth0 tenant wired up yet (AUTH0_DOMAIN/CLIENT_ID/SECRET/CLIENT_SECRET unset in
+      // .env) — auth0.middleware() would throw DomainResolutionError. Fail as a clean,
+      // visible error instead of an unhandled 500.
+      return applySecurityHeaders(
+        NextResponse.json(
+          { error: 'Auth0 is not configured. Set AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_SECRET, and AUTH0_CLIENT_SECRET in .env.' },
+          { status: 503 },
+        ),
+      )
+    }
     const auth0Response = await auth0.middleware(request)
     return applySecurityHeaders(auth0Response)
   }

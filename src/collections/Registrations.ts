@@ -10,7 +10,7 @@ export const Registrations: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'id',
-    defaultColumns: ['event', 'profile', 'status', 'attendanceStatus', 'updatedAt'],
+    defaultColumns: ['event', 'user', 'status', 'paymentStatus', 'updatedAt'],
   },
   access: {
     read: isLoggedIn,
@@ -26,9 +26,9 @@ export const Registrations: CollectionConfig = {
       required: true,
     },
     {
-      name: 'profile',
+      name: 'user',
       type: 'relationship',
-      relationTo: 'profiles',
+      relationTo: 'users',
       required: true,
     },
     {
@@ -37,9 +37,10 @@ export const Registrations: CollectionConfig = {
       required: true,
       defaultValue: 'pending',
       options: [
+        { label: 'Pending payment', value: 'pending_payment' },
         { label: 'Pending', value: 'pending' },
         { label: 'Approved', value: 'approved' },
-        { label: 'Declined', value: 'declined' },
+        { label: 'Rejected', value: 'rejected' },
         { label: 'Cancelled', value: 'cancelled' },
       ],
       admin: {
@@ -56,36 +57,75 @@ export const Registrations: CollectionConfig = {
         { label: 'No-show', value: 'no_show' },
       ],
       admin: {
-        description: 'What actually happened — set by the organizer after the event.',
+        description:
+          'What actually happened — set by the organizer after the event. Not used by the current frontend yet.',
       },
     },
     {
       name: 'attendanceMarkedBy',
       type: 'relationship',
-      relationTo: 'profiles',
+      relationTo: 'users',
       admin: {
-        description: 'The organizer profile that marked attendance.',
+        description: 'The organizer who marked attendance.',
       },
     },
     {
       name: 'paymentStatus',
       type: 'select',
-      defaultValue: 'not_required',
+      required: true,
+      defaultValue: 'none',
       options: [
-        { label: 'Not required', value: 'not_required' },
-        { label: 'Pending', value: 'pending' },
+        { label: 'None', value: 'none' },
         { label: 'Paid', value: 'paid' },
         { label: 'Refunded', value: 'refunded' },
+        { label: 'Failed', value: 'failed' },
       ],
     },
     {
-      name: 'deletedAt',
+      name: 'stripeSessionId',
+      type: 'text',
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'stripePaymentIntentId',
+      type: 'text',
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'amountPaidCents',
+      type: 'number',
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'refundedAt',
       type: 'date',
-      admin: {
-        description: 'Soft-delete marker — preserves attendance history.',
-        position: 'sidebar',
-      },
+      admin: { position: 'sidebar' },
     },
   ],
+  hooks: {
+    beforeValidate: [
+      async ({ data, req, operation, originalDoc }) => {
+        if (!data?.event || !data?.user) return data
+
+        if (operation === 'update' && originalDoc?.event === data.event && originalDoc?.user === data.user) {
+          return data
+        }
+
+        const existing = await req.payload.find({
+          collection: 'registrations',
+          where: {
+            and: [{ event: { equals: data.event } }, { user: { equals: data.user } }],
+          },
+          limit: 1,
+        })
+
+        if (existing.docs.length > 0) {
+          throw new Error('This user is already registered for this event.')
+        }
+
+        return data
+      },
+    ],
+  },
   timestamps: true,
 }

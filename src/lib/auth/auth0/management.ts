@@ -54,7 +54,7 @@ export const deleteAuth0User = async (auth0UserId: string): Promise<void> => {
   const managementClient = getManagementClient()
 
   try {
-    await managementClient.users.delete({ id: auth0UserId })
+    await managementClient.users.delete(auth0UserId)
   } catch (error) {
     const err = error as { statusCode?: number }
     // Tolerate "already gone" during rollback — nothing left to clean up.

@@ -20,6 +20,7 @@ import { EventFeedback } from './collections/EventFeedback'
 import { OrganizerRequests } from './collections/OrganizerRequests'
 import { OrganizerPayouts } from './collections/OrganizerPayouts'
 import { AuthIdentities } from './collections/AuthIdentities'
+import { MunicipalityAreas } from './collections/MunicipalityAreas'
 import { s3ClientConfig } from './lib/s3/client'
 
 const filename = fileURLToPath(import.meta.url)
@@ -49,9 +50,14 @@ export default buildConfig({
     OrganizerRequests,
     OrganizerPayouts,
     AuthIdentities,
+    MunicipalityAreas,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
+  // Frontend and backend are the same Next.js app now, so this is a safety net for
+  // anyone hitting the API from a different origin, not the primary defense.
+  cors: [process.env.NEXT_PUBLIC_APP_URL].filter(Boolean) as string[],
+  csrf: [process.env.NEXT_PUBLIC_APP_URL].filter(Boolean) as string[],
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },

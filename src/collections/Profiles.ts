@@ -61,6 +61,61 @@ export const Profiles: CollectionConfig = {
         update: ({ req: { user }, doc }) => Boolean(user && doc?.user === user.id),
       },
     },
+    {
+      name: 'phone',
+      type: 'text',
+    },
+    {
+      name: 'dateOfBirth',
+      type: 'date',
+    },
+    {
+      name: 'gender',
+      type: 'select',
+      options: [
+        { label: 'Žena', value: 'zena' },
+        { label: 'Muž', value: 'muz' },
+        { label: 'Jiné', value: 'jine' },
+        { label: 'Neuvedeno', value: 'neuvedeno' },
+      ],
+    },
+    {
+      name: 'interests',
+      type: 'relationship',
+      relationTo: 'event-categories',
+      hasMany: true,
+    },
+    {
+      name: 'homeArea',
+      type: 'relationship',
+      relationTo: 'municipality-areas',
+      admin: {
+        description: 'Neighborhood within the municipality, chosen during onboarding.',
+      },
+    },
+    {
+      name: 'onboardingCompleted',
+      type: 'checkbox',
+      defaultValue: false,
+    },
+    {
+      name: 'isVolunteer',
+      type: 'checkbox',
+      defaultValue: false,
+    },
+    {
+      name: 'volunteerFocus',
+      type: 'text',
+      hasMany: true,
+    },
+    {
+      name: 'volunteerNote',
+      type: 'textarea',
+    },
+    {
+      name: 'volunteerSince',
+      type: 'date',
+    },
   ],
   timestamps: true,
 }

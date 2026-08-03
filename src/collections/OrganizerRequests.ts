@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 
-import { isLoggedIn } from './access/shared'
+import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 
 export const OrganizerRequests: CollectionConfig = {
   slug: 'organizer-requests',
@@ -13,10 +13,17 @@ export const OrganizerRequests: CollectionConfig = {
     defaultColumns: ['user', 'municipality', 'status', 'updatedAt'],
   },
   access: {
-    read: isLoggedIn,
+    read: async (args) => {
+      const { req } = args
+      if (!req.user) return false
+      if (req.user.role === 'admin') return true
+      const adminAccess = await isPlatformOrMunicipalityAdmin()(args)
+      if (adminAccess) return adminAccess
+      return { user: { equals: req.user.id } }
+    },
     create: isLoggedIn,
-    update: isLoggedIn,
-    delete: isLoggedIn,
+    update: isPlatformOrMunicipalityAdmin(),
+    delete: isPlatformOrMunicipalityAdmin(),
   },
   fields: [
     {
@@ -46,11 +53,23 @@ export const OrganizerRequests: CollectionConfig = {
       },
     },
     {
-      name: 'message',
+      name: 'description',
       type: 'textarea',
+      required: true,
       admin: {
-        description: 'Optional note from the requester about why they want to organize events.',
+        description: 'Note from the requester about why they want to organize events.',
       },
+    },
+    {
+      name: 'decidedAt',
+      type: 'date',
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'decidedBy',
+      type: 'relationship',
+      relationTo: 'users',
+      admin: { position: 'sidebar' },
     },
   ],
   timestamps: true,

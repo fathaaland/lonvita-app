@@ -52,6 +52,14 @@ export const Events: CollectionConfig = {
       required: true,
     },
     {
+      name: 'lat',
+      type: 'number',
+    },
+    {
+      name: 'lng',
+      type: 'number',
+    },
+    {
       name: 'capacity',
       type: 'number',
       required: true,
@@ -60,11 +68,23 @@ export const Events: CollectionConfig = {
     {
       name: 'organizer',
       type: 'relationship',
-      relationTo: 'profiles',
+      relationTo: 'users',
       required: true,
       admin: {
-        description: 'The profile organizing this event.',
+        description: 'The user organizing this event.',
       },
+    },
+    {
+      name: 'status',
+      type: 'select',
+      required: true,
+      defaultValue: 'active',
+      options: [
+        { label: 'Active', value: 'active' },
+        { label: 'Full', value: 'full' },
+        { label: 'Finished', value: 'finished' },
+        { label: 'Cancelled', value: 'cancelled' },
+      ],
     },
     {
       name: 'category',
@@ -93,6 +113,18 @@ export const Events: CollectionConfig = {
         description: 'Price in the smallest currency unit (e.g. haléře), used with Stripe.',
         condition: (data) => Boolean(data?.isPaid),
       },
+    },
+    {
+      name: 'cancellationPolicy',
+      type: 'select',
+      required: true,
+      defaultValue: 'cancel_48h',
+      options: [
+        { label: 'No cancellation', value: 'none' },
+        { label: 'Up to 24h before', value: 'cancel_24h' },
+        { label: 'Up to 48h before', value: 'cancel_48h' },
+        { label: 'Up to 7 days before', value: 'cancel_7d' },
+      ],
     },
     {
       name: 'deletedAt',

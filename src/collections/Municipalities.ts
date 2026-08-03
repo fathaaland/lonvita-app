@@ -24,9 +24,20 @@ export const Municipalities: CollectionConfig = {
       label: 'Municipality Name',
     },
     {
-      name: 'rulesForCreation',
+      name: 'description',
       type: 'textarea',
+    },
+    {
+      name: 'rulesForCreation',
+      type: 'select',
       label: 'Rules for Event Creation',
+      required: true,
+      defaultValue: 'approved_organizers',
+      options: [
+        { label: 'Anyone', value: 'anyone' },
+        { label: 'Approved organizers only', value: 'approved_organizers' },
+        { label: 'Municipality staff only', value: 'municipality_only' },
+      ],
       admin: {
         description: 'Who is allowed to create events in this municipality.',
       },

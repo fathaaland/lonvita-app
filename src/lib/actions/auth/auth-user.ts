@@ -13,7 +13,7 @@ type UpsertAuthIdentityParams = {
   provider: string
   email: string
   emailVerified: boolean
-  profile: unknown
+  profile: Record<string, unknown>
 }
 
 const upsertAuthIdentity = async ({

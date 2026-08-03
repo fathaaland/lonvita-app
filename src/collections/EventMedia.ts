@@ -1,4 +1,4 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, Where } from 'payload'
 
 import { isLoggedIn } from './access/shared'
 
@@ -13,9 +13,9 @@ export const EventMedia: CollectionConfig = {
     defaultColumns: ['event', 'visibility', 'uploadedBy', 'updatedAt'],
   },
   access: {
-    read: ({ req: { user } }) => {
+    read: ({ req: { user } }): Where => {
       if (!user) {
-        return { visibility: { equals: 'public' } }
+        return { or: [{ visibility: { equals: 'public' } }] }
       }
       return {
         or: [

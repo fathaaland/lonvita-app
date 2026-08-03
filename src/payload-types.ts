@@ -80,6 +80,7 @@ export interface Config {
     'organizer-requests': OrganizerRequest;
     'organizer-payouts': OrganizerPayout;
     'auth-identities': AuthIdentity;
+    'municipality-areas': MunicipalityArea;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -100,6 +101,7 @@ export interface Config {
     'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
     'organizer-payouts': OrganizerPayoutsSelect<false> | OrganizerPayoutsSelect<true>;
     'auth-identities': AuthIdentitiesSelect<false> | AuthIdentitiesSelect<true>;
+    'municipality-areas': MunicipalityAreasSelect<false> | MunicipalityAreasSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -181,10 +183,11 @@ export interface User {
 export interface Municipality {
   id: number;
   name: string;
+  description?: string | null;
   /**
    * Who is allowed to create events in this municipality.
    */
-  rulesForCreation?: string | null;
+  rulesForCreation: 'anyone' | 'approved_organizers' | 'municipality_only';
   /**
    * The user who administers this municipality.
    */
@@ -252,6 +255,39 @@ export interface Profile {
    * Organizer payout account. Only visible/editable by the profile owner.
    */
   payoutIban?: string | null;
+  phone?: string | null;
+  dateOfBirth?: string | null;
+  gender?: ('zena' | 'muz' | 'jine' | 'neuvedeno') | null;
+  interests?: (number | EventCategory)[] | null;
+  /**
+   * Neighborhood within the municipality, chosen during onboarding.
+   */
+  homeArea?: (number | null) | MunicipalityArea;
+  onboardingCompleted?: boolean | null;
+  isVolunteer?: boolean | null;
+  volunteerFocus?: string[] | null;
+  volunteerNote?: string | null;
+  volunteerSince?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Neighborhoods within a municipality, used for the onboarding "where do you live" map.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "municipality-areas".
+ */
+export interface MunicipalityArea {
+  id: number;
+  municipality: number | Municipality;
+  name: string;
+  /**
+   * Short slug-like identifier, unique within the municipality.
+   */
+  code: string;
+  centerLat: number;
+  centerLng: number;
+  radiusM: number;
   updatedAt: string;
   createdAt: string;
 }
@@ -281,11 +317,14 @@ export interface Event {
   municipality: number | Municipality;
   dateTime: string;
   locationText: string;
+  lat?: number | null;
+  lng?: number | null;
   capacity: number;
   /**
-   * The profile organizing this event.
+   * The user organizing this event.
    */
-  organizer: number | Profile;
+  organizer: number | User;
+  status: 'active' | 'full' | 'finished' | 'cancelled';
   category: number | EventCategory;
   /**
    * Cover image shown in event listings.
@@ -296,6 +335,7 @@ export interface Event {
    * Price in the smallest currency unit (e.g. haléře), used with Stripe.
    */
   priceCents?: number | null;
+  cancellationPolicy: 'none' | 'cancel_24h' | 'cancel_48h' | 'cancel_7d';
   /**
    * Soft-delete marker — preserves attendance history when an event is removed.
    */
@@ -310,24 +350,24 @@ export interface Event {
 export interface Registration {
   id: number;
   event: number | Event;
-  profile: number | Profile;
+  user: number | User;
   /**
    * "Smí přijít" — whether the registration itself is allowed, not whether they attended.
    */
-  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  status: 'pending_payment' | 'pending' | 'approved' | 'rejected' | 'cancelled';
   /**
-   * What actually happened — set by the organizer after the event.
+   * What actually happened — set by the organizer after the event. Not used by the current frontend yet.
    */
   attendanceStatus?: ('not_marked' | 'attended' | 'no_show') | null;
   /**
-   * The organizer profile that marked attendance.
+   * The organizer who marked attendance.
    */
-  attendanceMarkedBy?: (number | null) | Profile;
-  paymentStatus?: ('not_required' | 'pending' | 'paid' | 'refunded') | null;
-  /**
-   * Soft-delete marker — preserves attendance history.
-   */
-  deletedAt?: string | null;
+  attendanceMarkedBy?: (number | null) | User;
+  paymentStatus: 'none' | 'paid' | 'refunded' | 'failed';
+  stripeSessionId?: string | null;
+  stripePaymentIntentId?: string | null;
+  amountPaidCents?: number | null;
+  refundedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -384,9 +424,11 @@ export interface OrganizerRequest {
    */
   status: 'pending' | 'approved' | 'rejected';
   /**
-   * Optional note from the requester about why they want to organize events.
+   * Note from the requester about why they want to organize events.
    */
-  message?: string | null;
+  description: string;
+  decidedAt?: string | null;
+  decidedBy?: (number | null) | User;
   updatedAt: string;
   createdAt: string;
 }
@@ -520,6 +562,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'auth-identities';
         value: number | AuthIdentity;
+      } | null)
+    | ({
+        relationTo: 'municipality-areas';
+        value: number | MunicipalityArea;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -617,6 +663,7 @@ export interface MediaSelect<T extends boolean = true> {
  */
 export interface MunicipalitiesSelect<T extends boolean = true> {
   name?: T;
+  description?: T;
   rulesForCreation?: T;
   adminUser?: T;
   updatedAt?: T;
@@ -642,6 +689,16 @@ export interface ProfilesSelect<T extends boolean = true> {
   fullName?: T;
   municipality?: T;
   payoutIban?: T;
+  phone?: T;
+  dateOfBirth?: T;
+  gender?: T;
+  interests?: T;
+  homeArea?: T;
+  onboardingCompleted?: T;
+  isVolunteer?: T;
+  volunteerFocus?: T;
+  volunteerNote?: T;
+  volunteerSince?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -666,12 +723,16 @@ export interface EventsSelect<T extends boolean = true> {
   municipality?: T;
   dateTime?: T;
   locationText?: T;
+  lat?: T;
+  lng?: T;
   capacity?: T;
   organizer?: T;
+  status?: T;
   category?: T;
   image?: T;
   isPaid?: T;
   priceCents?: T;
+  cancellationPolicy?: T;
   deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -682,12 +743,15 @@ export interface EventsSelect<T extends boolean = true> {
  */
 export interface RegistrationsSelect<T extends boolean = true> {
   event?: T;
-  profile?: T;
+  user?: T;
   status?: T;
   attendanceStatus?: T;
   attendanceMarkedBy?: T;
   paymentStatus?: T;
-  deletedAt?: T;
+  stripeSessionId?: T;
+  stripePaymentIntentId?: T;
+  amountPaidCents?: T;
+  refundedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -725,7 +789,9 @@ export interface OrganizerRequestsSelect<T extends boolean = true> {
   user?: T;
   municipality?: T;
   status?: T;
-  message?: T;
+  description?: T;
+  decidedAt?: T;
+  decidedBy?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -759,6 +825,20 @@ export interface AuthIdentitiesSelect<T extends boolean = true> {
   lastLoginAt?: T;
   lastSyncedAt?: T;
   profile?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "municipality-areas_select".
+ */
+export interface MunicipalityAreasSelect<T extends boolean = true> {
+  municipality?: T;
+  name?: T;
+  code?: T;
+  centerLat?: T;
+  centerLng?: T;
+  radiusM?: T;
   updatedAt?: T;
   createdAt?: T;
 }

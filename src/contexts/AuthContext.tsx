@@ -1,0 +1,91 @@
+"use client";
+
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { getCurrentPayloadUser, PayloadUser, signOutRedirect } from "@/integrations/payload/client";
+import { getMyProfile, getMyRoles, ProfileRow, AppRole } from "@/integrations/payload/queries";
+
+export type { AppRole };
+
+interface AuthContextValue {
+  user: PayloadUser | null;
+  profile: ProfileRow | null;
+  roles: AppRole[];
+  loading: boolean;
+  isAdmin: boolean;
+  isOrganizer: boolean;
+  isPrescriber: boolean;
+  signOut: () => void;
+  refreshProfile: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<PayloadUser | null>(null);
+  const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [roles, setRoles] = useState<AppRole[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadProfileAndRoles = useCallback(async (userId: string) => {
+    const [prof, roleRows] = await Promise.all([getMyProfile(userId), getMyRoles(userId)]);
+    setProfile(prof);
+    setRoles(roleRows);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      const currentUser = await getCurrentPayloadUser();
+      if (!active) return;
+
+      setUser(currentUser);
+
+      if (currentUser) {
+        await loadProfileAndRoles(String(currentUser.id));
+      } else {
+        setProfile(null);
+        setRoles([]);
+      }
+
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [loadProfileAndRoles]);
+
+  const refreshProfile = async () => {
+    if (user) await loadProfileAndRoles(String(user.id));
+  };
+
+  const signOut = () => {
+    signOutRedirect();
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        roles,
+        loading,
+        isAdmin: roles.includes("admin"),
+        isOrganizer: roles.includes("organizer") || roles.includes("admin"),
+        // Intervention/social-prescribing module isn't wired up in this backend yet.
+        isPrescriber: false,
+        signOut,
+        refreshProfile,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+}

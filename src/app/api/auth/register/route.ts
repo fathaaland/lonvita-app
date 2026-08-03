@@ -3,6 +3,7 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { createAuth0DatabaseUser, deleteAuth0User } from '@/lib/auth/auth0/management'
+import { isAuth0Configured } from '@/lib/auth/auth0/is-configured'
 
 type RegisterBody = {
   email?: string
@@ -39,7 +40,11 @@ export async function POST(request: Request) {
   }
 
   const email = body.email!.toLowerCase()
-  const { password, fullName, municipality } = body as Required<Pick<RegisterBody, 'password' | 'fullName' | 'municipality'>>
+  const { password, fullName, municipality: municipalityRaw } = body as Required<
+    Pick<RegisterBody, 'password' | 'fullName' | 'municipality'>
+  >
+  const municipality = Number(municipalityRaw)
+  const useAuth0 = isAuth0Configured()
 
   const payload = await getPayload({ config })
 
@@ -47,17 +52,22 @@ export async function POST(request: Request) {
   let createdPayloadUserId: number | null = null
 
   try {
-    auth0User = await createAuth0DatabaseUser({ email, password, fullName })
-
-    if (!auth0User?.user_id) {
-      throw new Error('Auth0 did not return a user id.')
+    if (useAuth0) {
+      auth0User = await createAuth0DatabaseUser({ email, password, fullName })
+      if (!auth0User?.user_id) {
+        throw new Error('Auth0 did not return a user id.')
+      }
     }
 
     let payloadUser
     try {
       payloadUser = await payload.create({
         collection: 'users',
-        data: { email, role: 'user' },
+        // With Auth0 configured, the real password lives in Auth0 — Payload gets a
+        // random one nobody knows (see setGeneratedPasswordIfMissing in Users.ts).
+        // Without Auth0, this password IS how the user logs in (Payload's own local
+        // strategy), so it must be the one they actually chose.
+        data: useAuth0 ? { email, role: 'user' } : { email, password, role: 'user' },
         overrideAccess: true,
       })
       createdPayloadUserId = payloadUser.id
@@ -83,20 +93,34 @@ export async function POST(request: Request) {
       overrideAccess: true,
     })
 
+    // Every registered user starts as a plain participant in their chosen municipality —
+    // elevated roles (organizer, admin) are granted later via OrganizerRequests/admin action.
     await payload.create({
-      collection: 'auth-identities',
+      collection: 'user-roles',
       data: {
         user: payloadUser.id,
-        providerSubject: auth0User.user_id,
-        provider: 'auth0',
-        providerType: 'database',
-        email,
-        emailVerified: false,
+        municipality,
+        role: 'participant',
       },
       overrideAccess: true,
     })
 
-    return NextResponse.json({ redirectTo: '/login?registered=true' }, { status: 201 })
+    if (useAuth0 && auth0User?.user_id) {
+      await payload.create({
+        collection: 'auth-identities',
+        data: {
+          user: payloadUser.id,
+          providerSubject: auth0User.user_id,
+          provider: 'auth0',
+          providerType: 'database',
+          email,
+          emailVerified: false,
+        },
+        overrideAccess: true,
+      })
+    }
+
+    return NextResponse.json({ redirectTo: '/auth?registered=true' }, { status: 201 })
   } catch (error) {
     console.error('[register] failed, rolling back', error)
 

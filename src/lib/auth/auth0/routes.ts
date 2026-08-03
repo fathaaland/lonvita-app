@@ -9,7 +9,7 @@ const getAppBaseUrl = () => {
 
 export const getAuth0LogoutPath = (returnTo?: string | null) => {
   const params = new URLSearchParams()
-  const safeReturnTo = getSafeRedirectPath(returnTo, '/login')
+  const safeReturnTo = getSafeRedirectPath(returnTo, '/auth')
   const appBaseUrl = getAppBaseUrl()
 
   if (safeReturnTo !== '/') {

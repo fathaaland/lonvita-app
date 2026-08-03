@@ -1,6 +1,6 @@
 import type { CollectionConfig } from 'payload'
 
-import { isLoggedIn } from './access/shared'
+import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 
 export const UserRoles: CollectionConfig = {
   slug: 'user-roles',
@@ -13,10 +13,14 @@ export const UserRoles: CollectionConfig = {
     defaultColumns: ['user', 'role', 'municipality', 'updatedAt'],
   },
   access: {
-    read: isLoggedIn,
-    create: isLoggedIn,
-    update: isLoggedIn,
-    delete: isLoggedIn,
+    read: ({ req: { user } }) => {
+      if (!user) return false
+      if (user.role === 'admin') return true
+      return { user: { equals: user.id } }
+    },
+    create: isPlatformOrMunicipalityAdmin(),
+    update: isPlatformOrMunicipalityAdmin(),
+    delete: isPlatformOrMunicipalityAdmin(),
   },
   fields: [
     {
