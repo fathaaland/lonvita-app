@@ -24,10 +24,16 @@ type Filter = "all" | "today" | "week";
 interface Category { id: string; name: string; icon: string; color: string }
 
 function IndexContent() {
-  const { profile } = useAuth();
+  const { profile, isSuperAdmin } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  // A platform superadmin has no community feed of their own — the /superadmin panel
+  // is their entire dashboard, not a secondary section reached via the top nav.
+  useEffect(() => {
+    if (isSuperAdmin) router.replace("/superadmin");
+  }, [isSuperAdmin, router]);
   const [events, setEvents] = useState<EventCardData[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
@@ -105,6 +111,8 @@ function IndexContent() {
       .sort((a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime())
       .slice(0, 3);
   }, [events]);
+
+  if (isSuperAdmin) return <Loading />;
 
   return (
     <div className="animate-fade-in">

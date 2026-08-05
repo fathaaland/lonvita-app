@@ -52,7 +52,7 @@ export function del<T>(path: string): Promise<T> {
 
 // --- Payload REST `where` query-string helper ---------------------------------------
 
-type WhereOp = "equals" | "not_equals" | "in" | "greater_than" | "less_than";
+type WhereOp = "equals" | "not_equals" | "in" | "greater_than" | "less_than" | "exists";
 type WhereClause = Record<string, Partial<Record<WhereOp, unknown>>>;
 
 /** Builds a Payload REST `where[...]` query string, e.g. `where[status][equals]=approved`. */

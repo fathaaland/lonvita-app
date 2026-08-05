@@ -4,7 +4,7 @@
  * RegistrationRow/CategoryRow/ProfileRow interfaces directly, since those pure
  * client-side analytics functions are unaware of Payload and expect that exact shape.
  */
-import { buildQuery, buildWhereParams, get, patch, post } from "./client";
+import { buildQuery, buildWhereParams, get, patch } from "./client";
 
 import type { PayloadListResponse } from "./client";
 import type { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
@@ -97,67 +97,10 @@ export async function getMunicipalityProfilesForAdmin(municipalityId: string): P
   })) as ProfileWithDob[];
 }
 
-export type AdminRequestRow = {
-  id: string;
-  description: string;
-  created_at: string;
-  user_id: string;
-  full_name: string;
-};
-
-type PayloadOrganizerRequest = {
-  id: number;
-  description: string;
-  createdAt: string;
-  user: number | { id: number };
-};
-
-export async function getPendingOrganizerRequests(municipalityId: string): Promise<AdminRequestRow[]> {
-  const where = buildWhereParams({ municipality: { equals: municipalityId }, status: { equals: "pending" } });
-  const query = buildQuery({ sort: "-createdAt", depth: 0, limit: 200 });
-  const result = await get<PayloadListResponse<PayloadOrganizerRequest>>(`/organizer-requests?${where}&${query}`);
-
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
-  }
-
-  return result.docs.map((r) => ({
-    id: String(r.id),
-    description: r.description,
-    created_at: r.createdAt,
-    user_id: toId(r.user)!,
-    full_name: nameById.get(toId(r.user) ?? "") ?? "Uživatel",
-  }));
-}
-
-/** Approving grants the "organizer" UserRole in this municipality; either way marks the request decided. */
-export async function decideOrganizerRequest(
-  requestId: string,
-  userId: string,
-  municipalityId: string,
-  approve: boolean,
-): Promise<void> {
-  if (approve) {
-    await post("/user-roles", { user: userId, municipality: municipalityId, role: "organizer" });
-  }
-  await patch(`/organizer-requests/${requestId}`, {
-    status: approve ? "approved" : "rejected",
-    decidedAt: new Date().toISOString(),
-  });
-}
-
-export async function updateMunicipalityRule(
-  municipalityId: string,
-  rule: "anyone" | "approved_organizers" | "municipality_only",
-): Promise<void> {
-  await patch(`/municipalities/${municipalityId}`, { rulesForCreation: rule });
+/** Cancels an event (soft-delete: sets deletedAt + status "cancelled") rather than hard-
+ * deleting the row — works regardless of existing registrations, and triggers the
+ * backend's notifyRegistrantsOnCancellation hook so pending/approved attendees are told.
+ * Access-controlled to platform superadmins and the event's own municipality admin. */
+export async function deleteEvent(eventId: string): Promise<void> {
+  await patch(`/events/${eventId}`, { deletedAt: new Date().toISOString(), status: "cancelled" });
 }

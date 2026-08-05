@@ -10,7 +10,7 @@ export const AuditLog: CollectionConfig = {
     useAsTitle: 'action',
     defaultColumns: ['action', 'actor', 'targetCollection', 'targetId', 'createdAt'],
     description:
-      'Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation, organizer-request decisions. Not writable or deletable through the API.',
+      'Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation. Not writable or deletable through the API.',
   },
   access: {
     // Written exclusively via `overrideAccess: true` from collection hooks — never
@@ -26,7 +26,7 @@ export const AuditLog: CollectionConfig = {
       type: 'text',
       required: true,
       admin: {
-        description: 'e.g. "user-roles.grant", "consents.revoke", "organizer-requests.decide".',
+        description: 'e.g. "user-roles.grant", "consents.revoke".',
       },
     },
     {

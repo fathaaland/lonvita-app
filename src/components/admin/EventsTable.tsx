@@ -6,21 +6,40 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
 import { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
+import { deleteEvent } from "@/integrations/payload/admin-queries";
+import { toast } from "sonner";
 
 interface Props {
   events: EventRow[];
   registrations: RegistrationRow[];
   categories: CategoryRow[];
   profiles: ProfileRow[];
+  onDeleted?: () => void;
 }
 
 type Filter = "upcoming" | "past" | "all";
 
-export function EventsTable({ events, registrations, categories, profiles }: Props) {
+export function EventsTable({ events, registrations, categories, profiles, onDeleted }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("upcoming");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (e: React.MouseEvent, eventId: string, title: string) => {
+    e.stopPropagation();
+    if (!window.confirm(`Opravdu zrušit akci „${title}“? Přihlášení účastníci dostanou upozornění a akce jim zmizí z přehledu.`)) return;
+    setDeletingId(eventId);
+    try {
+      await deleteEvent(eventId);
+      toast.success("Akce zrušena.");
+      onDeleted?.();
+    } catch {
+      toast.error("Akci se nepodařilo zrušit.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const cats = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const profs = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name])), [profiles]);
@@ -106,6 +125,16 @@ export function EventsTable({ events, registrations, categories, profiles }: Pro
                       {fill} %
                     </p>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                    disabled={deletingId === e.id}
+                    onClick={(ev) => handleDelete(ev, e.id, e.title)}
+                    aria-label="Smazat akci"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                 </CardContent>
               </Card>

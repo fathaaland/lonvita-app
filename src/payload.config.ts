@@ -3,6 +3,8 @@ import { resendAdapter } from '@payloadcms/email-resend'
 import { multiTenantPlugin } from '@payloadcms/plugin-multi-tenant'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { s3Storage } from '@payloadcms/storage-s3'
+import { sql } from 'drizzle-orm'
+import { uniqueIndex } from 'drizzle-orm/pg-core'
 import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
@@ -18,12 +20,11 @@ import { Events } from './collections/Events'
 import { Registrations } from './collections/Registrations'
 import { EventMedia } from './collections/EventMedia'
 import { EventFeedback } from './collections/EventFeedback'
-import { OrganizerRequests } from './collections/OrganizerRequests'
-import { OrganizerPayouts } from './collections/OrganizerPayouts'
 import { AuthIdentities } from './collections/AuthIdentities'
 import { MunicipalityAreas } from './collections/MunicipalityAreas'
 import { Consents } from './collections/Consents'
 import { AuditLog } from './collections/AuditLog'
+import { Notifications } from './collections/Notifications'
 import { s3ClientConfig } from './lib/s3/client'
 
 const filename = fileURLToPath(import.meta.url)
@@ -50,12 +51,11 @@ export default buildConfig({
     Registrations,
     EventMedia,
     EventFeedback,
-    OrganizerRequests,
-    OrganizerPayouts,
     AuthIdentities,
     MunicipalityAreas,
     Consents,
     AuditLog,
+    Notifications,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
@@ -70,6 +70,25 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URI || '',
     },
+    afterSchemaInit: [
+      ({ schema, extendTable }) => {
+        // The Registrations beforeValidate hook's "is this user already registered"
+        // check is a find-then-create that isn't atomic — two near-simultaneous
+        // requests (a double-click, a slow-network retry) can both pass the check
+        // before either row commits, leaving two active registrations for the same
+        // event+user and throwing off capacity counts. This index makes the DB itself
+        // reject the second insert, closing the race the application-level check can't.
+        extendTable({
+          table: schema.tables.registrations,
+          extraConfig: (table) => ({
+            oneActiveRegistrationPerEventUser: uniqueIndex('registrations_active_event_user_idx')
+              .on(table.event, table.user)
+              .where(sql`${table.status} != 'cancelled'`),
+          }),
+        })
+        return schema
+      },
+    ],
   }),
   email: resendAdapter({
     defaultFromAddress: process.env.RESEND_FROM_EMAIL || 'noreply@lonvita.cz',

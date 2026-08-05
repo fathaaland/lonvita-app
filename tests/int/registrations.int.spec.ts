@@ -20,7 +20,7 @@ describe('Registrations & EventFeedback', () => {
 
     municipality = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni Regs ${STAMP}`, rulesForCreation: 'approved_organizers' },
+      data: { name: `Test Muni Regs ${STAMP}` },
       overrideAccess: true,
     })
     category = await payload.create({

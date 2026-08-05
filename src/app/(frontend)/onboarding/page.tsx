@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getMunicipalityAreas, getEventCategories, updateProfile } from "@/integrations/payload/queries";
+import { listMunicipalities, getEventCategories, updateProfile, MunicipalityRow } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,7 +16,6 @@ import { Loading } from "@/components/Loading";
 import { getCategoryIcon } from "@/lib/icons";
 import { ArrowRight, ArrowLeft, Check, MapPin } from "lucide-react";
 
-type Area = { id: string; name: string; code: string; center_lat: number; center_lng: number };
 type Category = { id: string; name: string; icon: string | null; color: string | null };
 
 function OnboardingContent() {
@@ -26,21 +25,21 @@ function OnboardingContent() {
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState<"zena" | "muz" | "jine" | "neuvedeno">("neuvedeno");
   const [interests, setInterests] = useState<string[]>([]);
-  const [homeArea, setHomeArea] = useState<string>("");
-  const [areas, setAreas] = useState<Area[]>([]);
+  const [municipalityId, setMunicipalityId] = useState<string>("");
+  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name">[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!profile?.municipality_id) return;
     (async () => {
-      const [a, c] = await Promise.all([
-        getMunicipalityAreas(profile.municipality_id!),
-        getEventCategories(),
-      ]);
-      setAreas(a);
+      const [m, c] = await Promise.all([listMunicipalities(), getEventCategories()]);
+      setMunicipalities(m);
       setCats(c);
     })();
+  }, []);
+
+  useEffect(() => {
+    if (profile?.municipality_id) setMunicipalityId(profile.municipality_id);
   }, [profile?.municipality_id]);
 
   // Redirect if already onboarded
@@ -62,7 +61,7 @@ function OnboardingContent() {
         dateOfBirth: dob || null,
         gender,
         interests: interests.map(Number),
-        homeArea: homeArea ? Number(homeArea) : null,
+        municipality: Number(municipalityId),
         onboardingCompleted: true,
       });
       toast.success("Vítejte v Lonvitě!");
@@ -81,7 +80,7 @@ function OnboardingContent() {
     (step === 0 && !!dob) ||
     (step === 1 && gender !== "neuvedeno") ||
     (step === 2) ||
-    (step === 3 && !!homeArea);
+    (step === 3 && !!municipalityId);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -195,18 +194,18 @@ function OnboardingContent() {
                 <div>
                   <h2 className="text-xl font-extrabold">Kde bydlíte?</h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Vyberte část obce, ve které bydlíte.
+                    Vyberte obec, ve které bydlíte.
                   </p>
                 </div>
-                <Select value={homeArea} onValueChange={setHomeArea}>
+                <Select value={municipalityId} onValueChange={setMunicipalityId}>
                   <SelectTrigger className="h-12 text-base">
                     <MapPin className="h-5 w-5 text-muted-foreground mr-1" />
-                    <SelectValue placeholder="Vyberte část obce" />
+                    <SelectValue placeholder="Vyberte obec" />
                   </SelectTrigger>
                   <SelectContent>
-                    {areas.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
+                    {municipalities.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

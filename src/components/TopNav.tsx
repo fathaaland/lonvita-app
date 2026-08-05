@@ -3,26 +3,29 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { LogOut } from "lucide-react";
+import { Bell, LogOut } from "lucide-react";
 
 /**
  * Horní navigace zobrazená pouze na "wide" stránkách (Admin, Manage)
  * a jen od breakpointu md nahoru. Na mobilu zůstává spodní BottomNav.
  */
 export function TopNav() {
-  const { user, isAdmin, isOrganizer, signOut } = useAuth();
+  const { user, isSuperAdmin, isAdmin, signOut } = useAuth();
   const pathname = usePathname();
+  const unreadCount = useUnreadNotificationCount();
 
-  if (!user) return null;
+  // The /superadmin panel IS the entire app for a platform superadmin — no other section
+  // to navigate to, so no top bar at all (it has its own header with a logout action).
+  if (!user || isSuperAdmin) return null;
 
   const links: { to: string; label: string; end?: boolean }[] = [
     { to: "/", label: "Domů", end: true },
     { to: "/moje-akce", label: "Moje akce" },
-    ...(isOrganizer ? [{ to: "/vytvorit", label: "Vytvořit" }] : []),
-    ...(isAdmin ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
+    ...(isAdmin ? [{ to: "/vytvorit", label: "Vytvořit" }, { to: "/admin-obce", label: "Přehled obce" }] : []),
     { to: "/profil", label: "Profil" },
   ];
 
@@ -51,6 +54,16 @@ export function TopNav() {
             );
           })}
         </nav>
+        <Link
+          href="/oznameni"
+          className="relative h-9 w-9 rounded-md inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          aria-label="Oznámení"
+        >
+          <Bell className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+          )}
+        </Link>
         <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
           <LogOut className="h-4 w-4" />
           Odhlásit

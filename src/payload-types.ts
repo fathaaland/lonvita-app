@@ -77,12 +77,11 @@ export interface Config {
     registrations: Registration;
     'event-media': EventMedia;
     'event-feedback': EventFeedback;
-    'organizer-requests': OrganizerRequest;
-    'organizer-payouts': OrganizerPayout;
     'auth-identities': AuthIdentity;
     'municipality-areas': MunicipalityArea;
     consents: Consent;
     'audit-log': AuditLog;
+    notifications: Notification;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -100,12 +99,11 @@ export interface Config {
     registrations: RegistrationsSelect<false> | RegistrationsSelect<true>;
     'event-media': EventMediaSelect<false> | EventMediaSelect<true>;
     'event-feedback': EventFeedbackSelect<false> | EventFeedbackSelect<true>;
-    'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
-    'organizer-payouts': OrganizerPayoutsSelect<false> | OrganizerPayoutsSelect<true>;
     'auth-identities': AuthIdentitiesSelect<false> | AuthIdentitiesSelect<true>;
     'municipality-areas': MunicipalityAreasSelect<false> | MunicipalityAreasSelect<true>;
     consents: ConsentsSelect<false> | ConsentsSelect<true>;
     'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
+    notifications: NotificationsSelect<false> | NotificationsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -188,10 +186,6 @@ export interface Municipality {
   id: number;
   name: string;
   description?: string | null;
-  /**
-   * Who is allowed to create events in this municipality.
-   */
-  rulesForCreation: 'anyone' | 'approved_organizers' | 'municipality_only';
   /**
    * The user who administers this municipality.
    */
@@ -313,7 +307,7 @@ export interface UserRole {
   /**
    * Enum matches ERD §0.2 pilot roles. "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
    */
-  role: 'participant' | 'organizer' | 'municipality_admin' | 'prescriber';
+  role: 'participant' | 'municipality_admin' | 'prescriber';
   updatedAt: string;
   createdAt: string;
 }
@@ -442,46 +436,6 @@ export interface EventFeedback {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "organizer-requests".
- */
-export interface OrganizerRequest {
-  id: number;
-  user: number | User;
-  municipality: number | Municipality;
-  /**
-   * Approving a request should create a matching User Role of "organizer".
-   */
-  status: 'pending' | 'approved' | 'rejected';
-  /**
-   * Note from the requester about why they want to organize events.
-   */
-  description: string;
-  decidedAt?: string | null;
-  decidedBy?: (number | null) | User;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "organizer-payouts".
- */
-export interface OrganizerPayout {
-  id: number;
-  profile: number | Profile;
-  amountCents: number;
-  currency: string;
-  status: 'pending' | 'processing' | 'paid' | 'failed';
-  /**
-   * Stripe transfer ID once the payout has been sent.
-   */
-  stripeTransferId?: string | null;
-  periodStart?: string | null;
-  periodEnd?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "auth-identities".
  */
 export interface AuthIdentity {
@@ -542,7 +496,7 @@ export interface Consent {
   createdAt: string;
 }
 /**
- * Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation, organizer-request decisions. Not writable or deletable through the API.
+ * Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation. Not writable or deletable through the API.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "audit-log".
@@ -550,7 +504,7 @@ export interface Consent {
 export interface AuditLog {
   id: number;
   /**
-   * e.g. "user-roles.grant", "consents.revoke", "organizer-requests.decide".
+   * e.g. "user-roles.grant", "consents.revoke".
    */
   action: string;
   /**
@@ -569,6 +523,27 @@ export interface AuditLog {
     | number
     | boolean
     | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * In-app notifications. Written by server-side hooks (overrideAccess), not user-created.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "notifications".
+ */
+export interface Notification {
+  id: number;
+  /**
+   * Recipient of this notification.
+   */
+  user: number | User;
+  title: string;
+  message: string;
+  /**
+   * Set when the recipient opens/dismisses the notification.
+   */
+  readAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -637,14 +612,6 @@ export interface PayloadLockedDocument {
         value: number | EventFeedback;
       } | null)
     | ({
-        relationTo: 'organizer-requests';
-        value: number | OrganizerRequest;
-      } | null)
-    | ({
-        relationTo: 'organizer-payouts';
-        value: number | OrganizerPayout;
-      } | null)
-    | ({
         relationTo: 'auth-identities';
         value: number | AuthIdentity;
       } | null)
@@ -659,6 +626,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'audit-log';
         value: number | AuditLog;
+      } | null)
+    | ({
+        relationTo: 'notifications';
+        value: number | Notification;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -757,7 +728,6 @@ export interface MediaSelect<T extends boolean = true> {
 export interface MunicipalitiesSelect<T extends boolean = true> {
   name?: T;
   description?: T;
-  rulesForCreation?: T;
   adminUser?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -883,35 +853,6 @@ export interface EventFeedbackSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "organizer-requests_select".
- */
-export interface OrganizerRequestsSelect<T extends boolean = true> {
-  user?: T;
-  municipality?: T;
-  status?: T;
-  description?: T;
-  decidedAt?: T;
-  decidedBy?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "organizer-payouts_select".
- */
-export interface OrganizerPayoutsSelect<T extends boolean = true> {
-  profile?: T;
-  amountCents?: T;
-  currency?: T;
-  status?: T;
-  stripeTransferId?: T;
-  periodStart?: T;
-  periodEnd?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "auth-identities_select".
  */
 export interface AuthIdentitiesSelect<T extends boolean = true> {
@@ -966,6 +907,18 @@ export interface AuditLogSelect<T extends boolean = true> {
   targetId?: T;
   municipality?: T;
   metadata?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "notifications_select".
+ */
+export interface NotificationsSelect<T extends boolean = true> {
+  user?: T;
+  title?: T;
+  message?: T;
+  readAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

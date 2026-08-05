@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  hasPendingOrganizerRequest,
   getMyRegistrationsWithEvents,
   getMarketingConsent,
   setMarketingConsent,
@@ -16,16 +15,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useFontSize } from "@/contexts/FontSizeContext";
-import { LogOut, Type, UserPlus, Settings, ArrowLeft, Mail } from "lucide-react";
+import { LogOut, Type, Settings, ArrowLeft, Mail, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { PayoutIbanCard } from "@/components/PayoutIbanCard";
 import { VolunteerCard } from "@/components/VolunteerCard";
 
 function ProfileContent() {
   const router = useRouter();
-  const { user, profile, isAdmin, isOrganizer, signOut } = useAuth();
+  const { user, profile, isSuperAdmin, isAdmin, signOut } = useAuth();
   const { size, setSize } = useFontSize();
-  const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [stats, setStats] = useState({ upcoming: 0, attended: 0, volunteerHours: 0 });
   const [marketingConsent, setMarketingConsentState] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
@@ -50,11 +48,6 @@ function ProfileContent() {
   };
 
   useEffect(() => {
-    if (!user || isOrganizer) return;
-    hasPendingOrganizerRequest(String(user.id)).then(setHasPendingRequest);
-  }, [user, isOrganizer]);
-
-  useEffect(() => {
     if (!user) return;
     (async () => {
       const nowIso = new Date().toISOString();
@@ -66,7 +59,7 @@ function ProfileContent() {
     })();
   }, [user]);
 
-  const roleLabel = isAdmin ? "Admin obce" : isOrganizer ? "Pořadatel" : "Účastník";
+  const roleLabel = isSuperAdmin ? "Superadmin" : isAdmin ? "Admin obce" : "Účastník";
   const initials = (profile?.full_name ?? "?").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 
   const handleSignOut = () => {
@@ -144,28 +137,19 @@ function ProfileContent() {
           </CardContent>
         </Card>
 
-        {isOrganizer && <PayoutIbanCard />}
+        {isAdmin && <PayoutIbanCard />}
 
         {!isAdmin && <VolunteerCard />}
-
-        {!isOrganizer && !isAdmin && (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2"><UserPlus className="h-5 w-5 text-accent" /><p className="font-bold">Stát se pořadatelem</p></div>
-              {hasPendingRequest ? (
-                <p className="text-sm text-muted-foreground">Vaše žádost čeká na schválení.</p>
-              ) : (
-                <Button asChild variant="outline" className="w-full h-12">
-                  <Link href="/zadost-poradatel">Podat žádost</Link>
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {isAdmin && (
           <Button asChild variant="outline" className="w-full h-14 text-base">
             <Link href="/admin-obce"><Settings className="h-5 w-5" /> Administrace obce</Link>
+          </Button>
+        )}
+
+        {isSuperAdmin && (
+          <Button asChild variant="outline" className="w-full h-14 text-base">
+            <Link href="/superadmin"><ShieldCheck className="h-5 w-5" /> Panel superadmina</Link>
           </Button>
         )}
 

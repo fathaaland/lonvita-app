@@ -1,7 +1,60 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
 
-import { isLoggedIn } from './access/shared'
-import { adminOnlyDelete, notDeleted } from './shared/softDelete'
+import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { notDeleted } from './shared/softDelete'
+
+/** Cancelling an event (soft-delete via `deletedAt`) doesn't hard-delete the row — the FK
+ * from existing registrations would block that anyway — so instead we notify everyone who
+ * was pending/approved. The event itself already vanishes from their views on its own: it
+ * fails Events' own `notDeleted` read-access check, so it simply won't populate when their
+ * registrations are fetched (see getMyRegistrationsWithEvents / queries.ts). */
+const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
+  doc,
+  previousDoc,
+  operation,
+  req,
+}) => {
+  if (operation !== 'update') return doc
+  if (previousDoc?.deletedAt || !doc.deletedAt) return doc
+
+  try {
+    const regs = await req.payload.find({
+      collection: 'registrations',
+      where: {
+        and: [{ event: { equals: doc.id } }, { status: { in: ['pending', 'approved'] } }],
+      },
+      depth: 0,
+      limit: 1000,
+      overrideAccess: true,
+    })
+
+    const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
+
+    const toNotify = regs.docs.filter((reg) => {
+      const regUserId = typeof reg.user === 'object' ? reg.user.id : reg.user
+      // The organizer cancelled it themselves — no need to tell them what they just did.
+      return String(regUserId) !== String(organizerId)
+    })
+
+    await Promise.all(
+      toNotify.map((reg) =>
+        req.payload.create({
+          collection: 'notifications',
+          data: {
+            user: typeof reg.user === 'object' ? reg.user.id : reg.user,
+            title: 'Akce byla zrušena',
+            message: `Akce „${doc.title}“, na kterou jste byli přihlášeni, byla pořadatelem zrušena.`,
+          },
+          overrideAccess: true,
+        }),
+      ),
+    )
+  } catch (error) {
+    req.payload.logger.error(`Failed to notify registrants of cancelled event ${doc.id}: ${error}`)
+  }
+
+  return doc
+}
 
 export const Events: CollectionConfig = {
   slug: 'events',
@@ -18,8 +71,12 @@ export const Events: CollectionConfig = {
     // (matches the existing Index.tsx query pattern: .eq('municipality_id', muniId)).
     read: () => notDeleted,
     create: isLoggedIn,
-    update: isLoggedIn,
-    delete: adminOnlyDelete,
+    // Scoped the same as delete — cancelling an event is now a PATCH (sets deletedAt)
+    // rather than a real DELETE (see admin-queries.ts), so update must be gated at least
+    // as tightly as delete, not left open to any logged-in user.
+    update: isPlatformOrMunicipalityAdmin('municipality'),
+    // Platform superadmin everywhere, or a municipality admin scoped to their own municipality.
+    delete: isPlatformOrMunicipalityAdmin('municipality'),
   },
   fields: [
     {
@@ -144,5 +201,8 @@ export const Events: CollectionConfig = {
       },
     },
   ],
+  hooks: {
+    afterChange: [notifyRegistrantsOnCancellation],
+  },
   timestamps: true,
 }

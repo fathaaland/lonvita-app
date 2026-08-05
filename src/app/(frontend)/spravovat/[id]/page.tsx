@@ -128,7 +128,7 @@ function ManageEventContent() {
 export default function ManageEventPage() {
   return (
     <RequireAuth>
-      <RequireRole role="organizer">
+      <RequireRole role="municipality_admin">
         <ManageEventContent />
       </RequireRole>
     </RequireAuth>

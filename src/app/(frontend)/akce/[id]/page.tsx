@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -80,8 +80,15 @@ function EventDetailContent() {
   const isFull = approvedCount >= (event?.capacity ?? 0);
   const isPaidEvent = !!event?.is_paid && !!event?.price_cents;
 
+  // A ref guard (checked synchronously, before the first await) closes the window a fast
+  // double-click/double-tap leaves open with `submitting` state alone — React doesn't
+  // repaint the disabled button until the next render, so two clicks in the same tick can
+  // both get through and fire two requests (the DB has its own constraint as a backstop).
+  const submittingRef = useRef(false);
+
   const handleJoinFree = async () => {
-    if (!event || !user) return;
+    if (!event || !user || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       await createRegistration(event.id, String(user.id));
@@ -90,12 +97,14 @@ function EventDetailContent() {
     } catch {
       toast.error("Nepodařilo se přihlásit. Zkuste to prosím znovu.");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   const handleCancel = async () => {
-    if (!myReg) return;
+    if (!myReg || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       await cancelRegistration(myReg.id);
@@ -104,6 +113,7 @@ function EventDetailContent() {
     } catch {
       toast.error("Nepodařilo se zrušit přihlášku.");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

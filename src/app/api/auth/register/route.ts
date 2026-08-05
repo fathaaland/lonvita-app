@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     })
 
     // Every registered user starts as a plain participant in their chosen municipality —
-    // elevated roles (organizer, admin) are granted later via OrganizerRequests/admin action.
+    // the admin role is granted later by a superadmin.
     await payload.create({
       collection: 'user-roles',
       data: {

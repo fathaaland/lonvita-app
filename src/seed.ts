@@ -15,17 +15,12 @@ const CATEGORIES = [
   { name: 'Zdraví', icon: 'Heart', color: '#EF4444' },
 ]
 
-const AREAS = [
-  { name: 'Centrum', code: 'centrum', centerLat: 50.1372, centerLng: 14.4381 },
-  { name: 'Staré Město', code: 'stare-mesto', centerLat: 50.1401, centerLng: 14.4312 },
-  { name: 'Nová čtvrť', code: 'nova-ctvrt', centerLat: 50.1332, centerLng: 14.4429 },
-  { name: 'Sídliště', code: 'sidliste', centerLat: 50.1290, centerLng: 14.4480 },
-  { name: 'Okraj', code: 'okraj', centerLat: 50.1440, centerLng: 14.4230 },
-]
-
 const run = async () => {
   const payload = await getPayload({ config })
 
+  // Needed for the onboarding/signup pickers to have something to choose from — a
+  // municipality to pick (onboarding step 4, and the /auth signup form) and interests
+  // to pick from (onboarding step 3). Not tied to any seeded user's profile/role.
   payload.logger.info('Seeding municipality…')
   const existingMuni = await payload.find({
     collection: 'municipalities',
@@ -33,16 +28,15 @@ const run = async () => {
     limit: 1,
     overrideAccess: true,
   })
-  const municipality =
-    existingMuni.docs[0] ??
-    (await payload.create({
+  if (!existingMuni.docs[0]) {
+    await payload.create({
       collection: 'municipalities',
-      data: { name: MUNICIPALITY_NAME, rulesForCreation: 'approved_organizers' },
+      data: { name: MUNICIPALITY_NAME },
       overrideAccess: true,
-    }))
+    })
+  }
 
   payload.logger.info('Seeding event categories…')
-  const categoryIds: number[] = []
   for (const cat of CATEGORIES) {
     const existing = await payload.find({
       collection: 'event-categories',
@@ -50,37 +44,15 @@ const run = async () => {
       limit: 1,
       overrideAccess: true,
     })
-    const doc =
-      existing.docs[0] ??
-      (await payload.create({ collection: 'event-categories', data: cat, overrideAccess: true }))
-    categoryIds.push(doc.id)
+    if (!existing.docs[0]) {
+      await payload.create({ collection: 'event-categories', data: cat, overrideAccess: true })
+    }
   }
 
-  payload.logger.info('Seeding municipality areas…')
-  const areaIds: number[] = []
-  for (const area of AREAS) {
-    const existing = await payload.find({
-      collection: 'municipality-areas',
-      where: { and: [{ municipality: { equals: municipality.id } }, { code: { equals: area.code } }] },
-      limit: 1,
-      overrideAccess: true,
-    })
-    const doc =
-      existing.docs[0] ??
-      (await payload.create({
-        collection: 'municipality-areas',
-        data: { ...area, municipality: municipality.id, radiusM: 400 },
-        overrideAccess: true,
-      }))
-    areaIds.push(doc.id)
-  }
-
-  const seedAccount = async (input: {
+  const seedUser = async (input: {
     email: string
     password: string
-    fullName: string
     platformRole: 'admin' | 'user'
-    communityRole: 'municipality_admin' | 'organizer' | null
   }) => {
     payload.logger.info(`Seeding user ${input.email}…`)
 
@@ -117,79 +89,26 @@ const run = async () => {
       data: { email: input.email, password: input.password },
       overrideAccess: true,
     })
-
-    const existingProfile = await payload.find({
-      collection: 'profiles',
-      where: { user: { equals: user.id } },
-      limit: 1,
-      overrideAccess: true,
-    })
-    const profileData = {
-      user: user.id,
-      fullName: input.fullName,
-      municipality: municipality.id,
-      dateOfBirth: '1990-01-01',
-      gender: 'neuvedeno' as const,
-      interests: categoryIds.slice(0, 2),
-      homeArea: areaIds[0],
-      onboardingCompleted: true,
-    }
-    if (existingProfile.docs[0]) {
-      await payload.update({
-        collection: 'profiles',
-        id: existingProfile.docs[0].id,
-        data: profileData,
-        overrideAccess: true,
-      })
-    } else {
-      await payload.create({ collection: 'profiles', data: profileData, overrideAccess: true })
-    }
-
-    if (input.communityRole) {
-      const existingRole = await payload.find({
-        collection: 'user-roles',
-        where: { and: [{ user: { equals: user.id } }, { role: { equals: input.communityRole } }] },
-        limit: 1,
-        overrideAccess: true,
-      })
-      if (!existingRole.docs[0]) {
-        await payload.create({
-          collection: 'user-roles',
-          data: { user: user.id, municipality: municipality.id, role: input.communityRole },
-          overrideAccess: true,
-        })
-      }
-    }
-
-    const existingConsent = await payload.find({
-      collection: 'consents',
-      where: { and: [{ user: { equals: user.id } }, { type: { equals: 'platform_terms' } }] },
-      limit: 1,
-      overrideAccess: true,
-    })
-    if (!existingConsent.docs[0]) {
-      await payload.create({
-        collection: 'consents',
-        data: { user: user.id, type: 'platform_terms', version: '1.0', grantedAt: new Date().toISOString() },
-        overrideAccess: true,
-      })
-    }
   }
 
-  await seedAccount({
-    email: 'admin@admin.cz',
-    password: 'admin1234',
-    fullName: 'Admin obce',
+  // Bare login accounts only — no profile/role/consent. Everything else (profiles,
+  // community roles) is set up afterwards through onboarding or the superadmin panel.
+  await seedUser({
+    email: 'superadmin@lonvita.cz',
+    password: 'superadmin1234',
     platformRole: 'admin',
-    communityRole: 'municipality_admin',
   })
 
-  await seedAccount({
-    email: 'poradatel@poradatel.cz',
-    password: 'poradatel1234',
-    fullName: 'Pořadatel',
+  await seedUser({
+    email: 'admin@admin.cz',
+    password: 'admin1234',
     platformRole: 'user',
-    communityRole: 'organizer',
+  })
+
+  await seedUser({
+    email: 'ucastnik@ucastnik.cz',
+    password: 'ucastnik1234',
+    platformRole: 'user',
   })
 
   payload.logger.info('Seed complete.')

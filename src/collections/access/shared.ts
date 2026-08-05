@@ -21,7 +21,7 @@ const getAdministeredMunicipalityIds = async (
  * Allows platform admins (Users.role === 'admin') everywhere, plus municipality admins
  * (a "user-roles" row with role "municipality_admin") scoped to the municipalities they administer.
  * Used by collections where a municipality admin needs to manage rows without being a
- * platform-level admin — e.g. approving an organizer request creates a user-roles row.
+ * platform-level admin.
  */
 export const isPlatformOrMunicipalityAdmin =
   (municipalityField = 'municipality'): Access =>

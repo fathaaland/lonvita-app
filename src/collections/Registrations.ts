@@ -2,8 +2,8 @@ import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
 
 import { enqueueEmail } from '@/lib/queue/queues'
 
-import { isLoggedIn } from './access/shared'
-import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
+import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { deletedAtField, notDeleted } from './shared/softDelete'
 
 const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
   approved: 'Vaše přihláška byla schválena',
@@ -86,7 +86,9 @@ export const Registrations: CollectionConfig = {
     read: ({ req: { user } }) => (user ? notDeleted : false),
     create: isLoggedIn,
     update: isLoggedIn,
-    delete: adminOnlyDelete,
+    // Platform superadmin everywhere, or a municipality admin scoped to their own
+    // municipality (traverses the relationship: registration -> event -> municipality).
+    delete: isPlatformOrMunicipalityAdmin('event.municipality'),
   },
   fields: [
     {
@@ -210,6 +212,21 @@ export const Registrations: CollectionConfig = {
 
         if (existing.docs.length > 0) {
           throw new Error('This user is already registered for this event.')
+        }
+
+        // An organizer registering for their own event doesn't make sense to leave
+        // "pending" — they'd be the one who has to approve it. Auto-approve instead.
+        if (operation === 'create') {
+          const event = await req.payload.findByID({
+            collection: 'events',
+            id: data.event,
+            depth: 0,
+            overrideAccess: true,
+          })
+          const organizerId = typeof event.organizer === 'object' ? event.organizer.id : event.organizer
+          if (String(organizerId) === String(data.user)) {
+            data.status = 'approved'
+          }
         }
 
         return data

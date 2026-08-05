@@ -45,7 +45,6 @@ export const UserRoles: CollectionConfig = {
       required: true,
       options: [
         { label: 'Participant', value: 'participant' },
-        { label: 'Organizer', value: 'organizer' },
         { label: 'Municipality Admin', value: 'municipality_admin' },
         {
           label: 'Prescriber (plán)',

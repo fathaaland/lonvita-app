@@ -13,8 +13,9 @@ let municipalityA: { id: number }
 let municipalityB: { id: number }
 let adminOfA: { id: number; email: string; role: string }
 let plainUserA: { id: number; email: string; role: string }
-let requestForA: { id: number }
-let requestForB: { id: number }
+let category: { id: number }
+let eventInA: { id: number }
+let eventInB: { id: number }
 
 const STAMP = Date.now()
 
@@ -25,12 +26,12 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
 
     municipalityA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni A ${STAMP}`, rulesForCreation: 'approved_organizers' },
+      data: { name: `Test Muni A ${STAMP}` },
       overrideAccess: true,
     })
     municipalityB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni B ${STAMP}`, rulesForCreation: 'approved_organizers' },
+      data: { name: `Test Muni B ${STAMP}` },
       overrideAccess: true,
     })
 
@@ -50,21 +51,39 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
       overrideAccess: true,
     })
 
-    requestForA = await payload.create({
-      collection: 'organizer-requests',
-      data: { user: plainUserA.id, municipality: municipalityA.id, description: 'wants to organize in A', status: 'pending' },
+    category = await payload.create({
+      collection: 'event-categories',
+      data: { name: `Test Category Isolation ${STAMP}` },
       overrideAccess: true,
     })
-    requestForB = await payload.create({
-      collection: 'organizer-requests',
-      data: { user: plainUserA.id, municipality: municipalityB.id, description: 'wants to organize in B', status: 'pending' },
+
+    const baseEventData = {
+      title: `Test Event ${STAMP}`,
+      dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      locationText: 'Test location',
+      capacity: 10,
+      organizer: plainUserA.id,
+      category: category.id,
+      status: 'active' as const,
+      isPaid: false,
+      cancellationPolicy: 'none' as const,
+    }
+    eventInA = await payload.create({
+      collection: 'events',
+      data: { ...baseEventData, municipality: municipalityA.id },
+      overrideAccess: true,
+    })
+    eventInB = await payload.create({
+      collection: 'events',
+      data: { ...baseEventData, municipality: municipalityB.id },
       overrideAccess: true,
     })
   })
 
   afterAll(async () => {
-    await payload.delete({ collection: 'organizer-requests', id: requestForA.id, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'organizer-requests', id: requestForB.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'events', id: eventInA.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'events', id: eventInB.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'user-roles', where: { user: { equals: adminOfA.id } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'users', id: adminOfA.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'users', id: plainUserA.id, overrideAccess: true }).catch(() => {})
@@ -72,48 +91,36 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     await payload.delete({ collection: 'municipalities', id: municipalityB.id, overrideAccess: true }).catch(() => {})
   })
 
-  it("a municipality admin of A sees A's organizer requests", async () => {
-    const result = await payload.find({
-      collection: 'organizer-requests',
-      where: { municipality: { equals: municipalityA.id } },
-      user: adminOfA,
-      overrideAccess: false,
-    })
-    expect(result.docs.map((d) => d.id)).toContain(requestForA.id)
-  })
-
-  it("a municipality admin of A cannot see B's organizer requests", async () => {
-    const result = await payload.find({
-      collection: 'organizer-requests',
-      where: { municipality: { equals: municipalityB.id } },
-      user: adminOfA,
-      overrideAccess: false,
-    })
-    expect(result.docs.map((d) => d.id)).not.toContain(requestForB.id)
-  })
-
-  it("a municipality admin of A cannot approve/reject B's organizer request directly by ID", async () => {
+  it("a municipality admin of A cannot delete B's event", async () => {
     await expect(
-      payload.update({
-        collection: 'organizer-requests',
-        id: requestForB.id,
-        data: { status: 'approved' },
+      payload.delete({
+        collection: 'events',
+        id: eventInB.id,
         user: adminOfA,
         overrideAccess: false,
       }),
     ).rejects.toThrow()
   })
 
-  it('a plain (non-admin) user cannot approve their own organizer request', async () => {
+  it('a plain (non-admin) user cannot delete an event, even in their own municipality', async () => {
     await expect(
-      payload.update({
-        collection: 'organizer-requests',
-        id: requestForA.id,
-        data: { status: 'approved' },
+      payload.delete({
+        collection: 'events',
+        id: eventInA.id,
         user: plainUserA,
         overrideAccess: false,
       }),
     ).rejects.toThrow()
+  })
+
+  it("a municipality admin of A can delete A's own event", async () => {
+    const result = await payload.delete({
+      collection: 'events',
+      id: eventInA.id,
+      user: adminOfA,
+      overrideAccess: false,
+    })
+    expect(result.id).toBe(eventInA.id)
   })
 })
 

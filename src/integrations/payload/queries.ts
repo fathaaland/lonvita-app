@@ -13,14 +13,12 @@ export type MunicipalityRow = {
   id: string;
   name: string;
   description: string | null;
-  rules_for_creation: "anyone" | "approved_organizers" | "municipality_only";
 };
 
 type PayloadMunicipality = {
   id: number;
   name: string;
   description?: string | null;
-  rulesForCreation: MunicipalityRow["rules_for_creation"];
 };
 
 export async function getMunicipality(id: string): Promise<MunicipalityRow | null> {
@@ -30,7 +28,6 @@ export async function getMunicipality(id: string): Promise<MunicipalityRow | nul
       id: String(doc.id),
       name: doc.name,
       description: doc.description ?? null,
-      rules_for_creation: doc.rulesForCreation,
     };
   } catch {
     return null;
@@ -168,6 +165,15 @@ export async function getUpcomingEvents(municipalityId: string): Promise<EventRo
     status: { not_equals: "cancelled" },
   });
   const query = buildQuery({ sort: "dateTime", depth: 1, limit: 200 });
+  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
+  return result.docs.map(mapEvent);
+}
+
+/** Events this user organizes (any status/date) — "Moje akce" needs these alongside their
+ * registrations, since creating an event doesn't register the organizer as an attendee. */
+export async function getMyOrganizedEvents(userId: string): Promise<EventRow[]> {
+  const where = buildWhereParams({ organizer: { equals: userId } });
+  const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 200 });
   const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
   return result.docs.map(mapEvent);
 }
@@ -404,7 +410,7 @@ export async function updateAttendance(
   await patch(`/registrations/${registrationId}`, {
     attendanceStatus,
     attendanceMarkedAt: new Date().toISOString(),
-    attendanceMarkedBy: markedByUserId,
+    attendanceMarkedBy: Number(markedByUserId),
   });
 }
 
@@ -492,27 +498,6 @@ export async function getVolunteers(municipalityId: string): Promise<VolunteerRo
   }));
 }
 
-export async function createOrganizerRequest(
-  userId: string,
-  municipalityId: string,
-  description: string,
-): Promise<void> {
-  await post("/organizer-requests", {
-    user: Number(userId),
-    municipality: Number(municipalityId),
-    description,
-    status: "pending",
-  });
-}
-
-export async function hasPendingOrganizerRequest(userId: string): Promise<boolean> {
-  const where = buildWhereParams({ user: { equals: userId }, status: { equals: "pending" } });
-  const result = await get<PayloadListResponse<{ id: number }>>(
-    `/organizer-requests?${where}&limit=1&depth=0`,
-  );
-  return result.docs.length > 0;
-}
-
 export async function getMyProfile(userId: string): Promise<ProfileRow | null> {
   const where = buildWhereParams({ user: { equals: userId } });
   const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&limit=1&depth=0`);
@@ -526,7 +511,7 @@ export async function updateProfile(profileId: string, data: Record<string, unkn
 
 // --- User roles -----------------------------------------------------------------------
 
-export type AppRole = "municipality_admin" | "organizer" | "participant" | "prescriber";
+export type AppRole = "municipality_admin" | "participant" | "prescriber";
 
 type PayloadUserRole = { id: number; role: AppRole; municipality: number | { id: number } };
 
@@ -534,6 +519,17 @@ export async function getMyRoles(userId: string): Promise<AppRole[]> {
   const where = buildWhereParams({ user: { equals: userId } });
   const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`);
   return result.docs.map((r) => r.role);
+}
+
+/** The municipality this user administers (their "municipality_admin" user-role), if any.
+ * Distinct from their home municipality (profile.municipality_id) — a superadmin can grant
+ * municipality_admin for an obec the person doesn't personally live in. */
+export async function getMyAdministeredMunicipalityId(userId: string): Promise<string | null> {
+  const where = buildWhereParams({ user: { equals: userId }, role: { equals: "municipality_admin" } });
+  const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=1&depth=0`);
+  const row = result.docs[0];
+  if (!row) return null;
+  return String(typeof row.municipality === "object" ? row.municipality.id : row.municipality);
 }
 
 // --- Consents / notification preferences ------------------------------------------------
@@ -569,4 +565,45 @@ export async function setMarketingConsent(userId: string, enabled: boolean): Pro
   if (active) {
     await patch(`/consents/${active.id}`, { revokedAt: new Date().toISOString() });
   }
+}
+
+// --- Notifications --------------------------------------------------------------------
+
+export type NotificationRow = {
+  id: string;
+  title: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+};
+
+type PayloadNotification = {
+  id: number;
+  title: string;
+  message: string;
+  readAt?: string | null;
+  createdAt: string;
+};
+
+export async function getMyNotifications(userId: string): Promise<NotificationRow[]> {
+  const where = buildWhereParams({ user: { equals: userId } });
+  const query = buildQuery({ sort: "-createdAt", depth: 0, limit: 100 });
+  const result = await get<PayloadListResponse<PayloadNotification>>(`/notifications?${where}&${query}`);
+  return result.docs.map((n) => ({
+    id: String(n.id),
+    title: n.title,
+    message: n.message,
+    read: Boolean(n.readAt),
+    created_at: n.createdAt,
+  }));
+}
+
+export async function getUnreadNotificationCount(userId: string): Promise<number> {
+  const where = buildWhereParams({ user: { equals: userId }, readAt: { exists: false } });
+  const result = await get<PayloadListResponse<{ id: number }>>(`/notifications?${where}&depth=0&limit=0`);
+  return result.totalDocs;
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await patch(`/notifications/${notificationId}`, { readAt: new Date().toISOString() });
 }

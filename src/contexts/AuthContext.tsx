@@ -11,8 +11,8 @@ interface AuthContextValue {
   profile: ProfileRow | null;
   roles: AppRole[];
   loading: boolean;
+  isSuperAdmin: boolean;
   isAdmin: boolean;
-  isOrganizer: boolean;
   isPrescriber: boolean;
   signOut: () => void;
   refreshProfile: () => Promise<void>;
@@ -71,8 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profile,
         roles,
         loading,
+        // Platform-level flag (Users.role === 'admin'), distinct from the "isAdmin" /
+        // "municipality_admin" community role below — a superadmin creates municipalities
+        // and manages all users platform-wide, not just within one municipality.
+        isSuperAdmin: user?.role === "admin",
         isAdmin: roles.includes("municipality_admin"),
-        isOrganizer: roles.includes("organizer") || roles.includes("municipality_admin"),
         // Intervention/social-prescribing module isn't wired up in this backend yet.
         isPrescriber: false,
         signOut,

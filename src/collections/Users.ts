@@ -43,6 +43,20 @@ export const Users: CollectionConfig = {
     useAsTitle: 'email',
     defaultColumns: ['email', 'role', 'updatedAt'],
   },
+  access: {
+    // Real account creation always goes through /api/auth/register (overrideAccess: true).
+    // No client should ever be able to hit Payload's built-in REST create directly.
+    create: () => false,
+    read: ({ req: { user } }) => {
+      if (!user) return false
+      if (user.role === 'admin') return true
+      return { id: { equals: user.id } }
+    },
+    // Only a platform superadmin may change a user's role or otherwise edit their record —
+    // this is the one place `role` (platform admin vs. user) can be escalated.
+    update: ({ req: { user } }) => user?.role === 'admin',
+    delete: ({ req: { user } }) => user?.role === 'admin',
+  },
   auth: {
     tokenExpiration: 7200, // 2 hours
     verify: false, // Auth0 owns email verification (the `emailVerified` field on auth-identities).
