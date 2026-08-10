@@ -72,7 +72,7 @@ export default buildConfig({
   },
   db: postgresAdapter({
     pool: {
-      connectionString: process.env.DATABASE_URI || '',
+      connectionString: process.env.DATABASE_URI || process.env.DATABASE_URI_DATABASE_URL || '',
     },
     afterSchemaInit: [
       ({ schema, extendTable }) => {
