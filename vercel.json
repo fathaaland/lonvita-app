@@ -1,5 +1,5 @@
 {
   "framework": "nextjs",
-  "buildCommand": "pnpm run build",
+  "buildCommand": "pnpm payload migrate && pnpm run build",
   "installCommand": "pnpm install"
 }
