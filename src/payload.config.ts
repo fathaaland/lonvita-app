@@ -26,11 +26,15 @@ import { Consents } from './collections/Consents'
 import { AuditLog } from './collections/AuditLog'
 import { Notifications } from './collections/Notifications'
 import { s3ClientConfig } from './lib/s3/client'
+import { runSeed } from './lib/seed/run'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
+  onInit: async (payload) => {
+    await runSeed(payload)
+  },
   admin: {
     user: Users.slug,
     importMap: {
