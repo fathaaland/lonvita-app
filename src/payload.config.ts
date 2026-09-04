@@ -25,6 +25,9 @@ import { MunicipalityAreas } from './collections/MunicipalityAreas'
 import { Consents } from './collections/Consents'
 import { AuditLog } from './collections/AuditLog'
 import { Notifications } from './collections/Notifications'
+import { Organizations } from './collections/Organizations'
+import { OrganizerRequests } from './collections/OrganizerRequests'
+import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests'
 import { s3ClientConfig } from './lib/s3/client'
 import { runSeed } from './lib/seed/run'
 
@@ -60,6 +63,9 @@ export default buildConfig({
     Consents,
     AuditLog,
     Notifications,
+    Organizations,
+    OrganizerRequests,
+    VolunteerFlagRequests,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

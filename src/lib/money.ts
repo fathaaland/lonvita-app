@@ -1,29 +1,8 @@
-import { loadStripe, type Stripe } from "@stripe/stripe-js";
-
-const clientToken = process.env.NEXT_PUBLIC_PAYMENTS_CLIENT_TOKEN;
-const environment: "sandbox" | "live" = clientToken?.startsWith("pk_test_") ? "sandbox" : "live";
-
-let stripePromise: Promise<Stripe | null> | null = null;
-
-export function getStripe(): Promise<Stripe | null> {
-  if (!stripePromise) {
-    if (!clientToken) throw new Error("NEXT_PUBLIC_PAYMENTS_CLIENT_TOKEN není nastaven.");
-    stripePromise = loadStripe(clientToken);
-  }
-  return stripePromise;
-}
-
-export function getStripeEnvironment() {
-  return environment;
-}
-
 /** Cena v haléřích → "150 Kč" */
 export function formatCzk(cents: number | null | undefined): string {
   if (cents == null) return "";
   return `${Math.round(cents / 100).toLocaleString("cs-CZ")} Kč`;
 }
-
-export const PLATFORM_FEE = 0.05;
 
 export const CANCELLATION_LABEL: Record<string, string> = {
   none: "Bez možnosti vrácení",

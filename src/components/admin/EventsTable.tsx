@@ -90,7 +90,7 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
         <div className="space-y-2">
           {filtered.map((e) => {
             const a = approved.filter((r) => r.event_id === e.id).length;
-            const cat = cats.get(e.category_id ?? "");
+            const eventCats = e.category_ids.map((id) => cats.get(id)).filter((c): c is CategoryRow => Boolean(c));
             const fill = e.capacity ? Math.round((a / e.capacity) * 100) : 0;
             return (
               <Card
@@ -103,15 +103,16 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                     <p className="font-bold text-sm truncate">{e.title}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                       <span>{formatEventDate(e.date_time)}</span>
-                      {cat && (
+                      {eventCats.map((cat) => (
                         <Badge
+                          key={cat.id}
                           variant="secondary"
                           className="h-5 text-[10px] px-1.5"
                           style={{ backgroundColor: `${cat.color}20`, color: cat.color }}
                         >
                           {cat.name}
                         </Badge>
-                      )}
+                      ))}
                       <span className="truncate">· {profs.get(e.organizer_id) ?? ""}</span>
                     </div>
                   </div>

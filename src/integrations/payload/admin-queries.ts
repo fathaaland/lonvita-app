@@ -21,7 +21,7 @@ type PayloadEventAdmin = {
   dateTime: string;
   capacity: number;
   status: string;
-  category?: number | { id: number } | null;
+  categories?: (number | { id: number })[] | null;
   organizer?: number | { id: number } | null;
   createdAt: string;
   isPaid?: boolean;
@@ -39,7 +39,7 @@ export async function getMunicipalityEventsForAdmin(municipalityId: string): Pro
     date_time: e.dateTime,
     capacity: e.capacity,
     status: e.status,
-    category_id: toId(e.category),
+    category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
     organizer_id: toId(e.organizer) ?? "",
     created_at: e.createdAt,
     is_paid: e.isPaid,
@@ -54,8 +54,6 @@ type PayloadRegistrationAdmin = {
   user: number | { id: number };
   status: string;
   createdAt: string;
-  paymentStatus?: string;
-  amountPaidCents?: number | null;
   attendanceStatus?: string;
 };
 
@@ -70,8 +68,6 @@ export async function getRegistrationsForEventIds(eventIds: string[]): Promise<R
     user_id: toId(r.user)!,
     status: r.status,
     created_at: r.createdAt,
-    payment_status: r.paymentStatus,
-    amount_paid_cents: r.amountPaidCents ?? null,
     attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
   }));
 }
@@ -103,4 +99,101 @@ export async function getMunicipalityProfilesForAdmin(municipalityId: string): P
  * Access-controlled to platform superadmins and the event's own municipality admin. */
 export async function deleteEvent(eventId: string): Promise<void> {
   await patch(`/events/${eventId}`, { deletedAt: new Date().toISOString(), status: "cancelled" });
+}
+
+// --- Žádosti: role organizátora + příznak Dobrovolnictví ---------------------------------
+
+export type OrganizerRequestAdminRow = {
+  id: string;
+  user_id: string;
+  full_name: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+};
+
+type PayloadOrganizerRequestAdmin = { id: number; user: number | { id: number }; status: string; createdAt: string };
+
+export async function getOrganizerRequestsForAdmin(municipalityId: string): Promise<OrganizerRequestAdminRow[]> {
+  const where = buildWhereParams({ municipality: { equals: municipalityId }, status: { equals: "pending" } });
+  const query = buildQuery({ depth: 0, sort: "createdAt", limit: 200 });
+  const result = await get<PayloadListResponse<PayloadOrganizerRequestAdmin>>(`/organizer-requests?${where}&${query}`);
+
+  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
+  const nameById = new Map<string, string>();
+  if (userIds.length) {
+    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${profileWhere}&depth=0&limit=500`,
+    );
+    for (const p of profiles.docs) {
+      const uid = toId(p.user);
+      if (uid) nameById.set(uid, p.fullName);
+    }
+  }
+
+  return result.docs.map((r) => ({
+    id: String(r.id),
+    user_id: toId(r.user)!,
+    full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
+    status: r.status as OrganizerRequestAdminRow["status"],
+    created_at: r.createdAt,
+  }));
+}
+
+export async function decideOrganizerRequest(requestId: string, approve: boolean): Promise<void> {
+  await patch(`/organizer-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
+}
+
+export type VolunteerFlagRequestAdminRow = {
+  id: string;
+  event_id: string;
+  event_title: string;
+  requested_by_name: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+};
+
+type PayloadVolunteerFlagRequestAdmin = {
+  id: number;
+  event: number | { id: number; title?: string };
+  requestedBy: number | { id: number };
+  status: string;
+  createdAt: string;
+};
+
+/** Pending volunteering-flag requests for events in this municipality — filtered client-side
+ * by event.municipality since the collection has no direct municipality field of its own. */
+export async function getVolunteerFlagRequestsForAdmin(municipalityId: string): Promise<VolunteerFlagRequestAdminRow[]> {
+  const query = buildQuery({ depth: 1, sort: "createdAt", limit: 200 });
+  const where = buildWhereParams({ status: { equals: "pending" } });
+  const result = await get<PayloadListResponse<PayloadVolunteerFlagRequestAdmin & { event: { id: number; title: string; municipality: number | { id: number } } }>>(
+    `/volunteer-flag-requests?${where}&${query}`,
+  );
+  const filtered = result.docs.filter((r) => toId(r.event?.municipality) === municipalityId);
+
+  const userIds = Array.from(new Set(filtered.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
+  const nameById = new Map<string, string>();
+  if (userIds.length) {
+    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${profileWhere}&depth=0&limit=500`,
+    );
+    for (const p of profiles.docs) {
+      const uid = toId(p.user);
+      if (uid) nameById.set(uid, p.fullName);
+    }
+  }
+
+  return filtered.map((r) => ({
+    id: String(r.id),
+    event_id: toId(r.event)!,
+    event_title: r.event.title,
+    requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
+    status: r.status as VolunteerFlagRequestAdminRow["status"],
+    created_at: r.createdAt,
+  }));
+}
+
+export async function decideVolunteerFlagRequest(requestId: string, approve: boolean): Promise<void> {
+  await patch(`/volunteer-flag-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
 }

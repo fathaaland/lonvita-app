@@ -14,13 +14,14 @@ export interface EventCardData {
   capacity: number;
   image_url: string | null;
   registrations_count?: number;
-  category?: { name: string; icon: string; color: string } | null;
+  categories?: { id: string; name: string; icon: string; color: string }[];
   is_paid?: boolean;
   price_cents?: number | null;
 }
 
 export function EventCard({ event, className }: { event: EventCardData; className?: string }) {
-  const Icon = getCategoryIcon(event.category?.icon);
+  const primaryCategory = event.categories?.[0];
+  const Icon = getCategoryIcon(primaryCategory?.icon);
   const free = Math.max(0, event.capacity - (event.registrations_count ?? 0));
   const priceCzk = event.is_paid && event.price_cents ? Math.round(event.price_cents / 100) : 0;
 
@@ -54,10 +55,10 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
       </div>
 
       <div className="p-4 space-y-2">
-        {event.category && (
-          <div className="eyebrow">
+        {event.categories && event.categories.length > 0 && (
+          <div className="eyebrow flex items-center gap-1 flex-wrap">
             <Icon className="h-3 w-3" />
-            {event.category.name}
+            {event.categories.map((c) => c.name).join(", ")}
           </div>
         )}
         <h3 className="font-display text-xl leading-snug line-clamp-2">{event.title}</h3>

@@ -13,6 +13,7 @@ interface AuthContextValue {
   loading: boolean;
   isSuperAdmin: boolean;
   isAdmin: boolean;
+  isOrganizer: boolean;
   isPrescriber: boolean;
   signOut: () => void;
   refreshProfile: () => Promise<void>;
@@ -76,6 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // and manages all users platform-wide, not just within one municipality.
         isSuperAdmin: user?.role === "admin",
         isAdmin: roles.includes("municipality_admin"),
+        // A municipality admin can always do everything an organizer can, on top of their
+        // own municipality-wide powers (brief §4 "Admin obce sám o příznak žádat nemusí").
+        isOrganizer: roles.includes("organizer") || roles.includes("municipality_admin"),
         // Intervention/social-prescribing module isn't wired up in this backend yet.
         isPrescriber: false,
         signOut,

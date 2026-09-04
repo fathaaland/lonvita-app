@@ -38,6 +38,8 @@ export async function listMunicipalitiesForSuperAdmin(): Promise<MunicipalityRow
 export async function createMunicipality(input: {
   name: string;
   description?: string;
+  lat: number;
+  lng: number;
 }): Promise<MunicipalityRow> {
   const doc = await post<PayloadMunicipality>("/municipalities", input);
   return {

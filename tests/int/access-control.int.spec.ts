@@ -26,12 +26,12 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
 
     municipalityA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni A ${STAMP}` },
+      data: { name: `Test Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
       overrideAccess: true,
     })
     municipalityB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni B ${STAMP}` },
+      data: { name: `Test Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
       overrideAccess: true,
     })
 
@@ -61,11 +61,14 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
       title: `Test Event ${STAMP}`,
       dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       locationText: 'Test location',
+      lat: 49.5661,
+      lng: 15.9403,
       capacity: 10,
       organizer: plainUserA.id,
-      category: category.id,
+      categories: [category.id],
       status: 'active' as const,
       isPaid: false,
+      registrationApprovalMode: 'manual' as const,
       cancellationPolicy: 'none' as const,
     }
     eventInA = await payload.create({

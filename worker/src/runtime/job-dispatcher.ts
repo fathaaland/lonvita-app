@@ -2,6 +2,7 @@ import { JOB_NAMES } from '@/lib/queue/contracts'
 
 import { processEmailJob } from '../processors/email.processor'
 import { processNotificationJob } from '../processors/notification.processor'
+import { processSmsJob } from '../processors/sms.processor'
 
 import type { EmailJobResult, QueueJobEnvelope } from '@/lib/queue/contracts'
 
@@ -22,6 +23,9 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.PUSH_NOTIFICATION:
       return processNotificationJob(job.payload, context)
+
+    case JOB_NAMES.SEND_SMS:
+      return processSmsJob(job.payload, context)
 
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)

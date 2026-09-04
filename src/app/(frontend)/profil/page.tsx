@@ -15,14 +15,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useFontSize } from "@/contexts/FontSizeContext";
-import { LogOut, Type, Settings, ArrowLeft, Mail, ShieldCheck } from "lucide-react";
+import { LogOut, Type, Settings, ArrowLeft, Mail, ShieldCheck, Megaphone } from "lucide-react";
 import { toast } from "sonner";
-import { PayoutIbanCard } from "@/components/PayoutIbanCard";
 import { VolunteerCard } from "@/components/VolunteerCard";
+import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
+import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 
 function ProfileContent() {
   const router = useRouter();
-  const { user, profile, isSuperAdmin, isAdmin, signOut } = useAuth();
+  const { user, profile, isSuperAdmin, isAdmin, isOrganizer, signOut } = useAuth();
   const { size, setSize } = useFontSize();
   const [stats, setStats] = useState({ upcoming: 0, attended: 0, volunteerHours: 0 });
   const [marketingConsent, setMarketingConsentState] = useState(false);
@@ -59,7 +60,7 @@ function ProfileContent() {
     })();
   }, [user]);
 
-  const roleLabel = isSuperAdmin ? "Superadmin" : isAdmin ? "Admin obce" : "Účastník";
+  const roleLabel = isSuperAdmin ? "Superadmin" : isAdmin ? "Admin obce" : isOrganizer ? "Organizátor" : "Účastník";
   const initials = (profile?.full_name ?? "?").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 
   const handleSignOut = () => {
@@ -113,6 +114,8 @@ function ProfileContent() {
           </CardContent>
         </Card>
 
+        <NotificationPreferencesCard />
+
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-3">
@@ -123,7 +126,7 @@ function ProfileContent() {
                     Novinky a tipy na akce e-mailem
                   </Label>
                   <p className="text-sm text-muted-foreground mt-0.5">
-                    Potvrzení o přihláškách dostáváte vždy — tohle je jen navíc.
+                    Doplňkové tipy navíc — nezávisle na notifikacích výše.
                   </p>
                 </div>
               </div>
@@ -137,9 +140,14 @@ function ProfileContent() {
           </CardContent>
         </Card>
 
-        {isAdmin && <PayoutIbanCard />}
-
+        {!isAdmin && <OrganizerRequestCard />}
         {!isAdmin && <VolunteerCard />}
+
+        {isOrganizer && !isAdmin && (
+          <Button asChild variant="outline" className="w-full h-14 text-base">
+            <Link href="/organizator"><Megaphone className="h-5 w-5" /> Moje organizace</Link>
+          </Button>
+        )}
 
         {isAdmin && (
           <Button asChild variant="outline" className="w-full h-14 text-base">

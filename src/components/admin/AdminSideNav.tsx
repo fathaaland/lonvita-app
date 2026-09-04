@@ -4,16 +4,18 @@ import { cn } from "@/lib/utils";
 import {
   BarChart3,
   CalendarRange,
-  Wallet,
   HandHeart,
+  ClipboardList,
+  Settings,
   LucideIcon,
 } from "lucide-react";
 
 export const ADMIN_NAV: { value: string; label: string; icon: LucideIcon }[] = [
   { value: "overview", label: "Přehled", icon: BarChart3 },
   { value: "events", label: "Akce", icon: CalendarRange },
-  { value: "finance", label: "Finance", icon: Wallet },
   { value: "volunteers", label: "Dobrovolníci", icon: HandHeart },
+  { value: "requests", label: "Žádosti", icon: ClipboardList },
+  { value: "settings", label: "Nastavení", icon: Settings },
 ];
 
 interface Props {

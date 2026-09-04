@@ -14,7 +14,7 @@ import { Bell, LogOut } from "lucide-react";
  * a jen od breakpointu md nahoru. Na mobilu zůstává spodní BottomNav.
  */
 export function TopNav() {
-  const { user, isSuperAdmin, isAdmin, signOut } = useAuth();
+  const { user, isSuperAdmin, isAdmin, isOrganizer, signOut } = useAuth();
   const pathname = usePathname();
   const unreadCount = useUnreadNotificationCount();
 
@@ -25,7 +25,8 @@ export function TopNav() {
   const links: { to: string; label: string; end?: boolean }[] = [
     { to: "/", label: "Domů", end: true },
     { to: "/moje-akce", label: "Moje akce" },
-    ...(isAdmin ? [{ to: "/vytvorit", label: "Vytvořit" }, { to: "/admin-obce", label: "Přehled obce" }] : []),
+    ...(isOrganizer ? [{ to: "/vytvorit", label: "Vytvořit" }] : []),
+    ...(isAdmin ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
     { to: "/profil", label: "Profil" },
   ];
 

@@ -11,7 +11,7 @@ export interface EventRow {
   date_time: string;
   capacity: number;
   status: string;
-  category_id: string | null;
+  category_ids: string[];
   organizer_id: string;
   created_at: string;
   is_paid?: boolean;
@@ -25,8 +25,6 @@ export interface RegistrationRow {
   user_id: string;
   status: string;
   created_at: string;
-  payment_status?: string;
-  amount_paid_cents?: number | null;
   attendance_status?: "not_marked" | "attended" | "no_show" | "excused";
 }
 
@@ -410,7 +408,7 @@ export function byCategory(
   const approved = regs.filter((r) => r.status === "approved");
   return categories
     .map((c) => {
-      const evs = events.filter((e) => e.category_id === c.id);
+      const evs = events.filter((e) => e.category_ids.includes(c.id));
       const evIds = new Set(evs.map((e) => e.id));
       const cap = evs.reduce((s, e) => s + (e.capacity || 0), 0);
       const appr = approved.filter((r) => evIds.has(r.event_id)).length;
@@ -554,7 +552,7 @@ export function buildEventsCsv(
     return [
       e.title,
       new Date(e.date_time).toLocaleString("cs-CZ"),
-      cats.get(e.category_id ?? "") ?? "",
+      e.category_ids.map((id) => cats.get(id)).filter(Boolean).join(", "),
       profs.get(e.organizer_id) ?? "",
       String(e.capacity),
       String(a),
@@ -567,77 +565,4 @@ export function buildEventsCsv(
   return [header, ...rows].map((r) => r.map(escape).join(",")).join("\n");
 }
 
-/* ===== Ekonomika obce (placené akce) ===== */
-
-export const PLATFORM_FEE_RATE = 0.05;
-
-export interface EconomyStats {
-  paidEventsCount: number;
-  freeEventsCount: number;
-  grossCents: number;
-  feeCents: number;
-  netCents: number;
-  refundedCents: number;
-  paidRegistrations: number;
-  refundedRegistrations: number;
-}
-
-export interface PaidEventStat {
-  id: string;
-  title: string;
-  date_time: string;
-  priceCents: number;
-  paidCount: number;
-  grossCents: number;
-}
-
-export function computeEconomy(events: EventRow[], regs: RegistrationRow[]): EconomyStats {
-  const paidEvents = events.filter((e) => e.is_paid);
-  const paidEventIds = new Set(paidEvents.map((e) => e.id));
-  const paidRegs = regs.filter(
-    (r) => paidEventIds.has(r.event_id) && r.payment_status === "paid" && r.status !== "rejected",
-  );
-  const refundedRegs = regs.filter(
-    (r) => paidEventIds.has(r.event_id) && r.payment_status === "refunded",
-  );
-
-  const priceMap = new Map(paidEvents.map((e) => [e.id, e.price_cents ?? 0]));
-  const gross = paidRegs.reduce((s, r) => s + (r.amount_paid_cents ?? priceMap.get(r.event_id) ?? 0), 0);
-  const refunded = refundedRegs.reduce(
-    (s, r) => s + (r.amount_paid_cents ?? priceMap.get(r.event_id) ?? 0),
-    0,
-  );
-  const fee = Math.round(gross * PLATFORM_FEE_RATE);
-  return {
-    paidEventsCount: paidEvents.length,
-    freeEventsCount: events.length - paidEvents.length,
-    grossCents: gross,
-    feeCents: fee,
-    netCents: gross - fee,
-    refundedCents: refunded,
-    paidRegistrations: paidRegs.length,
-    refundedRegistrations: refundedRegs.length,
-  };
-}
-
-export function topPaidEvents(events: EventRow[], regs: RegistrationRow[], limit = 5): PaidEventStat[] {
-  const paidEvents = events.filter((e) => e.is_paid);
-  const paidRegs = regs.filter((r) => r.payment_status === "paid" && r.status !== "rejected");
-  return paidEvents
-    .map((e) => {
-      const evRegs = paidRegs.filter((r) => r.event_id === e.id);
-      const gross = evRegs.reduce((s, r) => s + (r.amount_paid_cents ?? e.price_cents ?? 0), 0);
-      return {
-        id: e.id,
-        title: e.title,
-        date_time: e.date_time,
-        priceCents: e.price_cents ?? 0,
-        paidCount: evRegs.length,
-        grossCents: gross,
-      };
-    })
-    .filter((s) => s.grossCents > 0)
-    .sort((a, b) => b.grossCents - a.grossCents)
-    .slice(0, limit);
-}
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   getEvent,
@@ -13,7 +13,6 @@ import {
   CategoryRow,
 } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
-import { RequireAuth } from "@/components/RequireAuth";
 import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -21,13 +20,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, CalendarPlus } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, CalendarPlus, Accessibility } from "lucide-react";
 import { formatEventDate, formatEventTime } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCzk } from "@/lib/stripe";
+import { formatCzk } from "@/lib/money";
 import { buildIcsEvent, downloadIcs } from "@/lib/ics";
 
-interface Reg { id: string; user_id: string; status: string; full_name: string; payment_status: string }
+interface Reg { id: string; user_id: string; status: string; full_name: string }
+
+const ACCESSIBILITY_LABELS: Record<string, string> = {
+  wheelchair_access: "Bezbariérový přístup",
+  induction_loop: "Indukční smyčka",
+  seating: "Možnost sezení",
+  accessible_wc: "WC pro invalidy",
+};
 
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
@@ -36,9 +42,10 @@ function initials(name: string) {
 function EventDetailContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const router = useRouter();
   const { user } = useAuth();
   const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
-  const [category, setCategory] = useState<CategoryRow | null>(null);
+  const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
   const [regs, setRegs] = useState<Reg[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,11 +66,11 @@ function EventDetailContent() {
     setEvent(ev);
 
     const [cats, orgName, regRows] = await Promise.all([
-      ev.category_id ? getEventCategories() : Promise.resolve([]),
+      ev.category_ids.length > 0 ? getEventCategories() : Promise.resolve([]),
       ev.organizer_id ? getOrganizerName(ev.organizer_id) : Promise.resolve(null),
       getEventRegistrationsWithNames(ev.id),
     ]);
-    setCategory(cats.find((c) => c.id === ev.category_id) ?? null);
+    setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
     setOrganizerName(orgName);
     setRegs(regRows);
     setLoading(false);
@@ -72,6 +79,19 @@ function EventDetailContent() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Brief §8 live "Přihlásit se"/"Akce je plná" button — re-pull the registration list
+  // (not just a bare count) whenever the server says the approved count changed, so the
+  // "kdo dále jde" avatar list and this viewer's own status stay in sync too. Deliberately
+  // doesn't touch `loading` — this is a quiet background refresh, not a page reload.
+  useEffect(() => {
+    if (!id) return;
+    const source = new EventSource(`/api/events/${id}/capacity-stream`);
+    source.onmessage = () => {
+      getEventRegistrationsWithNames(id).then(setRegs).catch(() => {});
+    };
+    return () => source.close();
   }, [id]);
 
   const myReg = regs.find((r) => r.user_id === String(user?.id));
@@ -87,7 +107,12 @@ function EventDetailContent() {
   const submittingRef = useRef(false);
 
   const handleJoinFree = async () => {
-    if (!event || !user || submittingRef.current) return;
+    if (!user) {
+      // The auth page doesn't support a return-redirect yet — just get them logged in.
+      router.push("/auth");
+      return;
+    }
+    if (!event || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
@@ -138,7 +163,7 @@ function EventDetailContent() {
     </div>
   );
 
-  const Icon = getCategoryIcon(category?.icon);
+  const Icon = getCategoryIcon(eventCategories[0]?.icon);
   const navUrl = event.lat && event.lng
     ? `https://www.google.com/maps/dir/?api=1&destination=${event.lat},${event.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location_text)}`;
@@ -164,8 +189,9 @@ function EventDetailContent() {
 
       <div className="px-4 py-5 space-y-5">
         <div className="flex items-center gap-2 flex-wrap">
-          {category && (
+          {eventCategories.map((category) => (
             <Badge
+              key={category.id}
               variant="outline"
               className="text-xs font-semibold gap-1 border-0"
               style={{ backgroundColor: `hsl(${category.color} / 0.15)`, color: `hsl(${category.color})` }}
@@ -173,7 +199,7 @@ function EventDetailContent() {
               <Icon className="h-3.5 w-3.5" />
               {category.name}
             </Badge>
-          )}
+          ))}
           {isPaidEvent ? (
             <Badge className="bg-accent text-accent-foreground gap-1">
               <Tag className="h-3 w-3" /> {formatCzk(event.price_cents)}
@@ -182,6 +208,11 @@ function EventDetailContent() {
             <Badge variant="outline" className="border-success/40 text-success">Zdarma</Badge>
           )}
         </div>
+        {isPaidEvent && (
+          <p className="text-sm text-muted-foreground -mt-3">
+            Platbu si domlouváte přímo s pořadatelem — aplikace platby nezpracovává.
+          </p>
+        )}
         <h1 className="text-2xl font-extrabold leading-tight">{event.title}</h1>
 
         <div className="space-y-3 bg-secondary rounded-2xl p-4">
@@ -189,7 +220,11 @@ function EventDetailContent() {
             <Calendar className="h-5 w-5 mt-0.5 text-primary shrink-0" />
             <div>
               <p className="font-semibold capitalize">{formatEventDate(event.date_time)}</p>
-              <p className="text-sm text-muted-foreground">začátek v {formatEventTime(event.date_time)}</p>
+              <p className="text-sm text-muted-foreground">
+                {event.end_date_time
+                  ? `${formatEventTime(event.date_time)} – ${formatEventDate(event.end_date_time)} ${formatEventTime(event.end_date_time)}`
+                  : `začátek v ${formatEventTime(event.date_time)}`}
+              </p>
             </div>
           </div>
           <div className="flex items-start gap-3">
@@ -211,6 +246,14 @@ function EventDetailContent() {
             <div className="flex items-start gap-3">
               <UserIcon className="h-5 w-5 mt-0.5 text-primary shrink-0" />
               <p className="font-semibold">Pořadatel: {organizerName}</p>
+            </div>
+          )}
+          {event.accessibility_tags.length > 0 && (
+            <div className="flex items-start gap-3">
+              <Accessibility className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+              <p className="font-semibold">
+                {event.accessibility_tags.map((t) => ACCESSIBILITY_LABELS[t] ?? t).join(", ")}
+              </p>
             </div>
           )}
         </div>
@@ -284,8 +327,6 @@ function EventDetailContent() {
           </div>
         ) : isFull ? (
           <Button disabled className="w-full h-14 text-base font-semibold">Akce je plná</Button>
-        ) : isPaidEvent ? (
-          <Button disabled className="w-full h-14 text-base font-semibold">Placené akce zatím nejsou podporovány</Button>
         ) : (
           <Button onClick={handleJoinFree} disabled={submitting} className="w-full h-14 text-base font-semibold">
             Přihlásit se
@@ -297,9 +338,5 @@ function EventDetailContent() {
 }
 
 export default function EventDetailPage() {
-  return (
-    <RequireAuth>
-      <EventDetailContent />
-    </RequireAuth>
-  );
+  return <EventDetailContent />;
 }

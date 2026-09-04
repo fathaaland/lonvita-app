@@ -50,6 +50,31 @@ export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: "DELETE" });
 }
 
+/** POST a file straight to a Payload upload collection (multipart — no Content-Type header
+ * of our own, so the browser sets the multipart boundary itself). Used for the event cover
+ * image (brief §4 "Nahrání fotografie k akci"). */
+export async function uploadFile<T>(collection: string, file: File, fields?: Record<string, string>): Promise<T> {
+  const form = new FormData();
+  form.append("file", file);
+  // Payload's REST upload convention: every non-file field goes into one "_payload" JSON
+  // string field, not as individual form fields (which it 400s on as "missing" instead).
+  if (fields && Object.keys(fields).length > 0) {
+    form.append("_payload", JSON.stringify(fields));
+  }
+
+  const res = await fetch(`${API_BASE}/${collection}`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message = body?.errors?.[0]?.message ?? `Upload failed with status ${res.status}`;
+    throw new PayloadApiError(message, res.status);
+  }
+  return res.json() as Promise<T>;
+}
+
 // --- Payload REST `where` query-string helper ---------------------------------------
 
 type WhereOp = "equals" | "not_equals" | "in" | "greater_than" | "less_than" | "exists";

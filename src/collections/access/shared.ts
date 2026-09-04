@@ -3,7 +3,7 @@ import type { Access } from 'payload'
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
 /** IDs of municipalities where this user holds a "municipality_admin" UserRole (municipality-level, not platform Users.role). */
-const getAdministeredMunicipalityIds = async (
+export const getAdministeredMunicipalityIds = async (
   payload: import('payload').Payload,
   userId: number,
 ): Promise<string[]> => {
@@ -35,3 +35,18 @@ export const isPlatformOrMunicipalityAdmin =
 
     return { [municipalityField]: { in: municipalityIds } }
   }
+
+/** IDs of municipalities where this user holds an "organizer" UserRole. */
+export const getOrganizerMunicipalityIds = async (
+  payload: import('payload').Payload,
+  userId: number,
+): Promise<string[]> => {
+  const result = await payload.find({
+    collection: 'user-roles',
+    where: { and: [{ user: { equals: userId } }, { role: { equals: 'organizer' } }] },
+    depth: 0,
+    limit: 200,
+    overrideAccess: true,
+  })
+  return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
+}

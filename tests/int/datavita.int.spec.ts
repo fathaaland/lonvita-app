@@ -15,7 +15,7 @@ function makeEvents(count: number, opts: { volunteering?: boolean; organizerCoun
     date_time: new Date(Date.now() - i * HOUR).toISOString(),
     capacity: 20,
     status: 'active',
-    category_id: null,
+    category_ids: [],
     organizer_id: `org${i % organizerCount}`,
     created_at: new Date().toISOString(),
     is_volunteering: opts.volunteering ?? false,

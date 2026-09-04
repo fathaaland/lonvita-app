@@ -3,22 +3,30 @@
  * already expect — snake_case field names, same nesting — so pages mostly only need their
  * data-fetching `useEffect` rewritten, not their JSX.
  */
-import { buildQuery, buildWhereParams, get, patch, post } from "./client";
+import { buildQuery, buildWhereParams, get, patch, post, uploadFile } from "./client";
 
 import type { PayloadListResponse } from "./client";
 
 // --- Municipalities ---------------------------------------------------------------------
 
+export type RulesForCreation = "municipality_only" | "anyone" | "approved_organizers";
+
 export type MunicipalityRow = {
   id: string;
   name: string;
   description: string | null;
+  lat: number;
+  lng: number;
+  rules_for_creation: RulesForCreation;
 };
 
 type PayloadMunicipality = {
   id: number;
   name: string;
   description?: string | null;
+  lat: number;
+  lng: number;
+  rulesForCreation?: RulesForCreation;
 };
 
 export async function getMunicipality(id: string): Promise<MunicipalityRow | null> {
@@ -28,16 +36,23 @@ export async function getMunicipality(id: string): Promise<MunicipalityRow | nul
       id: String(doc.id),
       name: doc.name,
       description: doc.description ?? null,
+      lat: doc.lat,
+      lng: doc.lng,
+      rules_for_creation: doc.rulesForCreation ?? "approved_organizers",
     };
   } catch {
     return null;
   }
 }
 
-export async function listMunicipalities(): Promise<Pick<MunicipalityRow, "id" | "name">[]> {
+export async function setMunicipalityRulesForCreation(municipalityId: string, rules: RulesForCreation): Promise<void> {
+  await patch(`/municipalities/${municipalityId}`, { rulesForCreation: rules });
+}
+
+export async function listMunicipalities(): Promise<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]> {
   const query = buildQuery({ sort: "name", limit: 200 });
   const result = await get<PayloadListResponse<PayloadMunicipality>>(`/municipalities?${query}`);
-  return result.docs.map((m) => ({ id: String(m.id), name: m.name }));
+  return result.docs.map((m) => ({ id: String(m.id), name: m.name, lat: m.lat, lng: m.lng }));
 }
 
 // --- Municipality areas (onboarding neighborhoods) --------------------------------------
@@ -90,6 +105,34 @@ export async function getEventCategories(): Promise<CategoryRow[]> {
   }));
 }
 
+// --- Organizations ------------------------------------------------------------------------
+
+export type OrganizationRow = { id: string; name: string };
+
+type PayloadOrganization = { id: number; name: string };
+
+/** The organizations this organizer manages (brief §4 "Organizace" — free text, no obec approval). */
+export async function getMyOrganizations(userId: string): Promise<OrganizationRow[]> {
+  const where = buildWhereParams({ owner: { equals: userId } });
+  const query = buildQuery({ sort: "name", limit: 200 });
+  const result = await get<PayloadListResponse<PayloadOrganization>>(`/organizations?${where}&${query}`);
+  return result.docs.map((o) => ({ id: String(o.id), name: o.name }));
+}
+
+export async function createOrganization(name: string, ownerId: string): Promise<OrganizationRow> {
+  const doc = await post<PayloadOrganization>("/organizations", { name, owner: Number(ownerId) });
+  return { id: String(doc.id), name: doc.name };
+}
+
+// --- Media (event cover image) -------------------------------------------------------------
+
+/** Uploads the event cover image (brief §4 — crop to a fixed aspect ratio happens server-side
+ * via Media.ts's `imageSizes`). Returns the media doc id to store on Events.image. */
+export async function uploadEventImage(file: File, alt: string): Promise<{ id: string; url: string | null }> {
+  const uploaded = await uploadFile<{ id: number; url?: string | null }>("media", file, { alt });
+  return { id: String(uploaded.id), url: uploaded.url ?? null };
+}
+
 // --- Events ---------------------------------------------------------------------------
 
 export type EventRow = {
@@ -97,13 +140,19 @@ export type EventRow = {
   title: string;
   description?: string;
   date_time: string;
+  end_date_time: string | null;
+  recurrence_rule: string | null;
   location_text: string;
   lat: number | null;
   lng: number | null;
+  accessibility_tags: string[];
   capacity: number;
+  registration_approval_mode: "auto" | "manual";
   image_url: string | null;
-  category_id: string | null;
+  category_ids: string[];
   organizer_id?: string;
+  organization_id: string | null;
+  co_organizer_ids: string[];
   municipality_id?: string;
   status?: "active" | "full" | "finished" | "cancelled";
   is_paid?: boolean;
@@ -118,13 +167,19 @@ type PayloadEvent = {
   title: string;
   description?: string | null;
   dateTime: string;
+  endDateTime?: string | null;
+  recurrenceRule?: string | null;
   locationText: string;
   lat?: number | null;
   lng?: number | null;
+  accessibilityTags?: string[] | null;
   capacity: number;
+  registrationApprovalMode?: "auto" | "manual";
   image?: number | PayloadMedia | null;
-  category?: number | { id: number } | null;
+  categories?: (number | { id: number })[] | null;
   organizer?: number | { id: number };
+  organization?: number | { id: number } | null;
+  coOrganizers?: (number | { id: number })[] | null;
   municipality?: number | { id: number };
   status?: EventRow["status"];
   isPaid?: boolean;
@@ -143,13 +198,19 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   title: e.title,
   description: e.description ?? undefined,
   date_time: e.dateTime,
+  end_date_time: e.endDateTime ?? null,
+  recurrence_rule: e.recurrenceRule ?? null,
   location_text: e.locationText,
   lat: e.lat ?? null,
   lng: e.lng ?? null,
+  accessibility_tags: e.accessibilityTags ?? [],
   capacity: e.capacity,
+  registration_approval_mode: e.registrationApprovalMode ?? "manual",
   image_url: typeof e.image === "object" && e.image ? (e.image.url ?? null) : null,
-  category_id: toId(e.category),
+  category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
   organizer_id: toId(e.organizer) ?? undefined,
+  organization_id: toId(e.organization),
+  co_organizer_ids: (e.coOrganizers ?? []).map(toId).filter((v): v is string => Boolean(v)),
   municipality_id: toId(e.municipality) ?? undefined,
   status: e.status,
   is_paid: e.isPaid,
@@ -171,8 +232,10 @@ export async function getUpcomingEvents(municipalityId: string): Promise<EventRo
 
 /** Events this user organizes (any status/date) — "Moje akce" needs these alongside their
  * registrations, since creating an event doesn't register the organizer as an attendee. */
+/** Events this user organizes OR co-organizes (brief §4 "Spolupořadatelství" — the event
+ * appears in every co-organizer's own dashboard, not just the primary organizer's). */
 export async function getMyOrganizedEvents(userId: string): Promise<EventRow[]> {
-  const where = buildWhereParams({ organizer: { equals: userId } });
+  const where = `where[or][0][organizer][equals]=${userId}&where[or][1][coOrganizers][contains]=${userId}`;
   const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 200 });
   const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
   return result.docs.map(mapEvent);
@@ -191,27 +254,45 @@ type CreateEventInput = {
   title: string;
   description: string;
   dateTimeIso: string;
+  endDateTimeIso?: string;
+  recurrenceRule?: string;
   locationText: string;
+  lat: number;
+  lng: number;
+  accessibilityTags?: string[];
   capacity: number;
+  registrationApprovalMode?: "auto" | "manual";
   organizerUserId: string;
   municipalityId: string;
-  categoryId: string;
+  organizationId?: string;
+  categoryIds: string[];
+  imageId?: string;
   isVolunteering?: boolean;
+  isPaid?: boolean;
+  priceCents?: number;
 };
 
-/** Paid events aren't supported yet (Stripe integration deferred) — always created free. */
 export async function createEvent(input: CreateEventInput): Promise<EventRow> {
   const doc = await post<PayloadEvent>("/events", {
     title: input.title,
     description: input.description,
     dateTime: input.dateTimeIso,
+    endDateTime: input.endDateTimeIso || undefined,
+    recurrenceRule: input.recurrenceRule || undefined,
     locationText: input.locationText,
+    lat: input.lat,
+    lng: input.lng,
+    accessibilityTags: input.accessibilityTags ?? [],
     capacity: input.capacity,
+    registrationApprovalMode: input.registrationApprovalMode ?? "manual",
     organizer: Number(input.organizerUserId),
     municipality: Number(input.municipalityId),
-    category: Number(input.categoryId),
+    organization: input.organizationId ? Number(input.organizationId) : undefined,
+    categories: input.categoryIds.map(Number),
+    image: input.imageId ? Number(input.imageId) : undefined,
     status: "active",
-    isPaid: false,
+    isPaid: input.isPaid ?? false,
+    priceCents: input.isPaid ? input.priceCents : undefined,
     isVolunteering: input.isVolunteering ?? false,
     cancellationPolicy: "cancel_48h",
   });
@@ -229,7 +310,7 @@ export type RegistrationRow = {
   id: string;
   event_id: string;
   user_id: string;
-  status: "pending_payment" | "pending" | "approved" | "rejected" | "cancelled";
+  status: "pending" | "approved" | "rejected" | "cancelled";
 };
 
 export type AttendanceStatus = "not_marked" | "attended" | "no_show" | "excused";
@@ -290,15 +371,16 @@ export async function updateRegistrationStatus(
   await patch(`/registrations/${registrationId}`, { status });
 }
 
-type PayloadEventWithCategory = PayloadEvent & { category?: number | { id: number; name: string; icon?: string | null; color?: string | null } | null };
+type PayloadCategoryPopulated = { id: number; name: string; icon?: string | null; color?: string | null };
+type PayloadEventWithCategory = PayloadEvent & { categories?: (number | PayloadCategoryPopulated)[] | null };
 type PayloadRegistrationWithEvent = { id: number; status: RegistrationRow["status"]; event: PayloadEventWithCategory | null };
 
 export type RegistrationWithEventRow = {
   status: RegistrationRow["status"];
-  events: (EventRow & { category: CategoryRow | null }) | null;
+  events: (EventRow & { categories: CategoryRow[] }) | null;
 };
 
-/** For MyEvents.tsx — this user's registrations, with the event (and its category) populated. */
+/** For MyEvents.tsx — this user's registrations, with the event (and its categories) populated. */
 export async function getMyRegistrationsWithEvents(userId: string): Promise<RegistrationWithEventRow[]> {
   const where = buildWhereParams({ user: { equals: userId } });
   const query = buildQuery({ depth: 2, limit: 200 });
@@ -309,24 +391,22 @@ export async function getMyRegistrationsWithEvents(userId: string): Promise<Regi
   return result.docs.map((r) => {
     if (!r.event || typeof r.event !== "object") return { status: r.status, events: null };
     const event = mapEvent(r.event);
-    const cat = r.event.category;
-    const category: CategoryRow | null =
-      cat && typeof cat === "object" && "name" in cat
-        ? { id: String(cat.id), name: cat.name, icon: cat.icon ?? "", color: cat.color ?? "" }
-        : null;
-    return { status: r.status, events: { ...event, category } };
+    const categories: CategoryRow[] = (r.event.categories ?? [])
+      .filter((c): c is PayloadCategoryPopulated => typeof c === "object" && "name" in c)
+      .map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
+    return { status: r.status, events: { ...event, categories } };
   });
 }
 
 /** For EventDetail.tsx — pending+approved registrations for one event, with each participant's name. */
 export async function getEventRegistrationsWithNames(
   eventId: string,
-): Promise<{ id: string; user_id: string; status: string; payment_status: string; full_name: string }[]> {
+): Promise<{ id: string; user_id: string; status: string; full_name: string }[]> {
   const where = buildWhereParams({
     event: { equals: eventId },
     status: { in: ["pending", "approved"] },
   });
-  const result = await get<PayloadListResponse<PayloadRegistration & { paymentStatus?: string }>>(
+  const result = await get<PayloadListResponse<PayloadRegistration>>(
     `/registrations?${where}&depth=0&limit=500`,
   );
 
@@ -347,7 +427,6 @@ export async function getEventRegistrationsWithNames(
     id: String(r.id),
     user_id: toId(r.user)!,
     status: r.status,
-    payment_status: r.paymentStatus ?? "none",
     full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
   }));
 }
@@ -420,8 +499,10 @@ export type ProfileRow = {
   id: string;
   full_name: string;
   phone: string | null;
+  phone_verified: boolean;
+  notify_email: boolean;
+  notify_in_app: boolean;
   municipality_id: string | null;
-  payout_iban: string | null;
   onboarding_completed: boolean;
   date_of_birth: string | null;
   home_area_id: string | null;
@@ -438,8 +519,10 @@ type PayloadProfile = {
   user: number | { id: number };
   fullName: string;
   phone?: string | null;
+  phoneVerified?: boolean;
+  notifyEmail?: boolean;
+  notifyInApp?: boolean;
   municipality?: number | { id: number } | null;
-  payoutIban?: string | null;
   onboardingCompleted?: boolean;
   dateOfBirth?: string | null;
   homeArea?: number | { id: number } | null;
@@ -455,8 +538,10 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   id: String(p.id),
   full_name: p.fullName,
   phone: p.phone ?? null,
+  phone_verified: Boolean(p.phoneVerified),
+  notify_email: p.notifyEmail ?? true,
+  notify_in_app: p.notifyInApp ?? true,
   municipality_id: toId(p.municipality),
-  payout_iban: p.payoutIban ?? null,
   onboarding_completed: Boolean(p.onboardingCompleted),
   date_of_birth: p.dateOfBirth ?? null,
   home_area_id: toId(p.homeArea),
@@ -511,7 +596,7 @@ export async function updateProfile(profileId: string, data: Record<string, unkn
 
 // --- User roles -----------------------------------------------------------------------
 
-export type AppRole = "municipality_admin" | "participant" | "prescriber";
+export type AppRole = "municipality_admin" | "organizer" | "participant" | "prescriber";
 
 type PayloadUserRole = { id: number; role: AppRole; municipality: number | { id: number } };
 
@@ -530,6 +615,33 @@ export async function getMyAdministeredMunicipalityId(userId: string): Promise<s
   const row = result.docs[0];
   if (!row) return null;
   return String(typeof row.municipality === "object" ? row.municipality.id : row.municipality);
+}
+
+// --- Organizer / volunteering-flag requests ----------------------------------------------
+
+export type RequestStatus = "pending" | "approved" | "rejected";
+
+type PayloadOrganizerRequest = { id: number; status: RequestStatus; municipality: number | { id: number } };
+
+/** The organizer-role request(s) this user has made — for showing pending/approved/rejected
+ * status on their profile (brief §3 "Upozornění jde uživateli v obou případech"). */
+export async function getMyOrganizerRequests(userId: string): Promise<{ id: string; status: RequestStatus; municipality_id: string }[]> {
+  const where = buildWhereParams({ user: { equals: userId } });
+  const query = buildQuery({ sort: "-createdAt", depth: 0, limit: 50 });
+  const result = await get<PayloadListResponse<PayloadOrganizerRequest>>(`/organizer-requests?${where}&${query}`);
+  return result.docs.map((r) => ({
+    id: String(r.id),
+    status: r.status,
+    municipality_id: toId(r.municipality)!,
+  }));
+}
+
+export async function requestOrganizerRole(userId: string, municipalityId: string): Promise<void> {
+  await post("/organizer-requests", { user: Number(userId), municipality: Number(municipalityId) });
+}
+
+export async function requestVolunteerFlag(eventId: string, userId: string): Promise<void> {
+  await post("/volunteer-flag-requests", { event: Number(eventId), requestedBy: Number(userId) });
 }
 
 // --- Consents / notification preferences ------------------------------------------------

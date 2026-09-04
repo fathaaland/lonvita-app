@@ -37,6 +37,7 @@ function MyEventsContent() {
         getEventCategories(),
       ]);
       const catMap = new Map(categories.map((c) => [c.id, c]));
+      const catsFor = (ids: string[]) => ids.map((id) => catMap.get(id)).filter((c): c is typeof categories[number] => Boolean(c));
 
       // Merged by event id — an organizer who's also registered for their own event
       // (auto-approved, see Registrations.ts) should only show up once, as organizer.
@@ -51,7 +52,7 @@ function MyEventsContent() {
             location_text: ev.location_text,
             capacity: ev.capacity,
             image_url: ev.image_url,
-            category: ev.category_id ? catMap.get(ev.category_id) ?? null : null,
+            categories: catsFor(ev.category_ids),
           },
           isOrganizer: true,
           isPending: false,
@@ -68,7 +69,7 @@ function MyEventsContent() {
             location_text: r.events.location_text,
             capacity: r.events.capacity,
             image_url: r.events.image_url,
-            category: r.events.category,
+            categories: r.events.categories,
           },
           isOrganizer: false,
           isPending: r.status === "pending",

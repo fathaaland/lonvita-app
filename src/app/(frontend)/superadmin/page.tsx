@@ -28,6 +28,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
+import { LocationPicker } from "@/components/map/LocationPickerClient";
+import type { PickedLocation } from "@/components/map/LocationPicker";
+
+const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 const ROLE_LABEL: Record<string, string> = {
   participant: "Účastník",
@@ -46,6 +50,7 @@ function SuperAdminContent() {
   // Obce tab — new municipality form
   const [muniName, setMuniName] = useState("");
   const [muniDescription, setMuniDescription] = useState("");
+  const [muniLocation, setMuniLocation] = useState<PickedLocation | null>(null);
   const [creatingMuni, setCreatingMuni] = useState(false);
 
   // Uživatelé tab — new user form
@@ -60,7 +65,7 @@ function SuperAdminContent() {
   const [evDescription, setEvDescription] = useState("");
   const [evDate, setEvDate] = useState("");
   const [evTime, setEvTime] = useState("");
-  const [evLocation, setEvLocation] = useState("");
+  const [evLocation, setEvLocation] = useState<PickedLocation | null>(null);
   const [evCapacity, setEvCapacity] = useState("10");
   const [evCategoryId, setEvCategoryId] = useState("");
   const [evMuniId, setEvMuniId] = useState("");
@@ -95,15 +100,22 @@ function SuperAdminContent() {
       toast.error("Zadejte název obce.");
       return;
     }
+    if (!muniLocation) {
+      toast.error("Vyberte polohu obce na mapě.");
+      return;
+    }
     setCreatingMuni(true);
     try {
       await createMunicipality({
         name: muniName.trim(),
         description: muniDescription.trim() || undefined,
+        lat: muniLocation.lat,
+        lng: muniLocation.lng,
       });
       toast.success("Obec vytvořena.");
       setMuniName("");
       setMuniDescription("");
+      setMuniLocation(null);
       load();
     } catch {
       toast.error("Nepodařilo se vytvořit obec.");
@@ -145,8 +157,8 @@ function SuperAdminContent() {
 
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!evTitle.trim() || !evDescription.trim() || !evDate || !evTime || !evLocation.trim()) {
-      toast.error("Vyplňte všechna pole.");
+    if (!evTitle.trim() || !evDescription.trim() || !evDate || !evTime || !evLocation) {
+      toast.error("Vyplňte všechna pole a vyberte místo na mapě.");
       return;
     }
     if (!evCategoryId || !evMuniId || !evOrganizerId) {
@@ -160,18 +172,22 @@ function SuperAdminContent() {
         title: evTitle.trim(),
         description: evDescription.trim(),
         dateTimeIso: dt.toISOString(),
-        locationText: evLocation.trim(),
+        locationText: evLocation.label,
+        lat: evLocation.lat,
+        lng: evLocation.lng,
         capacity: Number(evCapacity),
         organizerUserId: evOrganizerId,
         municipalityId: evMuniId,
-        categoryId: evCategoryId,
+        // Superadmin picks one category here for now — multi-select is on the organizer-facing
+        // "vytvorit" form (brief §2); this internal ops form can catch up later.
+        categoryIds: [evCategoryId],
       });
       toast.success("Akce vytvořena.");
       setEvTitle("");
       setEvDescription("");
       setEvDate("");
       setEvTime("");
-      setEvLocation("");
+      setEvLocation(null);
       setEvCapacity("10");
       setEvCategoryId("");
       setEvMuniId("");
@@ -262,6 +278,12 @@ function SuperAdminContent() {
                       onChange={(e) => setMuniDescription(e.target.value)}
                       className="mt-1.5"
                     />
+                  </div>
+                  <div>
+                    <Label>Poloha na mapě *</Label>
+                    <div className="mt-1.5">
+                      <LocationPicker value={muniLocation} onChange={setMuniLocation} initialCenter={CZECHIA_CENTER} />
+                    </div>
                   </div>
                   <Button type="submit" disabled={creatingMuni} className="w-full h-11">
                     Vytvořit obec
@@ -394,8 +416,10 @@ function SuperAdminContent() {
                     </div>
                   </div>
                   <div>
-                    <Label htmlFor="ev-loc">Místo *</Label>
-                    <Input id="ev-loc" value={evLocation} onChange={(e) => setEvLocation(e.target.value)} className="h-11 mt-1.5" />
+                    <Label>Místo konání *</Label>
+                    <div className="mt-1.5">
+                      <LocationPicker value={evLocation} onChange={setEvLocation} initialCenter={CZECHIA_CENTER} />
+                    </div>
                   </div>
                   <div>
                     <Label htmlFor="ev-cap">Kapacita *</Label>

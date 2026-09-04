@@ -8,7 +8,7 @@ import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { cn } from "@/lib/utils";
 
 export function BottomNav() {
-  const { user, isSuperAdmin, isAdmin } = useAuth();
+  const { user, isSuperAdmin, isAdmin, isOrganizer } = useAuth();
   const pathname = usePathname();
   const unreadCount = useUnreadNotificationCount();
 
@@ -22,7 +22,8 @@ export function BottomNav() {
     : [
         { to: "/", icon: Home, label: "Domů" },
         { to: "/moje-akce", icon: CalendarHeart, label: "Moje akce" },
-        ...(isAdmin ? [{ to: "/vytvorit", icon: PlusCircle, label: "Vytvořit" }, { to: "/admin-obce", icon: Shield, label: "Obec" }] : []),
+        ...(isOrganizer ? [{ to: "/vytvorit", icon: PlusCircle, label: "Vytvořit" }] : []),
+        ...(isAdmin ? [{ to: "/admin-obce", icon: Shield, label: "Obec" }] : []),
         { to: "/oznameni", icon: Bell, label: "Oznámení", badge: unreadCount },
         { to: "/profil", icon: User, label: "Profil" },
       ];

@@ -23,6 +23,7 @@ export const EventCategories: CollectionConfig = {
       name: 'name',
       type: 'text',
       required: true,
+      unique: true,
       label: 'Category Name',
       admin: {
         description: 'e.g. Kultura, Příroda, Vzdělávání',

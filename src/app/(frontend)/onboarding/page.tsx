@@ -9,12 +9,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { toast } from "sonner";
 import { Loading } from "@/components/Loading";
 import { getCategoryIcon } from "@/lib/icons";
-import { ArrowRight, ArrowLeft, Check, MapPin } from "lucide-react";
+import { ArrowRight, ArrowLeft, Check, MapPin, Phone } from "lucide-react";
+
+const ONBOARDING_STEPS = 5;
+// Lenient Czech mobile format: optional +420/00420 prefix, then 9 digits (spaces allowed).
+const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
 type Category = { id: string; name: string; icon: string | null; color: string | null };
 
@@ -25,8 +29,9 @@ function OnboardingContent() {
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState<"zena" | "muz" | "jine" | "neuvedeno">("neuvedeno");
   const [interests, setInterests] = useState<string[]>([]);
+  const [phone, setPhone] = useState("");
   const [municipalityId, setMunicipalityId] = useState<string>("");
-  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name">[]>([]);
+  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -62,6 +67,7 @@ function OnboardingContent() {
         gender,
         interests: interests.map(Number),
         municipality: Number(municipalityId),
+        phone: phone.trim(),
         onboardingCompleted: true,
       });
       toast.success("Vítejte v Lonvitě!");
@@ -80,7 +86,8 @@ function OnboardingContent() {
     (step === 0 && !!dob) ||
     (step === 1 && gender !== "neuvedeno") ||
     (step === 2) ||
-    (step === 3 && !!municipalityId);
+    (step === 3 && !!municipalityId) ||
+    (step === 4 && PHONE_RE.test(phone.trim()));
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -88,7 +95,7 @@ function OnboardingContent() {
         <LonvitaLogo size="md" wordmark={false} />
         <div>
           <p className="text-xs text-muted-foreground">Pár krátkých otázek</p>
-          <p className="font-extrabold">Krok {step + 1} ze 4</p>
+          <p className="font-extrabold">Krok {step + 1} ze {ONBOARDING_STEPS}</p>
         </div>
       </div>
 
@@ -96,7 +103,7 @@ function OnboardingContent() {
         <div className="h-1.5 bg-muted rounded-full overflow-hidden mx-4">
           <div
             className="h-full bg-primary transition-all"
-            style={{ width: `${((step + 1) / 4) * 100}%` }}
+            style={{ width: `${((step + 1) / ONBOARDING_STEPS) * 100}%` }}
           />
         </div>
       </div>
@@ -197,19 +204,46 @@ function OnboardingContent() {
                     Vyberte obec, ve které bydlíte.
                   </p>
                 </div>
-                <Select value={municipalityId} onValueChange={setMunicipalityId}>
-                  <SelectTrigger className="h-12 text-base">
-                    <MapPin className="h-5 w-5 text-muted-foreground mr-1" />
-                    <SelectValue placeholder="Vyberte obec" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {municipalities.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <MunicipalitiesMap
+                  points={municipalities}
+                  selectedId={municipalityId}
+                  onSelect={setMunicipalityId}
+                  className="h-80 w-full rounded-2xl overflow-hidden border border-border"
+                />
+                {municipalityId && (
+                  <div className="flex items-center gap-1.5 text-sm font-semibold justify-center">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    {municipalities.find((m) => m.id === municipalityId)?.name}
+                  </div>
+                )}
+              </>
+            )}
+
+            {step === 4 && (
+              <>
+                <div>
+                  <h2 className="text-xl font-extrabold">Vaše telefonní číslo</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Na tohle číslo vám pošleme SMS, pokud se akce, na kterou jste přihlášeni, zruší nebo změní.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Telefon</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+420 601 234 567"
+                      className="h-12 text-base pl-9"
+                    />
+                  </div>
+                  {phone.trim().length > 0 && !PHONE_RE.test(phone.trim()) && (
+                    <p className="text-xs text-destructive">Zadejte prosím platné české telefonní číslo.</p>
+                  )}
+                </div>
               </>
             )}
           </CardContent>
@@ -225,7 +259,7 @@ function OnboardingContent() {
         >
           <ArrowLeft className="h-4 w-4" /> Zpět
         </Button>
-        {step < 3 ? (
+        {step < ONBOARDING_STEPS - 1 ? (
           <Button className="h-12" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
             Pokračovat <ArrowRight className="h-4 w-4" />
           </Button>

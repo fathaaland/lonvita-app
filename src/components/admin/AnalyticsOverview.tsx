@@ -31,14 +31,9 @@ import {
   Award,
   Sparkles,
   Download,
-  Wallet,
-  Banknote,
-  Receipt,
-  Undo2,
 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatEventDate } from "@/lib/date";
-import { formatCzk } from "@/lib/stripe";
 import {
   Period,
   EventRow,
@@ -58,8 +53,6 @@ import {
   regStatusBreakdown,
   fillBuckets,
   buildEventsCsv,
-  computeEconomy,
-  topPaidEvents,
   datavitaSeries,
   datavitaTrend,
   DATAVITA_MIN_PARTICIPANTS,
@@ -102,8 +95,6 @@ export function AnalyticsOverview({
   const top = useMemo(() => topEvents(evF, regF, 5), [evF, regF]);
   const rs = useMemo(() => regStatusBreakdown(regF), [regF]);
   const fill = useMemo(() => fillBuckets(evF, regF), [evF, regF]);
-  const economy = useMemo(() => computeEconomy(evF, regF), [evF, regF]);
-  const topPaid = useMemo(() => topPaidEvents(evF, regF, 5), [evF, regF]);
   const dvSeries = useMemo(() => datavitaSeries(events, registrations, profiles, 26), [events, registrations, profiles]);
   const dvTrend = useMemo(() => datavitaTrend(dvSeries), [dvSeries]);
 
@@ -433,9 +424,6 @@ export function AnalyticsOverview({
           </CardContent>
         </Card>
       </div>
-
-      {/* Ekonomika obce byla přesunuta do samostatné záložky Finance */}
-
 
       {/* Naplněnost */}
       {pieFill.length > 0 && (

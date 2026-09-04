@@ -1,7 +1,5 @@
 import type { Payload } from 'payload'
 
-const MUNICIPALITY_NAME = 'Demo obec'
-
 const CATEGORIES = [
   { name: 'Sport', icon: 'Dumbbell', color: '#F97316' },
   { name: 'Kultura', icon: 'Music', color: '#8B5CF6' },
@@ -53,21 +51,6 @@ async function seedUser(
 }
 
 export async function runSeed(payload: Payload) {
-  payload.logger.info('Seeding municipality…')
-  const existingMuni = await payload.find({
-    collection: 'municipalities',
-    where: { name: { equals: MUNICIPALITY_NAME } },
-    limit: 1,
-    overrideAccess: true,
-  })
-  if (!existingMuni.docs[0]) {
-    await payload.create({
-      collection: 'municipalities',
-      data: { name: MUNICIPALITY_NAME },
-      overrideAccess: true,
-    })
-  }
-
   payload.logger.info('Seeding event categories…')
   for (const cat of CATEGORIES) {
     const existing = await payload.find({

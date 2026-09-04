@@ -82,6 +82,9 @@ export interface Config {
     consents: Consent;
     'audit-log': AuditLog;
     notifications: Notification;
+    organizations: Organization;
+    'organizer-requests': OrganizerRequest;
+    'volunteer-flag-requests': VolunteerFlagRequest;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -104,6 +107,9 @@ export interface Config {
     consents: ConsentsSelect<false> | ConsentsSelect<true>;
     'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
     notifications: NotificationsSelect<false> | NotificationsSelect<true>;
+    organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
+    'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
+    'volunteer-flag-requests': VolunteerFlagRequestsSelect<false> | VolunteerFlagRequestsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -187,9 +193,22 @@ export interface Municipality {
   name: string;
   description?: string | null;
   /**
+   * Brief §4 "poloha je mandatory field" — plots this obec on the municipality-switcher map (brief §4/§7 "mapka jako v Projects/eduard-app").
+   */
+  lat: number;
+  lng: number;
+  /**
    * The user who administers this municipality.
    */
   adminUser?: (number | null) | User;
+  /**
+   * Maximální vzdálenost (km) mezi středem obce (lat/lng výše) a místem konání akce. Akce mimo tento okruh nejde založit ani upravit — brání přiřazení akce z jiného města k této obci.
+   */
+  eventRadiusKm: number;
+  /**
+   * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting.
+   */
+  rulesForCreation: 'municipality_only' | 'anyone' | 'approved_organizers';
   updatedAt: string;
   createdAt: string;
 }
@@ -212,6 +231,16 @@ export interface Media {
   height?: number | null;
   focalX?: number | null;
   focalY?: number | null;
+  sizes?: {
+    card?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
+  };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -249,11 +278,19 @@ export interface Profile {
    * The user's home municipality.
    */
   municipality: number | Municipality;
-  /**
-   * Organizer payout account. Only visible/editable by the profile owner.
-   */
-  payoutIban?: string | null;
   phone?: string | null;
+  /**
+   * Brief §8 "přidání a ověření tel. čísla pro GoSMS" — set once an OTP sent to `phone` is confirmed.
+   */
+  phoneVerified?: boolean | null;
+  /**
+   * Brief §7 "Preferovaný kanál notifikací... e-mail defaultně."
+   */
+  notifyEmail?: boolean | null;
+  /**
+   * Brief §7 "...aplikace volitelně."
+   */
+  notifyInApp?: boolean | null;
   dateOfBirth?: string | null;
   gender?: ('zena' | 'muz' | 'jine' | 'neuvedeno') | null;
   interests?: (number | EventCategory)[] | null;
@@ -305,9 +342,9 @@ export interface UserRole {
    */
   municipality: number | Municipality;
   /**
-   * Enum matches ERD §0.2 pilot roles. "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
+   * Enum matches ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren't tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
    */
-  role: 'participant' | 'municipality_admin' | 'prescriber';
+  role: 'participant' | 'municipality_admin' | 'organizer' | 'prescriber';
   updatedAt: string;
   createdAt: string;
 }
@@ -321,16 +358,53 @@ export interface Event {
   description?: string | null;
   municipality: number | Municipality;
   dateTime: string;
+  /**
+   * Brief §4 "Datum jako rozsah" — an event can span more than one day. Leave empty for a single-day event.
+   */
+  endDateTime?: string | null;
+  /**
+   * Brief §4 "Opakující se série" (e.g. "weekly:tuesday") — a simple machine-readable rule set on the first occurrence only. Combines with endDateTime for a multi-day recurring series. Occurrence generation is a separate, later piece; this field just records the intent.
+   */
+  recurrenceRule?: string | null;
+  /**
+   * Set on a generated occurrence, pointing back at the event that defines recurrenceRule.
+   */
+  recurrenceParent?: (number | null) | Event;
+  /**
+   * Human-readable label for the picked location (from the map picker's search result, editable).
+   */
   locationText: string;
-  lat?: number | null;
-  lng?: number | null;
+  /**
+   * Brief §12 "ROZHODNĚ NE NAPSAT LOKACI" — set via the map picker, never typed freehand.
+   */
+  lat: number;
+  lng: number;
+  /**
+   * Brief §4/§6 "Tag přístupnosti místa konání" — set by the organizer, shown to participants on the event.
+   */
+  accessibilityTags?: ('wheelchair_access' | 'induction_loop' | 'seating' | 'accessible_wc')[] | null;
   capacity: number;
   /**
-   * The user organizing this event.
+   * Brief §4 "Přihlašování účastníků" — chosen per event by the organizer. "auto" also gates the server-side capacity check on Registrations.
+   */
+  registrationApprovalMode: 'auto' | 'manual';
+  /**
+   * The user organizing this event. Additional organizers: see coOrganizers below.
    */
   organizer: number | User;
+  /**
+   * Brief §4 "Organizace" — which of the organizer's organizations this event is published under. Empty = published under their personal name.
+   */
+  organization?: (number | null) | Organization;
+  /**
+   * Brief §4 "Spolupořadatelství" — additional organizers (e.g. two organizations running an event together). The event appears in each co-organizer's own dashboard/"moje akce" alongside the primary organizer.
+   */
+  coOrganizers?: (number | User)[] | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
-  category: number | EventCategory;
+  /**
+   * Brief §2 "Jedna akce může mít víc kategorií zároveň" — one or more categories. Filtering by a category matches any event that has it among its categories.
+   */
+  categories: (number | EventCategory)[];
   /**
    * Cover image shown in event listings.
    */
@@ -341,12 +415,33 @@ export interface Event {
   isVolunteering?: boolean | null;
   isPaid?: boolean | null;
   /**
-   * Price in the smallest currency unit (e.g. haléře), used with Stripe.
+   * Price in the smallest currency unit (e.g. haléře). Informational only — the app does not process payment; the organizer handles it outside the app (brief §4).
    */
   priceCents?: number | null;
   cancellationPolicy: 'none' | 'cancel_24h' | 'cancel_48h' | 'cancel_7d';
   /**
    * Soft-delete marker — preserves attendance history when an event is removed.
+   */
+  deletedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizations".
+ */
+export interface Organization {
+  id: number;
+  /**
+   * Free text, no obec approval needed — the organizer manages their own list in their profile.
+   */
+  name: string;
+  /**
+   * The organizer who added this organization.
+   */
+  owner: number | User;
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
   deletedAt?: string | null;
   updatedAt: string;
@@ -363,7 +458,7 @@ export interface Registration {
   /**
    * "Smí přijít" — whether the registration itself is allowed, not whether they attended.
    */
-  status: 'pending_payment' | 'pending' | 'approved' | 'rejected' | 'cancelled';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   /**
    * What actually happened — set by the organizer after the event, on the manage-event page.
    */
@@ -374,11 +469,6 @@ export interface Registration {
    */
   attendanceMarkedBy?: (number | null) | User;
   attendanceNote?: string | null;
-  paymentStatus: 'none' | 'paid' | 'refunded' | 'failed';
-  stripeSessionId?: string | null;
-  stripePaymentIntentId?: string | null;
-  amountPaidCents?: number | null;
-  refundedAt?: string | null;
   /**
    * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
@@ -549,6 +639,34 @@ export interface Notification {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizer-requests".
+ */
+export interface OrganizerRequest {
+  id: number;
+  user: number | User;
+  municipality: number | Municipality;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: (number | null) | User;
+  reviewedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "volunteer-flag-requests".
+ */
+export interface VolunteerFlagRequest {
+  id: number;
+  event: number | Event;
+  requestedBy: number | User;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: (number | null) | User;
+  reviewedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -630,6 +748,18 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'notifications';
         value: number | Notification;
+      } | null)
+    | ({
+        relationTo: 'organizations';
+        value: number | Organization;
+      } | null)
+    | ({
+        relationTo: 'organizer-requests';
+        value: number | OrganizerRequest;
+      } | null)
+    | ({
+        relationTo: 'volunteer-flag-requests';
+        value: number | VolunteerFlagRequest;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -720,6 +850,20 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+  sizes?:
+    | T
+    | {
+        card?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
+      };
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -728,7 +872,11 @@ export interface MediaSelect<T extends boolean = true> {
 export interface MunicipalitiesSelect<T extends boolean = true> {
   name?: T;
   description?: T;
+  lat?: T;
+  lng?: T;
   adminUser?: T;
+  eventRadiusKm?: T;
+  rulesForCreation?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -751,8 +899,10 @@ export interface ProfilesSelect<T extends boolean = true> {
   user?: T;
   fullName?: T;
   municipality?: T;
-  payoutIban?: T;
   phone?: T;
+  phoneVerified?: T;
+  notifyEmail?: T;
+  notifyInApp?: T;
   dateOfBirth?: T;
   gender?: T;
   interests?: T;
@@ -786,13 +936,20 @@ export interface EventsSelect<T extends boolean = true> {
   description?: T;
   municipality?: T;
   dateTime?: T;
+  endDateTime?: T;
+  recurrenceRule?: T;
+  recurrenceParent?: T;
   locationText?: T;
   lat?: T;
   lng?: T;
+  accessibilityTags?: T;
   capacity?: T;
+  registrationApprovalMode?: T;
   organizer?: T;
+  organization?: T;
+  coOrganizers?: T;
   status?: T;
-  category?: T;
+  categories?: T;
   image?: T;
   isVolunteering?: T;
   isPaid?: T;
@@ -814,11 +971,6 @@ export interface RegistrationsSelect<T extends boolean = true> {
   attendanceMarkedAt?: T;
   attendanceMarkedBy?: T;
   attendanceNote?: T;
-  paymentStatus?: T;
-  stripeSessionId?: T;
-  stripePaymentIntentId?: T;
-  amountPaidCents?: T;
-  refundedAt?: T;
   deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -919,6 +1071,43 @@ export interface NotificationsSelect<T extends boolean = true> {
   title?: T;
   message?: T;
   readAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizations_select".
+ */
+export interface OrganizationsSelect<T extends boolean = true> {
+  name?: T;
+  owner?: T;
+  deletedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizer-requests_select".
+ */
+export interface OrganizerRequestsSelect<T extends boolean = true> {
+  user?: T;
+  municipality?: T;
+  status?: T;
+  reviewedBy?: T;
+  reviewedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "volunteer-flag-requests_select".
+ */
+export interface VolunteerFlagRequestsSelect<T extends boolean = true> {
+  event?: T;
+  requestedBy?: T;
+  status?: T;
+  reviewedBy?: T;
+  reviewedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

@@ -46,6 +46,7 @@ export const UserRoles: CollectionConfig = {
       options: [
         { label: 'Participant', value: 'participant' },
         { label: 'Municipality Admin', value: 'municipality_admin' },
+        { label: 'Organizer', value: 'organizer' },
         {
           label: 'Prescriber (plán)',
           value: 'prescriber',
@@ -53,32 +54,44 @@ export const UserRoles: CollectionConfig = {
       ],
       admin: {
         description:
-          'Enum matches ERD §0.2 pilot roles. "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).',
+          'Enum matches ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren\'t tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).',
       },
     },
   ],
   hooks: {
     beforeValidate: [
       async ({ data, req, operation, originalDoc }) => {
-        if (!data?.user || !data?.role) return data
+        if (!data?.user || !data?.role || !data?.municipality) return data
 
         const userId = data.user
         const role = data.role
+        const municipality = data.municipality
 
-        if (operation === 'update' && originalDoc?.user === userId && originalDoc?.role === role) {
+        // Scoped to (user, role, municipality), not just (user, role) — the same person can
+        // hold "organizer" (or, in principle, any role) in several municipalities at once.
+        if (
+          operation === 'update' &&
+          originalDoc?.user === userId &&
+          originalDoc?.role === role &&
+          originalDoc?.municipality === municipality
+        ) {
           return data
         }
 
         const existing = await req.payload.find({
           collection: 'user-roles',
           where: {
-            and: [{ user: { equals: userId } }, { role: { equals: role } }],
+            and: [
+              { user: { equals: userId } },
+              { role: { equals: role } },
+              { municipality: { equals: municipality } },
+            ],
           },
           limit: 1,
         })
 
         if (existing.docs.length > 0) {
-          throw new Error(`This user already has the "${role}" role.`)
+          throw new Error(`This user already has the "${role}" role in this municipality.`)
         }
 
         return data
@@ -94,6 +107,21 @@ export const UserRoles: CollectionConfig = {
           targetId: doc.id,
           municipality: typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
           metadata: { grantedTo: doc.user, role: doc.role },
+        })
+      },
+    ],
+    // Brief §3 "kdo oprávnění uděluje, ten ho může kdykoliv i zpětně odebrat" — grants are
+    // audited on create above; this is the matching trail for revocation (a hard DELETE, see
+    // revokeCommunityRole in superadmin-queries.ts), which previously left no audit record.
+    afterDelete: [
+      ({ doc, req }) => {
+        writeAuditLog(req.payload, {
+          action: 'user-roles.revoke',
+          actor: req.user?.id ?? null,
+          targetCollection: 'user-roles',
+          targetId: doc.id,
+          municipality: typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
+          metadata: { revokedFrom: doc.user, role: doc.role },
         })
       },
     ],
