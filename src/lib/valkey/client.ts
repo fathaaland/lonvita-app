@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis'
 
-const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 const parsedRedisUrl = new URL(redisUrl)
 
 const useTls = parsedRedisUrl.protocol === 'rediss:'
