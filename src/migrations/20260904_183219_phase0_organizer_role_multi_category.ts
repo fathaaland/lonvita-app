@@ -22,6 +22,43 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   CREATE INDEX "events_rels_parent_idx" ON "events_rels" USING btree ("parent_id");
   CREATE INDEX "events_rels_path_idx" ON "events_rels" USING btree ("path");
   CREATE INDEX "events_rels_event_categories_id_idx" ON "events_rels" USING btree ("event_categories_id");
+  -- Production predates the "name" uniqueness rule and already has rows sharing a
+  -- name, so merge those into one survivor (lowest id) and repoint every existing
+  -- reference before the unique index below can be created.
+  WITH keepers AS (
+    SELECT id, name, MIN(id) OVER (PARTITION BY name) AS keeper_id FROM "event_categories"
+  )
+  UPDATE "events" e SET "category_id" = k.keeper_id
+  FROM keepers k WHERE e."category_id" = k.id AND k.id <> k.keeper_id;
+
+  WITH keepers AS (
+    SELECT id, name, MIN(id) OVER (PARTITION BY name) AS keeper_id FROM "event_categories"
+  )
+  UPDATE "profiles_rels" pr SET "event_categories_id" = k.keeper_id
+  FROM keepers k WHERE pr."event_categories_id" = k.id AND k.id <> k.keeper_id;
+
+  -- Drop interest rows left duplicated when the remap above collapsed two
+  -- categories a profile already had into the same surviving category.
+  DELETE FROM "profiles_rels" pr USING "profiles_rels" pr2
+  WHERE pr."path" = 'interests' AND pr2."path" = 'interests'
+    AND pr."parent_id" = pr2."parent_id"
+    AND pr."event_categories_id" = pr2."event_categories_id"
+    AND pr.id > pr2.id;
+
+  -- Locked-document rows only track who is mid-edit in the admin UI, so drop
+  -- rather than remap any pointing at a category about to be removed.
+  WITH keepers AS (
+    SELECT id, name, MIN(id) OVER (PARTITION BY name) AS keeper_id FROM "event_categories"
+  )
+  DELETE FROM "payload_locked_documents_rels" plr USING keepers k
+  WHERE plr."event_categories_id" = k.id AND k.id <> k.keeper_id;
+
+  WITH keepers AS (
+    SELECT id, name, MIN(id) OVER (PARTITION BY name) AS keeper_id FROM "event_categories"
+  )
+  DELETE FROM "event_categories" ec USING keepers k
+  WHERE ec.id = k.id AND k.id <> k.keeper_id;
+
   CREATE UNIQUE INDEX "event_categories_name_idx" ON "event_categories" USING btree ("name");
   -- Carry each event's existing single category forward into the new hasMany join table
   -- before dropping the old column, so existing events don't lose their category.
