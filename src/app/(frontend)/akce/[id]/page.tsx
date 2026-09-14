@@ -216,7 +216,10 @@ function EventDetailContent() {
       } />
 
       {event.image_url && (
-        <div className="aspect-[16/10] overflow-hidden bg-muted">
+        // Full-bleed on a phone; from sm up a contained, rounded photo — at full desktop width the
+        // 16:10 frame was nearly a screen tall. The 16:10 ratio itself stays, so the organizer's
+        // chosen framing (imagePositionX/Y) matches the event cards.
+        <div className="aspect-[16/10] overflow-hidden bg-muted sm:mx-4 sm:mt-4 sm:max-w-3xl sm:rounded-2xl">
           <img
             src={event.image_url}
             alt={event.title}
