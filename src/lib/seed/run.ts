@@ -11,11 +11,53 @@ const CATEGORIES = [
   { name: 'Zdraví', icon: 'Heart', color: '#EF4444' },
 ] as const
 
-const SEED_USERS = [
+const isProduction = () => process.env.NODE_ENV === 'production'
+
+/** Known-password accounts for local development (and demo deployments with SEED_DEMO_DATA=true) —
+ * their passwords are reset on every boot so the documented logins keep working. The seed runs on
+ * every boot in every environment (payload.config onInit), so these must never reach a production
+ * database: that used to give each deployment a superadmin with a publicly known password. */
+const DEV_ACCOUNTS = [
   { email: 'superadmin@lonvita.cz', password: 'superadmin1234', platformRole: 'admin' as const },
   { email: 'admin@admin.cz', password: 'admin1234', platformRole: 'user' as const },
   { email: 'ucastnik@ucastnik.cz', password: 'ucastnik1234', platformRole: 'user' as const },
 ]
+
+const SUPERADMIN_PASSWORD_MIN_LENGTH = 12
+
+/** Production's first platform superadmin comes from SEED_SUPERADMIN_EMAIL / SEED_SUPERADMIN_PASSWORD
+ * (deployment secrets) and is only ever created — an existing account's password and role are never
+ * touched, so rotating the password in the app sticks and a leaked env value can't reset it. */
+async function bootstrapProductionSuperadmin(payload: Payload): Promise<void> {
+  const email = process.env.SEED_SUPERADMIN_EMAIL?.trim().toLowerCase()
+  const password = process.env.SEED_SUPERADMIN_PASSWORD
+  if (!email || !password) {
+    payload.logger.info('SEED_SUPERADMIN_EMAIL / SEED_SUPERADMIN_PASSWORD not set — skipping superadmin bootstrap.')
+    return
+  }
+  if (password.length < SUPERADMIN_PASSWORD_MIN_LENGTH) {
+    payload.logger.warn(
+      `SEED_SUPERADMIN_PASSWORD must be at least ${SUPERADMIN_PASSWORD_MIN_LENGTH} characters — skipping superadmin bootstrap.`,
+    )
+    return
+  }
+
+  const existing = await payload.find({
+    collection: 'users',
+    where: { email: { equals: email } },
+    limit: 1,
+    depth: 0,
+    overrideAccess: true,
+  })
+  if (existing.docs[0]) return
+
+  await payload.create({
+    collection: 'users',
+    data: { email, password, role: 'admin' },
+    overrideAccess: true,
+  })
+  payload.logger.info(`Created superadmin ${email} from SEED_SUPERADMIN_EMAIL.`)
+}
 
 // --- Demo data --------------------------------------------------------------------------------
 // Seeded only outside production (or with SEED_DEMO_DATA=true): the pilot towns, a handful of
@@ -24,7 +66,7 @@ const SEED_USERS = [
 // data instead of reshuffling it, and never overwrites what was edited in the app. Demo-only people
 // use example.com addresses so nothing seeded can ever reach a real inbox.
 
-const shouldSeedDemoData = () => process.env.NODE_ENV !== 'production' || process.env.SEED_DEMO_DATA === 'true'
+const shouldSeedDemoData = () => !isProduction() || process.env.SEED_DEMO_DATA === 'true'
 
 const DEMO_PASSWORD = 'demo1234'
 
@@ -491,11 +533,16 @@ export async function runSeed(payload: Payload) {
     categoryIds.set(cat.name, id)
   }
 
-  for (const u of SEED_USERS) {
-    await seedUser(payload, u)
+  if (isProduction()) {
+    await bootstrapProductionSuperadmin(payload)
   }
 
   if (shouldSeedDemoData()) {
+    for (const account of DEV_ACCOUNTS) {
+      // A demo deployment (production + SEED_DEMO_DATA) still gets its superadmin only from SEED_SUPERADMIN_*.
+      if (isProduction() && account.platformRole === 'admin') continue
+      await seedUser(payload, account)
+    }
     await seedDemoData(payload, categoryIds)
   }
 
