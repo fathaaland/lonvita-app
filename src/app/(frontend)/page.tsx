@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
+import { MapBreakout } from "@/components/map/MapBreakout";
 import { Sparkles, MapPin, ChevronDown, Globe2 } from "lucide-react";
 import { isToday, isThisWeek, isPast } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
@@ -218,7 +219,7 @@ function IndexContent() {
 
   const switcherDialog = (
     <Dialog open={switcherOpen} onOpenChange={setSwitcherOpen}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl lg:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Vyberte obec</DialogTitle>
         </DialogHeader>
@@ -251,11 +252,13 @@ function IndexContent() {
             Vyberte obec a prohlédněte si její akce.{!user && " Přihlášení na akci vyžaduje účet."}
           </p>
         </div>
-        <MunicipalitiesMap
-          points={allMunicipalities}
-          onSelect={switchMunicipality}
-          className={cn("h-[28rem] sm:h-[40rem]", MAP_POINTS_CLASS)}
-        />
+        <MapBreakout>
+          <MunicipalitiesMap
+            points={allMunicipalities}
+            onSelect={switchMunicipality}
+            className={cn("h-[28rem] sm:h-[40rem]", MAP_POINTS_CLASS)}
+          />
+        </MapBreakout>
         {allMunicipalitiesButton}
       </div>
     );

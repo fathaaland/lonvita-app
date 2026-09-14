@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
+import { MapBreakout } from "@/components/map/MapBreakout";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Mail, Lock, User as UserIcon, MapPin } from "lucide-react";
@@ -222,7 +223,9 @@ export default function AuthPage() {
                 {!noMunicipality && (
                   <>
                     <p className="text-sm text-muted-foreground">Klepněte na mapě na obec, ve které bydlíte.</p>
-                    <MunicipalitiesMap points={municipalities} selectedId={municipality || null} onSelect={setMunicipality} />
+                    <MapBreakout>
+                      <MunicipalitiesMap points={municipalities} selectedId={municipality || null} onSelect={setMunicipality} />
+                    </MapBreakout>
                     {selectedMunicipalityName && (
                       <div className="flex items-center gap-1.5 text-sm font-semibold justify-center">
                         <MapPin className="h-4 w-4 text-primary" />

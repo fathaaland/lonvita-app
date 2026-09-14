@@ -308,7 +308,8 @@ function SuperAdminContent() {
   return (
     <div className="animate-fade-in">
       <PageHeader title="Superadmin" right={logoutAction} />
-      <div className="px-4 py-5 max-w-2xl mx-auto space-y-4">
+      {/* Wider on large screens so the municipality/location maps in these forms get room too. */}
+      <div className="px-4 py-5 max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4">
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="w-full h-14 grid grid-cols-4">
             <TabsTrigger value="municipalities" className="flex-col gap-0.5 text-[11px]">
