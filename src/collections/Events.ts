@@ -369,8 +369,9 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
 }
 
 /** Scheduled once at creation time; moved along with the event if it's later rescheduled. */
-const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
-  if (operation !== 'create') return doc
+const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ doc, operation, req, context }) => {
+  // Seeded demo events (src/lib/seed/run.ts) don't queue organizer reminders.
+  if (operation !== 'create' || context?.skipNotifications) return doc
 
   try {
     await scheduleAttendanceReminder(req.payload, doc as Parameters<typeof scheduleAttendanceReminder>[1])

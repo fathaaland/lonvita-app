@@ -49,7 +49,10 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
   previousDoc,
   operation,
   req,
+  context,
 }) => {
+  // Seeded demo registrations (src/lib/seed/run.ts) mustn't mail anyone or queue reminders.
+  if (context?.skipNotifications) return doc
   try {
     const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
     const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
