@@ -5,6 +5,7 @@ import { getEventCategories, uploadEventImage, EventRow } from "@/integrations/p
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
 import { OrganizationPicker } from "@/components/OrganizationPicker";
+import { ImagePositionEditor, CENTERED_IMAGE_POSITION, ImagePosition } from "@/components/ImagePositionEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,6 +60,8 @@ export type EventFormValues = {
   categoryIds: string[];
   /** Only set when a new photo was uploaded in this form — otherwise the event keeps its photo. */
   imageId: string | null;
+  /** Which part of the photo the 16:10 crop shows (cards, detail). */
+  imagePosition: ImagePosition;
   isVolunteering: boolean;
   isPaid: boolean;
   priceCents: number | null;
@@ -120,6 +123,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
   const [imageId, setImageId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initial?.image_url ?? null);
+  const [imagePosition, setImagePosition] = useState<ImagePosition>(initial?.image_position ?? CENTERED_IMAGE_POSITION);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -139,6 +143,8 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
     e.target.value = "";
     if (!file) return;
     setImagePreview(URL.createObjectURL(file));
+    // A different photo needs its own framing — start from the centre.
+    setImagePosition(CENTERED_IMAGE_POSITION);
     setUploadingImage(true);
     try {
       const prepared = await prepareImageForUpload(file);
@@ -148,6 +154,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
       toast.error(error instanceof ImageUploadError ? error.message : "Nahrání fotografie se nepodařilo.");
       setImageId(null);
       setImagePreview(initial?.image_url ?? null);
+      setImagePosition(initial?.image_position ?? CENTERED_IMAGE_POSITION);
     } finally {
       setUploadingImage(false);
     }
@@ -198,6 +205,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
         organizationId: organizationId || null,
         categoryIds: parsed.data.category_ids,
         imageId,
+        imagePosition,
         isVolunteering,
         isPaid,
         priceCents: isPaid && parsed.data.priceCzk ? Math.round(parsed.data.priceCzk * 100) : null,
@@ -213,22 +221,31 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
     <form onSubmit={handleSubmit} className="px-4 py-5 space-y-4">
       <div>
         <Label className="text-base">Fotografie</Label>
-        <label className="mt-1.5 relative flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted cursor-pointer">
-          {imagePreview ? (
-            <>
-              <img src={imagePreview} alt="" className="h-full w-full object-cover" />
-              <span className="absolute bottom-3 right-3 rounded-full bg-card/95 px-3 py-1.5 text-xs font-semibold shadow">
+        {imagePreview ? (
+          <div className="mt-1.5 space-y-2">
+            <ImagePositionEditor
+              src={imagePreview}
+              value={imagePosition}
+              onChange={setImagePosition}
+              className="aspect-[16/10] w-full"
+            />
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">Tento výřez uvidí účastníci v přehledu akcí i na detailu.</p>
+              <label className={cn("shrink-0 text-sm font-semibold text-primary", uploadingImage ? "opacity-70" : "cursor-pointer hover:underline")}>
                 {uploadingImage ? "Nahrávám…" : "Změnit fotografii"}
-              </span>
-            </>
-          ) : (
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} disabled={uploadingImage} />
+              </label>
+            </div>
+          </div>
+        ) : (
+          <label className="mt-1.5 flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted cursor-pointer">
             <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
               <ImagePlus className="h-8 w-8" />
               <span className="text-sm font-medium">{uploadingImage ? "Nahrávám…" : "Nahrát fotografii"}</span>
             </div>
-          )}
-          <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} disabled={uploadingImage} />
-        </label>
+            <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} disabled={uploadingImage} />
+          </label>
+        )}
       </div>
 
       <div>

@@ -19,7 +19,6 @@ import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
-import { PannableImage } from "@/components/PannableImage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -215,7 +214,18 @@ function EventDetailContent() {
         ) : null
       } />
 
-      {event.image_url && <PannableImage src={event.image_url} alt={event.title} className="aspect-[16/10]" />}
+      {event.image_url && (
+        <div className="aspect-[16/10] overflow-hidden bg-muted">
+          <img
+            src={event.image_url}
+            alt={event.title}
+            className="w-full h-full object-cover"
+            style={{ objectPosition: `${event.image_position.x}% ${event.image_position.y}%` }}
+            width={512}
+            height={320}
+          />
+        </div>
+      )}
 
       <div className="px-4 py-5 space-y-5">
         <div className="flex items-center gap-2 flex-wrap">

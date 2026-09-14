@@ -574,6 +574,29 @@ export const Events: CollectionConfig = {
       },
     },
     {
+      name: 'imagePositionX',
+      type: 'number',
+      min: 0,
+      max: 100,
+      defaultValue: 50,
+      admin: {
+        description:
+          'Brief §4 "pevně daný ořez pro přehledovou stránku" — horizontal framing of the photo in the fixed 16:10 crop (event cards, detail), as a CSS object-position percentage. Set by dragging the photo in the event form.',
+        condition: (data) => Boolean(data?.image),
+      },
+    },
+    {
+      name: 'imagePositionY',
+      type: 'number',
+      min: 0,
+      max: 100,
+      defaultValue: 50,
+      admin: {
+        description: 'Vertical framing of the photo in the crop, as a CSS object-position percentage.',
+        condition: (data) => Boolean(data?.image),
+      },
+    },
+    {
       name: 'isVolunteering',
       type: 'checkbox',
       defaultValue: false,

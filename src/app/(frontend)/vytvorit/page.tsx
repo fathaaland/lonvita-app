@@ -75,6 +75,8 @@ function CreateEventContent() {
         organizationId: values.organizationId ?? undefined,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,
+        imagePositionX: values.imagePosition.x,
+        imagePositionY: values.imagePosition.y,
         // Only an admin can flip isVolunteering directly (brief §3) — a plain organizer's
         // checkbox instead fires a VolunteerFlagRequest right after creation, below.
         isVolunteering: isAdmin ? values.isVolunteering : false,

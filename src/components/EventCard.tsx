@@ -14,6 +14,8 @@ export interface EventCardData {
   location_text: string;
   capacity: number;
   image_url: string | null;
+  /** The organizer's chosen framing of the photo in the 16:10 crop (percent); centred when absent. */
+  image_position?: { x: number; y: number };
   registrations_count?: number;
   categories?: { id: string; name: string; icon: string; color: string }[];
   is_paid?: boolean;
@@ -27,6 +29,7 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
   const Icon = getCategoryIcon(primaryCategory?.icon);
   const free = Math.max(0, event.capacity - (event.registrations_count ?? 0));
   const priceLabel = event.is_paid ? (event.price_cents ? formatCzk(event.price_cents) : "Placená") : null;
+  const imagePosition = event.image_position ?? { x: 50, y: 50 };
 
   return (
     <Link
@@ -46,6 +49,7 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
             width={512}
             height={320}
             className="w-full h-full object-cover"
+            style={{ objectPosition: `${imagePosition.x}% ${imagePosition.y}%` }}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-brand-purple-pale">

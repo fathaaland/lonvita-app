@@ -149,6 +149,8 @@ export type EventRow = {
   capacity: number;
   registration_approval_mode: "auto" | "manual";
   image_url: string | null;
+  /** Framing of the photo in the 16:10 crop, as object-position percentages. */
+  image_position: { x: number; y: number };
   category_ids: string[];
   organizer_id?: string;
   organization_id: string | null;
@@ -178,6 +180,8 @@ type PayloadEvent = {
   capacity: number;
   registrationApprovalMode?: "auto" | "manual";
   image?: number | PayloadMedia | null;
+  imagePositionX?: number | null;
+  imagePositionY?: number | null;
   categories?: (number | { id: number })[] | null;
   organizer?: number | { id: number };
   organization?: number | { id: number } | null;
@@ -209,6 +213,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   capacity: e.capacity,
   registration_approval_mode: e.registrationApprovalMode ?? "manual",
   image_url: typeof e.image === "object" && e.image ? (e.image.url ?? null) : null,
+  image_position: { x: e.imagePositionX ?? 50, y: e.imagePositionY ?? 50 },
   category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
   organizer_id: toId(e.organizer) ?? undefined,
   organization_id: toId(e.organization),
@@ -273,6 +278,9 @@ type CreateEventInput = {
   organizationId?: string;
   categoryIds: string[];
   imageId?: string;
+  /** Framing of the photo in the 16:10 crop (object-position percentages); centred when omitted. */
+  imagePositionX?: number;
+  imagePositionY?: number;
   isVolunteering?: boolean;
   isPaid?: boolean;
   priceCents?: number;
@@ -296,6 +304,8 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     organization: input.organizationId ? Number(input.organizationId) : undefined,
     categories: input.categoryIds.map(Number),
     image: input.imageId ? Number(input.imageId) : undefined,
+    imagePositionX: input.imagePositionX ?? 50,
+    imagePositionY: input.imagePositionY ?? 50,
     status: "active",
     isPaid: input.isPaid ?? false,
     priceCents: input.isPaid ? input.priceCents : undefined,

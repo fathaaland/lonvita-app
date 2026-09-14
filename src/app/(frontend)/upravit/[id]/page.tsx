@@ -74,6 +74,8 @@ function EditEventContent() {
         organization: values.organizationId ? Number(values.organizationId) : null,
         categories: values.categoryIds.map(Number),
         ...(values.imageId ? { image: Number(values.imageId) } : {}),
+        imagePositionX: values.imagePosition.x,
+        imagePositionY: values.imagePosition.y,
         isPaid: values.isPaid,
         priceCents: values.isPaid ? values.priceCents : null,
         ...(canSetVolunteering ? { isVolunteering: values.isVolunteering } : {}),

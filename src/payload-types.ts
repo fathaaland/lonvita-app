@@ -410,6 +410,14 @@ export interface Event {
    */
   image?: (number | null) | Media;
   /**
+   * Brief §4 "pevně daný ořez pro přehledovou stránku" — horizontal framing of the photo in the fixed 16:10 crop (event cards, detail), as a CSS object-position percentage. Set by dragging the photo in the event form.
+   */
+  imagePositionX?: number | null;
+  /**
+   * Vertical framing of the photo in the crop, as a CSS object-position percentage.
+   */
+  imagePositionY?: number | null;
+  /**
    * Tagged by the organizer at creation — feeds the Datavita "share of volunteers" metric.
    */
   isVolunteering?: boolean | null;
@@ -955,6 +963,8 @@ export interface EventsSelect<T extends boolean = true> {
   status?: T;
   categories?: T;
   image?: T;
+  imagePositionX?: T;
+  imagePositionY?: T;
   isVolunteering?: T;
   isPaid?: T;
   priceCents?: T;
