@@ -8,6 +8,7 @@ import {
 import { notDeleted } from './shared/softDelete'
 import { sendNotification } from './shared/notify'
 import { cancelEventReminders, rescheduleEventReminders, scheduleAttendanceReminder } from './shared/reminders'
+import { guardCancellationWindow } from './shared/eventCancellation'
 import { enqueueSms } from '@/lib/queue/queues'
 import { haversineDistanceKm } from '@/lib/geo/distance'
 
@@ -641,7 +642,7 @@ export const Events: CollectionConfig = {
     },
   ],
   hooks: {
-    beforeChange: [validateEventDates, validateEventLocationRadius, guardIsVolunteering],
+    beforeChange: [guardCancellationWindow, validateEventDates, validateEventLocationRadius, guardIsVolunteering],
     afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],
   },
   timestamps: true,

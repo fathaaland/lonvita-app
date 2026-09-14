@@ -19,6 +19,7 @@ import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
+import { CancelEventButton } from "@/components/CancelEventButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -354,6 +355,17 @@ function EventDetailContent() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {(canManage || isSuperAdmin) && (
+          <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">
+            <div>
+              <h2 className="text-lg font-bold">Zrušení akce</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci.
+              </p>
+            </div>
+            <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
           </div>
         )}
       </div>

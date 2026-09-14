@@ -6,10 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Pencil } from "lucide-react";
 import { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
-import { deleteEvent } from "@/integrations/payload/admin-queries";
-import { toast } from "sonner";
+import { CancelEventButton } from "@/components/CancelEventButton";
 
 interface Props {
   events: EventRow[];
@@ -24,22 +23,6 @@ type Filter = "upcoming" | "past" | "all";
 export function EventsTable({ events, registrations, categories, profiles, onDeleted }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("upcoming");
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const handleDelete = async (e: React.MouseEvent, eventId: string, title: string) => {
-    e.stopPropagation();
-    if (!window.confirm(`Opravdu zrušit akci „${title}“? Přihlášení účastníci dostanou upozornění a akce jim zmizí z přehledu.`)) return;
-    setDeletingId(eventId);
-    try {
-      await deleteEvent(eventId);
-      toast.success("Akce zrušena.");
-      onDeleted?.();
-    } catch {
-      toast.error("Akci se nepodařilo zrušit.");
-    } finally {
-      setDeletingId(null);
-    }
-  };
 
   const cats = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const profs = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name])), [profiles]);
@@ -138,16 +121,18 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                    disabled={deletingId === e.id}
-                    onClick={(ev) => handleDelete(ev, e.id, e.title)}
-                    aria-label="Smazat akci"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {/* Clicks inside the (portalled) confirmation dialog still bubble through the React
+                      tree — stop them here so they don't also open the event. Fixed width keeps rows
+                      aligned when the event can no longer be cancelled and the icon isn't shown. */}
+                  <div className="w-8 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                    <CancelEventButton
+                      variant="icon"
+                      eventId={e.id}
+                      title={e.title}
+                      dateTime={e.date_time}
+                      onCancelled={onDeleted ?? (() => {})}
+                    />
+                  </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                 </CardContent>
               </Card>
