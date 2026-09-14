@@ -49,7 +49,7 @@ export default function MunicipalitiesMap({ points, selectedId, onSelect, classN
   const markers = useMemo(() => points.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng)), [points]);
 
   return (
-    <div className={className ?? "h-72 w-full rounded-2xl overflow-hidden border border-border"}>
+    <div className={className ?? "h-[24rem] sm:h-[36rem] w-full rounded-2xl overflow-hidden border border-border"}>
       <style>{`
         .muni-marker-icon { background: transparent; border: none; }
         .muni-marker-dot { width: 14px; height: 14px; border-radius: 999px; background: hsl(var(--primary)); border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); cursor: pointer; }

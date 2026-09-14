@@ -111,20 +111,29 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
   });
 }
 
-/** Superadmin-only account provisioning — creates the user, their profile, and a
- * "participant" role in the chosen municipality via a dedicated server route (Users.create
- * is otherwise locked to the /api/auth/register self-signup flow). */
+/** Superadmin-only account provisioning — creates the user, their full profile (the same data
+ * registration + onboarding collect) and a "participant" role in the chosen municipality via a
+ * dedicated server route (Users.create is otherwise locked to the /api/auth/register flow). */
 export async function createUserAsSuperAdmin(input: {
   email: string;
   password: string;
   fullName: string;
-  municipalityId: string;
+  /** null = "bez obce". */
+  municipalityId: string | null;
+  dateOfBirth: string | null;
+  gender: "zena" | "muz" | "jine" | "neuvedeno";
+  phone: string | null;
+  interestIds: string[];
 }): Promise<void> {
   await post("/superadmin/create-user", {
     email: input.email,
     password: input.password,
     fullName: input.fullName,
-    municipality: Number(input.municipalityId),
+    municipality: input.municipalityId ? Number(input.municipalityId) : null,
+    dateOfBirth: input.dateOfBirth,
+    gender: input.gender,
+    phone: input.phone,
+    interests: input.interestIds.map(Number),
   });
 }
 

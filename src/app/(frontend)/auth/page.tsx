@@ -13,20 +13,25 @@ import { listMunicipalities, getMyRoles, MunicipalityRow } from "@/integrations/
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Mail, Lock, User as UserIcon, MapPin } from "lucide-react";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 
-const signUpSchema = z.object({
-  email: z.string().trim().email("Zadejte platný e-mail").max(255),
-  password: z.string().min(8, "Heslo musí mít alespoň 8 znaků").max(128),
-  full_name: z.string().trim().min(2, "Zadejte celé jméno").max(80),
-  municipality: z.string().min(1, "Vyberte obec"),
-  consent_accepted: z.boolean().refine((v) => v === true, "Musíte souhlasit s podmínkami používání"),
-});
+const signUpSchema = z
+  .object({
+    email: z.string().trim().email("Zadejte platný e-mail").max(255),
+    password: z.string().min(8, "Heslo musí mít alespoň 8 znaků").max(128),
+    full_name: z.string().trim().min(2, "Zadejte celé jméno").max(80),
+    municipality: z.string(),
+    no_municipality: z.boolean(),
+    consent_accepted: z.boolean().refine((v) => v === true, "Musíte souhlasit s podmínkami používání"),
+  })
+  .refine((v) => v.no_municipality || v.municipality.length > 0, {
+    message: "Vyberte svou obec na mapě, nebo zaškrtněte, že tu zatím není.",
+  });
 
 export default function AuthPage() {
   const [authUsesAuth0, setAuthUsesAuth0] = useState<boolean | null>(null);
@@ -35,7 +40,9 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [municipality, setMunicipality] = useState("");
-  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name">[]>([]);
+  // Brief/notes: the user's town doesn't use Lonvita yet — they see events from every obec instead.
+  const [noMunicipality, setNoMunicipality] = useState(false);
+  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -46,10 +53,7 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (mode !== "signup") return;
-    listMunicipalities().then((list) => {
-      setMunicipalities(list);
-      if (list.length === 1) setMunicipality(list[0].id);
-    });
+    listMunicipalities().then(setMunicipalities);
   }, [mode]);
 
   // Auth0 owns the password check on its own hosted page for signin — we only need a
@@ -69,6 +73,7 @@ export default function AuthPage() {
         password,
         full_name: fullName,
         municipality,
+        no_municipality: noMunicipality,
         consent_accepted: consentAccepted,
       });
       if (!parsed.success) {
@@ -81,7 +86,8 @@ export default function AuthPage() {
           email: parsed.data.email,
           password: parsed.data.password,
           fullName: parsed.data.full_name,
-          municipality: parsed.data.municipality,
+          municipality: parsed.data.no_municipality ? null : parsed.data.municipality,
+          noMunicipality: parsed.data.no_municipality,
           consentAccepted: parsed.data.consent_accepted,
           marketingConsent,
         });
@@ -144,6 +150,8 @@ export default function AuthPage() {
       toast.error("Nepodařilo se odeslat odkaz pro obnovení hesla.");
     }
   };
+
+  const selectedMunicipalityName = municipalities.find((m) => m.id === municipality)?.name;
 
   return (
     <div className="min-h-screen bg-background">
@@ -209,21 +217,32 @@ export default function AuthPage() {
               </div>
             )}
             {mode === "signup" && (
-              <div className="space-y-1.5">
-                <Label htmlFor="municipality" className="text-base">Obec</Label>
-                <Select value={municipality} onValueChange={setMunicipality}>
-                  <SelectTrigger id="municipality" className="h-12 text-base">
-                    <MapPin className="h-5 w-5 text-muted-foreground mr-1" />
-                    <SelectValue placeholder="Vyberte obec" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {municipalities.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2">
+                <Label className="text-base">Vaše obec</Label>
+                {!noMunicipality && (
+                  <>
+                    <p className="text-sm text-muted-foreground">Klepněte na mapě na obec, ve které bydlíte.</p>
+                    <MunicipalitiesMap points={municipalities} selectedId={municipality || null} onSelect={setMunicipality} />
+                    {selectedMunicipalityName && (
+                      <div className="flex items-center gap-1.5 text-sm font-semibold justify-center">
+                        <MapPin className="h-4 w-4 text-primary" />
+                        {selectedMunicipalityName}
+                      </div>
+                    )}
+                  </>
+                )}
+                <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={noMunicipality}
+                    onCheckedChange={(v) => {
+                      const on = v === true;
+                      setNoMunicipality(on);
+                      if (on) setMunicipality("");
+                    }}
+                    className="mt-0.5"
+                  />
+                  <span>Moje obec tu zatím není — pokračovat bez obce (uvidím akce ze všech obcí).</span>
+                </label>
               </div>
             )}
 

@@ -1,10 +1,11 @@
-import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig, Where } from 'payload'
+import { APIError } from 'payload'
 
-import { enqueueEmail } from '@/lib/queue/queues'
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
 import { sendNotification } from './shared/notify'
+import { scheduleParticipantReminder } from './shared/reminders'
 
-import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { deletedAtField, notDeleted } from './shared/softDelete'
 
 const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
@@ -67,6 +68,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
           message: pending
             ? `Vaše přihláška na akci „${event.title}“ čeká na schválení organizátorem.`
             : `Jste přihlášeni na akci „${event.title}“.`,
+          link: `/akce/${eventId}`,
           email: {
             subject: pending ? `Přihláška odeslána: ${event.title}` : `Přihláška potvrzena: ${event.title}`,
             body: pending
@@ -80,6 +82,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
           userId: organizerId,
           title: 'Nová přihláška na akci',
           message: `Někdo se přihlásil na vaši akci „${event.title}“.`,
+          link: `/akce/${eventId}`,
           email: {
             subject: `Nová přihláška: ${event.title}`,
             body: `<p>Někdo se přihlásil na vaši akci <strong>${event.title}</strong>.</p>`,
@@ -95,6 +98,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
     const approved = doc.status === 'approved'
     await sendNotification(req.payload, {
       userId,
+      link: `/akce/${eventId}`,
       title: REGISTRATION_STATUS_SUBJECT[doc.status],
       message: approved
         ? `Vaše přihláška na akci „${event.title}“ byla schválena.`
@@ -107,40 +111,47 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       },
     })
 
-    // 24h reminder — scheduled once at approval time (brief §A5: "levné a užitečné"). Sent
-    // via the raw email queue (not sendNotification) since it's timing-sensitive and should
-    // go out regardless of the in-app preference; it still only fires for users who haven't
-    // opted out of email entirely.
+    // 24h reminder — scheduled at approval time (brief §A5: "levné a užitečné"), and moved
+    // along with the event if it's rescheduled later (see shared/reminders.ts).
     if (approved) {
-      const profiles = await req.payload.find({
-        collection: 'profiles',
-        where: { user: { equals: userId } },
-        limit: 1,
-        depth: 0,
-        overrideAccess: true,
-      })
-      const profile = profiles.docs[0]
-      const user = await req.payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true })
-      if (user?.email && (profile?.notifyEmail ?? true)) {
-        const reminderAt = new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000
-        const delay = reminderAt - Date.now()
-        if (delay > 0) {
-          await enqueueEmail(
-            {
-              to: user.email,
-              subject: `Připomínka: ${event.title} zítra`,
-              body: `<p>Připomínáme, že zítra vás čeká akce <strong>${event.title}</strong> — ${event.locationText}.</p>`,
-            },
-            { jobId: `reminder-${doc.id}`, delay },
-          )
-        }
-      }
+      await scheduleParticipantReminder(req.payload, doc.id, userId, event)
     }
   } catch (error) {
     req.payload.logger.error(`Failed to notify on registration change: ${error}`)
   }
 
   return doc
+}
+
+/** "Kdo dále jde" is only for the event's organizer and the obec's admin — a registration is
+ * readable by the registrant themself, the event's organizer/co-organizers, an admin of the event's
+ * municipality and a platform admin. Everyone else gets participant counts only, via the public
+ * /api/events/registration-counts route. */
+const canReadRegistration: Access = async ({ req }) => {
+  const { user, payload } = req
+  if (!user) return false
+  const visible: Where = { deletedAt: { exists: false } }
+  if (user.role === 'admin') return visible
+
+  // Resolved to plain event ids up front instead of `event.organizer` / `event.coOrganizers` paths
+  // inside the access query — OR-ing several relationship joins there matched every row.
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const manageableEventsWhere: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
+  if (administeredIds.length > 0) manageableEventsWhere.push({ municipality: { in: administeredIds } })
+  const manageableEvents = await payload.find({
+    collection: 'events',
+    where: { or: manageableEventsWhere },
+    select: { organizer: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+
+  const or: Where[] = [{ user: { equals: user.id } }]
+  if (manageableEvents.docs.length > 0) or.push({ event: { in: manageableEvents.docs.map((e) => e.id) } })
+  const where: Where = { and: [visible, { or }] }
+  return where
 }
 
 export const Registrations: CollectionConfig = {
@@ -154,7 +165,7 @@ export const Registrations: CollectionConfig = {
     defaultColumns: ['event', 'user', 'status', 'attendanceStatus', 'updatedAt'],
   },
   access: {
-    read: ({ req: { user } }) => (user ? notDeleted : false),
+    read: canReadRegistration,
     create: isLoggedIn,
     update: isLoggedIn,
     // Platform superadmin everywhere, or a municipality admin scoped to their own
@@ -259,13 +270,19 @@ export const Registrations: CollectionConfig = {
             depth: 0,
             overrideAccess: true,
           })
-          const organizerId = typeof event.organizer === 'object' ? event.organizer.id : event.organizer
+          const organizerIds = [event.organizer, ...(event.coOrganizers ?? [])].map((u) =>
+            String(typeof u === 'object' ? u.id : u),
+          )
 
-          // An organizer registering for their own event doesn't make sense to leave
-          // "pending" — they'd be the one who has to approve it. Auto-approve instead.
-          if (String(organizerId) === String(data.user)) {
-            data.status = 'approved'
-          } else if (event.registrationApprovalMode === 'auto') {
+          // The organizer (and co-organizers) take part in their own event automatically — a
+          // registration would only use up one of the participants' spots.
+          if (organizerIds.includes(String(data.user))) {
+            throw new APIError(
+              'Tuto akci pořádáte — na vlastní akci se nepřihlašujete, počítá se s vámi automaticky a nezabíráte místo účastníkům.',
+              400,
+            )
+          }
+          if (event.registrationApprovalMode === 'auto') {
             // Brief §4/§8 — "auto" registers everyone immediately, so the capacity check has
             // to happen server-side here, not just as a disabled button on the frontend (that
             // read can be stale). What happens to a signup that arrives once it's already full

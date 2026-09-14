@@ -8,10 +8,14 @@ import {
   getEventCategories,
   getOrganizerName,
   getEventRegistrationsWithNames,
+  getRegistrationCounts,
+  getMyAdministeredMunicipalityIds,
   createRegistration,
   cancelRegistration,
   CategoryRow,
+  RegistrationCountRow,
 } from "@/integrations/payload/queries";
+import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,7 +24,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, CalendarPlus, Accessibility } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, CalendarPlus, Accessibility, Pencil } from "lucide-react";
 import { formatEventDate, formatEventTime } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
@@ -43,14 +47,27 @@ function EventDetailContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
   const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
+  // Registrations the viewer may read: all of them for the organizer / obec admin, otherwise
+  // just their own (Registrations.access.read) — used for "Kdo dále jde" and the viewer's status.
   const [regs, setRegs] = useState<Reg[]>([]);
+  const [counts, setCounts] = useState<RegistrationCountRow>({ approved: 0, pending: 0 });
+  const [administeredMunicipalityIds, setAdministeredMunicipalityIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const refreshRegistrations = async (eventId: string) => {
+    const [regRows, countRows] = await Promise.all([
+      user ? getEventRegistrationsWithNames(eventId) : Promise.resolve([]),
+      getRegistrationCounts([eventId]),
+    ]);
+    setRegs(regRows);
+    setCounts(countRows.get(eventId) ?? { approved: 0, pending: 0 });
+  };
 
   const load = async () => {
     if (!id) return;
@@ -65,40 +82,46 @@ function EventDetailContent() {
     }
     setEvent(ev);
 
-    const [cats, orgName, regRows] = await Promise.all([
+    const [cats, orgName, adminIds] = await Promise.all([
       ev.category_ids.length > 0 ? getEventCategories() : Promise.resolve([]),
-      ev.organizer_id ? getOrganizerName(ev.organizer_id) : Promise.resolve(null),
-      getEventRegistrationsWithNames(ev.id),
+      ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
+      user ? getMyAdministeredMunicipalityIds(String(user.id)).catch(() => []) : Promise.resolve([]),
+      refreshRegistrations(ev.id),
     ]);
     setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
     setOrganizerName(orgName);
-    setRegs(regRows);
+    setAdministeredMunicipalityIds(adminIds);
     setLoading(false);
   };
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, user?.id]);
 
-  // Brief §8 live "Přihlásit se"/"Akce je plná" button — re-pull the registration list
-  // (not just a bare count) whenever the server says the approved count changed, so the
-  // "kdo dále jde" avatar list and this viewer's own status stay in sync too. Deliberately
-  // doesn't touch `loading` — this is a quiet background refresh, not a page reload.
+  // Brief §8 live "Přihlásit se"/"Akce je plná" button — re-pull counts and the readable
+  // registrations whenever the server says the approved count changed. Deliberately doesn't
+  // touch `loading` — this is a quiet background refresh, not a page reload.
   useEffect(() => {
     if (!id) return;
     const source = new EventSource(`/api/events/${id}/capacity-stream`);
     source.onmessage = () => {
-      getEventRegistrationsWithNames(id).then(setRegs).catch(() => {});
+      refreshRegistrations(id).catch(() => {});
     };
     return () => source.close();
-  }, [id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id]);
 
   const myReg = regs.find((r) => r.user_id === String(user?.id));
-  const approvedCount = regs.filter((r) => r.status === "approved").length;
-  const totalCount = regs.length;
+  const approvedCount = counts.approved;
   const isFull = approvedCount >= (event?.capacity ?? 0);
-  const isPaidEvent = !!event?.is_paid && !!event?.price_cents;
+  const isPaidEvent = !!event?.is_paid;
+  const isEventOrganizer =
+    !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
+  const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
+  const canManage = isEventOrganizer || isAdminOfEventMunicipality;
+  // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
+  const canSeeAttendees = canManage || isSuperAdmin;
 
   // A ref guard (checked synchronously, before the first await) closes the window a fast
   // double-click/double-tap leaves open with `submitting` state alone — React doesn't
@@ -116,11 +139,15 @@ function EventDetailContent() {
     submittingRef.current = true;
     setSubmitting(true);
     try {
-      await createRegistration(event.id, String(user.id));
-      toast.success("Přihláška odeslána pořadateli ke schválení.");
+      const reg = await createRegistration(event.id, String(user.id));
+      toast.success(reg.status === "approved" ? "Jste přihlášeni na akci." : "Přihláška odeslána pořadateli ke schválení.");
       load();
-    } catch {
-      toast.error("Nepodařilo se přihlásit. Zkuste to prosím znovu.");
+    } catch (error) {
+      toast.error(
+        error instanceof PayloadApiError && error.status === 400
+          ? error.message
+          : "Nepodařilo se přihlásit. Zkuste to prosím znovu.",
+      );
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -170,14 +197,20 @@ function EventDetailContent() {
   const mapEmbed = event.lat && event.lng
     ? `https://www.google.com/maps?q=${event.lat},${event.lng}&z=15&output=embed`
     : `https://www.google.com/maps?q=${encodeURIComponent(event.location_text)}&output=embed`;
+  const approvedAttendees = regs.filter((r) => r.status === "approved");
 
   return (
     <article className="animate-fade-in pb-6">
       <PageHeader title="Detail akce" back right={
-        event.organizer_id === String(user?.id) ? (
-          <Button asChild variant="outline" size="sm" className="h-10">
-            <Link href={`/spravovat/${event.id}`}><Settings className="h-4 w-4" />Spravovat</Link>
-          </Button>
+        canManage ? (
+          <div className="flex gap-2">
+            <Button asChild variant="outline" size="sm" className="h-10">
+              <Link href={`/upravit/${event.id}`}><Pencil className="h-4 w-4" />Upravit</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-10">
+              <Link href={`/spravovat/${event.id}`}><Settings className="h-4 w-4" />Spravovat</Link>
+            </Button>
+          </div>
         ) : null
       } />
 
@@ -202,7 +235,7 @@ function EventDetailContent() {
           ))}
           {isPaidEvent ? (
             <Badge className="bg-accent text-accent-foreground gap-1">
-              <Tag className="h-3 w-3" /> {formatCzk(event.price_cents)}
+              <Tag className="h-3 w-3" /> {event.price_cents ? formatCzk(event.price_cents) : "Placená akce"}
             </Badge>
           ) : (
             <Badge variant="outline" className="border-success/40 text-success">Zdarma</Badge>
@@ -237,15 +270,20 @@ function EventDetailContent() {
             <Users className="h-5 w-5 mt-0.5 text-primary shrink-0" />
             <p className="font-semibold">
               {approvedCount} / {event.capacity} přihlášených
-              {totalCount > approvedCount && (
-                <span className="text-muted-foreground font-normal"> · {totalCount - approvedCount} čeká</span>
+              {counts.pending > 0 && (
+                <span className="text-muted-foreground font-normal"> · {counts.pending} čeká</span>
               )}
             </p>
           </div>
-          {organizerName && (
+          {(event.organization_name || organizerName) && (
             <div className="flex items-start gap-3">
               <UserIcon className="h-5 w-5 mt-0.5 text-primary shrink-0" />
-              <p className="font-semibold">Pořadatel: {organizerName}</p>
+              <p className="font-semibold">
+                Pořadatel: {event.organization_name ?? organizerName}
+                {event.organization_name && organizerName && (
+                  <span className="text-muted-foreground font-normal"> · {organizerName}</span>
+                )}
+              </p>
             </div>
           )}
           {event.accessibility_tags.length > 0 && (
@@ -273,7 +311,7 @@ function EventDetailContent() {
             <iframe
               title="Mapa"
               src={mapEmbed}
-              className="w-full h-56 border-0"
+              className="w-full h-72 sm:h-[28rem] border-0"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
             />
@@ -286,33 +324,40 @@ function EventDetailContent() {
           </Button>
         </div>
 
-        <div>
-          <h2 className="text-lg font-bold mb-2">Kdo dále jde</h2>
-          {regs.filter((r) => r.status === "approved").length === 0 ? (
-            <Card className="bg-muted/50 border-dashed">
-              <CardContent className="py-4 text-center text-sm text-muted-foreground">
-                Zatím nikdo není potvrzen — buďte první!
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {regs.filter((r) => r.status === "approved").map((r) => (
-                <div key={r.id} className="flex items-center gap-2 bg-secondary rounded-full pl-1 pr-3 py-1">
-                  <Avatar className="h-7 w-7">
-                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                      {initials(r.full_name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium">{r.full_name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        {canSeeAttendees && (
+          <div>
+            <h2 className="text-lg font-bold mb-2">Kdo dále jde</h2>
+            {approvedAttendees.length === 0 ? (
+              <Card className="bg-muted/50 border-dashed">
+                <CardContent className="py-4 text-center text-sm text-muted-foreground">
+                  Zatím nikdo není potvrzen.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {approvedAttendees.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2 bg-secondary rounded-full pl-1 pr-3 py-1">
+                    <Avatar className="h-7 w-7">
+                      <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                        {initials(r.full_name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium">{r.full_name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur border-t border-border px-4 py-3 -mb-2">
-        {myReg ? (
+        {isEventOrganizer ? (
+          // The organizer takes part automatically and doesn't use up a participant's spot.
+          <div className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-primary">
+            <CheckCircle2 className="h-5 w-5" /> Tuto akci pořádáte — počítá se s vámi automaticky
+          </div>
+        ) : myReg ? (
           <div className="space-y-2">
             <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold">
               {myReg.status === "approved" ? (

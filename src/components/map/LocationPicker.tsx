@@ -137,7 +137,7 @@ export function LocationPicker({ value, onChange, initialCenter }: Props) {
         )}
       </div>
 
-      <div className={cn("h-56 w-full rounded-2xl overflow-hidden border border-border relative", !value && "opacity-90")}>
+      <div className={cn("h-[22rem] sm:h-[28rem] w-full rounded-2xl overflow-hidden border border-border relative", !value && "opacity-90")}>
         <style>{`
           .location-pin-icon { background: transparent; border: none; }
           .location-pin { width: 22px; height: 22px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: hsl(var(--primary)); border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }

@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
-  getMunicipality,
   getEventCategories,
   getUpcomingEvents,
   getActiveRegistrationCountsByEvent,
@@ -17,7 +16,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
-import { Sparkles, MapPin, ChevronDown } from "lucide-react";
+import { Sparkles, MapPin, ChevronDown, Globe2 } from "lucide-react";
 import { isToday, isThisWeek, isPast } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
@@ -26,11 +25,20 @@ import { cn } from "@/lib/utils";
 // §"uživatel není vázaný lokací... může se přepínat mezi městy" — which municipality's events
 // you're BROWSING is independent of a signed-in user's home municipality (profile.municipality_id)
 // and remembered for the session only; switching here never changes their actual home town.
-const VIEWING_MUNICIPALITY_KEY = "lonvita_viewing_municipality_id";
+// Keyed per account: a single shared key let the previous user's pick in the same browser tab
+// leak into the next login (a Praha user landed on Brno's events).
+const viewingKey = (userId: number | undefined) => `lonvita_viewing_municipality:${userId ?? "anon"}`;
+
+/** "Events from every municipality" — the default for a "bez obce" user. */
+const ALL = "all";
 
 type Filter = "all" | "today" | "week";
 
 interface Category { id: string; name: string; icon: string; color: string }
+
+type HomeEvent = EventCardData & { municipality_id?: string };
+
+const MAP_POINTS_CLASS = "w-full rounded-2xl overflow-hidden border border-border";
 
 function IndexContent() {
   const { user, profile, loading: authLoading, isSuperAdmin } = useAuth();
@@ -52,40 +60,61 @@ function IndexContent() {
     if (profile && !profile.onboarding_completed) router.replace("/onboarding");
   }, [authLoading, profile, router]);
 
-  const [events, setEvents] = useState<EventCardData[]>([]);
+  const [events, setEvents] = useState<HomeEvent[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [categoryId, setCategoryId] = useState<string | null>(searchParams.get("kategorie"));
   const [loading, setLoading] = useState(true);
-  const [muniName, setMuniName] = useState<string>("");
 
-  // Which municipality's events are being browsed — independent of a signed-in user's home
-  // municipality (see brief note above). Loaded once on mount; every municipality (whether the
-  // switcher will ever need it or not) is fetched up front since the map needs all the pins anyway.
+  // Every municipality is fetched up front — the map needs all the pins anyway, and the
+  // "Všechny obce" view uses the names for its cards.
   const [allMunicipalities, setAllMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
-  const [viewingMunicipalityId, setViewingMunicipalityId] = useState<string | null>(null);
+  // A municipality id, ALL, or null (signed-out visitor who hasn't picked one yet).
+  const [viewing, setViewing] = useState<string | null>(null);
+  const [viewingReady, setViewingReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [municipalitiesLoaded, setMunicipalitiesLoaded] = useState(false);
 
   useEffect(() => {
-    listMunicipalities().then(setAllMunicipalities);
-    try {
-      setViewingMunicipalityId(sessionStorage.getItem(VIEWING_MUNICIPALITY_KEY));
-    } catch {
-      // sessionStorage unavailable (private mode etc.) — just re-picks every visit.
-    }
+    listMunicipalities()
+      .then(setAllMunicipalities)
+      .catch(() => setAllMunicipalities([]))
+      .finally(() => setMunicipalitiesLoaded(true));
   }, []);
 
-  const switchMunicipality = (id: string) => {
-    setViewingMunicipalityId(id);
+  // By default a signed-in user sees their own town's events ("bez obce" = every town); a pick
+  // made in the switcher overrides that for the rest of the session.
+  useEffect(() => {
+    if (authLoading || !municipalitiesLoaded) return;
+    let stored: string | null = null;
     try {
-      sessionStorage.setItem(VIEWING_MUNICIPALITY_KEY, id);
+      stored = sessionStorage.getItem(viewingKey(user?.id));
+    } catch {
+      // sessionStorage unavailable (private mode etc.) — fall back to the default every visit.
+    }
+    // A remembered pick can outlive its municipality (e.g. after the database was reset) — it
+    // would only 404 then, so fall back to the default instead.
+    if (stored && stored !== ALL && !allMunicipalities.some((m) => m.id === stored)) stored = null;
+    setViewing(stored ?? (user ? (profile?.municipality_id ?? ALL) : null));
+    setViewingReady(true);
+  }, [authLoading, municipalitiesLoaded, allMunicipalities, user?.id, profile?.municipality_id]);
+
+  const switchMunicipality = (next: string) => {
+    setViewing(next);
+    try {
+      sessionStorage.setItem(viewingKey(user?.id), next);
     } catch {
       // ignore — selection just won't persist across a reload
     }
     setSwitcherOpen(false);
   };
 
-  const municipalityId = viewingMunicipalityId ?? profile?.municipality_id ?? null;
+  const showAll = viewing === ALL;
+  const municipalityNameById = useMemo(
+    () => new Map(allMunicipalities.map((m) => [m.id, m.name])),
+    [allMunicipalities],
+  );
+  const viewingName = showAll ? "Všechny obce" : (viewing && municipalityNameById.get(viewing)) || "Vaše obec";
 
   useEffect(() => {
     setCategoryId(searchParams.get("kategorie"));
@@ -100,28 +129,28 @@ function IndexContent() {
   };
 
   useEffect(() => {
+    if (!viewingReady) return;
     let active = true;
     (async () => {
       setLoading(true);
-      if (!municipalityId) {
+      if (!viewing) {
         setLoading(false);
         return;
       }
 
-      const [muni, cats, ev, counts] = await Promise.all([
-        getMunicipality(municipalityId),
-        getEventCategories(),
-        getUpcomingEvents(municipalityId),
-        getActiveRegistrationCountsByEvent(),
+      // A failed load shows the empty state rather than an unhandled rejection and a stuck spinner.
+      const [cats, ev] = await Promise.all([
+        getEventCategories().catch(() => [] as Category[]),
+        getUpcomingEvents(viewing === ALL ? null : viewing).catch(() => []),
       ]);
+      const counts = await getActiveRegistrationCountsByEvent(ev.map((e) => e.id)).catch(() => new Map<string, number>());
 
       if (!active) return;
-      setMuniName(muni?.name ?? "");
       setCategories(cats);
 
       const catMap = new Map(cats.map((c) => [c.id, c]));
 
-      const mapped: EventCardData[] = ev
+      const mapped: HomeEvent[] = ev
         .filter((e) => !isPast(e.date_time))
         .map((e) => ({
           id: e.id,
@@ -130,6 +159,9 @@ function IndexContent() {
           location_text: e.location_text,
           capacity: e.capacity,
           image_url: e.image_url,
+          is_paid: e.is_paid,
+          price_cents: e.price_cents,
+          municipality_id: e.municipality_id,
           registrations_count: counts.get(e.id) ?? 0,
           categories: e.category_ids.map((id) => catMap.get(id)).filter((c): c is Category => Boolean(c)),
         }));
@@ -137,7 +169,7 @@ function IndexContent() {
       setLoading(false);
     })();
     return () => { active = false; };
-  }, [municipalityId]);
+  }, [viewing, viewingReady]);
 
   const filtered = useMemo(() => {
     return events.filter((e) => {
@@ -166,11 +198,27 @@ function IndexContent() {
       .slice(0, 3);
   }, [events, profile?.interests]);
 
-  if (isSuperAdmin || authLoading) return <Loading />;
+  if (isSuperAdmin || authLoading || !viewingReady) return <Loading />;
+
+  // In the "Všechny obce" view each card says which obec the event belongs to.
+  const toCard = (e: HomeEvent): EventCardData => ({
+    ...e,
+    municipality_name: showAll && e.municipality_id ? municipalityNameById.get(e.municipality_id) : undefined,
+  });
+
+  const allMunicipalitiesButton = (
+    <Button
+      variant={showAll ? "default" : "outline"}
+      onClick={() => switchMunicipality(ALL)}
+      className="w-full h-12 gap-2"
+    >
+      <Globe2 className="h-4 w-4" /> Zobrazit akce ze všech obcí
+    </Button>
+  );
 
   const switcherDialog = (
     <Dialog open={switcherOpen} onOpenChange={setSwitcherOpen}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Vyberte obec</DialogTitle>
         </DialogHeader>
@@ -179,28 +227,36 @@ function IndexContent() {
         </p>
         <MunicipalitiesMap
           points={allMunicipalities}
-          selectedId={municipalityId}
+          selectedId={showAll ? null : viewing}
           onSelect={switchMunicipality}
-          className="h-72 w-full rounded-2xl overflow-hidden border border-border"
+          className={cn("h-[55vh] min-h-[20rem]", MAP_POINTS_CLASS)}
         />
+        {allMunicipalitiesButton}
+        {profile?.municipality_id && viewing !== profile.municipality_id && (
+          <Button variant="ghost" onClick={() => switchMunicipality(profile.municipality_id!)} className="w-full h-11">
+            Zpět na moji obec
+          </Button>
+        )}
       </DialogContent>
     </Dialog>
   );
 
-  // Visitor (signed-out, or signed-in without a browsable municipality yet) who hasn't picked
-  // one to browse (brief §2 read-only browsing).
-  if (!municipalityId) {
+  // Signed-out visitor who hasn't picked a municipality to browse yet (brief §2 read-only browsing).
+  if (!viewing) {
     return (
-      <div className="animate-fade-in px-4 pt-6">
-        <h1 className="text-3xl font-extrabold leading-tight mb-1">Akce ve vaší obci</h1>
-        <p className="text-muted-foreground mb-4">
-          Vyberte obec a prohlédněte si její akce.{!user && " Přihlášení na akci vyžaduje účet."}
-        </p>
+      <div className="animate-fade-in px-4 pt-6 space-y-4">
+        <div>
+          <h1 className="text-3xl font-extrabold leading-tight mb-1">Akce ve vaší obci</h1>
+          <p className="text-muted-foreground">
+            Vyberte obec a prohlédněte si její akce.{!user && " Přihlášení na akci vyžaduje účet."}
+          </p>
+        </div>
         <MunicipalitiesMap
           points={allMunicipalities}
           onSelect={switchMunicipality}
-          className="h-80 w-full rounded-2xl overflow-hidden border border-border"
+          className={cn("h-[28rem] sm:h-[40rem]", MAP_POINTS_CLASS)}
         />
+        {allMunicipalitiesButton}
       </div>
     );
   }
@@ -214,11 +270,11 @@ function IndexContent() {
           onClick={() => setSwitcherOpen(true)}
           className="flex items-center gap-1.5 text-sm text-muted-foreground mb-1 hover:text-foreground transition-colors"
         >
-          <MapPin className="h-4 w-4" />
-          <span className="font-semibold">{muniName || "Vaše obec"}</span>
+          {showAll ? <Globe2 className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
+          <span className="font-semibold">{viewingName}</span>
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
-        <h1 className="text-3xl font-extrabold leading-tight">Akce v obci</h1>
+        <h1 className="text-3xl font-extrabold leading-tight">{showAll ? "Akce ze všech obcí" : "Akce v obci"}</h1>
         <p className="text-muted-foreground mt-1">
           {user ? "Vyberte si akci a přihlaste se." : "Registrace na akci vyžaduje přihlášení."}
         </p>
@@ -238,13 +294,13 @@ function IndexContent() {
               <div className="flex gap-3 overflow-x-auto px-4 pb-2 snap-x snap-mandatory sm:hidden">
                 {recommended.map((e) => (
                   <div key={e.id} className="snap-start shrink-0 w-[78%]">
-                    <EventCard event={e} />
+                    <EventCard event={toCard(e)} />
                   </div>
                 ))}
               </div>
               <div className="hidden sm:grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 px-4">
                 {recommended.map((e) => (
-                  <EventCard key={e.id} event={e} />
+                  <EventCard key={e.id} event={toCard(e)} />
                 ))}
               </div>
             </section>
@@ -324,7 +380,7 @@ function IndexContent() {
               />
             ) : (
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {filtered.map((e) => <EventCard key={e.id} event={e} />)}
+                {filtered.map((e) => <EventCard key={e.id} event={toCard(e)} />)}
               </div>
             )}
           </section>

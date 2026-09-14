@@ -62,9 +62,9 @@ export const Profiles: CollectionConfig = {
       name: 'municipality',
       type: 'relationship',
       relationTo: 'municipalities',
-      required: true,
       admin: {
-        description: "The user's home municipality.",
+        description:
+          'The user\'s home municipality. Empty = "bez obce" (their town doesn\'t use Lonvita yet) — they browse and can register for events across every municipality.',
       },
     },
     {

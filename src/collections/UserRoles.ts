@@ -1,7 +1,33 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, PayloadRequest } from 'payload'
 
 import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
+
+const relId = (value: number | { id: number }): number => (typeof value === 'object' ? value.id : value)
+
+/** Municipalities.adminUser mirrors the most recently granted "municipality_admin" role for that
+ * obec (null once none is left) — the superadmin panel only ever writes user-roles rows, so without
+ * this the obec's own adminUser column stayed empty. `req` keeps it in the same transaction as the
+ * grant/revoke; `skipAdminUserSync` stops Municipalities' own hook from granting the role back. */
+async function syncMunicipalityAdminUser(req: PayloadRequest, municipalityId: number): Promise<void> {
+  const latest = await req.payload.find({
+    collection: 'user-roles',
+    where: { and: [{ municipality: { equals: municipalityId } }, { role: { equals: 'municipality_admin' } }] },
+    sort: '-createdAt',
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    req,
+  })
+  await req.payload.update({
+    collection: 'municipalities',
+    id: municipalityId,
+    data: { adminUser: latest.docs[0] ? relId(latest.docs[0].user) : null },
+    overrideAccess: true,
+    context: { skipAdminUserSync: true },
+    req,
+  })
+}
 
 export const UserRoles: CollectionConfig = {
   slug: 'user-roles',
@@ -98,6 +124,15 @@ export const UserRoles: CollectionConfig = {
       },
     ],
     afterChange: [
+      async ({ doc, previousDoc, req }) => {
+        const municipalityIds = new Set<number>()
+        if (doc.role === 'municipality_admin') municipalityIds.add(relId(doc.municipality))
+        if (previousDoc?.role === 'municipality_admin') municipalityIds.add(relId(previousDoc.municipality))
+        for (const municipalityId of municipalityIds) {
+          await syncMunicipalityAdminUser(req, municipalityId)
+        }
+        return doc
+      },
       ({ doc, req, operation }) => {
         if (operation !== 'create') return
         writeAuditLog(req.payload, {
@@ -114,6 +149,10 @@ export const UserRoles: CollectionConfig = {
     // audited on create above; this is the matching trail for revocation (a hard DELETE, see
     // revokeCommunityRole in superadmin-queries.ts), which previously left no audit record.
     afterDelete: [
+      async ({ doc, req }) => {
+        if (doc.role === 'municipality_admin') await syncMunicipalityAdminUser(req, relId(doc.municipality))
+        return doc
+      },
       ({ doc, req }) => {
         writeAuditLog(req.payload, {
           action: 'user-roles.revoke',

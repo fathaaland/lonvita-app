@@ -12,7 +12,9 @@ type RegisterBody = {
   password?: string
   passwordConfirm?: string
   fullName?: string
-  municipality?: string
+  /** Picked on the map; omitted/null together with `noMunicipality: true` ("bez obce"). */
+  municipality?: string | null
+  noMunicipality?: boolean
   consentAccepted?: boolean
   marketingConsent?: boolean
 }
@@ -30,7 +32,7 @@ const validate = (body: RegisterBody): string | null => {
   if (!body.fullName || body.fullName.trim().length < 2) {
     return 'Please provide your full name.'
   }
-  if (!body.municipality) {
+  if (!body.municipality && !body.noMunicipality) {
     return 'Please choose your municipality.'
   }
   if (!body.consentAccepted) {
@@ -47,10 +49,9 @@ export async function POST(request: Request) {
   }
 
   const email = body.email!.toLowerCase()
-  const { password, fullName, municipality: municipalityRaw } = body as Required<
-    Pick<RegisterBody, 'password' | 'fullName' | 'municipality'>
-  >
-  const municipality = Number(municipalityRaw)
+  const { password, fullName } = body as Required<Pick<RegisterBody, 'password' | 'fullName'>>
+  // "Bez obce" — the user's town doesn't use Lonvita (yet); they see events from every obec.
+  const municipality = body.municipality ? Number(body.municipality) : null
   const marketingConsent = Boolean(body.marketingConsent)
   const useAuth0 = isAuth0Configured()
 
@@ -102,16 +103,18 @@ export async function POST(request: Request) {
     })
 
     // Every registered user starts as a plain participant in their chosen municipality —
-    // the admin role is granted later by a superadmin.
-    await payload.create({
-      collection: 'user-roles',
-      data: {
-        user: payloadUser.id,
-        municipality,
-        role: 'participant',
-      },
-      overrideAccess: true,
-    })
+    // the admin role is granted later by a superadmin. "Bez obce" has no municipality to hold it in.
+    if (municipality) {
+      await payload.create({
+        collection: 'user-roles',
+        data: {
+          user: payloadUser.id,
+          municipality,
+          role: 'participant',
+        },
+        overrideAccess: true,
+      })
+    }
 
     if (useAuth0 && auth0User?.user_id) {
       await payload.create({

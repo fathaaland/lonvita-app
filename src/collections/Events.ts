@@ -1,14 +1,14 @@
-import type { Access, CollectionAfterChangeHook, CollectionBeforeChangeHook, CollectionConfig } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionBeforeChangeHook, CollectionConfig, Where } from 'payload'
 import { APIError } from 'payload'
 
 import {
   getAdministeredMunicipalityIds,
   getOrganizerMunicipalityIds,
-  isPlatformOrMunicipalityAdmin,
 } from './access/shared'
 import { notDeleted } from './shared/softDelete'
 import { sendNotification } from './shared/notify'
-import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
+import { cancelEventReminders, rescheduleEventReminders, scheduleAttendanceReminder } from './shared/reminders'
+import { enqueueSms } from '@/lib/queue/queues'
 import { haversineDistanceKm } from '@/lib/geo/distance'
 
 /**
@@ -43,6 +43,37 @@ const canCreateEvent: Access = async ({ req, data }) => {
   return organizerIds.includes(municipalityId)
 }
 
+/** Brief §4 organizer self-service edit/cancel of their own event (cancelling is a PATCH that
+ * sets deletedAt, see admin-queries.ts) — the organizer or a co-organizer, a municipality admin
+ * for any event in their obec, and a platform admin everywhere. Moving an event to another obec
+ * or handing it to another organizer stays platform-admin-only (field access below). */
+const canUpdateEvent: Access = async ({ req }) => {
+  const { user, payload } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const or: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
+  if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
+  const where: Where = { or }
+  return where
+}
+
+/** Platform/municipality admin everywhere they administer — a hard DELETE isn't part of the
+ * organizer's self-service (cancelling is the soft-delete PATCH above). */
+const canDeleteEvent: Access = async ({ req }) => {
+  const { user, payload } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  if (administeredIds.length === 0) return false
+  const where: Where = { municipality: { in: administeredIds } }
+  return where
+}
+
+const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } | null } }) => user?.role === 'admin'
+
 /**
  * Brief §3 "Žádost organizátora o příznak Dobrovolnictví... schvaluje se odděleně od role
  * organizátora. Admin obce sám o příznak žádat nemusí, může ho u vlastní akce zaškrtnout
@@ -67,6 +98,30 @@ const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, orig
 
   if (!isMuniAdminHere) {
     data.isVolunteering = originalDoc?.isVolunteering ?? false
+  }
+
+  return data
+}
+
+/** A new event can't start in the past, and neither can one that gets rescheduled — but the
+ * start is only checked when it actually changes, so editing e.g. the title of an event that is
+ * already running (or over) keeps working. A multi-day event can't end before it starts. */
+const validateEventDates: CollectionBeforeChangeHook = ({ data, originalDoc, operation }) => {
+  if (!data) return data
+
+  const start = data.dateTime ?? originalDoc?.dateTime
+  const end = data.endDateTime === undefined ? originalDoc?.endDateTime : data.endDateTime
+  if (!start) return data
+
+  const startMs = new Date(start).getTime()
+  const startChanged =
+    operation === 'create' || (originalDoc?.dateTime && startMs !== new Date(originalDoc.dateTime).getTime())
+
+  if (startChanged && startMs < Date.now()) {
+    throw new APIError('Akce nemůže začínat v minulosti. Vyberte prosím budoucí datum a čas.', 400)
+  }
+  if (end && new Date(end).getTime() < startMs) {
+    throw new APIError('Konec akce nemůže být dřív než její začátek.', 400)
   }
 
   return data
@@ -151,15 +206,24 @@ async function notifyPhonesForEvent(
     overrideAccess: true,
   })
   await Promise.all(
-    profiles.docs
-      .filter((p) => p.phone)
-      .map((p) => {
-        const userId = typeof p.user === 'object' ? p.user.id : p.user
-        // Timestamped, not just event+user — httpSMS dedupes on request_id, and an event can
-        // be edited (and so SMS'd about) more than once.
-        return enqueueSms({ to: p.phone!, message, requestId: `event-${eventId}-${userId}-${Date.now()}` })
-      }),
+    profiles.docs.map((p) => {
+      const to = p.phone ? toE164(p.phone) : null
+      if (!to) return undefined
+      const userId = typeof p.user === 'object' ? p.user.id : p.user
+      // Timestamped, not just event+user — httpSMS dedupes on request_id, and an event can
+      // be edited (and so SMS'd about) more than once.
+      return enqueueSms({ to, message, requestId: `event-${eventId}-${userId}-${Date.now()}` })
+    }),
   )
+}
+
+/** httpSMS expects E.164, but onboarding accepts Czech numbers as typed ("735 929 442",
+ * "+420 735…", "00420…"). A bare 9-digit number is Czech; anything unrecognisable is skipped. */
+function toE164(phone: string): string | null {
+  const compact = phone.replace(/[^\d+]/g, '').replace(/^00/, '+')
+  if (/^\+\d{9,15}$/.test(compact)) return compact
+  if (/^\d{9}$/.test(compact)) return `+420${compact}`
+  return null
 }
 
 /** Cancelling an event (soft-delete via `deletedAt`) doesn't hard-delete the row — the FK
@@ -194,6 +258,7 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
       ),
     )
     await notifyPhonesForEvent(req, userIds, doc.id, `Lonvita: akce „${doc.title}“ byla zrušena.`)
+    await cancelEventReminders(req.payload, doc.id)
   } catch (error) {
     req.payload.logger.error(`Failed to notify registrants of cancelled event ${doc.id}: ${error}`)
   }
@@ -201,37 +266,101 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
   return doc
 }
 
-/** Brief §7 "Úprava existující akce → všichni přihlášení účastníci". Fires on any update
- * that (a) isn't the cancellation itself (that has its own message above) and (b) actually
- * changed something a participant would care about, so routine internal writes (e.g. the
- * isVolunteering guard flipping a field back) don't spam everyone. */
-const NOTIFIABLE_EDIT_FIELDS = ['title', 'dateTime', 'endDateTime', 'locationText', 'description'] as const
+/** Brief §7 "Úprava existující akce → všichni přihlášení účastníci" — every field a participant
+ * can see on the event, with the (Czech) label used to tell them what changed. Routine internal
+ * writes (e.g. the isVolunteering guard, a photo swap) don't notify anyone. */
+const NOTIFIABLE_EDIT_FIELDS: Record<string, string> = {
+  title: 'název',
+  dateTime: 'začátek',
+  endDateTime: 'konec',
+  recurrenceRule: 'opakování',
+  locationText: 'místo konání',
+  lat: 'místo konání',
+  lng: 'místo konání',
+  description: 'popis',
+  capacity: 'kapacita',
+  registrationApprovalMode: 'způsob přihlašování',
+  accessibilityTags: 'přístupnost',
+  organization: 'pořadatel',
+  categories: 'kategorie',
+  isPaid: 'cena',
+  priceCents: 'cena',
+}
 
+const DATE_FIELDS = new Set(['dateTime', 'endDateTime'])
+
+/** Comparable form of a field value — relationship ids instead of populated docs, sorted
+ * arrays, and timestamps for dates (the same instant can come back formatted differently). */
+function comparable(field: string, value: unknown): string {
+  const idOf = (v: unknown) => (v && typeof v === 'object' && 'id' in v ? (v as { id: unknown }).id : v)
+  if (value === undefined || value === null || value === '') return 'null'
+  if (DATE_FIELDS.has(field)) return String(new Date(value as string).getTime())
+  if (Array.isArray(value)) return JSON.stringify(value.map(idOf).map(String).sort())
+  return JSON.stringify(idOf(value))
+}
+
+const formatPragueDateTime = (iso: string) =>
+  new Date(iso).toLocaleString('cs-CZ', {
+    timeZone: 'Europe/Prague',
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+
+const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** Brief §8 / notes "pokud se změní lokalita, čas cokoliv jiného, odešle se automaticky mail na
+ * všechny přihlášené a na telefonní čísla SMS, a samozřejmě upozornění do aplikace". */
 const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   if (operation !== 'update' || !previousDoc) return doc
   if (doc.deletedAt) return doc // the cancellation hook already covers this transition
 
-  const changed = NOTIFIABLE_EDIT_FIELDS.some((field) => doc[field] !== previousDoc[field])
-  if (!changed) return doc
+  const changedFields = Object.keys(NOTIFIABLE_EDIT_FIELDS).filter(
+    (field) => comparable(field, doc[field]) !== comparable(field, previousDoc[field]),
+  )
+  if (changedFields.length === 0) return doc
 
   try {
+    if (changedFields.includes('dateTime') || changedFields.includes('endDateTime')) {
+      await rescheduleEventReminders(req.payload, doc as Parameters<typeof rescheduleEventReminders>[1])
+    }
+
     const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
     const userIds = await getRegistrantIdsToNotify(req, doc.id, organizerId)
+    if (userIds.length === 0) return doc
+
+    const changedLabels = Array.from(new Set(changedFields.map((field) => NOTIFIABLE_EDIT_FIELDS[field])))
+    const when = formatPragueDateTime(doc.dateTime)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+    const title = escapeHtml(doc.title)
 
     await Promise.all(
       userIds.map((userId) =>
         sendNotification(req.payload, {
           userId,
           title: 'Akce byla upravena',
-          message: `Akce „${doc.title}“, na kterou jste přihlášeni, byla upravena — zkontrolujte prosím detail.`,
+          message: `Akce „${doc.title}“, na kterou jste přihlášeni, byla upravena (změna: ${changedLabels.join(', ')}). Nově: ${when}, ${doc.locationText}.`,
+          link: `/akce/${doc.id}`,
           email: {
             subject: `Akce upravena: ${doc.title}`,
-            body: `<p>Akce <strong>${doc.title}</strong>, na kterou jste přihlášeni, byla upravena — zkontrolujte prosím detail akce v aplikaci.</p>`,
+            body:
+              `<p>Akce <strong>${title}</strong>, na kterou jste přihlášeni, byla upravena.</p>` +
+              `<p>Změna: ${changedLabels.join(', ')}</p>` +
+              `<p><strong>Kdy:</strong> ${when}<br/><strong>Kde:</strong> ${escapeHtml(doc.locationText)}</p>` +
+              `<p><a href="${appUrl}/akce/${doc.id}">Zobrazit detail akce</a></p>`,
           },
         }),
       ),
     )
-    await notifyPhonesForEvent(req, userIds, doc.id, `Lonvita: akce „${doc.title}“ byla upravena, zkontrolujte prosím detail.`)
+    const place = doc.locationText.length > 60 ? `${doc.locationText.slice(0, 57)}…` : doc.locationText
+    await notifyPhonesForEvent(
+      req,
+      userIds,
+      doc.id,
+      `Lonvita: akce „${doc.title}“ byla upravena (${changedLabels.join(', ')}). Nově: ${when}, ${place}.`,
+    )
   } catch (error) {
     req.payload.logger.error(`Failed to notify registrants of edited event ${doc.id}: ${error}`)
   }
@@ -239,39 +368,12 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
   return doc
 }
 
-/** Brief §4/§7 "Po skončení akce organizátorovi přijde upozornění, že má vyplnit docházku."
- * Scheduled once at creation time, the same way as the pre-event 24h reminder — a delayed,
- * email-only job (no in-app/preference check, matching that reminder's own documented
- * simplification: this is a "did you remember to do X" nudge, not a live state query, and
- * the worker deliberately doesn't have Payload access to re-check attendance at fire time). */
-const scheduleAttendanceReminder: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
+/** Scheduled once at creation time; moved along with the event if it's later rescheduled. */
+const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
   if (operation !== 'create') return doc
 
   try {
-    const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
-    const organizer = await req.payload.findByID({
-      collection: 'users',
-      id: organizerId,
-      depth: 0,
-      overrideAccess: true,
-    })
-    if (!organizer?.email) return doc
-
-    const endsAt = new Date(doc.endDateTime ?? doc.dateTime).getTime()
-    // A few hours' buffer after the event's own end time, so this doesn't land while it's
-    // plausibly still running.
-    const remindAt = endsAt + 3 * 60 * 60 * 1000
-    const delay = remindAt - Date.now()
-    if (delay <= 0) return doc
-
-    await enqueueEmail(
-      {
-        to: organizer.email,
-        subject: `Nezapomeňte vyplnit docházku: ${doc.title}`,
-        body: `<p>Akce <strong>${doc.title}</strong> proběhla — nezapomeňte prosím ve správě akce vyplnit docházku přihlášených.</p>`,
-      },
-      { jobId: `attendance-reminder-${doc.id}`, delay },
-    )
+    await scheduleAttendanceReminder(req.payload, doc as Parameters<typeof scheduleAttendanceReminder>[1])
   } catch (error) {
     req.payload.logger.error(`Failed to schedule attendance reminder for event ${doc.id}: ${error}`)
   }
@@ -296,13 +398,8 @@ export const Events: CollectionConfig = {
     read: () => notDeleted,
     // Brief §3 "Pravidla pro vznik akcí" — gated per-municipality instead of any logged-in user.
     create: canCreateEvent,
-    // Scoped the same as delete — cancelling an event is now a PATCH (sets deletedAt)
-    // rather than a real DELETE (see admin-queries.ts), so update must be gated at least
-    // as tightly as delete, not left open to any logged-in user. Organizer self-service
-    // edit/cancel of their own event is deferred to the edit-event feature (brief §4).
-    update: isPlatformOrMunicipalityAdmin('municipality'),
-    // Platform superadmin everywhere, or a municipality admin scoped to their own municipality.
-    delete: isPlatformOrMunicipalityAdmin('municipality'),
+    update: canUpdateEvent,
+    delete: canDeleteEvent,
   },
   fields: [
     {
@@ -319,6 +416,7 @@ export const Events: CollectionConfig = {
       type: 'relationship',
       relationTo: 'municipalities',
       required: true,
+      access: { update: platformAdminOnly },
     },
     {
       name: 'dateTime',
@@ -419,6 +517,7 @@ export const Events: CollectionConfig = {
       type: 'relationship',
       relationTo: 'users',
       required: true,
+      access: { update: platformAdminOnly },
       admin: {
         description: 'The user organizing this event. Additional organizers: see coOrganizers below.',
       },
@@ -518,8 +617,8 @@ export const Events: CollectionConfig = {
     },
   ],
   hooks: {
-    beforeChange: [validateEventLocationRadius, guardIsVolunteering],
-    afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminder],
+    beforeChange: [validateEventDates, validateEventLocationRadius, guardIsVolunteering],
+    afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],
   },
   timestamps: true,
 }

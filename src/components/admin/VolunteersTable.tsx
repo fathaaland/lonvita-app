@@ -12,21 +12,24 @@ import { VOLUNTEER_FOCUS_OPTIONS } from "@/components/VolunteerCard";
 const focusLabel = (v: string) =>
   VOLUNTEER_FOCUS_OPTIONS.find((o) => o.value === v)?.label ?? v;
 
-export function VolunteersTable() {
+/** `municipalityId` = the administered obec on the admin dashboard; falls back to the viewer's
+ * home municipality (organizer dashboard). */
+export function VolunteersTable({ municipalityId }: { municipalityId?: string }) {
   const { profile } = useAuth();
+  const muniId = municipalityId || profile?.municipality_id;
   const [rows, setRows] = useState<VolunteerRow[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      if (!profile?.municipality_id) return;
+      if (!muniId) return;
       setLoading(true);
-      const list = await getVolunteers(profile.municipality_id);
+      const list = await getVolunteers(muniId);
       setRows(list);
       setLoading(false);
     })();
-  }, [profile?.municipality_id]);
+  }, [muniId]);
 
   const emails = useMemo(() => {
     const map: Record<string, string> = {};

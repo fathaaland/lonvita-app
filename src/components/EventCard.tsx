@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Calendar, MapPin } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { relativeDay, formatEventTime } from "@/lib/date";
+import { formatCzk } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 export interface EventCardData {
@@ -17,13 +18,15 @@ export interface EventCardData {
   categories?: { id: string; name: string; icon: string; color: string }[];
   is_paid?: boolean;
   price_cents?: number | null;
+  /** Shown next to the location when events from several municipalities are listed together. */
+  municipality_name?: string;
 }
 
 export function EventCard({ event, className }: { event: EventCardData; className?: string }) {
   const primaryCategory = event.categories?.[0];
   const Icon = getCategoryIcon(primaryCategory?.icon);
   const free = Math.max(0, event.capacity - (event.registrations_count ?? 0));
-  const priceCzk = event.is_paid && event.price_cents ? Math.round(event.price_cents / 100) : 0;
+  const priceLabel = event.is_paid ? (event.price_cents ? formatCzk(event.price_cents) : "Placená") : null;
 
   return (
     <Link
@@ -69,12 +72,15 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <MapPin className="h-4 w-4 shrink-0" />
-          <span className="truncate">{event.location_text}</span>
+          <span className="truncate">
+            {event.municipality_name && <span className="font-semibold text-foreground">{event.municipality_name} · </span>}
+            {event.location_text}
+          </span>
         </div>
 
         <div className="flex items-center justify-between gap-3 pt-3 mt-1 border-t border-brand-sand-pale">
-          {priceCzk > 0 ? (
-            <span className="text-sm font-bold text-foreground">{priceCzk} Kč</span>
+          {priceLabel ? (
+            <span className="text-sm font-bold text-foreground">{priceLabel}</span>
           ) : (
             <span className="text-sm font-bold text-[hsl(var(--success))]">Zdarma</span>
           )}

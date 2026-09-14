@@ -5,6 +5,7 @@ import * as migration_20260904_191230_phase2_organizer_volunteer_requests from '
 import * as migration_20260904_194152_phase4_location_mandatory from './20260904_194152_phase4_location_mandatory';
 import * as migration_20260904_195210_phase5_notifications from './20260904_195210_phase5_notifications';
 import * as migration_20260904_205318_phase6_event_location_radius from './20260904_205318_phase6_event_location_radius';
+import * as migration_20260914_185435_notes_tuning from './20260914_185435_notes_tuning';
 
 export const migrations = [
   {
@@ -40,6 +41,11 @@ export const migrations = [
   {
     up: migration_20260904_205318_phase6_event_location_radius.up,
     down: migration_20260904_205318_phase6_event_location_radius.down,
-    name: '20260904_205318_phase6_event_location_radius'
+    name: '20260904_205318_phase6_event_location_radius',
+  },
+  {
+    up: migration_20260914_185435_notes_tuning.up,
+    down: migration_20260914_185435_notes_tuning.down,
+    name: '20260914_185435_notes_tuning'
   },
 ];

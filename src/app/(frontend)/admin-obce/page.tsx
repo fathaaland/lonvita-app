@@ -159,11 +159,11 @@ function AdminContent() {
             </TabsContent>
 
             <TabsContent value="volunteers" className="pt-4">
-              <VolunteersTable />
+              <VolunteersTable municipalityId={muniId} />
             </TabsContent>
 
             <TabsContent value="requests" className="pt-4">
-              <RequestsTable />
+              <RequestsTable municipalityId={muniId} />
             </TabsContent>
 
             <TabsContent value="settings" className="pt-4">

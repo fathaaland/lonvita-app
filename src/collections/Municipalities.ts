@@ -1,6 +1,37 @@
-import type { Access, CollectionConfig } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
+
+/** Picking an adminUser directly on the obec (Payload admin UI) grants the matching
+ * "municipality_admin" user-role, so both places agree. The reverse direction (superadmin panel
+ * grants a role -> adminUser) lives in UserRoles.ts and sets `skipAdminUserSync` to stop the loop. */
+const grantRoleForAdminUser: CollectionAfterChangeHook = async ({ doc, previousDoc, req, context }) => {
+  if (context?.skipAdminUserSync) return doc
+
+  const userId = typeof doc.adminUser === 'object' ? doc.adminUser?.id : doc.adminUser
+  const previousUserId = typeof previousDoc?.adminUser === 'object' ? previousDoc?.adminUser?.id : previousDoc?.adminUser
+  if (!userId || userId === previousUserId) return doc
+
+  const existing = await req.payload.find({
+    collection: 'user-roles',
+    where: {
+      and: [{ user: { equals: userId } }, { municipality: { equals: doc.id } }, { role: { equals: 'municipality_admin' } }],
+    },
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    req,
+  })
+  if (existing.docs.length === 0) {
+    await req.payload.create({
+      collection: 'user-roles',
+      data: { user: userId, municipality: doc.id, role: 'municipality_admin' },
+      overrideAccess: true,
+      req,
+    })
+  }
+  return doc
+}
 
 /** A municipality admin may update their own municipality's settings (e.g. rulesForCreation,
  * brief §3 "Nastavení" tab) — a platform admin can update any. Distinct from create/delete,
@@ -61,8 +92,12 @@ export const Municipalities: CollectionConfig = {
       type: 'relationship',
       relationTo: 'users',
       label: 'Municipality Admin',
+      // Setting it grants a municipality_admin role (grantRoleForAdminUser) — platform admin only,
+      // otherwise a municipality admin could hand that role to anyone via their own obec settings.
+      access: { update: ({ req: { user } }) => user?.role === 'admin' },
       admin: {
-        description: 'The user who administers this municipality.',
+        description:
+          'The user who administers this municipality. Kept in sync with "municipality_admin" user-roles (the most recently granted one).',
         position: 'sidebar',
       },
     },
@@ -92,5 +127,8 @@ export const Municipalities: CollectionConfig = {
       },
     },
   ],
+  hooks: {
+    afterChange: [grantRoleForAdminUser],
+  },
   timestamps: true,
 }

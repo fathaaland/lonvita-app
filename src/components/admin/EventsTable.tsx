@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
-import { ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
 import { deleteEvent } from "@/integrations/payload/admin-queries";
 import { toast } from "sonner";
@@ -126,6 +126,18 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                       {fill} %
                     </p>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      router.push(`/upravit/${e.id}`);
+                    }}
+                    aria-label="Upravit akci"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"

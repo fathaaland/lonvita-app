@@ -198,7 +198,7 @@ export interface Municipality {
   lat: number;
   lng: number;
   /**
-   * The user who administers this municipality.
+   * The user who administers this municipality. Kept in sync with "municipality_admin" user-roles (the most recently granted one).
    */
   adminUser?: (number | null) | User;
   /**
@@ -275,9 +275,9 @@ export interface Profile {
   user: number | User;
   fullName: string;
   /**
-   * The user's home municipality.
+   * The user's home municipality. Empty = "bez obce" (their town doesn't use Lonvita yet) — they browse and can register for events across every municipality.
    */
-  municipality: number | Municipality;
+  municipality?: (number | null) | Municipality;
   phone?: string | null;
   /**
    * Brief §8 "přidání a ověření tel. čísla pro GoSMS" — set once an OTP sent to `phone` is confirmed.
@@ -630,6 +630,10 @@ export interface Notification {
   user: number | User;
   title: string;
   message: string;
+  /**
+   * In-app route opened when the notification is clicked, e.g. "/akce/12". Empty = not clickable.
+   */
+  link?: string | null;
   /**
    * Set when the recipient opens/dismisses the notification.
    */
@@ -1070,6 +1074,7 @@ export interface NotificationsSelect<T extends boolean = true> {
   user?: T;
   title?: T;
   message?: T;
+  link?: T;
   readAt?: T;
   updatedAt?: T;
   createdAt?: T;

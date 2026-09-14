@@ -29,6 +29,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId: adminId,
         title: 'Nová žádost o příznak Dobrovolnictví',
+        link: '/admin-obce',
         message: `Organizátor požádal o příznak Dobrovolnictví pro akci „${event.title}“.`,
         email: {
           subject: 'Nová žádost o příznak Dobrovolnictví',
@@ -55,6 +56,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId: requesterId,
         title: 'Příznak Dobrovolnictví schválen',
+        link: `/akce/${eventId}`,
         message: 'Vaše žádost o příznak Dobrovolnictví byla schválena.',
         email: {
           subject: 'Příznak Dobrovolnictví schválen',
@@ -72,6 +74,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId: requesterId,
         title: 'Příznak Dobrovolnictví zamítnut',
+        link: `/akce/${eventId}`,
         message: 'Vaše žádost o příznak Dobrovolnictví byla zamítnuta.',
         email: {
           subject: 'Příznak Dobrovolnictví zamítnut',

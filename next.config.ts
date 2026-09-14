@@ -7,6 +7,12 @@ const __filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(__filename)
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // The proxy (src/proxy.ts) buffers request bodies and truncates anything over its 10 MB
+    // default, which broke photo uploads mid-stream ("Unexpected end of form"). Photos are also
+    // downscaled client-side (src/lib/image.ts); this is headroom for anything that isn't.
+    proxyClientMaxBodySize: '25mb',
+  },
   images: {
     localPatterns: [
       {

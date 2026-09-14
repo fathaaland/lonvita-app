@@ -152,6 +152,8 @@ export type EventRow = {
   category_ids: string[];
   organizer_id?: string;
   organization_id: string | null;
+  /** Only when fetched with depth >= 1 (the relationship is populated). */
+  organization_name: string | null;
   co_organizer_ids: string[];
   municipality_id?: string;
   status?: "active" | "full" | "finished" | "cancelled";
@@ -210,6 +212,8 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
   organizer_id: toId(e.organizer) ?? undefined,
   organization_id: toId(e.organization),
+  organization_name:
+    typeof e.organization === "object" && e.organization ? ((e.organization as { name?: string }).name ?? null) : null,
   co_organizer_ids: (e.coOrganizers ?? []).map(toId).filter((v): v is string => Boolean(v)),
   municipality_id: toId(e.municipality) ?? undefined,
   status: e.status,
@@ -219,11 +223,13 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   cancellation_policy: e.cancellationPolicy ?? "cancel_48h",
 });
 
-/** Upcoming (not cancelled) events for a municipality, ordered by date, category populated. */
-export async function getUpcomingEvents(municipalityId: string): Promise<EventRow[]> {
+/** Upcoming (not cancelled) events for a municipality — or, with `null`, across every
+ * municipality ("bez obce" users, the "Všechny obce" view) — ordered by date, category populated. */
+export async function getUpcomingEvents(municipalityId: string | null): Promise<EventRow[]> {
   const where = buildWhereParams({
-    municipality: { equals: municipalityId },
+    ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
     status: { not_equals: "cancelled" },
+    dateTime: { greater_than: new Date().toISOString() },
   });
   const query = buildQuery({ sort: "dateTime", depth: 1, limit: 200 });
   const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
@@ -330,19 +336,24 @@ const mapRegistration = (r: PayloadRegistration): RegistrationRow => ({
   status: r.status,
 });
 
-/** Counts of pending+approved registrations, grouped by event_id — for capacity display. */
-export async function getActiveRegistrationCountsByEvent(): Promise<Map<string, number>> {
-  const where = buildWhereParams({ status: { in: ["pending", "approved"] } });
-  const query = buildQuery({ limit: 1000, depth: 0 });
-  const result = await get<PayloadListResponse<PayloadRegistration>>(`/registrations?${where}&${query}`);
+export type RegistrationCountRow = { approved: number; pending: number };
 
-  const counts = new Map<string, number>();
-  for (const doc of result.docs) {
-    const eventId = toId(doc.event);
-    if (!eventId) continue;
-    counts.set(eventId, (counts.get(eventId) ?? 0) + 1);
-  }
+/** Approved/pending counts per event from the public counts route — registrations themselves are
+ * only readable by the organizer and the obec's admin, so counts can't be derived from them here. */
+export async function getRegistrationCounts(eventIds: string[]): Promise<Map<string, RegistrationCountRow>> {
+  const counts = new Map<string, RegistrationCountRow>();
+  if (eventIds.length === 0) return counts;
+  const params = new URLSearchParams();
+  eventIds.forEach((id) => params.append("event", id));
+  const result = await get<{ counts: Record<string, RegistrationCountRow> }>(`/events/registration-counts?${params}`);
+  for (const [eventId, row] of Object.entries(result.counts)) counts.set(eventId, row);
   return counts;
+}
+
+/** Counts of pending+approved registrations, grouped by event_id — for capacity display. */
+export async function getActiveRegistrationCountsByEvent(eventIds: string[]): Promise<Map<string, number>> {
+  const counts = await getRegistrationCounts(eventIds);
+  return new Map(Array.from(counts, ([eventId, row]) => [eventId, row.approved + row.pending]));
 }
 
 export async function getUserRegistrations(userId: string): Promise<RegistrationRow[]> {
@@ -617,6 +628,22 @@ export async function getMyAdministeredMunicipalityId(userId: string): Promise<s
   return String(typeof row.municipality === "object" ? row.municipality.id : row.municipality);
 }
 
+async function getMyRoleMunicipalityIds(userId: string, role: AppRole): Promise<string[]> {
+  const where = buildWhereParams({ user: { equals: userId }, role: { equals: role } });
+  const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`);
+  return result.docs.map((r) => String(typeof r.municipality === "object" ? r.municipality.id : r.municipality));
+}
+
+/** Every municipality this user administers (all of their "municipality_admin" user-roles). */
+export function getMyAdministeredMunicipalityIds(userId: string): Promise<string[]> {
+  return getMyRoleMunicipalityIds(userId, "municipality_admin");
+}
+
+/** Every municipality where this user holds the "organizer" role. */
+export function getMyOrganizerMunicipalityIds(userId: string): Promise<string[]> {
+  return getMyRoleMunicipalityIds(userId, "organizer");
+}
+
 // --- Organizer / volunteering-flag requests ----------------------------------------------
 
 export type RequestStatus = "pending" | "approved" | "rejected";
@@ -685,6 +712,7 @@ export type NotificationRow = {
   id: string;
   title: string;
   message: string;
+  link: string | null;
   read: boolean;
   created_at: string;
 };
@@ -693,6 +721,7 @@ type PayloadNotification = {
   id: number;
   title: string;
   message: string;
+  link?: string | null;
   readAt?: string | null;
   createdAt: string;
 };
@@ -705,6 +734,7 @@ export async function getMyNotifications(userId: string): Promise<NotificationRo
     id: String(n.id),
     title: n.title,
     message: n.message,
+    link: n.link || null,
     read: Boolean(n.readAt),
     created_at: n.createdAt,
   }));

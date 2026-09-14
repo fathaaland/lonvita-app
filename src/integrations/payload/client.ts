@@ -15,6 +15,17 @@ export class PayloadApiError extends Error {
   }
 }
 
+/** Payload's REST create/update-by-id responses wrap the document as `{ doc, message }`, while
+ * every caller here wants the document itself. Reading `id` off the wrapper silently gave
+ * `undefined` — a freshly created organization or uploaded photo then never got attached to the
+ * event. Custom routes (register, login, …) don't use that shape and pass through untouched. */
+function unwrapDoc<T>(body: unknown): T {
+  if (body && typeof body === "object" && "doc" in body && "message" in body) {
+    return (body as { doc: T }).doc;
+  }
+  return body as T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
@@ -27,11 +38,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    const message = body?.errors?.[0]?.message ?? `Request failed with status ${res.status}`;
+    const message = body?.errors?.[0]?.message ?? body?.error ?? `Request failed with status ${res.status}`;
     throw new PayloadApiError(message, res.status);
   }
 
-  return res.json() as Promise<T>;
+  return unwrapDoc<T>(await res.json());
 }
 
 export function get<T>(path: string): Promise<T> {
@@ -72,7 +83,7 @@ export async function uploadFile<T>(collection: string, file: File, fields?: Rec
     const message = body?.errors?.[0]?.message ?? `Upload failed with status ${res.status}`;
     throw new PayloadApiError(message, res.status);
   }
-  return res.json() as Promise<T>;
+  return unwrapDoc<T>(await res.json());
 }
 
 // --- Payload REST `where` query-string helper ---------------------------------------
@@ -157,7 +168,9 @@ type RegisterInput = {
   email: string;
   password: string;
   fullName: string;
-  municipality: string;
+  /** null together with noMunicipality = "bez obce". */
+  municipality: string | null;
+  noMunicipality: boolean;
   consentAccepted: boolean;
   marketingConsent: boolean;
 };

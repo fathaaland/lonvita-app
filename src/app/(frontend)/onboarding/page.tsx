@@ -2,24 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { listMunicipalities, getEventCategories, updateProfile, MunicipalityRow } from "@/integrations/payload/queries";
+import { getEventCategories, updateProfile } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { toast } from "sonner";
 import { Loading } from "@/components/Loading";
 import { getCategoryIcon } from "@/lib/icons";
-import { ArrowRight, ArrowLeft, Check, MapPin, Phone } from "lucide-react";
+import { ArrowRight, ArrowLeft, Check, Phone } from "lucide-react";
 
-const ONBOARDING_STEPS = 5;
+// The home municipality is picked on the map at registration (/auth) — onboarding no longer asks.
+const ONBOARDING_STEPS = 4;
 // Lenient Czech mobile format: optional +420/00420 prefix, then 9 digits (spaces allowed).
 const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
+type Gender = "zena" | "muz" | "jine" | "neuvedeno";
 type Category = { id: string; name: string; icon: string | null; color: string | null };
 
 function OnboardingContent() {
@@ -27,25 +28,24 @@ function OnboardingContent() {
   const { user, profile, refreshProfile, loading: authLoading } = useAuth();
   const [step, setStep] = useState(0);
   const [dob, setDob] = useState("");
-  const [gender, setGender] = useState<"zena" | "muz" | "jine" | "neuvedeno">("neuvedeno");
+  const [gender, setGender] = useState<Gender | null>(null);
   const [interests, setInterests] = useState<string[]>([]);
   const [phone, setPhone] = useState("");
-  const [municipalityId, setMunicipalityId] = useState<string>("");
-  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
   const [cats, setCats] = useState<Category[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const [m, c] = await Promise.all([listMunicipalities(), getEventCategories()]);
-      setMunicipalities(m);
-      setCats(c);
-    })();
+    getEventCategories().then(setCats);
   }, []);
 
+  // Prefill from the profile — an account created by a superadmin may already carry some of this.
   useEffect(() => {
-    if (profile?.municipality_id) setMunicipalityId(profile.municipality_id);
-  }, [profile?.municipality_id]);
+    if (!profile) return;
+    if (profile.date_of_birth) setDob(profile.date_of_birth.slice(0, 10));
+    if (profile.gender) setGender(profile.gender as Gender);
+    if (profile.interests?.length) setInterests(profile.interests);
+    if (profile.phone) setPhone(profile.phone);
+  }, [profile?.id]);
 
   // Redirect if already onboarded
   useEffect(() => {
@@ -64,9 +64,8 @@ function OnboardingContent() {
     try {
       await updateProfile(profile.id, {
         dateOfBirth: dob || null,
-        gender,
+        gender: gender ?? "neuvedeno",
         interests: interests.map(Number),
-        municipality: Number(municipalityId),
         phone: phone.trim(),
         onboardingCompleted: true,
       });
@@ -84,10 +83,10 @@ function OnboardingContent() {
 
   const canNext =
     (step === 0 && !!dob) ||
-    (step === 1 && gender !== "neuvedeno") ||
+    // "Raději neuvedu" is a valid answer too — only an untouched step blocks.
+    (step === 1 && gender !== null) ||
     (step === 2) ||
-    (step === 3 && !!municipalityId) ||
-    (step === 4 && PHONE_RE.test(phone.trim()));
+    (step === 3 && PHONE_RE.test(phone.trim()));
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -153,7 +152,7 @@ function OnboardingContent() {
                       key={g.v}
                       variant={gender === g.v ? "default" : "outline"}
                       className="h-14 text-base"
-                      onClick={() => setGender(g.v as typeof gender)}
+                      onClick={() => setGender(g.v as Gender)}
                     >
                       {g.label}
                     </Button>
@@ -197,29 +196,6 @@ function OnboardingContent() {
             )}
 
             {step === 3 && (
-              <>
-                <div>
-                  <h2 className="text-xl font-extrabold">Kde bydlíte?</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Vyberte obec, ve které bydlíte.
-                  </p>
-                </div>
-                <MunicipalitiesMap
-                  points={municipalities}
-                  selectedId={municipalityId}
-                  onSelect={setMunicipalityId}
-                  className="h-80 w-full rounded-2xl overflow-hidden border border-border"
-                />
-                {municipalityId && (
-                  <div className="flex items-center gap-1.5 text-sm font-semibold justify-center">
-                    <MapPin className="h-4 w-4 text-primary" />
-                    {municipalities.find((m) => m.id === municipalityId)?.name}
-                  </div>
-                )}
-              </>
-            )}
-
-            {step === 4 && (
               <>
                 <div>
                   <h2 className="text-xl font-extrabold">Vaše telefonní číslo</h2>

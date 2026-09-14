@@ -15,19 +15,22 @@ import { Button } from "@/components/ui/button";
 import { Check, X, UserPlus, HandHeart } from "lucide-react";
 import { toast } from "sonner";
 
-export function RequestsTable() {
+/** `municipalityId` = the obec this admin actually administers, which isn't necessarily their
+ * home municipality (a superadmin can grant municipality_admin anywhere). */
+export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const { profile } = useAuth();
+  const muniId = municipalityId || profile?.municipality_id;
   const [organizerRequests, setOrganizerRequests] = useState<OrganizerRequestAdminRow[]>([]);
   const [volunteerRequests, setVolunteerRequests] = useState<VolunteerFlagRequestAdminRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = async () => {
-    if (!profile?.municipality_id) return;
+    if (!muniId) return;
     setLoading(true);
     const [org, vol] = await Promise.all([
-      getOrganizerRequestsForAdmin(profile.municipality_id),
-      getVolunteerFlagRequestsForAdmin(profile.municipality_id),
+      getOrganizerRequestsForAdmin(muniId),
+      getVolunteerFlagRequestsForAdmin(muniId),
     ]);
     setOrganizerRequests(org);
     setVolunteerRequests(vol);
@@ -37,7 +40,7 @@ export function RequestsTable() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.municipality_id]);
+  }, [muniId]);
 
   const handleOrganizerDecision = async (id: string, approve: boolean) => {
     setBusyId(id);

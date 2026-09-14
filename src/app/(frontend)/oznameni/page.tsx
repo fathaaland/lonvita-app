@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getMyNotifications, markNotificationRead, NotificationRow } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -8,7 +9,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { Card, CardContent } from "@/components/ui/card";
-import { Bell, BellOff } from "lucide-react";
+import { Bell, BellOff, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function formatWhen(iso: string): string {
@@ -17,6 +18,7 @@ function formatWhen(iso: string): string {
 
 function NotificationsContent() {
   const { user } = useAuth();
+  const router = useRouter();
   const [rows, setRows] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,14 +30,15 @@ function NotificationsContent() {
     });
   }, [user]);
 
-  const handleOpen = async (n: NotificationRow) => {
-    if (n.read) return;
-    setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: true } : r)));
-    try {
-      await markNotificationRead(n.id);
-    } catch {
-      setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: false } : r)));
+  const handleOpen = (n: NotificationRow) => {
+    if (!n.read) {
+      setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: true } : r)));
+      markNotificationRead(n.id).catch(() => {
+        setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: false } : r)));
+      });
     }
+    // e.g. "Nová přihláška na akci" -> that event's detail.
+    if (n.link) router.push(n.link);
   };
 
   return (
@@ -50,7 +53,12 @@ function NotificationsContent() {
           {rows.map((n) => (
             <Card
               key={n.id}
-              className={cn("cursor-pointer transition-colors", !n.read && "border-primary/50 bg-primary-soft/40")}
+              className={cn(
+                "transition-colors",
+                (n.link || !n.read) && "cursor-pointer",
+                n.link && "hover:border-primary/50",
+                !n.read && "border-primary/50 bg-primary-soft/40",
+              )}
               onClick={() => handleOpen(n)}
             >
               <CardContent className="p-4 flex items-start gap-3">
@@ -65,6 +73,7 @@ function NotificationsContent() {
                   <p className="text-sm text-foreground/90 mt-0.5">{n.message}</p>
                   <p className="text-xs text-muted-foreground mt-1.5">{formatWhen(n.created_at)}</p>
                 </div>
+                {n.link && <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 self-center" />}
               </CardContent>
             </Card>
           ))}

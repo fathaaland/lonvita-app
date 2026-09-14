@@ -34,6 +34,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId: adminId,
         title: 'Nová žádost o roli organizátora',
+        link: '/admin-obce',
         message: 'Někdo v obci požádal o roli organizátora — vyřiďte to v sekci Žádosti.',
         email: {
           subject: 'Nová žádost o roli organizátora',
@@ -60,6 +61,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId,
         title: 'Role organizátora schválena',
+        link: '/vytvorit',
         message: 'Vaše žádost o roli organizátora byla schválena.',
         email: {
           subject: 'Role organizátora schválena',
@@ -78,6 +80,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId,
         title: 'Žádost o roli organizátora zamítnuta',
+        link: '/profil',
         message: 'Vaše žádost o roli organizátora byla zamítnuta.',
         email: {
           subject: 'Žádost o roli organizátora zamítnuta',

@@ -47,6 +47,13 @@ export const Notifications: CollectionConfig = {
       required: true,
     },
     {
+      name: 'link',
+      type: 'text',
+      admin: {
+        description: 'In-app route opened when the notification is clicked, e.g. "/akce/12". Empty = not clickable.',
+      },
+    },
+    {
       name: 'readAt',
       type: 'date',
       admin: {

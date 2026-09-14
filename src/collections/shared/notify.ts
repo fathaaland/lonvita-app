@@ -6,11 +6,14 @@ import { enqueueEmail } from '@/lib/queue/queues'
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
  * only where the caller already knows the user wants an in-app notification regardless of
  * preference (e.g. nothing reads Profiles yet); prefer `sendNotification` otherwise. */
-export const notify = (payload: Payload, input: { user: number; title: string; message: string }): void => {
+export const notify = (
+  payload: Payload,
+  input: { user: number; title: string; message: string; link?: string },
+): void => {
   payload
     .create({
       collection: 'notifications',
-      data: { user: input.user, title: input.title, message: input.message },
+      data: { user: input.user, title: input.title, message: input.message, link: input.link },
       overrideAccess: true,
     })
     .catch((error) => payload.logger.error({ err: error, user: input.user }, 'Failed to write notification'))
@@ -33,6 +36,8 @@ type SendNotificationInput = {
   userId: number | string
   title: string
   message: string
+  /** In-app route the notification opens when clicked (e.g. the event detail). */
+  link?: string
   /** Omit to send in-app only (no email content to send). */
   email?: { subject: string; body: string }
 }
@@ -64,7 +69,7 @@ export async function sendNotification(payload: Payload, input: SendNotification
     if (wantsInApp) {
       await payload.create({
         collection: 'notifications',
-        data: { user: Number(input.userId), title: input.title, message: input.message },
+        data: { user: Number(input.userId), title: input.title, message: input.message, link: input.link },
         overrideAccess: true,
       })
     }

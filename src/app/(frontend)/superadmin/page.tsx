@@ -11,7 +11,9 @@ import {
   MunicipalityRow,
   PlatformUserRow,
 } from "@/integrations/payload/superadmin-queries";
-import { getEventCategories, createEvent } from "@/integrations/payload/queries";
+import { getEventCategories, createEvent, listMunicipalities } from "@/integrations/payload/queries";
+import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
+import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,18 +22,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
+import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
+import { cn } from "@/lib/utils";
 
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
+
+// Same lenient Czech format as the onboarding phone step.
+const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
 const ROLE_LABEL: Record<string, string> = {
   participant: "Účastník",
@@ -39,10 +47,28 @@ const ROLE_LABEL: Record<string, string> = {
   prescriber: "Prescriber",
 };
 
+type Gender = "zena" | "muz" | "jine" | "neuvedeno";
+
+const GENDER_OPTIONS: { value: Gender; label: string }[] = [
+  { value: "zena", label: "Žena" },
+  { value: "muz", label: "Muž" },
+  { value: "jine", label: "Jiné" },
+  { value: "neuvedeno", label: "Neuvedeno" },
+];
+
+const chipClass = (active: boolean) =>
+  cn(
+    "px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors",
+    active
+      ? "bg-primary text-primary-foreground border-primary"
+      : "bg-card text-foreground border-border hover:border-brand-purple",
+  );
+
 function SuperAdminContent() {
   const { signOut } = useAuth();
   const [tab, setTab] = useState("municipalities");
   const [municipalities, setMunicipalities] = useState<MunicipalityRow[]>([]);
+  const [mapPoints, setMapPoints] = useState<MunicipalityMapPoint[]>([]);
   const [users, setUsers] = useState<PlatformUserRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,11 +79,17 @@ function SuperAdminContent() {
   const [muniLocation, setMuniLocation] = useState<PickedLocation | null>(null);
   const [creatingMuni, setCreatingMuni] = useState(false);
 
-  // Uživatelé tab — new user form
+  // Uživatelé tab — new user form: the same data a self-signup gives across registration
+  // (/auth: home obec on the map or "bez obce") and onboarding (date of birth, gender, interests, phone).
   const [newFullName, setNewFullName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newUserMuniId, setNewUserMuniId] = useState("");
+  const [newNoMunicipality, setNewNoMunicipality] = useState(false);
+  const [newDob, setNewDob] = useState("");
+  const [newGender, setNewGender] = useState<Gender>("neuvedeno");
+  const [newPhone, setNewPhone] = useState("");
+  const [newInterests, setNewInterests] = useState<string[]>([]);
   const [creatingUser, setCreatingUser] = useState(false);
 
   // Akce tab — new event form
@@ -79,12 +111,14 @@ function SuperAdminContent() {
 
   const load = async () => {
     setLoading(true);
-    const [munis, us, cats] = await Promise.all([
+    const [munis, points, us, cats] = await Promise.all([
       listMunicipalitiesForSuperAdmin(),
+      listMunicipalities(),
       listAllUsersForSuperAdmin(),
       getEventCategories(),
     ]);
     setMunicipalities(munis);
+    setMapPoints(points);
     setUsers(us);
     setCategories(cats);
     setLoading(false);
@@ -124,14 +158,34 @@ function SuperAdminContent() {
     }
   };
 
+  const resetNewUserForm = () => {
+    setNewFullName("");
+    setNewEmail("");
+    setNewPassword("");
+    setNewUserMuniId("");
+    setNewNoMunicipality(false);
+    setNewDob("");
+    setNewGender("neuvedeno");
+    setNewPhone("");
+    setNewInterests([]);
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newFullName.trim() || !newEmail.trim() || !newPassword || !newUserMuniId) {
-      toast.error("Vyplňte všechna pole.");
+    if (!newFullName.trim() || !newEmail.trim() || !newPassword) {
+      toast.error("Vyplňte jméno, e-mail a heslo.");
       return;
     }
     if (newPassword.length < 8) {
       toast.error("Heslo musí mít alespoň 8 znaků.");
+      return;
+    }
+    if (!newUserMuniId && !newNoMunicipality) {
+      toast.error("Vyberte obec na mapě, nebo zaškrtněte „bez obce“.");
+      return;
+    }
+    if (newPhone.trim() && !PHONE_RE.test(newPhone.trim())) {
+      toast.error("Zadejte platné české telefonní číslo.");
       return;
     }
     setCreatingUser(true);
@@ -140,13 +194,18 @@ function SuperAdminContent() {
         email: newEmail.trim(),
         password: newPassword,
         fullName: newFullName.trim(),
-        municipalityId: newUserMuniId,
+        municipalityId: newNoMunicipality ? null : newUserMuniId,
+        dateOfBirth: newDob || null,
+        gender: newGender,
+        phone: newPhone.trim() || null,
+        interestIds: newInterests,
       });
-      toast.success("Uživatel vytvořen.");
-      setNewFullName("");
-      setNewEmail("");
-      setNewPassword("");
-      setNewUserMuniId("");
+      toast.success(
+        newDob && newPhone.trim()
+          ? "Uživatel vytvořen."
+          : "Uživatel vytvořen. Chybějící údaje (datum narození, telefon) doplní při prvním přihlášení.",
+      );
+      resetNewUserForm();
       load();
     } catch {
       toast.error("Nepodařilo se vytvořit uživatele — e-mail už možná existuje.");
@@ -163,6 +222,10 @@ function SuperAdminContent() {
     }
     if (!evCategoryId || !evMuniId || !evOrganizerId) {
       toast.error("Vyberte kategorii, obec a pořadatele.");
+      return;
+    }
+    if (new Date(`${evDate}T${evTime}`).getTime() < Date.now()) {
+      toast.error("Akce nemůže začínat v minulosti.");
       return;
     }
     setCreatingEvent(true);
@@ -192,8 +255,10 @@ function SuperAdminContent() {
       setEvCategoryId("");
       setEvMuniId("");
       setEvOrganizerId("");
-    } catch {
-      toast.error("Nepodařilo se vytvořit akci.");
+    } catch (error) {
+      toast.error(
+        error instanceof PayloadApiError && error.status === 400 ? error.message : "Nepodařilo se vytvořit akci.",
+      );
     } finally {
       setCreatingEvent(false);
     }
@@ -237,6 +302,8 @@ function SuperAdminContent() {
   );
 
   if (loading) return <><PageHeader title="Superadmin" right={logoutAction} /><Loading /></>;
+
+  const newUserMuniName = mapPoints.find((m) => m.id === newUserMuniId)?.name;
 
   return (
     <div className="animate-fade-in">
@@ -311,7 +378,7 @@ function SuperAdminContent() {
                 <div className="eyebrow">
                   <UserPlus className="h-3 w-3" /> Nový uživatel
                 </div>
-                <form onSubmit={handleCreateUser} className="space-y-3">
+                <form onSubmit={handleCreateUser} className="space-y-4">
                   <div>
                     <Label htmlFor="u-name">Celé jméno *</Label>
                     <Input id="u-name" value={newFullName} onChange={(e) => setNewFullName(e.target.value)} className="h-11 mt-1.5" />
@@ -336,18 +403,100 @@ function SuperAdminContent() {
                       className="h-11 mt-1.5"
                     />
                   </div>
-                  <Select value={newUserMuniId} onValueChange={setNewUserMuniId}>
-                    <SelectTrigger className="h-11">
-                      <SelectValue placeholder="Vyberte obec" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {municipalities.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name}
-                        </SelectItem>
+
+                  <div className="space-y-2">
+                    <Label>Obec *</Label>
+                    {!newNoMunicipality && (
+                      <>
+                        <MunicipalitiesMap
+                          points={mapPoints}
+                          selectedId={newUserMuniId || null}
+                          onSelect={setNewUserMuniId}
+                        />
+                        {newUserMuniName && (
+                          <div className="flex items-center gap-1.5 text-sm font-semibold justify-center">
+                            <MapPin className="h-4 w-4 text-primary" />
+                            {newUserMuniName}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={newNoMunicipality}
+                        onCheckedChange={(v) => {
+                          const on = v === true;
+                          setNewNoMunicipality(on);
+                          if (on) setNewUserMuniId("");
+                        }}
+                        className="mt-0.5"
+                      />
+                      <span>Bez obce — uživatel uvidí akce ze všech obcí.</span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="u-dob">Datum narození</Label>
+                      <Input
+                        id="u-dob"
+                        type="date"
+                        min="1920-01-01"
+                        max={new Date().toLocaleDateString("sv-SE")}
+                        value={newDob}
+                        onChange={(e) => setNewDob(e.target.value)}
+                        className="h-11 mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="u-phone">Telefon</Label>
+                      <Input
+                        id="u-phone"
+                        type="tel"
+                        placeholder="+420 601 234 567"
+                        value={newPhone}
+                        onChange={(e) => setNewPhone(e.target.value)}
+                        className="h-11 mt-1.5"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Pohlaví</Label>
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {GENDER_OPTIONS.map((g) => (
+                        <button key={g.value} type="button" onClick={() => setNewGender(g.value)} className={chipClass(newGender === g.value)}>
+                          {g.label}
+                        </button>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Zájmy</Label>
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {categories.map((c) => {
+                        const active = newInterests.includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() =>
+                              setNewInterests((prev) => (active ? prev.filter((id) => id !== c.id) : [...prev, c.id]))
+                            }
+                            className={chipClass(active)}
+                          >
+                            {c.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Když datum narození nebo telefon nevyplníte, uživatel je doplní v onboardingu při prvním přihlášení.
+                  </p>
+
                   <Button type="submit" disabled={creatingUser} className="w-full h-11">
                     Vytvořit uživatele
                   </Button>
@@ -368,7 +517,7 @@ function SuperAdminContent() {
                       <p className="font-bold truncate">{u.fullName ?? "Bez profilu"}</p>
                       <p className="text-xs text-muted-foreground truncate">
                         {u.email}
-                        {u.homeMunicipalityName ? ` · ${u.homeMunicipalityName}` : ""}
+                        {u.homeMunicipalityName ? ` · ${u.homeMunicipalityName}` : u.fullName ? " · bez obce" : ""}
                       </p>
                     </div>
                   </CardContent>
@@ -408,7 +557,7 @@ function SuperAdminContent() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="ev-date">Datum *</Label>
-                      <Input id="ev-date" type="date" value={evDate} onChange={(e) => setEvDate(e.target.value)} className="h-11 mt-1.5" />
+                      <Input id="ev-date" type="date" min={new Date().toLocaleDateString("sv-SE")} value={evDate} onChange={(e) => setEvDate(e.target.value)} className="h-11 mt-1.5" />
                     </div>
                     <div>
                       <Label htmlFor="ev-time">Čas *</Label>
