@@ -37,6 +37,26 @@ export function isPast(iso: string): boolean {
   return new Date(iso).getTime() < Date.now();
 }
 
+/** Date in "YYYY-MM-DD" form, suitable for an `<input type="date">` value/min/max attribute
+ * (in the browser's local timezone). Accepts an ISO string or a Date; defaults to today. */
+export function toDateInputValue(date: Date | string = new Date()): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("sv-SE");
+}
+
+/** Numeric date + time in the Europe/Prague timezone, e.g. "5.11.2025 14:30" — used server-side
+ * (emails, notifications) where the reader's timezone can't be inferred from their browser. */
+export function formatPragueDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("cs-CZ", {
+    timeZone: "Europe/Prague",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function relativeDay(iso: string): string {
   const d = new Date(iso);
   const t = new Date();

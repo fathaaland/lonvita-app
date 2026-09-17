@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
+import { toDateInputValue } from "@/lib/date";
 
 const ACCESSIBILITY_OPTIONS = [
   { value: "wheelchair_access", label: "Bezbariérový přístup" },
@@ -67,7 +68,6 @@ export type EventFormValues = {
   priceCents: number | null;
 };
 
-const toLocalDate = (iso: string) => new Date(iso).toLocaleDateString("sv-SE");
 const toLocalTime = (iso: string) => new Date(iso).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
 
 const chipClass = (active: boolean) =>
@@ -100,9 +100,9 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
   const [form, setForm] = useState({
     title: initial?.title ?? "",
     description: initial?.description ?? "",
-    date: initial ? toLocalDate(initial.date_time) : "",
+    date: initial ? toDateInputValue(initial.date_time) : "",
     time: initial ? toLocalTime(initial.date_time) : "",
-    endDate: initial?.end_date_time ? toLocalDate(initial.end_date_time) : "",
+    endDate: initial?.end_date_time ? toDateInputValue(initial.end_date_time) : "",
     endTime: initial?.end_date_time ? toLocalTime(initial.end_date_time) : "",
     capacity: String(initial?.capacity ?? 10),
     priceCzk: initial?.price_cents ? String(initial.price_cents / 100) : "",
@@ -178,7 +178,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
 
     const startsAt = new Date(`${parsed.data.date}T${parsed.data.time}`);
     // Editing an event that already started is fine as long as its start isn't moved.
-    const startChanged = !initial || startsAt.getTime() !== new Date(toLocalDate(initial.date_time) + "T" + toLocalTime(initial.date_time)).getTime();
+    const startChanged = !initial || startsAt.getTime() !== new Date(toDateInputValue(initial.date_time) + "T" + toLocalTime(initial.date_time)).getTime();
     if (startChanged && startsAt.getTime() < Date.now()) {
       toast.error("Akce nemůže začínat v minulosti.");
       return;
@@ -215,7 +215,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
     }
   };
 
-  const today = new Date().toLocaleDateString("sv-SE");
+  const today = toDateInputValue();
 
   return (
     <form onSubmit={handleSubmit} className="px-4 py-5 space-y-4">

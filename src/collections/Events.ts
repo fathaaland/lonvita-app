@@ -11,6 +11,7 @@ import { cancelEventReminders, rescheduleEventReminders, scheduleAttendanceRemin
 import { guardCancellationWindow } from './shared/eventCancellation'
 import { enqueueSms } from '@/lib/queue/queues'
 import { haversineDistanceKm } from '@/lib/geo/distance'
+import { formatPragueDateTime } from '@/lib/date'
 
 /**
  * Brief §3 "Pravidla pro vznik akcí" — a municipality picks one of two modes
@@ -303,16 +304,6 @@ function comparable(field: string, value: unknown): string {
   if (Array.isArray(value)) return JSON.stringify(value.map(idOf).map(String).sort())
   return JSON.stringify(idOf(value))
 }
-
-const formatPragueDateTime = (iso: string) =>
-  new Date(iso).toLocaleString('cs-CZ', {
-    timeZone: 'Europe/Prague',
-    day: 'numeric',
-    month: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 

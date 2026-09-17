@@ -1,22 +1,8 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig, Where } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig } from 'payload'
 
-import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
-
-/** Brief §3 "Žádost účastníka o roli organizátora, admin obce ji schválí nebo zamítne."
- * The requester or an admin of that municipality may read it; only that municipality's admin
- * (or a platform admin) may create the UserRoles grant by approving/rejecting it. */
-const canReadOwnOrAdministered: Access = async ({ req }) => {
-  const { user, payload } = req
-  if (!user) return false
-  if (user.role === 'admin') return true
-
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
-  const or: Where[] = [{ user: { equals: user.id } }]
-  if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
-  return { or }
-}
 
 const canCreateOwnRequest: Access = ({ req: { user }, data }) => {
   if (!user) return false
@@ -110,7 +96,7 @@ export const OrganizerRequests: CollectionConfig = {
     defaultColumns: ['user', 'municipality', 'status', 'updatedAt'],
   },
   access: {
-    read: canReadOwnOrAdministered,
+    read: canReadOwnOrAdministered('user'),
     create: canCreateOwnRequest,
     update: isPlatformOrMunicipalityAdmin(),
     delete: isPlatformOrMunicipalityAdmin(),

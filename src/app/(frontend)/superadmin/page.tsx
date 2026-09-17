@@ -42,7 +42,7 @@ import type { CategoryRow } from "@/lib/analytics";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
-import { formatEventDateTime } from "@/lib/date";
+import { formatEventDateTime, toDateInputValue } from "@/lib/date";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -582,7 +582,7 @@ function SuperAdminContent() {
                         id="u-dob"
                         type="date"
                         min="1920-01-01"
-                        max={new Date().toLocaleDateString("sv-SE")}
+                        max={toDateInputValue()}
                         value={newDob}
                         onChange={(e) => setNewDob(e.target.value)}
                         className="h-11 mt-1.5"
@@ -718,7 +718,7 @@ function SuperAdminContent() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="ev-date">Datum *</Label>
-                      <Input id="ev-date" type="date" min={new Date().toLocaleDateString("sv-SE")} value={evDate} onChange={(e) => setEvDate(e.target.value)} className="h-11 mt-1.5" />
+                      <Input id="ev-date" type="date" min={toDateInputValue()} value={evDate} onChange={(e) => setEvDate(e.target.value)} className="h-11 mt-1.5" />
                     </div>
                     <div>
                       <Label htmlFor="ev-time">Čas *</Label>

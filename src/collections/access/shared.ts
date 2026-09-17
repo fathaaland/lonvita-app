@@ -1,4 +1,4 @@
-import type { Access } from 'payload'
+import type { Access, Where } from 'payload'
 
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
@@ -34,6 +34,25 @@ export const isPlatformOrMunicipalityAdmin =
     if (municipalityIds.length === 0) return false
 
     return { [municipalityField]: { in: municipalityIds } }
+  }
+
+/**
+ * Allows platform admins (Users.role === 'admin') everywhere; otherwise restricts read
+ * access to rows the user owns (via `ownerField`, e.g. "user" or "requestedBy") or that
+ * belong to a municipality they administer (via `municipalityWhereField`, which may be a
+ * nested path like "event.municipality").
+ */
+export const canReadOwnOrAdministered =
+  (ownerField: string, municipalityWhereField = 'municipality'): Access =>
+  async ({ req }) => {
+    const { user, payload } = req
+    if (!user) return false
+    if (user.role === 'admin') return true
+
+    const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+    const or: Where[] = [{ [ownerField]: { equals: user.id } }]
+    if (administeredIds.length > 0) or.push({ [municipalityWhereField]: { in: administeredIds } })
+    return { or }
   }
 
 /** IDs of municipalities where this user holds an "organizer" UserRole. */

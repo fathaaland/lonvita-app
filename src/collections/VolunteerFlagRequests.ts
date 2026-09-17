@@ -1,21 +1,8 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig, Where } from 'payload'
+import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
 
-import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
-
-/** Brief §3 "Žádost organizátora o příznak Dobrovolnictví... schvaluje se odděleně od role
- * organizátora." The requester or an admin of the event's municipality may read it. */
-const canReadOwnOrAdministered: Access = async ({ req }) => {
-  const { user, payload } = req
-  if (!user) return false
-  if (user.role === 'admin') return true
-
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
-  const or: Where[] = [{ requestedBy: { equals: user.id } }]
-  if (administeredIds.length > 0) or.push({ 'event.municipality': { in: administeredIds } })
-  return { or }
-}
 
 const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   const requesterId = typeof doc.requestedBy === 'object' ? doc.requestedBy.id : doc.requestedBy
@@ -103,7 +90,7 @@ export const VolunteerFlagRequests: CollectionConfig = {
     defaultColumns: ['event', 'requestedBy', 'status', 'updatedAt'],
   },
   access: {
-    read: canReadOwnOrAdministered,
+    read: canReadOwnOrAdministered('requestedBy', 'event.municipality'),
     create: ({ req: { user } }) => Boolean(user),
     update: isPlatformOrMunicipalityAdmin('event.municipality'),
     delete: isPlatformOrMunicipalityAdmin('event.municipality'),

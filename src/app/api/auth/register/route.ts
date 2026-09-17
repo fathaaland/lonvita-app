@@ -4,6 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { createAuth0DatabaseUser, deleteAuth0User } from '@/lib/auth/auth0/management'
 import { isAuth0Configured } from '@/lib/auth/auth0/is-configured'
+import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const CONSENT_VERSION = '1.0'
 
@@ -20,10 +21,10 @@ type RegisterBody = {
 }
 
 const validate = (body: RegisterBody): string | null => {
-  if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) {
+  if (!isValidEmail(body.email)) {
     return 'Please provide a valid email address.'
   }
-  if (!body.password || body.password.length < 8) {
+  if (!isValidPassword(body.password)) {
     return 'Password must be at least 8 characters.'
   }
   if (body.password !== body.passwordConfirm) {

@@ -55,39 +55,6 @@ export async function listMunicipalities(): Promise<Pick<MunicipalityRow, "id" |
   return result.docs.map((m) => ({ id: String(m.id), name: m.name, lat: m.lat, lng: m.lng }));
 }
 
-// --- Municipality areas (onboarding neighborhoods) --------------------------------------
-
-export type MunicipalityAreaRow = {
-  id: string;
-  name: string;
-  code: string;
-  center_lat: number;
-  center_lng: number;
-};
-
-type PayloadMunicipalityArea = {
-  id: number;
-  name: string;
-  code: string;
-  centerLat: number;
-  centerLng: number;
-};
-
-export async function getMunicipalityAreas(municipalityId: string): Promise<MunicipalityAreaRow[]> {
-  const where = buildWhereParams({ municipality: { equals: municipalityId } });
-  const query = buildQuery({ sort: "name", limit: 200 });
-  const result = await get<PayloadListResponse<PayloadMunicipalityArea>>(
-    `/municipality-areas?${where}&${query}`,
-  );
-  return result.docs.map((a) => ({
-    id: String(a.id),
-    name: a.name,
-    code: a.code,
-    center_lat: a.centerLat,
-    center_lng: a.centerLng,
-  }));
-}
-
 // --- Event categories --------------------------------------------------------------------
 
 export type CategoryRow = { id: string; name: string; icon: string; color: string };
@@ -364,12 +331,6 @@ export async function getRegistrationCounts(eventIds: string[]): Promise<Map<str
 export async function getActiveRegistrationCountsByEvent(eventIds: string[]): Promise<Map<string, number>> {
   const counts = await getRegistrationCounts(eventIds);
   return new Map(Array.from(counts, ([eventId, row]) => [eventId, row.approved + row.pending]));
-}
-
-export async function getUserRegistrations(userId: string): Promise<RegistrationRow[]> {
-  const where = buildWhereParams({ user: { equals: userId } });
-  const result = await get<PayloadListResponse<PayloadRegistration>>(`/registrations?${where}&depth=1&limit=200`);
-  return result.docs.map(mapRegistration);
 }
 
 export async function createRegistration(eventId: string, userId: string): Promise<RegistrationRow> {

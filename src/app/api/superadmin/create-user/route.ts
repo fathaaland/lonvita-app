@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const GENDERS = ['zena', 'muz', 'jine', 'neuvedeno'] as const
 // Same lenient Czech format as the onboarding phone step.
@@ -37,10 +38,10 @@ export async function POST(request: Request) {
   const phone = body.phone?.trim() || null
   const municipality = body.municipality ? Number(body.municipality) : null
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!isValidEmail(email)) {
     return NextResponse.json({ error: 'Zadejte platný e-mail.' }, { status: 400 })
   }
-  if (!body.password || body.password.length < 8) {
+  if (!isValidPassword(body.password)) {
     return NextResponse.json({ error: 'Heslo musí mít alespoň 8 znaků.' }, { status: 400 })
   }
   if (!fullName || fullName.length < 2) {
