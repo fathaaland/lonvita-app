@@ -68,7 +68,7 @@ function ManageEventContent() {
   if (loading) return <><PageHeader title="Přihlášení" back /><Loading /></>;
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Přihlášení" subtitle={`Celkem: ${regs.length}`} back />
       <div className="px-4 py-5 space-y-3">
         {regs.length === 0 ? (

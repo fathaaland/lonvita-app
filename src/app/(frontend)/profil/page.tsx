@@ -69,8 +69,8 @@ function ProfileContent() {
   };
 
   return (
-    <div className="animate-fade-in">
-      <div className="bg-brand-graphite text-[hsl(var(--brand-ivory))] px-6 pt-6 pb-5 relative">
+    <div className="animate-fade-in md:mx-auto md:max-w-2xl">
+      <div className="bg-brand-graphite text-[hsl(var(--brand-ivory))] px-6 pt-6 pb-5 relative md:rounded-b-2xl md:mt-6">
         <button
           onClick={() => router.back()}
           className="absolute top-4 left-4 h-9 w-9 rounded-full inline-flex items-center justify-center bg-white/10 hover:bg-white/20 transition-colors"
@@ -87,7 +87,7 @@ function ProfileContent() {
         </div>
       </div>
 
-      <div className="bg-card border-b border-border grid grid-cols-3 divide-x divide-border">
+      <div className="bg-card border-b border-border grid grid-cols-3 divide-x divide-border md:border md:rounded-xl md:mt-4">
         {[
           { num: stats.upcoming, label: "Nadcházející" },
           { num: stats.attended, label: "Navštíveno" },

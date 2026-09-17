@@ -155,19 +155,19 @@ export default function AuthPage() {
   const selectedMunicipalityName = municipalities.find((m) => m.id === municipality)?.name;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-[480px]">
-        <div className="relative pb-10">
-          <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--brand-graphite))] via-[hsl(var(--brand-graphite-mid))] to-background" />
-          <div className="relative pt-12 pb-4 px-6 flex flex-col items-center text-center">
-            <LonvitaLogo variant="on-dark" size="xl" />
-            <p className="mt-5 text-[15px] leading-relaxed text-[hsl(var(--brand-sand))] max-w-[320px]">
-              Objevujte, co se děje ve vašem městě.
-            </p>
-          </div>
+    <div className="w-full">
+      {/* On lg+ the branding already lives in AppShell's split-screen panel. */}
+      <div className="relative pb-10 lg:hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--brand-graphite))] via-[hsl(var(--brand-graphite-mid))] to-background" />
+        <div className="relative pt-12 pb-4 px-6 flex flex-col items-center text-center">
+          <LonvitaLogo variant="on-dark" size="xl" />
+          <p className="mt-5 text-[15px] leading-relaxed text-[hsl(var(--brand-sand))] max-w-[320px]">
+            Objevujte, co se děje ve vašem městě.
+          </p>
         </div>
+      </div>
 
-        <div className="px-4 pb-8 relative z-10 space-y-4">
+      <div className="px-4 pb-8 lg:px-0 lg:pb-0 relative z-10 space-y-4">
           <form onSubmit={handleSubmit} className="space-y-3">
             {mode === "signup" && (
               <div className="space-y-1.5">
@@ -313,6 +313,6 @@ export default function AuthPage() {
           </p>
         </div>
       </div>
-    </div>
   );
 }
+

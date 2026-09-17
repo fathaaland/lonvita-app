@@ -148,7 +148,10 @@
     letter-spacing: -0.055em;
     @apply font-extrabold text-foreground;
   }
-  button, a, [role="button"] {
+  /* Excludes checkbox/switch/radio: those are small controls normally wrapped in their
+     own larger clickable <label>, and forcing 44px min-height stretched them into
+     tall, ugly shapes instead of their intended compact square/pill. */
+  button:not([role="checkbox"], [role="switch"], [role="radio"]), a, [role="button"] {
     @apply min-h-[44px];
   }
   input, textarea, select {

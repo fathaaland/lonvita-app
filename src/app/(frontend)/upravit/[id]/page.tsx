@@ -104,7 +104,7 @@ function EditEventContent() {
 
   if (!event || !canEdit) {
     return (
-      <div className="animate-fade-in">
+      <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
         <PageHeader title="Upravit akci" back />
         <EmptyState
           title={event ? "Tuto akci nemůžete upravit" : "Akce nebyla nalezena"}
@@ -115,7 +115,7 @@ function EditEventContent() {
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Upravit akci" back />
       <EventForm
         userId={String(user.id)}

@@ -83,7 +83,7 @@ function OrganizerDashboardContent() {
   if (loading) return <><PageHeader title="Moje organizace" back /><Loading /></>;
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Moje organizace" subtitle="Přehled a statistiky vašich akcí" back />
       <div className="px-4 py-5 space-y-4">
         <div className="grid grid-cols-3 gap-2">

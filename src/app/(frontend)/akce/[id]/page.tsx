@@ -188,7 +188,7 @@ function EventDetailContent() {
   const approvedAttendees = regs.filter((r) => r.status === "approved");
 
   return (
-    <article className="animate-fade-in pb-6">
+    <article className="animate-fade-in pb-6 sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Detail akce" back right={
         canManage ? (
           <div className="flex gap-2">

@@ -36,6 +36,19 @@ function FitToMarkers({ points }: { points: MunicipalityMapPoint[] }) {
   return null;
 }
 
+// Leaflet measures its container once at mount. Inside an animated Radix Dialog, that happens
+// mid zoom-in transition, so the map freezes at the wrong (smaller) size — this keeps it in sync.
+function InvalidateSizeOnResize() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [map]);
+  return null;
+}
+
 interface Props {
   points: MunicipalityMapPoint[];
   selectedId?: string | null;
@@ -62,6 +75,7 @@ export default function MunicipalitiesMap({ points, selectedId, onSelect, classN
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitToMarkers points={markers} />
+        <InvalidateSizeOnResize />
         {markers.map((m) => (
           <Marker
             key={m.id}

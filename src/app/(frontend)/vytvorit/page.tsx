@@ -112,7 +112,7 @@ function CreateEventContent() {
 
   if (!municipalityId) {
     return (
-      <div className="animate-fade-in">
+      <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
         <PageHeader title="Vytvořit akci" back />
         <EmptyState title="Není kde akci založit" description="Nemáte obec, pro kterou byste mohli zakládat akce." />
       </div>
@@ -120,7 +120,7 @@ function CreateEventContent() {
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Vytvořit akci" back />
       <EventForm
         userId={String(user.id)}
