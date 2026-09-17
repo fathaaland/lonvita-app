@@ -73,7 +73,12 @@ const shouldSeedDemoData = () => !isProduction() || process.env.SEED_DEMO_DATA =
 const DEMO_PASSWORD = 'demo1234'
 
 const MUNICIPALITIES = [
-  { name: 'Nové Veselí', description: 'Nové Veselí na Žďársku', lat: 49.5198752, lng: 15.9084979 },
+  {
+    name: 'Nové Veselí',
+    description: 'Nové Veselí na Žďársku a v okolí',
+    lat: 49.5198752,
+    lng: 15.9084979,
+  },
   { name: 'Hamry nad Sázavou', description: null, lat: 49.5660235, lng: 15.9016868 },
   { name: 'Blansko', description: null, lat: 49.3636494, lng: 16.6442394 },
   { name: 'Praha', description: null, lat: 50.0874654, lng: 14.4212535 },
