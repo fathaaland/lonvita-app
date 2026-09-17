@@ -125,9 +125,9 @@ Target ~100 lines per commit/PR. Changes over ~1000 lines should be split. See t
 ```
 main (always deployable)
   │
-  ├── feature/cu-123-task-creation    ← One feature per branch
-  ├── feature/cu-456-user-settings    ← Parallel work
-  └── fix/cu-789-duplicate-tasks      ← Bug fixes
+  ├── feature/CU-123-task-creation    ← One feature per branch
+  ├── feature/CU-456-user-settings    ← Parallel work
+  └── fix/CU-789-duplicate-tasks      ← Bug fixes
 ```
 
 - Branch from `main` (or the team's default branch)
@@ -137,13 +137,13 @@ main (always deployable)
 
 ### Branch Naming
 
-Include the ClickUp task ID in every branch name using the `cu-` prefix:
+Include the ClickUp task ID in every branch name using the uppercase `CU-` prefix:
 
 ```
-feature/cu-<clickup-task-id>-<short-description>   → feature/cu-123-task-creation
-fix/cu-<clickup-task-id>-<short-description>       → fix/cu-456-duplicate-tasks
-chore/cu-<clickup-task-id>-<short-description>     → chore/cu-789-update-deps
-refactor/cu-<clickup-task-id>-<short-description>  → refactor/cu-101-auth-module
+feature/CU-<clickup-task-id>-<short-description>   → feature/CU-123-task-creation
+fix/CU-<clickup-task-id>-<short-description>       → fix/CU-456-duplicate-tasks
+chore/CU-<clickup-task-id>-<short-description>     → chore/CU-789-update-deps
+refactor/CU-<clickup-task-id>-<short-description>  → refactor/CU-101-auth-module
 ```
 
 ## Working with Worktrees
@@ -152,8 +152,8 @@ For parallel AI agent work, use git worktrees to run multiple branches simultane
 
 ```bash
 # Create a worktree for a feature branch
-git worktree add ../project-feature-a feature/cu-123-task-creation
-git worktree add ../project-feature-b feature/cu-456-user-settings
+git worktree add ../project-feature-a feature/CU-123-task-creation
+git worktree add ../project-feature-b feature/CU-456-user-settings
 
 # Each worktree is a separate directory with its own branch
 # Agents can work in parallel without interfering
