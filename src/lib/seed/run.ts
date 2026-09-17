@@ -32,7 +32,9 @@ async function bootstrapProductionSuperadmin(payload: Payload): Promise<void> {
   const email = process.env.SEED_SUPERADMIN_EMAIL?.trim().toLowerCase()
   const password = process.env.SEED_SUPERADMIN_PASSWORD
   if (!email || !password) {
-    payload.logger.info('SEED_SUPERADMIN_EMAIL / SEED_SUPERADMIN_PASSWORD not set — skipping superadmin bootstrap.')
+    payload.logger.info(
+      'SEED_SUPERADMIN_EMAIL / SEED_SUPERADMIN_PASSWORD not set — skipping superadmin bootstrap.',
+    )
     return
   }
   if (password.length < SUPERADMIN_PASSWORD_MIN_LENGTH) {
@@ -94,7 +96,10 @@ type DemoPerson = {
   gender: 'zena' | 'muz' | 'jine' | 'neuvedeno'
   interests: CategoryName[]
   volunteer?: { focus: string[]; note: string }
-  roles: { role: 'participant' | 'municipality_admin' | 'organizer'; municipality: MunicipalityName }[]
+  roles: {
+    role: 'participant' | 'municipality_admin' | 'organizer'
+    municipality: MunicipalityName
+  }[]
 }
 
 const DEMO_PEOPLE: DemoPerson[] = [
@@ -338,7 +343,10 @@ async function findUserId(payload: Payload, email: string): Promise<number | nul
   return result.docs[0]?.id ?? null
 }
 
-async function ensureMunicipality(payload: Payload, input: (typeof MUNICIPALITIES)[number]): Promise<number> {
+async function ensureMunicipality(
+  payload: Payload,
+  input: (typeof MUNICIPALITIES)[number],
+): Promise<number> {
   const existing = await payload.find({
     collection: 'municipalities',
     where: { name: { equals: input.name } },
@@ -381,7 +389,13 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
   const userIds = new Map<string, number>()
   for (const person of DEMO_PEOPLE) {
     const userId = person.demoAccount
-      ? (await seedUser(payload, { email: person.email, password: DEMO_PASSWORD, platformRole: 'user' })).id
+      ? (
+          await seedUser(payload, {
+            email: person.email,
+            password: DEMO_PASSWORD,
+            platformRole: 'user',
+          })
+        ).id
       : await findUserId(payload, person.email)
     if (!userId) continue
     userIds.set(person.email, userId)
@@ -403,7 +417,9 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
           phone: person.phone,
           dateOfBirth: person.dateOfBirth,
           gender: person.gender,
-          interests: person.interests.map((name) => categoryIds.get(name)).filter((id): id is number => id !== undefined),
+          interests: person.interests
+            .map((name) => categoryIds.get(name))
+            .filter((id): id is number => id !== undefined),
           isVolunteer: Boolean(person.volunteer),
           volunteerFocus: person.volunteer?.focus ?? [],
           volunteerNote: person.volunteer?.note ?? null,
@@ -419,7 +435,11 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
       const existingRole = await payload.find({
         collection: 'user-roles',
         where: {
-          and: [{ user: { equals: userId } }, { municipality: { equals: municipalityId } }, { role: { equals: role } }],
+          and: [
+            { user: { equals: userId } },
+            { municipality: { equals: municipalityId } },
+            { role: { equals: role } },
+          ],
         },
         limit: 1,
         depth: 0,
@@ -448,7 +468,13 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
     })
     const id =
       existing.docs[0]?.id ??
-      (await payload.create({ collection: 'organizations', data: { name: organization.name, owner: ownerId }, overrideAccess: true })).id
+      (
+        await payload.create({
+          collection: 'organizations',
+          data: { name: organization.name, owner: ownerId },
+          overrideAccess: true,
+        })
+      ).id
     organizationIds.set(organization.name, id)
   }
 
@@ -459,7 +485,9 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
 
     const existing = await payload.find({
       collection: 'events',
-      where: { and: [{ title: { equals: event.title } }, { municipality: { equals: municipalityId } }] },
+      where: {
+        and: [{ title: { equals: event.title } }, { municipality: { equals: municipalityId } }],
+      },
       limit: 1,
       depth: 0,
       overrideAccess: true,
@@ -481,7 +509,9 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
           registrationApprovalMode: event.approval,
           organizer: organizerId,
           organization: event.organization ? organizationIds.get(event.organization) : undefined,
-          categories: event.categories.map((name) => categoryIds.get(name)).filter((id): id is number => id !== undefined),
+          categories: event.categories
+            .map((name) => categoryIds.get(name))
+            .filter((id): id is number => id !== undefined),
           status: 'active',
           isPaid: Boolean(event.priceCzk),
           priceCents: event.priceCzk ? event.priceCzk * 100 : undefined,
@@ -499,7 +529,11 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
       const existingRegistration = await payload.find({
         collection: 'registrations',
         where: {
-          and: [{ event: { equals: eventId } }, { user: { equals: userId } }, { status: { not_equals: 'cancelled' } }],
+          and: [
+            { event: { equals: eventId } },
+            { user: { equals: userId } },
+            { status: { not_equals: 'cancelled' } },
+          ],
         },
         limit: 1,
         depth: 0,
@@ -529,7 +563,13 @@ export async function runSeed(payload: Payload) {
     })
     const id =
       existing.docs[0]?.id ??
-      (await payload.create({ collection: 'event-categories', data: { ...cat }, overrideAccess: true })).id
+      (
+        await payload.create({
+          collection: 'event-categories',
+          data: { ...cat },
+          overrideAccess: true,
+        })
+      ).id
     categoryIds.set(cat.name, id)
   }
 
