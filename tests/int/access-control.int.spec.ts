@@ -152,6 +152,47 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     await payload.delete({ collection: 'user-roles', id: role.id, overrideAccess: true })
     await payload.delete({ collection: 'users', id: secondAdminOfA.id, overrideAccess: true })
   })
+
+  it('rejects "anyone" as a rulesForCreation value (task 5 — security, mode removed entirely)', async () => {
+    await expect(
+      payload.create({
+        collection: 'municipalities',
+        data: {
+          name: `Anyone Rule Muni ${STAMP}`,
+          // @ts-expect-error — "anyone" was removed from the select's options entirely.
+          rulesForCreation: 'anyone',
+          lat: 49.5661,
+          lng: 15.9403,
+        },
+        overrideAccess: true,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('a municipality admin of A cannot create an event in B (task 5 — no cross-obec creation, whatever B\'s rule)', async () => {
+    await expect(
+      payload.create({
+        collection: 'events',
+        data: {
+          title: `Cross-obec attempt ${STAMP}`,
+          dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          locationText: 'Test location',
+          lat: 49.5661,
+          lng: 15.9403,
+          capacity: 10,
+          organizer: adminOfA.id,
+          municipality: municipalityB.id,
+          categories: [category.id],
+          status: 'active',
+          isPaid: false,
+          registrationApprovalMode: 'manual',
+          cancellationPolicy: 'none',
+        },
+        user: adminOfA,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+  })
 })
 
 describe('Municipality name uniqueness (task 1 — no re-founding an obec)', () => {

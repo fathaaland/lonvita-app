@@ -9,7 +9,7 @@ import type { PayloadListResponse } from "./client";
 
 // --- Municipalities ---------------------------------------------------------------------
 
-export type RulesForCreation = "municipality_only" | "anyone" | "approved_organizers";
+export type RulesForCreation = "municipality_only" | "approved_organizers";
 
 export type MunicipalityRow = {
   id: string;

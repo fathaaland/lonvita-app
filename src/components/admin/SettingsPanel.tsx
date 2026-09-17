@@ -9,7 +9,6 @@ import { toast } from "sonner";
 
 const OPTIONS: { value: RulesForCreation; label: string }[] = [
   { value: "municipality_only", label: "Akce může zakládat pouze obec sama" },
-  { value: "anyone", label: "Kdokoliv v obci může zakládat akce bez schvalování" },
   { value: "approved_organizers", label: "Obec schvaluje každou žádost o roli organizátora" },
 ];
 

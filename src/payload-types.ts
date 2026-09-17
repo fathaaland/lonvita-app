@@ -206,9 +206,9 @@ export interface Municipality {
    */
   eventRadiusKm: number;
   /**
-   * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting.
+   * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.
    */
-  rulesForCreation: 'municipality_only' | 'anyone' | 'approved_organizers';
+  rulesForCreation: 'municipality_only' | 'approved_organizers';
   updatedAt: string;
   createdAt: string;
 }

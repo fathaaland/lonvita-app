@@ -13,8 +13,13 @@ import { enqueueSms } from '@/lib/queue/queues'
 import { haversineDistanceKm } from '@/lib/geo/distance'
 
 /**
- * Brief §3 "Pravidla pro vznik akcí" — a municipality picks one of three modes
+ * Brief §3 "Pravidla pro vznik akcí" — a municipality picks one of two modes
  * (Municipalities.rulesForCreation). A signed-out visitor is always read-only regardless.
+ *
+ * Task 5 (security): there used to be an "anyone logged in may create" mode, which meant a
+ * municipality_admin of one obec could create events in a *different* obec simply by being a
+ * logged-in user, if that other obec opted into it. That mode is gone — a user with no
+ * administered/organizer relationship to a municipality can never create events there, full stop.
  */
 const canCreateEvent: Access = async ({ req, data }) => {
   const { user, payload } = req
@@ -38,7 +43,6 @@ const canCreateEvent: Access = async ({ req, data }) => {
   const rule = municipality?.rulesForCreation ?? 'approved_organizers'
 
   if (rule === 'municipality_only') return false
-  if (rule === 'anyone') return true
 
   const organizerIds = await getOrganizerMunicipalityIds(payload, user.id)
   return organizerIds.includes(municipalityId)
@@ -133,8 +137,8 @@ const validateEventDates: CollectionBeforeChangeHook = ({ data, originalDoc, ope
  * under — otherwise an admin obce (or organizer) could plant an event anywhere and have it
  * show up on a completely unrelated municipality's page. Bounded by that municipality's own
  * configurable `eventRadiusKm` (Municipalities.ts) rather than a fixed constant, since a
- * small village and a big city need very different radii. Applies to every creator (admin,
- * organizer, or "anyone" mode alike) — this is a data-integrity check, not a role check.
+ * small village and a big city need very different radii. Applies to every creator alike
+ * (admin or organizer) — this is a data-integrity check, not a role check.
  */
 const validateEventLocationRadius: CollectionBeforeChangeHook = async ({ data, req, originalDoc }) => {
   if (!data) return data

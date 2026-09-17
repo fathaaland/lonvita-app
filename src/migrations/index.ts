@@ -7,6 +7,7 @@ import * as migration_20260904_195210_phase5_notifications from './20260904_1952
 import * as migration_20260904_205318_phase6_event_location_radius from './20260904_205318_phase6_event_location_radius';
 import * as migration_20260914_185435_notes_tuning from './20260914_185435_notes_tuning';
 import * as migration_20260914_203243_event_image_position from './20260914_203243_event_image_position';
+import * as migration_20260917_173648_remove_anyone_rule_for_creation from './20260917_173648_remove_anyone_rule_for_creation';
 
 export const migrations = [
   {
@@ -52,6 +53,11 @@ export const migrations = [
   {
     up: migration_20260914_203243_event_image_position.up,
     down: migration_20260914_203243_event_image_position.down,
-    name: '20260914_203243_event_image_position'
+    name: '20260914_203243_event_image_position',
+  },
+  {
+    up: migration_20260917_173648_remove_anyone_rule_for_creation.up,
+    down: migration_20260917_173648_remove_anyone_rule_for_creation.down,
+    name: '20260917_173648_remove_anyone_rule_for_creation'
   },
 ];
