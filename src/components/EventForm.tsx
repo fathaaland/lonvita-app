@@ -227,7 +227,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
               src={imagePreview}
               value={imagePosition}
               onChange={setImagePosition}
-              className="aspect-[16/10] w-full"
+              className="aspect-[16/10] w-full sm:mx-auto sm:w-[calc(100%_-_2rem)] sm:max-w-3xl"
             />
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm text-muted-foreground">Tento výřez uvidí účastníci v přehledu akcí i na detailu.</p>
@@ -238,7 +238,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
             </div>
           </div>
         ) : (
-          <label className="mt-1.5 flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted cursor-pointer">
+          <label className="mt-1.5 flex aspect-[16/10] w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-border bg-muted cursor-pointer sm:mx-auto sm:w-[calc(100%_-_2rem)] sm:max-w-3xl">
             <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
               <ImagePlus className="h-8 w-8" />
               <span className="text-sm font-medium">{uploadingImage ? "Nahrávám…" : "Nahrát fotografii"}</span>
