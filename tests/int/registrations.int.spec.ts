@@ -131,6 +131,63 @@ describe('Registrations & EventFeedback', () => {
       await payload.delete({ collection: 'registrations', id: reg.id, overrideAccess: true })
     })
 
+    it('notifies the organizer when a participant cancels their own registration (task 9)', async () => {
+      const reg = await payload.create({
+        collection: 'registrations',
+        data: { event: event.id, user: participant.id, status: 'approved' },
+        context: { skipNotifications: true },
+        overrideAccess: true,
+      })
+
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'cancelled' },
+        user: participant,
+        overrideAccess: true,
+      })
+
+      const notifications = await payload.find({
+        collection: 'notifications',
+        where: {
+          and: [{ user: { equals: organizer.id } }, { title: { equals: 'Přihláška zrušena' } }],
+        },
+        overrideAccess: true,
+      })
+      expect(notifications.docs.length).toBeGreaterThan(0)
+
+      await payload.delete({ collection: 'notifications', where: { user: { equals: organizer.id } }, overrideAccess: true })
+      await payload.delete({ collection: 'registrations', id: reg.id, overrideAccess: true })
+    })
+
+    it('does not notify the organizer when they cancel a registration themselves', async () => {
+      const reg = await payload.create({
+        collection: 'registrations',
+        data: { event: event.id, user: participant.id, status: 'approved' },
+        context: { skipNotifications: true },
+        overrideAccess: true,
+      })
+
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'cancelled' },
+        user: organizer,
+        overrideAccess: true,
+      })
+
+      const notifications = await payload.find({
+        collection: 'notifications',
+        where: {
+          and: [{ user: { equals: organizer.id } }, { title: { equals: 'Přihláška zrušena' } }],
+        },
+        overrideAccess: true,
+      })
+      expect(notifications.docs).toHaveLength(0)
+
+      await payload.delete({ collection: 'registrations', id: reg.id, overrideAccess: true })
+    })
+
     it('soft-deleted registrations are excluded from access-controlled reads', async () => {
       const reg = await payload.create({
         collection: 'registrations',

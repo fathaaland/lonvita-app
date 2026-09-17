@@ -96,6 +96,26 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
     }
 
     if (operation !== 'update' || doc.status === previousDoc?.status) return doc
+
+    // Task 9: a participant cancelling their own registration notifies the organizer — not
+    // when the organizer/admin is the one who set it to "cancelled" (e.g. via the manage-event
+    // table), only when someone else did.
+    if (doc.status === 'cancelled') {
+      if (String(req.user?.id) !== String(organizerId)) {
+        await sendNotification(req.payload, {
+          userId: organizerId,
+          title: 'Přihláška zrušena',
+          message: `Někdo zrušil svou přihlášku na vaši akci „${event.title}“.`,
+          link: `/akce/${eventId}`,
+          email: {
+            subject: `Zrušená přihláška: ${event.title}`,
+            body: `<p>Někdo zrušil svou přihlášku na vaši akci <strong>${event.title}</strong>.</p>`,
+          },
+        })
+      }
+      return doc
+    }
+
     if (!REGISTRATION_STATUS_SUBJECT[doc.status]) return doc
 
     const approved = doc.status === 'approved'
