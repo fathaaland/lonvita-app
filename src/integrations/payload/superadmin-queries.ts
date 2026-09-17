@@ -3,7 +3,7 @@
  * /superadmin — creating municipalities and managing users/roles across all of them. Distinct
  * from admin-queries.ts, which is scoped to a single municipality's admin dashboard.
  */
-import { del, get, post } from "./client";
+import { buildQuery, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
 
@@ -47,6 +47,22 @@ export async function createMunicipality(input: {
     name: doc.name,
     description: doc.description ?? null,
   };
+}
+
+export async function updateMunicipality(
+  municipalityId: string,
+  input: { name: string; description?: string; lat: number; lng: number },
+): Promise<MunicipalityRow> {
+  const doc = await patch<PayloadMunicipality>(`/municipalities/${municipalityId}`, input);
+  return {
+    id: String(doc.id),
+    name: doc.name,
+    description: doc.description ?? null,
+  };
+}
+
+export async function deleteMunicipality(municipalityId: string): Promise<void> {
+  await del(`/municipalities/${municipalityId}`);
 }
 
 // --- Users + community roles -------------------------------------------------------------
@@ -135,6 +151,46 @@ export async function createUserAsSuperAdmin(input: {
     phone: input.phone,
     interests: input.interestIds.map(Number),
   });
+}
+
+/** Platform role only (Users.role) — community roles (municipality_admin/organizer/…) are
+ * managed via the Role tab's grant/revoke instead. */
+export async function updateUserPlatformRole(userId: string, role: "admin" | "user"): Promise<void> {
+  await patch(`/users/${userId}`, { role });
+}
+
+export async function deleteUserAsSuperAdmin(userId: string): Promise<void> {
+  await del(`/users/${userId}`);
+}
+
+// --- Events -------------------------------------------------------------------------------
+
+export type SuperAdminEventRow = {
+  id: string;
+  title: string;
+  dateTimeIso: string;
+  municipalityName: string;
+};
+
+type PayloadEventForSuperAdmin = {
+  id: number;
+  title: string;
+  dateTime: string;
+  municipality: number | { id: number; name: string };
+};
+
+/** Every event platform-wide (across every obec) — for the superadmin "Akce" list. REST calls
+ * go through real access control (unlike the Local API's overrideAccess default), so this only
+ * ever returns non-deleted events regardless of who's asking (Events.access.read). */
+export async function listAllEventsForSuperAdmin(): Promise<SuperAdminEventRow[]> {
+  const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 1000 });
+  const result = await get<PayloadListResponse<PayloadEventForSuperAdmin>>(`/events?${query}`);
+  return result.docs.map((e) => ({
+    id: String(e.id),
+    title: e.title,
+    dateTimeIso: e.dateTime,
+    municipalityName: typeof e.municipality === "object" ? e.municipality.name : "Neznámá obec",
+  }));
 }
 
 export async function grantCommunityRole(

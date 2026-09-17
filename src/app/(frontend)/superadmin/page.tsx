@@ -4,12 +4,18 @@ import { useEffect, useState } from "react";
 import {
   listMunicipalitiesForSuperAdmin,
   createMunicipality,
+  updateMunicipality,
+  deleteMunicipality,
   createUserAsSuperAdmin,
   listAllUsersForSuperAdmin,
+  updateUserPlatformRole,
+  deleteUserAsSuperAdmin,
+  listAllEventsForSuperAdmin,
   grantCommunityRole,
   revokeCommunityRole,
   MunicipalityRow,
   PlatformUserRow,
+  SuperAdminEventRow,
 } from "@/integrations/payload/superadmin-queries";
 import { getEventCategories, createEvent, listMunicipalities } from "@/integrations/payload/queries";
 import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
@@ -18,6 +24,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
+import { CancelEventButton } from "@/components/CancelEventButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,12 +35,15 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin } from "lucide-react";
+import { ConfirmDeleteButton } from "@/components/ConfirmDeleteButton";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
+import { formatEventDateTime } from "@/lib/date";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
@@ -71,6 +81,7 @@ function SuperAdminContent() {
   const [mapPoints, setMapPoints] = useState<MunicipalityMapPoint[]>([]);
   const [users, setUsers] = useState<PlatformUserRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [events, setEvents] = useState<SuperAdminEventRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Obce tab — new municipality form
@@ -78,6 +89,13 @@ function SuperAdminContent() {
   const [muniDescription, setMuniDescription] = useState("");
   const [muniLocation, setMuniLocation] = useState<PickedLocation | null>(null);
   const [creatingMuni, setCreatingMuni] = useState(false);
+
+  // Obce tab — edit existing municipality (inline, one at a time)
+  const [editingMuniId, setEditingMuniId] = useState<string | null>(null);
+  const [editMuniName, setEditMuniName] = useState("");
+  const [editMuniDescription, setEditMuniDescription] = useState("");
+  const [editMuniLocation, setEditMuniLocation] = useState<PickedLocation | null>(null);
+  const [savingMuni, setSavingMuni] = useState(false);
 
   // Uživatelé tab — new user form: the same data a self-signup gives across registration
   // (/auth: home obec on the map or "bez obce") and onboarding (date of birth, gender, interests, phone).
@@ -111,16 +129,18 @@ function SuperAdminContent() {
 
   const load = async () => {
     setLoading(true);
-    const [munis, points, us, cats] = await Promise.all([
+    const [munis, points, us, cats, evs] = await Promise.all([
       listMunicipalitiesForSuperAdmin(),
       listMunicipalities(),
       listAllUsersForSuperAdmin(),
       getEventCategories(),
+      listAllEventsForSuperAdmin(),
     ]);
     setMunicipalities(munis);
     setMapPoints(points);
     setUsers(us);
     setCategories(cats);
+    setEvents(evs);
     setLoading(false);
   };
 
@@ -156,6 +176,60 @@ function SuperAdminContent() {
     } finally {
       setCreatingMuni(false);
     }
+  };
+
+  const startEditMuni = (m: MunicipalityRow) => {
+    setEditingMuniId(m.id);
+    setEditMuniName(m.name);
+    setEditMuniDescription(m.description ?? "");
+    const point = mapPoints.find((p) => p.id === m.id);
+    setEditMuniLocation(point ? { lat: point.lat, lng: point.lng, label: point.name } : null);
+  };
+
+  const cancelEditMuni = () => setEditingMuniId(null);
+
+  const handleSaveMuni = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMuniId || !editMuniName.trim() || !editMuniLocation) return;
+    setSavingMuni(true);
+    try {
+      await updateMunicipality(editingMuniId, {
+        name: editMuniName.trim(),
+        description: editMuniDescription.trim() || undefined,
+        lat: editMuniLocation.lat,
+        lng: editMuniLocation.lng,
+      });
+      toast.success("Obec upravena.");
+      setEditingMuniId(null);
+      load();
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError ? error.message : "Nepodařilo se uložit obec.");
+    } finally {
+      setSavingMuni(false);
+    }
+  };
+
+  const handleDeleteMuni = async (id: string) => {
+    await deleteMunicipality(id);
+    toast.success("Obec smazána.");
+    load();
+  };
+
+  const handleToggleUserRole = async (u: PlatformUserRow) => {
+    const next = u.platformRole === "admin" ? "user" : "admin";
+    try {
+      await updateUserPlatformRole(u.id, next);
+      toast.success(next === "admin" ? "Uživatel je teď platformní admin." : "Platformní admin práva odebrána.");
+      load();
+    } catch {
+      toast.error("Nepodařilo se upravit roli uživatele.");
+    }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    await deleteUserAsSuperAdmin(id);
+    toast.success("Uživatel smazán.");
+    load();
   };
 
   const resetNewUserForm = () => {
@@ -369,14 +443,71 @@ function SuperAdminContent() {
             </Card>
 
             <div className="space-y-2">
-              {municipalities.map((m) => (
-                <Card key={m.id}>
-                  <CardContent className="p-4">
-                    <p className="font-bold truncate">{m.name}</p>
-                    {m.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{m.description}</p>}
-                  </CardContent>
-                </Card>
-              ))}
+              {municipalities.map((m) =>
+                editingMuniId === m.id ? (
+                  <Card key={m.id}>
+                    <CardContent className="p-4">
+                      <form onSubmit={handleSaveMuni} className="space-y-3">
+                        <div>
+                          <Label htmlFor="edit-muni-name">Název obce *</Label>
+                          <Input
+                            id="edit-muni-name"
+                            value={editMuniName}
+                            onChange={(e) => setEditMuniName(e.target.value)}
+                            className="h-11 mt-1.5"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="edit-muni-desc">Popis</Label>
+                          <Textarea
+                            id="edit-muni-desc"
+                            value={editMuniDescription}
+                            onChange={(e) => setEditMuniDescription(e.target.value)}
+                            className="mt-1.5"
+                          />
+                        </div>
+                        <div>
+                          <Label>Poloha na mapě *</Label>
+                          <div className="mt-1.5">
+                            <LocationPicker
+                              value={editMuniLocation}
+                              onChange={setEditMuniLocation}
+                              initialCenter={CZECHIA_CENTER}
+                              existingPoints={mapPoints.filter((p) => p.id !== m.id)}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button type="submit" disabled={savingMuni} className="flex-1 h-11">
+                            Uložit
+                          </Button>
+                          <Button type="button" variant="outline" onClick={cancelEditMuni} className="flex-1 h-11">
+                            Zrušit
+                          </Button>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card key={m.id}>
+                    <CardContent className="p-4 flex items-center gap-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold truncate">{m.name}</p>
+                        {m.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{m.description}</p>}
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => startEditMuni(m)} aria-label="Upravit">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <ConfirmDeleteButton
+                        title={`Smazat obec „${m.name}“?`}
+                        description="Smazání obce nejde vrátit zpět a nepůjde, pokud na ni ještě odkazují uživatelé nebo akce."
+                        onConfirm={() => handleDeleteMuni(m.id)}
+                        errorMessage="Obec se nepodařilo smazat — pravděpodobně na ni ještě odkazují uživatelé nebo akce."
+                      />
+                    </CardContent>
+                  </Card>
+                ),
+              )}
             </div>
           </TabsContent>
 
@@ -522,13 +653,34 @@ function SuperAdminContent() {
                         {(u.fullName ?? u.email).slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="font-bold truncate">{u.fullName ?? "Bez profilu"}</p>
                       <p className="text-xs text-muted-foreground truncate">
                         {u.email}
                         {u.homeMunicipalityName ? ` · ${u.homeMunicipalityName}` : u.fullName ? " · bez obce" : ""}
                       </p>
                     </div>
+                    {u.platformRole === "admin" && (
+                      <Badge variant="secondary" className="shrink-0">
+                        Superadmin
+                      </Badge>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => handleToggleUserRole(u)}
+                      aria-label={u.platformRole === "admin" ? "Odebrat superadmina" : "Udělat superadminem"}
+                      title={u.platformRole === "admin" ? "Odebrat superadmina" : "Udělat superadminem"}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <ConfirmDeleteButton
+                      title={`Smazat uživatele „${u.fullName ?? u.email}“?`}
+                      description="Smazání účtu nejde vrátit zpět."
+                      onConfirm={() => handleDeleteUser(u.id)}
+                      errorMessage="Uživatele se nepodařilo smazat."
+                    />
                   </CardContent>
                 </Card>
               ))}
@@ -625,6 +777,27 @@ function SuperAdminContent() {
                 </form>
               </CardContent>
             </Card>
+
+            <div className="space-y-2">
+              {events.map((ev) => (
+                <Card key={ev.id}>
+                  <CardContent className="p-4 flex items-center gap-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold truncate">{ev.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {formatEventDateTime(ev.dateTimeIso)} · {ev.municipalityName}
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" asChild>
+                      <Link href={`/upravit/${ev.id}`} aria-label="Upravit akci">
+                        <Pencil className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} variant="icon" onCancelled={load} />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </TabsContent>
 
           {/* --- Role -------------------------------------------------------------------- */}
