@@ -4,6 +4,7 @@ import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { BottomNav } from "./BottomNav";
 import { TopNav } from "./TopNav";
+import { GuestTopBar } from "./GuestTopBar";
 import { PaymentTestModeBanner } from "./PaymentTestModeBanner";
 import { LonvitaLogo, BrandWave } from "./LonvitaLogo";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,6 +30,7 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
     <div className="[container-type:inline-size] min-h-screen bg-background">
       <PaymentTestModeBanner />
       {isWide && !!user && <TopNav />}
+      {isWide && !user && <GuestTopBar />}
       {isNarrow ? (
         <div className="lg:grid lg:grid-cols-2 lg:min-h-screen">
           {/* Desktop/tablet-landscape only — on phones the card's own header carries the branding. */}

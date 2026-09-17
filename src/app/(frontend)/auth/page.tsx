@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   redirectToLogin,
   registerAccount,
@@ -34,9 +35,14 @@ const signUpSchema = z
     message: "Vyberte svou obec na mapě, nebo zaškrtněte, že tu zatím není.",
   });
 
-export default function AuthPage() {
+function AuthPageContent() {
+  const searchParams = useSearchParams();
   const [authUsesAuth0, setAuthUsesAuth0] = useState<boolean | null>(null);
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  // Guest CTAs on the homepage link straight to /auth?mode=signup — without this they'd land
+  // on the sign-in form and need an extra click to find "Nemáte účet? Zaregistrujte se".
+  const [mode, setMode] = useState<"signin" | "signup">(
+    searchParams.get("mode") === "signup" ? "signup" : "signin",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -313,6 +319,14 @@ export default function AuthPage() {
           </p>
         </div>
       </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthPageContent />
+    </Suspense>
   );
 }
 
