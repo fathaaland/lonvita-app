@@ -349,8 +349,16 @@ function SuperAdminContent() {
                   </div>
                   <div>
                     <Label>Poloha na mapě *</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Šedé tečky jsou už založené obce — vyberte místo mimo ně.
+                    </p>
                     <div className="mt-1.5">
-                      <LocationPicker value={muniLocation} onChange={setMuniLocation} initialCenter={CZECHIA_CENTER} />
+                      <LocationPicker
+                        value={muniLocation}
+                        onChange={setMuniLocation}
+                        initialCenter={CZECHIA_CENTER}
+                        existingPoints={mapPoints}
+                      />
                     </div>
                   </div>
                   <Button type="submit" disabled={creatingMuni} className="w-full h-11">
@@ -568,7 +576,12 @@ function SuperAdminContent() {
                   <div>
                     <Label>Místo konání *</Label>
                     <div className="mt-1.5">
-                      <LocationPicker value={evLocation} onChange={setEvLocation} initialCenter={CZECHIA_CENTER} />
+                      <LocationPicker
+                        value={evLocation}
+                        onChange={setEvLocation}
+                        initialCenter={CZECHIA_CENTER}
+                        existingPoints={mapPoints}
+                      />
                     </div>
                   </div>
                   <div>

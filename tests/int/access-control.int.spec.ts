@@ -154,6 +154,70 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
   })
 })
 
+describe('Municipality name uniqueness (task 1 — no re-founding an obec)', () => {
+  let muni: { id: number; name: string }
+
+  beforeAll(async () => {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+
+    muni = await payload.create({
+      collection: 'municipalities',
+      data: {
+        name: `Unique Muni ${STAMP}`,
+        rulesForCreation: 'approved_organizers',
+        lat: 49.5661,
+        lng: 15.9403,
+      },
+      overrideAccess: true,
+    })
+  })
+
+  afterAll(async () => {
+    await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
+  })
+
+  it('rejects a second municipality with the same name (different case, padded)', async () => {
+    await expect(
+      payload.create({
+        collection: 'municipalities',
+        data: {
+          name: `  unique muni ${STAMP}  `,
+          rulesForCreation: 'approved_organizers',
+          lat: 50.1,
+          lng: 16.1,
+        },
+        overrideAccess: true,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('allows updating the same municipality without tripping its own duplicate check', async () => {
+    const updated = await payload.update({
+      collection: 'municipalities',
+      id: muni.id,
+      data: { description: 'updated' },
+      overrideAccess: true,
+    })
+    expect(updated.id).toBe(muni.id)
+  })
+
+  it('allows a differently-named municipality', async () => {
+    const other = await payload.create({
+      collection: 'municipalities',
+      data: {
+        name: `Other Muni ${STAMP}`,
+        rulesForCreation: 'approved_organizers',
+        lat: 50.2,
+        lng: 16.2,
+      },
+      overrideAccess: true,
+    })
+    expect(other.id).toBeDefined()
+    await payload.delete({ collection: 'municipalities', id: other.id, overrideAccess: true })
+  })
+})
+
 describe('Consents ownership (GDPR foundation, brief §A3)', () => {
   let userOne: { id: number; email: string; role: string }
   let userTwo: { id: number; email: string; role: string }

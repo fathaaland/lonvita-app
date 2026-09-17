@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,18 +40,33 @@ function ClickToPlace({ onPlace }: { onPlace: (lat: number, lng: number) => void
   return null;
 }
 
+export type ExistingMapPoint = { id: string; name: string; lat: number; lng: number };
+
+const existingDotIcon = (label: string) => {
+  const escaped = label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return L.divIcon({
+    html: `<div class="existing-marker-dot" title="${escaped}"></div>`,
+    className: "existing-marker-icon",
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  });
+};
+
 interface Props {
   value: PickedLocation | null;
   onChange: (value: PickedLocation) => void;
   /** Bias the initial map view (e.g. the organizer's municipality) before anything is picked. */
   initialCenter: [number, number];
+  /** Non-interactive reference markers (e.g. already-created obce) shown on the same map so the
+   * person placing a new pin can see what already exists nearby, instead of picking blind. */
+  existingPoints?: ExistingMapPoint[];
 }
 
 /** Brief §4/§12 "Nahrání... zaznamenání místa skrz google maps (ROZHODNĚ NE NAPSAT LOKACI)" —
  * search an address, pick a result, then fine-adjust by dragging the pin or clicking the map.
  * Uses OpenStreetMap/Nominatim (via our /api/geocode proxy) instead of Google Maps — no API
  * key, matches the pattern already used for the municipality map. */
-export function LocationPicker({ value, onChange, initialCenter }: Props) {
+export function LocationPicker({ value, onChange, initialCenter, existingPoints = [] }: Props) {
   const [query, setQuery] = useState(value?.label ?? "");
   const [results, setResults] = useState<GeocodeResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -141,6 +156,8 @@ export function LocationPicker({ value, onChange, initialCenter }: Props) {
         <style>{`
           .location-pin-icon { background: transparent; border: none; }
           .location-pin { width: 22px; height: 22px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: hsl(var(--primary)); border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+          .existing-marker-icon { background: transparent; border: none; }
+          .existing-marker-dot { width: 12px; height: 12px; border-radius: 999px; background: hsl(var(--muted-foreground)); border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
         `}</style>
         <MapContainer center={position} zoom={value ? 15 : 12} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
           <TileLayer
@@ -149,6 +166,11 @@ export function LocationPicker({ value, onChange, initialCenter }: Props) {
           />
           <RecenterOnChange position={position} />
           <ClickToPlace onPlace={placeAt} />
+          {existingPoints.map((p) => (
+            <Marker key={p.id} position={[p.lat, p.lng]} icon={existingDotIcon(p.name)}>
+              <Tooltip direction="top" offset={[0, -6]}>{p.name}</Tooltip>
+            </Marker>
+          ))}
           {value && (
             <Marker
               position={position}

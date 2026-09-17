@@ -1,6 +1,36 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionBeforeValidateHook, CollectionConfig } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
+
+/** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
+ * so "Blansko" and "blansko " are treated as the same obec (brief item 1: superadmin shouldn't
+ * be able to re-create an obec that already exists). */
+const preventDuplicateName: CollectionBeforeValidateHook = async ({ data, req, operation, originalDoc }) => {
+  if (!data?.name) return data
+
+  const name = data.name.trim()
+  if (operation === 'update' && originalDoc?.name?.trim().toLowerCase() === name.toLowerCase()) {
+    return data
+  }
+
+  // `like` is Postgres ILIKE (case-insensitive contains) — narrows the candidates; the exact
+  // (trimmed, case-insensitive) comparison below rules out unrelated partial matches.
+  const candidates = await req.payload.find({
+    collection: 'municipalities',
+    where: { name: { like: name } },
+    depth: 0,
+    limit: 50,
+    overrideAccess: true,
+  })
+  const duplicate = candidates.docs.some(
+    (doc) => doc.name.trim().toLowerCase() === name.toLowerCase() && doc.id !== originalDoc?.id,
+  )
+  if (duplicate) {
+    throw new Error(`Obec „${name}“ už existuje.`)
+  }
+
+  return { ...data, name }
+}
 
 /** Picking an adminUser directly on the obec (Payload admin UI) grants the matching
  * "municipality_admin" user-role, so both places agree. The reverse direction (superadmin panel
@@ -128,6 +158,7 @@ export const Municipalities: CollectionConfig = {
     },
   ],
   hooks: {
+    beforeValidate: [preventDuplicateName],
     afterChange: [grantRoleForAdminUser],
   },
   timestamps: true,
