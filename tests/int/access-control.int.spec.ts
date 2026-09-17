@@ -125,6 +125,33 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     })
     expect(result.id).toBe(eventInA.id)
   })
+
+  it('an admin of municipality A cannot also become municipality_admin of B', async () => {
+    await expect(
+      payload.create({
+        collection: 'user-roles',
+        data: { user: adminOfA.id, municipality: municipalityB.id, role: 'municipality_admin' },
+        overrideAccess: true,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('municipality A can have a second, different admin', async () => {
+    const secondAdminOfA = await payload.create({
+      collection: 'users',
+      data: { email: `admin-a2-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+      overrideAccess: true,
+    })
+    const role = await payload.create({
+      collection: 'user-roles',
+      data: { user: secondAdminOfA.id, municipality: municipalityA.id, role: 'municipality_admin' },
+      overrideAccess: true,
+    })
+    expect(role.id).toBeDefined()
+
+    await payload.delete({ collection: 'user-roles', id: role.id, overrideAccess: true })
+    await payload.delete({ collection: 'users', id: secondAdminOfA.id, overrideAccess: true })
+  })
 })
 
 describe('Consents ownership (GDPR foundation, brief §A3)', () => {
