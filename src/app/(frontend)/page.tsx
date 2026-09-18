@@ -57,10 +57,11 @@ function IndexContent() {
   // Onboarding gate for signed-in users only — a signed-out visitor never needed onboarding
   // to begin with (brief §2 read-only browsing). This replaces the redirect RequireAuth used
   // to do, now that the page itself is open to anonymous visitors.
+  const needsOnboarding = !!profile && !profile.onboarding_completed;
   useEffect(() => {
     if (authLoading) return;
-    if (profile && !profile.onboarding_completed) router.replace("/onboarding");
-  }, [authLoading, profile, router]);
+    if (needsOnboarding) router.replace("/onboarding");
+  }, [authLoading, needsOnboarding, router]);
 
   const [events, setEvents] = useState<HomeEvent[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -201,7 +202,10 @@ function IndexContent() {
       .slice(0, 3);
   }, [events, profile?.interests]);
 
-  if (isSuperAdmin || authLoading || !viewingReady) return <Loading />;
+  // Keep showing the loading state while a redirect to /onboarding is pending — router.replace()
+  // resolves on the next tick, and without this the full home page content would render (and
+  // briefly flash on screen) for one frame first.
+  if (isSuperAdmin || authLoading || !viewingReady || needsOnboarding) return <Loading />;
 
   // In the "Všechny obce" view each card says which obec the event belongs to.
   const toCard = (e: HomeEvent): EventCardData => ({

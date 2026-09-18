@@ -32,21 +32,21 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
       {isWide && !!user && <TopNav />}
       {isWide && !user && <GuestTopBar />}
       {isNarrow ? (
-        <div className="lg:grid lg:grid-cols-2 lg:min-h-screen">
+        <div className="lg:grid lg:grid-cols-3 lg:min-h-screen">
           {/* Desktop/tablet-landscape only — on phones the card's own header carries the branding. */}
-          <div className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:items-center lg:justify-center lg:gap-6 lg:overflow-hidden lg:bg-gradient-to-br lg:from-[hsl(var(--brand-graphite))] lg:via-[hsl(var(--brand-graphite-mid))] lg:to-[hsl(var(--brand-purple-dark))] lg:p-12 lg:text-center">
+          <div className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:items-center lg:justify-center lg:gap-6 lg:overflow-hidden lg:bg-gradient-to-br lg:from-[hsl(var(--brand-graphite))] lg:via-[hsl(var(--brand-graphite-mid))] lg:to-[hsl(var(--brand-purple-dark))] lg:p-8 lg:text-center">
             <BrandWave className="absolute -bottom-10 -left-10 h-64 w-[140%] opacity-20" color="hsl(var(--brand-sand))" />
             <LonvitaLogo variant="on-dark" size="xl" className="relative" />
-            <p className="relative max-w-[320px] text-[15px] leading-relaxed text-[hsl(var(--brand-sand))]">
+            <p className="relative max-w-[280px] text-[15px] leading-relaxed text-[hsl(var(--brand-sand))]">
               Objevujte, co se děje ve vašem městě.
             </p>
           </div>
-          {/* This lane spans the full viewport pre-lg and the right grid track from lg
+          {/* This lane spans the full viewport pre-lg and the right two grid tracks from lg
               onward — MapBreakout measures against it (via container query units) so it
               never overflows into the branding panel. */}
-          <div className="[container-type:inline-size] lg:flex lg:min-h-screen lg:flex-col lg:justify-center">
+          <div className="[container-type:inline-size] lg:col-span-2 lg:flex lg:min-h-screen lg:flex-col lg:justify-center">
             <div
-              className={`mx-auto w-full max-w-[480px] lg:px-8 lg:py-12 ${
+              className={`mx-auto w-full max-w-[480px] lg:max-w-[720px] lg:px-8 lg:py-12 ${
                 noBottomPadding ? "" : "safe-bottom"
               }`}
             >

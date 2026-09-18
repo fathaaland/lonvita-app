@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { getAppUrl } from '@/lib/auth/app-url'
 import { auth0 } from '@/lib/auth/auth0/client'
 import { getSafeRedirectPath } from '@/lib/auth/redirect'
 import { upsertUser } from '@/lib/auth/users'
@@ -17,7 +18,7 @@ import { upsertUser } from '@/lib/auth/users'
  * auth-identities row this route ensures exists.
  */
 export async function GET(request: Request) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL!
+  const appUrl = getAppUrl(request)
   const { searchParams } = new URL(request.url)
   const returnTo = getSafeRedirectPath(searchParams.get('returnTo'), '/')
 
