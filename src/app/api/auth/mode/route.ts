@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 
-import { isAuth0Configured } from '@/lib/auth/auth0/is-configured'
+import { isGoogleAuthConfigured } from '@/lib/auth/google/provider'
 
-// Public — the frontend uses this to decide whether to redirect into Auth0's hosted
-// login (real tenant configured) or fall back to Payload's own local email/password
-// auth (no Auth0 env vars set yet).
+// Public — tells the sign-in page which external providers are actually wired up, so it never
+// offers a button that would dead-end on a missing GOOGLE_CLIENT_ID.
 export async function GET() {
-  return NextResponse.json({ auth0: isAuth0Configured() })
+  return NextResponse.json({ google: isGoogleAuthConfigured() })
 }

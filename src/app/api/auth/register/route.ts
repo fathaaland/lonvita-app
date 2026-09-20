@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
-import { createAuth0DatabaseUser, deleteAuth0User } from '@/lib/auth/auth0/management'
-import { isAuth0Configured } from '@/lib/auth/auth0/is-configured'
 import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const CONSENT_VERSION = '1.0'
@@ -54,30 +52,19 @@ export async function POST(request: Request) {
   // "Bez obce" — the user's town doesn't use Lonvita (yet); they see events from every obec.
   const municipality = body.municipality ? Number(body.municipality) : null
   const marketingConsent = Boolean(body.marketingConsent)
-  const useAuth0 = isAuth0Configured()
 
   const payload = await getPayload({ config })
 
-  let auth0User: { user_id?: string } | null = null
   let createdPayloadUserId: number | null = null
 
   try {
-    if (useAuth0) {
-      auth0User = await createAuth0DatabaseUser({ email, password, fullName })
-      if (!auth0User?.user_id) {
-        throw new Error('Auth0 did not return a user id.')
-      }
-    }
-
     let payloadUser
     try {
       payloadUser = await payload.create({
         collection: 'users',
-        // With Auth0 configured, the real password lives in Auth0 — Payload gets a
-        // random one nobody knows (see setGeneratedPasswordIfMissing in Users.ts).
-        // Without Auth0, this password IS how the user logs in (Payload's own local
-        // strategy), so it must be the one they actually chose.
-        data: useAuth0 ? { email, role: 'user' } : { email, password, role: 'user' },
+        // Payload is the only place a password lives, so this is the hash the user will log
+        // in against.
+        data: { email, password, role: 'user' },
         overrideAccess: true,
       })
       createdPayloadUserId = payloadUser.id
@@ -117,21 +104,6 @@ export async function POST(request: Request) {
       })
     }
 
-    if (useAuth0 && auth0User?.user_id) {
-      await payload.create({
-        collection: 'auth-identities',
-        data: {
-          user: payloadUser.id,
-          providerSubject: auth0User.user_id,
-          provider: 'auth0',
-          providerType: 'database',
-          email,
-          emailVerified: false,
-        },
-        overrideAccess: true,
-      })
-    }
-
     const grantedAt = new Date().toISOString()
     await payload.create({
       collection: 'consents',
@@ -155,10 +127,6 @@ export async function POST(request: Request) {
         .delete({ collection: 'users', id: createdPayloadUserId, overrideAccess: true })
         .catch(() => {})
     }
-    if (auth0User?.user_id) {
-      await deleteAuth0User(auth0User.user_id).catch(() => {})
-    }
-
     return NextResponse.json({ error: 'Registration failed. Please try again.' }, { status: 500 })
   }
 }

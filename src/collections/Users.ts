@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
 import type {
-  CollectionAfterLogoutHook,
   CollectionBeforeDeleteHook,
   CollectionBeforeOperationHook,
   CollectionBeforeValidateHook,
@@ -12,9 +11,9 @@ import { APIError } from 'payload'
 
 import { payloadTokenJwtStrategy } from './auth/strategies/payload-token-jwt'
 
-// Real login always goes through Auth0 (database connection or Google). Payload's `auth`
-// system still requires a hashable password to exist, so if none is supplied we generate
-// a random one that is never known or used by anyone.
+// An account created by a Google sign-in has no password of its own, but Payload's `auth`
+// system still requires a hashable one to exist — so generate a random one nobody will ever
+// know or use. Those accounts sign in through the OAuth callback, never through this hash.
 const setGeneratedPasswordIfMissing: CollectionBeforeValidateHook = ({ data, operation }) => {
   if (operation !== 'create') return data
 
@@ -133,21 +132,6 @@ const cleanupUserRelations: CollectionBeforeDeleteHook = async ({ id, req }) => 
   }
 }
 
-const clearAuth0SessionCookies: CollectionAfterLogoutHook = async () => {
-  try {
-    const { cookies } = await import('next/headers')
-    const cookieStore = await cookies()
-
-    for (const { name } of cookieStore.getAll()) {
-      if (/^__session(__\d+)?$/.test(name)) {
-        cookieStore.delete(name)
-      }
-    }
-  } catch {
-    // Not in a request scope (e.g. called from a script) — nothing to clear.
-  }
-}
-
 export const Users: CollectionConfig = {
   slug: 'users',
   admin: {
@@ -170,7 +154,7 @@ export const Users: CollectionConfig = {
   },
   auth: {
     tokenExpiration: 7200, // 2 hours
-    verify: false, // Auth0 owns email verification (the `emailVerified` field on auth-identities).
+    verify: false, // The provider verifies the address (auth-identities.emailVerified).
     maxLoginAttempts: 5,
     lockTime: 600 * 1000, // 10 minutes
     strategies: [payloadTokenJwtStrategy],
@@ -204,7 +188,6 @@ export const Users: CollectionConfig = {
     beforeOperation: [lockPlatformRole],
     beforeValidate: [setGeneratedPasswordIfMissing],
     beforeDelete: [cleanupUserRelations],
-    afterLogout: [clearAuth0SessionCookies],
   },
   timestamps: true,
 }

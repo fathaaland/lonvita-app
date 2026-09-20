@@ -544,7 +544,7 @@ export interface AuthIdentity {
   id: number;
   user: number | User;
   /**
-   * The Auth0 "sub" claim, e.g. auth0|abc123 or google-oauth2|123.
+   * The provider's stable subject id — Google's OIDC `sub` claim.
    */
   providerSubject: string;
   provider: string;
@@ -558,7 +558,7 @@ export interface AuthIdentity {
   lastLoginAt?: string | null;
   lastSyncedAt?: string | null;
   /**
-   * Raw Auth0 session.user payload, cached for reference.
+   * Raw profile payload from the provider, cached for reference.
    */
   profile?:
     | {

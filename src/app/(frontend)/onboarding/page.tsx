@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getEventCategories, updateProfile } from "@/integrations/payload/queries";
+import { getEventCategories, listMunicipalities, updateProfile } from "@/integrations/payload/queries";
+import { MunicipalityPicker } from "@/components/map/MunicipalityPicker";
+import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,8 +17,10 @@ import { Loading } from "@/components/Loading";
 import { getCategoryIcon } from "@/lib/icons";
 import { ArrowRight, ArrowLeft, Check, Phone } from "lucide-react";
 
-// The home municipality is picked on the map at registration (/auth) — onboarding no longer asks.
-const ONBOARDING_STEPS = 4;
+/** The obec is normally picked on the map during registration, so this step only appears for
+ * accounts that arrived without one — a Google sign-in never passes through that form. */
+const STEPS = ["dob", "gender", "interests", "phone"] as const;
+type StepKey = (typeof STEPS)[number] | "municipality";
 // Lenient Czech mobile format: optional +420/00420 prefix, then 9 digits (spaces allowed).
 const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
@@ -32,11 +36,19 @@ function OnboardingContent() {
   const [interests, setInterests] = useState<string[]>([]);
   const [phone, setPhone] = useState("");
   const [cats, setCats] = useState<Category[]>([]);
+  const [municipalities, setMunicipalities] = useState<MunicipalityMapPoint[]>([]);
+  const [municipalityId, setMunicipalityId] = useState("");
+  const [noMunicipality, setNoMunicipality] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     getEventCategories().then(setCats);
   }, []);
+
+  // Only fetched when the step is actually going to show.
+  useEffect(() => {
+    if (profile && !profile.municipality_id) listMunicipalities().then(setMunicipalities);
+  }, [profile?.id, profile?.municipality_id]);
 
   // Prefill from the profile — an account created by a superadmin may already carry some of this.
   useEffect(() => {
@@ -54,6 +66,9 @@ function OnboardingContent() {
     }
   }, [authLoading, profile, router]);
 
+  const needsMunicipality = Boolean(profile) && !profile?.municipality_id;
+  const steps: StepKey[] = needsMunicipality ? ["municipality", ...STEPS] : [...STEPS];
+
   const toggleInterest = (id: string) => {
     setInterests((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
   };
@@ -63,6 +78,7 @@ function OnboardingContent() {
     setSaving(true);
     try {
       await updateProfile(profile.id, {
+        ...(needsMunicipality ? { municipality: municipalityId ? Number(municipalityId) : null } : {}),
         dateOfBirth: dob || null,
         gender: gender ?? "neuvedeno",
         interests: interests.map(Number),
@@ -81,12 +97,14 @@ function OnboardingContent() {
 
   if (authLoading) return <Loading />;
 
+  const current: StepKey = steps[step];
   const canNext =
-    (step === 0 && !!dob) ||
+    (current === "municipality" && (Boolean(municipalityId) || noMunicipality)) ||
+    (current === "dob" && !!dob) ||
     // "Raději neuvedu" is a valid answer too — only an untouched step blocks.
-    (step === 1 && gender !== null) ||
-    (step === 2) ||
-    (step === 3 && PHONE_RE.test(phone.trim()));
+    (current === "gender" && gender !== null) ||
+    current === "interests" ||
+    (current === "phone" && PHONE_RE.test(phone.trim()));
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -94,7 +112,7 @@ function OnboardingContent() {
         <LonvitaLogo size="md" wordmark={false} />
         <div>
           <p className="text-xs text-muted-foreground">Pár krátkých otázek</p>
-          <p className="font-extrabold">Krok {step + 1} ze {ONBOARDING_STEPS}</p>
+          <p className="font-extrabold">Krok {step + 1} ze {steps.length}</p>
         </div>
       </div>
 
@@ -102,7 +120,7 @@ function OnboardingContent() {
         <div className="h-1.5 bg-muted rounded-full overflow-hidden mx-4">
           <div
             className="h-full bg-primary transition-all"
-            style={{ width: `${((step + 1) / ONBOARDING_STEPS) * 100}%` }}
+            style={{ width: `${((step + 1) / steps.length) * 100}%` }}
           />
         </div>
       </div>
@@ -110,7 +128,25 @@ function OnboardingContent() {
       <div className="flex-1 px-4 py-4">
         <Card>
           <CardContent className="p-5 space-y-4">
-            {step === 0 && (
+            {current === "municipality" && (
+              <>
+                <div>
+                  <h2 className="text-xl font-extrabold">Ve které obci bydlíte?</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Podle ní uvidíte akce, které se konají u vás.
+                  </p>
+                </div>
+                <MunicipalityPicker
+                  points={municipalities}
+                  value={{ id: municipalityId, noMunicipality }}
+                  onChange={({ id, noMunicipality: none }) => {
+                    setMunicipalityId(id);
+                    setNoMunicipality(none);
+                  }}
+                />
+              </>
+            )}
+            {current === "dob" && (
               <>
                 <div>
                   <h2 className="text-xl font-extrabold">Kdy jste se narodil/a?</h2>
@@ -133,7 +169,7 @@ function OnboardingContent() {
               </>
             )}
 
-            {step === 1 && (
+            {current === "gender" && (
               <>
                 <div>
                   <h2 className="text-xl font-extrabold">Jak vás máme oslovovat?</h2>
@@ -161,7 +197,7 @@ function OnboardingContent() {
               </>
             )}
 
-            {step === 2 && (
+            {current === "interests" && (
               <>
                 <div>
                   <h2 className="text-xl font-extrabold">Co vás baví?</h2>
@@ -195,7 +231,7 @@ function OnboardingContent() {
               </>
             )}
 
-            {step === 3 && (
+            {current === "phone" && (
               <>
                 <div>
                   <h2 className="text-xl font-extrabold">Vaše telefonní číslo</h2>
@@ -235,7 +271,7 @@ function OnboardingContent() {
         >
           <ArrowLeft className="h-4 w-4" /> Zpět
         </Button>
-        {step < ONBOARDING_STEPS - 1 ? (
+        {step < steps.length - 1 ? (
           <Button className="h-12" onClick={() => setStep((s) => s + 1)} disabled={!canNext}>
             Pokračovat <ArrowRight className="h-4 w-4" />
           </Button>

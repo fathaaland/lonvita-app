@@ -48,50 +48,11 @@ const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFun
   }
 }
 
-const authenticateViaAuth0Session = async ({ payload }: AuthStrategyFunctionArgs) => {
-  try {
-    // Dynamic import: the auth0 client pulls in `server-only`, which must stay
-    // out of any non-request-scoped bundle (e.g. a future background worker)
-    // that also imports this same collection file.
-    const { auth0 } = await import('@/lib/auth/auth0/client')
-    const session = await auth0.getSession()
-    if (!session) return null
-
-    const { docs } = await payload.find({
-      collection: 'auth-identities',
-      where: { providerSubject: { equals: session.user.sub } },
-      depth: 0,
-      limit: 1,
-      overrideAccess: true,
-    })
-
-    const userId = docs[0]?.user
-    if (typeof userId !== 'number') return null
-
-    const user = await payload.findByID({
-      id: userId,
-      collection: 'users',
-      overrideAccess: true,
-    })
-
-    if (!user) return null
-
-    const u = user as unknown as AuthenticatedUser
-    u.collection = 'users'
-    u._strategy = 'auth0-session'
-
-    return user
-  } catch {
-    // Also thrown outside a Next.js request scope (scripts, tests).
-    return null
-  }
-}
-
 export const payloadTokenJwtStrategy = {
   name: 'payload-token-jwt',
   authenticate: async (args: AuthStrategyFunctionArgs) => {
-    const user = (await authenticateViaPayloadToken(args)) ?? (await authenticateViaAuth0Session(args))
-
-    return { user }
+    // The one way in: the payload-token cookie, whether it came from a password login or from
+    // the Google callback minting the very same token.
+    return { user: await authenticateViaPayloadToken(args) }
   },
 }

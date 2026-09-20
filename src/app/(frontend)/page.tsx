@@ -58,7 +58,7 @@ function IndexContent() {
   // to begin with (brief §2 read-only browsing). This replaces the redirect RequireAuth used
   // to do, now that the page itself is open to anonymous visitors.
   // `profile` is `null` both while it's still loading AND for a signed-in user with no Profile
-  // row at all (e.g. first Auth0/Google sign-in) — by the time `authLoading` is false those two
+  // row at all (e.g. a first Google sign-in) — by the time `authLoading` is false those two
   // are distinguishable, and a real "no profile yet" must still route to onboarding rather than
   // read as "nothing to gate", which used to let the dashboard render before onboarding did.
   const needsOnboarding = !!user && (!profile || !profile.onboarding_completed);

@@ -1,7 +1,7 @@
 /**
  * Thin REST client for the Payload backend, replacing the old Supabase client. Frontend
  * and backend are the same Next.js app, so this always calls same-origin — no CORS or
- * SameSite gymnastics needed for cookies (Auth0 session, payload-token).
+ * SameSite gymnastics needed for the payload-token cookie.
  */
 
 const API_BASE = "/api";
@@ -131,7 +131,7 @@ export type PayloadUser = {
   role: "admin" | "user";
 };
 
-/** GET /api/users/me — resolves the current session (payload-token or Auth0-session-bridged). */
+/** GET /api/users/me — resolves the current session from the payload-token cookie. */
 export async function getCurrentPayloadUser(): Promise<PayloadUser | null> {
   try {
     const result = await get<{ user: PayloadUser | null }>("/users/me");
@@ -141,27 +141,15 @@ export async function getCurrentPayloadUser(): Promise<PayloadUser | null> {
   }
 }
 
-/** Redirects the browser to Payload's Auth0-backed logout route. */
+/** Redirects the browser to the logout route, which clears the session cookie. */
 export function signOutRedirect() {
   window.location.href = "/api/auth/logout";
 }
 
-/**
- * Redirects the browser into the Auth0 SDK's hosted login flow. `returnTo` is where the
- * /api/auth/complete bridge route sends the browser back to afterwards (a relative path
- * within this app). `connection`/`loginHint` are forwarded to Auth0 as authorization params
- * (e.g. connection="google-oauth2" to skip straight to Google, loginHint to prefill email).
- */
-export function redirectToLogin(options?: { returnTo?: string; connection?: string; loginHint?: string }) {
-  const complete = new URLSearchParams();
-  complete.set("returnTo", options?.returnTo ?? "/");
-
-  const login = new URLSearchParams();
-  login.set("returnTo", `/api/auth/complete?${complete.toString()}`);
-  if (options?.connection) login.set("connection", options.connection);
-  if (options?.loginHint) login.set("login_hint", options.loginHint);
-
-  window.location.href = `/auth/login?${login.toString()}`;
+/** Hands the browser to Google's consent screen via our own start route, which mints the CSRF
+ * state first. `returnTo` is where the callback lands afterwards (unless onboarding is due). */
+export function redirectToGoogle(returnTo = "/") {
+  window.location.href = `/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
 type RegisterInput = {
@@ -188,19 +176,19 @@ export async function resetPasswordWithToken(token: string, password: string): P
   await post("/auth/reset-password", { token, password });
 }
 
-/** GET /api/auth/mode — whether Auth0 is configured, or the app is running on the fallback. */
-export async function getAuthMode(): Promise<{ auth0: boolean }> {
+/** GET /api/auth/mode — which external sign-in providers are configured. */
+export async function getAuthMode(): Promise<{ google: boolean }> {
   try {
-    return await get<{ auth0: boolean }>("/auth/mode");
+    return await get<{ google: boolean }>("/auth/mode");
   } catch {
-    return { auth0: false };
+    return { google: false };
   }
 }
 
 /**
  * POST /api/users/login — Payload's own built-in local (email/password) auth, used as a
- * fallback while no Auth0 tenant is configured. Sets the same payload-token cookie our
- * custom auth strategy already knows how to verify, so nothing else needs to change.
+ * Sets the payload-token cookie our custom auth strategy verifies — the same cookie the Google
+ * callback mints, so both sign-in paths end in exactly the same session.
  */
 export async function loginWithPassword(email: string, password: string): Promise<PayloadUser> {
   const result = await post<{ user: PayloadUser }>("/users/login", { email, password });

@@ -30,7 +30,7 @@ export const AuthIdentities: CollectionConfig = {
       unique: true,
       index: true,
       admin: {
-        description: 'The Auth0 "sub" claim, e.g. auth0|abc123 or google-oauth2|123.',
+        description: "The provider's stable subject id — Google's OIDC `sub` claim.",
       },
     },
     {
@@ -73,7 +73,7 @@ export const AuthIdentities: CollectionConfig = {
       name: 'profile',
       type: 'json',
       admin: {
-        description: 'Raw Auth0 session.user payload, cached for reference.',
+        description: "Raw profile payload from the provider, cached for reference.",
       },
     },
   ],

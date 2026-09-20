@@ -7,7 +7,6 @@ import type { Payload } from 'payload'
 
 import { resetPasswordInputSchema } from '@/lib/auth/password-reset-schema'
 import { enforcePasswordResetRateLimit } from '@/lib/security/rate-limit'
-import { updateAuth0UserPassword } from '@/lib/auth/auth0/management'
 
 type ResetPasswordInput = {
   token: string
@@ -38,9 +37,8 @@ async function invalidateResetToken(payload: Payload, userId: number | string): 
   }
 }
 
-/** Resets the Payload-local password (source of truth for the token/expiry) and, when the
- * account also has an Auth0 database-connection identity, syncs the same password there too —
- * otherwise the reset would silently not let the user log back in via Auth0. */
+/** Resets the password. Payload owns both the token and the hash, so there is nothing to keep
+ * in step anywhere else — an account linked to Google simply keeps signing in with Google. */
 export async function resetPasswordAction({ token, password, requestHeaders }: ResetPasswordInput): Promise<ResetPasswordResult> {
   const parsed = resetPasswordInputSchema.safeParse({ token, password })
   if (!parsed.success) {
@@ -64,17 +62,6 @@ export async function resetPasswordAction({ token, password, requestHeaders }: R
     const userId = (result.user as { id?: number | string }).id
     if (userId !== undefined) {
       await invalidateResetToken(payload, userId)
-
-      const identities = await payload.find({
-        collection: 'auth-identities',
-        where: { and: [{ user: { equals: userId } }, { providerType: { equals: 'database' } }] },
-        limit: 1,
-        overrideAccess: true,
-      })
-      const identity = identities.docs[0]
-      if (identity) {
-        await updateAuth0UserPassword(identity.providerSubject, parsed.data.password).catch(() => {})
-      }
     }
 
     return { success: true }

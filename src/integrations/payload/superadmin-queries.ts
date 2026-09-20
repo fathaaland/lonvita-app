@@ -182,7 +182,7 @@ export async function createUserAsSuperAdmin(input: {
 
 /** Edits an existing account's profile from the Uživatelé tab's pencil. Deliberately limited to
  * profile data: the platform role is locked at the collection (Users.role field access), and the
- * e-mail is the key Auth0 logins are matched on (see authenticateUser), so changing it here would
+ * e-mail is the key a Google sign-in links on (see resolveGoogleUser), so changing it here would
  * orphan the account on next sign-in. Community roles have their own tab. */
 export async function updateUserAsSuperAdmin(
   profileId: string,

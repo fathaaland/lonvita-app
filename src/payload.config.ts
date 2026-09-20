@@ -52,9 +52,6 @@ export default buildConfig({
     importMap: {
       baseDir: path.resolve(dirname),
     },
-    components: {
-      beforeLogin: ['@/components/admin/auth0-login-button#Auth0LoginButton'],
-    },
   },
   collections: [
     Users,

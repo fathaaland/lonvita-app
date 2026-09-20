@@ -5,7 +5,7 @@ import type { User } from '@/payload-types'
 type UpsertUserParams = {
   payload: Payload
   email: string
-  /** Best-effort display name for a brand-new Profile (e.g. Auth0's `session.user.name`) —
+  /** Best-effort display name for a brand-new Profile (e.g. Google's `name` claim) —
    * only used the first time this email is seen; falls back to the email's local part. */
   fullName?: string
 }
@@ -13,7 +13,7 @@ type UpsertUserParams = {
 /**
  * Find-or-create the Profile for a given Payload user — every `users` row is meant to have
  * exactly one (Profiles.user is `unique: true`), but the self-registration route is the only
- * place that used to create both together. A user who first authenticates via Auth0 (e.g.
+ * place that used to create both together. A user who first authenticates via Google (e.g.
  * "Přihlásit se přes Google" without ever going through the /auth sign-up form) got a `users`
  * row here with no matching `profiles` row — `profile` then stayed `null` forever, which reads
  * identically to "signed-out visitor" everywhere `!!profile` gates onboarding (RequireAuth,

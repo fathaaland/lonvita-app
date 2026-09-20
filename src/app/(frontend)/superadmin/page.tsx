@@ -155,7 +155,7 @@ function SuperAdminContent() {
 
   // Uživatelé tab — edit an existing account (the pencil next to the bin). Profile data only:
   // the platform role isn't editable anywhere anymore (Users.role field access), the e-mail is
-  // what Auth0 sign-ins are matched on, and obec roles live in the Role tab.
+  // what Google sign-ins are matched on, and obec roles live in the Role tab.
   const [editUser, setEditUser] = useState<PlatformUserRow | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editUserMuniId, setEditUserMuniId] = useState("");

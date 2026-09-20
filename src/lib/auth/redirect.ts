@@ -13,19 +13,3 @@ export const getSafeRedirectPath = (path: string | null | undefined, fallback: s
 
   return path
 }
-
-export const getClearSessionPath = (redirectPath?: string | null, error?: string | null): string => {
-  const params = new URLSearchParams()
-  const safePath = getSafeRedirectPath(redirectPath, '/')
-
-  if (safePath !== '/') {
-    params.set('redirect', safePath)
-  }
-
-  if (error) {
-    params.set('error', error)
-  }
-
-  const query = params.toString()
-  return query ? `/api/auth/clear-session?${query}` : '/api/auth/clear-session'
-}
