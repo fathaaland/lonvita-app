@@ -2,8 +2,8 @@ export const QUEUE_NAME = 'lonvita' as const
 
 export const JOB_NAMES = {
   SEND_EMAIL: 'send-email',
-  PUSH_NOTIFICATION: 'push-notification',
   SEND_SMS: 'send-sms',
+  CLEANUP_NOTIFICATIONS: 'cleanup-notifications',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -21,13 +21,6 @@ export type EmailJobResult = {
   accepted: string[]
 }
 
-export type NotificationJobData = {
-  userId: string
-  type: 'info' | 'warning' | 'error'
-  title: string
-  message: string
-}
-
 /**
  * Brief §8 "Webová aplikace, tudíž oznámení o změně/zrušení musí jít přes SMS/mail" — sent
  * via httpSMS (https://httpsms.com), which relays through a paired Android phone's own SIM
@@ -40,7 +33,17 @@ export type SmsJobData = {
   requestId?: string
 }
 
+/**
+ * Notifications pile up forever otherwise — nothing in the app ever deletes one (Notifications'
+ * own access.delete is closed). Enqueued only by the worker's own scheduler, on a daily cron.
+ */
+export type CleanupNotificationsJobData = Record<string, never>
+
+export type CleanupNotificationsJobResult = {
+  deleted: number
+}
+
 export type QueueJobEnvelope =
   | { jobType: typeof JOB_NAMES.SEND_EMAIL; payload: EmailJobData }
-  | { jobType: typeof JOB_NAMES.PUSH_NOTIFICATION; payload: NotificationJobData }
   | { jobType: typeof JOB_NAMES.SEND_SMS; payload: SmsJobData }
+  | { jobType: typeof JOB_NAMES.CLEANUP_NOTIFICATIONS; payload: CleanupNotificationsJobData }

@@ -6,5 +6,6 @@
     "module": "esnext",
     "moduleResolution": "bundler"
   },
-  "include": ["src/lib/logger.ts", "src/lib/valkey/**/*.ts", "src/lib/queue/**/*.ts", "worker/src/**/*.ts"]
+  "// include": "Was a hand-picked list of the few files the worker touched. The cleanup job pulls in @payload-config, and that reaches the whole collection tree, so the worker now type-checks against all of src.",
+  "include": ["src/**/*.ts", "worker/src/**/*.ts"]
 }

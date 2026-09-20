@@ -36,6 +36,15 @@ const dirname = path.dirname(filename)
 
 export default buildConfig({
   onInit: async (payload) => {
+    // Every process that builds a Payload instance runs this — the Next app, `payload migrate`,
+    // and now the worker (which needs Payload for the cleanup job). Only the app should seed:
+    // migrations must not write rows mid-schema-change, and a second seeding process just races
+    // the first. Payload sets PAYLOAD_MIGRATING itself during migrations; the worker sets it in
+    // its own start script for the same reason.
+    if (process.env.PAYLOAD_MIGRATING === 'true') {
+      payload.logger.info('PAYLOAD_MIGRATING is set — skipping seed.')
+      return
+    }
     await runSeed(payload)
   },
   admin: {

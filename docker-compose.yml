@@ -60,9 +60,10 @@ services:
       echo 'Bucket lonvita-media ready.'
       "
 
-  # Consumes the BullMQ 'lonvita' queue (send-email/send-sms/push-notification jobs — see
-  # src/lib/queue/) — without this service nothing ever processes what the app enqueues, so
-  # Resend emails and httpSMS texts get queued but never actually sent.
+  # Consumes the BullMQ 'lonvita' queue (send-email/send-sms jobs — see src/lib/queue/) and owns
+  # the nightly notification-cleanup schedule. Without this service nothing processes what the
+  # app enqueues, so Resend emails and httpSMS texts get queued but never actually sent, and
+  # notifications are never pruned.
   worker:
     build:
       context: .
@@ -70,12 +71,16 @@ services:
     env_file:
       - .env
     environment:
-      # Host .env points this at localhost (for `pnpm dev`); inside the compose network it needs
-      # to resolve to the valkey service by name instead. The worker only ever talks to Redis
-      # (queue), Resend and httpSMS — it has no DB/S3 dependency, unlike eduard-app's worker.
+      # Host .env points these at localhost (for `pnpm dev`); inside the compose network they
+      # have to resolve to the service names instead.
       - REDIS_URL=redis://valkey:6379
+      # The cleanup job needs Payload, so the worker carries a DB connection now — it used to
+      # talk to nothing but Redis, Resend and httpSMS.
+      - DATABASE_URI=postgresql://payload:payload@postgres:5432/lonvita
     depends_on:
       valkey:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 
