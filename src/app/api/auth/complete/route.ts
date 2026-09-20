@@ -65,5 +65,17 @@ export async function GET(request: Request) {
     await payload.create({ collection: 'auth-identities', data: identityData, overrideAccess: true })
   }
 
-  return NextResponse.redirect(new URL(returnTo, appUrl))
+  // Someone who still owes us onboarding goes there directly. The home page has its own
+  // gate for this, but reaching it through "/" meant the app rendered around them until the
+  // client-side bounce landed — and here the answer is already in the database.
+  const profiles = await payload.find({
+    collection: 'profiles',
+    where: { user: { equals: user.id } },
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+  })
+  const destination = profiles.docs[0]?.onboardingCompleted ? returnTo : '/onboarding'
+
+  return NextResponse.redirect(new URL(destination, appUrl))
 }

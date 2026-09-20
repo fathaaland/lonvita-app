@@ -9,7 +9,7 @@ import {
   getAuthMode,
   loginWithPassword,
 } from "@/integrations/payload/client";
-import { listMunicipalities, getMyRoles, MunicipalityRow } from "@/integrations/payload/queries";
+import { listMunicipalities, getMyProfile, getMyRoles, MunicipalityRow } from "@/integrations/payload/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -120,14 +120,21 @@ function AuthPageContent() {
       setLoading(true);
       try {
         const loggedInUser = await loginWithPassword(parsed.data.email, parsed.data.password);
-        const roles = await getMyRoles(String(loggedInUser.id));
+        const userId = String(loggedInUser.id);
+        // The profile decides this as much as the roles do: someone who hasn't been through
+        // onboarding belongs on /onboarding, and sending them to "/" first meant the app
+        // rendered around them for as long as the bounce took. Resolve it here, where the
+        // answer is already one request away, instead of letting the destination page redo it.
+        const [roles, profile] = await Promise.all([getMyRoles(userId), getMyProfile(userId)]);
         // Full reload so AuthContext (and everything gated on it) picks up the new session.
         window.location.href =
           loggedInUser.role === "admin"
             ? "/superadmin"
-            : roles.includes("municipality_admin")
-              ? "/admin-obce"
-              : "/";
+            : !profile?.onboarding_completed
+              ? "/onboarding"
+              : roles.includes("municipality_admin")
+                ? "/admin-obce"
+                : "/";
       } catch {
         toast.error("Nesprávný e-mail nebo heslo.");
         setLoading(false);
