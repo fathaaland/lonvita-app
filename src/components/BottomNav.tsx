@@ -8,12 +8,32 @@ import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { cn } from "@/lib/utils";
 
 export function BottomNav() {
-  const { user, isSuperAdmin, isAdmin, isOrganizer } = useAuth();
+  const {
+    user,
+    isSuperAdmin,
+    isAdmin,
+    isOrganizer,
+    administeredMunicipalityIds,
+    organizerMunicipalityIds,
+    viewingMunicipalityId,
+  } = useAuth();
   const pathname = usePathname();
   const unreadCount = useUnreadNotificationCount();
 
   if (!user) return null;
   if (["/auth", "/onboarding", "/reset-password"].some((p) => pathname.startsWith(p))) return null;
+
+  // `viewingMunicipalityId` is the obec the home page's switcher is currently browsing — not
+  // necessarily one this admin/organizer actually holds a role in (brief §"uživatel není vázaný
+  // lokací"). `null` = not yet known/default, treated as "own obec". Actual creation is always
+  // scoped server-side regardless of this; this only keeps the navbar from suggesting an action
+  // that isn't actually available while browsing a municipality they don't administer.
+  const canCreateHere =
+    viewingMunicipalityId == null ||
+    organizerMunicipalityIds.includes(viewingMunicipalityId) ||
+    administeredMunicipalityIds.includes(viewingMunicipalityId);
+  const canManageObecHere =
+    viewingMunicipalityId == null || administeredMunicipalityIds.includes(viewingMunicipalityId);
 
   // A platform superadmin only ever operates inside the /superadmin panel — no home feed,
   // no personal event history, no profile settings.
@@ -22,8 +42,8 @@ export function BottomNav() {
     : [
         { to: "/", icon: Home, label: "Domů" },
         { to: "/moje-akce", icon: CalendarHeart, label: "Moje akce" },
-        ...(isOrganizer ? [{ to: "/vytvorit", icon: PlusCircle, label: "Vytvořit" }] : []),
-        ...(isAdmin ? [{ to: "/admin-obce", icon: Shield, label: "Obec" }] : []),
+        ...(isOrganizer && canCreateHere ? [{ to: "/vytvorit", icon: PlusCircle, label: "Vytvořit" }] : []),
+        ...(isAdmin && canManageObecHere ? [{ to: "/admin-obce", icon: Shield, label: "Obec" }] : []),
         { to: "/oznameni", icon: Bell, label: "Oznámení", badge: unreadCount },
         { to: "/profil", icon: User, label: "Profil" },
       ];

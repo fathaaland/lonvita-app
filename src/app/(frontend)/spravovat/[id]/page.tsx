@@ -7,6 +7,8 @@ import {
   getEventRegistrationsForManage,
   updateRegistrationStatus,
   updateAttendance,
+  getOrganizerName,
+  getFullNamesByUserIds,
   ManageRegistrationRow,
   AttendanceStatus,
 } from "@/integrations/payload/queries";
@@ -34,13 +36,24 @@ function ManageEventContent() {
   const { user } = useAuth();
   const [regs, setRegs] = useState<ManageRegistrationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [organizerName, setOrganizerName] = useState<string | null>(null);
+  const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
 
   const load = async () => {
     if (!id) return;
     const [ev, rows] = await Promise.all([getEvent(id), getEventRegistrationsForManage(id)]);
     setRegs(rows);
     setLoading(false);
-    void ev;
+    if (ev) {
+      const [orgName, coOrgNames] = await Promise.all([
+        ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
+        ev.co_organizer_ids.length > 0
+          ? getFullNamesByUserIds(ev.co_organizer_ids).catch(() => new Map<string, string>())
+          : Promise.resolve(new Map<string, string>()),
+      ]);
+      setOrganizerName(orgName);
+      setCoOrganizerNames(ev.co_organizer_ids.map((cid) => coOrgNames.get(cid) ?? cid));
+    }
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
@@ -71,6 +84,12 @@ function ManageEventContent() {
     <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Přihlášení" subtitle={`Celkem: ${regs.length}`} back />
       <div className="px-4 py-5 space-y-3">
+        {(organizerName || coOrganizerNames.length > 0) && (
+          <p className="text-sm text-muted-foreground">
+            {organizerName && <>Pořadatel: {organizerName}</>}
+            {coOrganizerNames.length > 0 && <> · spolu s {coOrganizerNames.join(", ")}</>}
+          </p>
+        )}
         {regs.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">Zatím nikdo není přihlášen.</p>
         ) : regs.map((r) => (
@@ -128,7 +147,7 @@ function ManageEventContent() {
 export default function ManageEventPage() {
   return (
     <RequireAuth>
-      <RequireRole role="municipality_admin">
+      <RequireRole role="organizer">
         <ManageEventContent />
       </RequireRole>
     </RequireAuth>

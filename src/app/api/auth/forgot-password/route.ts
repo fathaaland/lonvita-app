@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { forgotPasswordAction } from '@/lib/actions/auth/forgot-password'
+import { getAppUrl } from '@/lib/auth/app-url'
 
 // HTTP wrapper around forgotPasswordAction — the web/ SPA is a separate app and can't
 // call a Next.js server action directly, only a real HTTP endpoint.
@@ -11,11 +12,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Email is required.' }, { status: 400 })
   }
 
-  try {
-    await forgotPasswordAction({ email })
-    return NextResponse.json({ ok: true })
-  } catch {
-    // Don't leak whether the email exists — Auth0's own endpoint already behaves this way.
-    return NextResponse.json({ ok: true })
-  }
+  // Never leaks whether the e-mail exists — the action itself always resolves.
+  await forgotPasswordAction({ email, appUrl: getAppUrl(request), requestHeaders: request.headers })
+  return NextResponse.json({ ok: true })
 }

@@ -6,9 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
-import { ChevronRight, Pencil } from "lucide-react";
+import { ChevronRight, Pencil, HandHeart, X } from "lucide-react";
 import { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
 import { CancelEventButton } from "@/components/CancelEventButton";
+import { removeVolunteeringFlag } from "@/integrations/payload/admin-queries";
+import { toast } from "sonner";
 
 interface Props {
   events: EventRow[];
@@ -23,6 +25,20 @@ type Filter = "upcoming" | "past" | "all";
 export function EventsTable({ events, registrations, categories, profiles, onDeleted }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("upcoming");
+  const [busyVolunteerId, setBusyVolunteerId] = useState<string | null>(null);
+
+  const handleRemoveVolunteering = async (eventId: string) => {
+    setBusyVolunteerId(eventId);
+    try {
+      await removeVolunteeringFlag(eventId);
+      toast.success("Příznak Dobrovolnictví odebrán.");
+      onDeleted?.();
+    } catch {
+      toast.error("Nepodařilo se odebrat příznak.");
+    } finally {
+      setBusyVolunteerId(null);
+    }
+  };
 
   const cats = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const profs = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name])), [profiles]);
@@ -98,6 +114,25 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                       ))}
                       <span className="truncate">· {profs.get(e.organizer_id) ?? ""}</span>
                     </div>
+                    {e.is_volunteering && (
+                      <div onClick={(ev) => ev.stopPropagation()}>
+                        <Badge
+                          variant="secondary"
+                          className="h-5 text-[10px] pl-1.5 pr-0.5 gap-1 text-[hsl(var(--brand-purple))] bg-[hsl(var(--brand-purple))]/10"
+                        >
+                          <HandHeart className="h-3 w-3" /> Dobrovolnictví
+                          <button
+                            type="button"
+                            aria-label="Odebrat příznak Dobrovolnictví"
+                            disabled={busyVolunteerId === e.id}
+                            onClick={() => handleRemoveVolunteering(e.id)}
+                            className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      </div>
+                    )}
                   </div>
                   <div className="text-right space-y-0.5">
                     <p className="text-sm font-bold tabular-nums">

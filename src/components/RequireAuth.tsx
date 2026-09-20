@@ -11,8 +11,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   const onboardingBypass = ["/onboarding", "/reset-password", "/auth"];
+  // `profile` is `null` both while it's still loading AND for a signed-in user with no Profile
+  // row at all (e.g. first Auth0/Google sign-in, before upsertUser's self-heal ran/landed) — by
+  // the time `loading` is false those two cases are distinguishable: a real "no profile yet"
+  // must still route to onboarding, not silently skip it like a signed-out visitor would.
   const needsOnboarding =
-    !!profile && !profile.onboarding_completed && !onboardingBypass.some((p) => pathname.startsWith(p));
+    !!user && (!profile || !profile.onboarding_completed) && !onboardingBypass.some((p) => pathname.startsWith(p));
 
   useEffect(() => {
     if (loading) return;

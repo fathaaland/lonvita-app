@@ -77,7 +77,7 @@ export const authenticateUser = cache(async () => {
     const payload = await getPayload({ config })
     const provider = session.user.sub.split('|')[0] ?? 'auth0'
 
-    const user = await upsertUser({ payload, email })
+    const user = await upsertUser({ payload, email, fullName: session.user.name })
 
     await upsertAuthIdentity({
       userId: user.id,

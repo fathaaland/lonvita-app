@@ -7,6 +7,7 @@ import {
   getEvent,
   getEventCategories,
   getOrganizerName,
+  getFullNamesByUserIds,
   getEventRegistrationsWithNames,
   getRegistrationCounts,
   getMyAdministeredMunicipalityIds,
@@ -29,6 +30,7 @@ import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserI
 import { formatEventDate, formatEventTime } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
+import { isUnlimitedCapacity } from "@/lib/capacity";
 
 interface Reg { id: string; user_id: string; status: string; full_name: string }
 
@@ -51,6 +53,7 @@ function EventDetailContent() {
   const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
   const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
+  const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
   // Registrations the viewer may read: all of them for the organizer / obec admin, otherwise
   // just their own (Registrations.access.read) — used for "Kdo dále jde" and the viewer's status.
   const [regs, setRegs] = useState<Reg[]>([]);
@@ -82,14 +85,16 @@ function EventDetailContent() {
     }
     setEvent(ev);
 
-    const [cats, orgName, adminIds] = await Promise.all([
+    const [cats, orgName, coOrgNames, adminIds] = await Promise.all([
       ev.category_ids.length > 0 ? getEventCategories() : Promise.resolve([]),
       ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
+      ev.co_organizer_ids.length > 0 ? getFullNamesByUserIds(ev.co_organizer_ids).catch(() => new Map<string, string>()) : Promise.resolve(new Map<string, string>()),
       user ? getMyAdministeredMunicipalityIds(String(user.id)).catch(() => []) : Promise.resolve([]),
       refreshRegistrations(ev.id),
     ]);
     setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
     setOrganizerName(orgName);
+    setCoOrganizerNames(ev.co_organizer_ids.map((id) => coOrgNames.get(id) ?? id));
     setAdministeredMunicipalityIds(adminIds);
     setLoading(false);
   };
@@ -131,8 +136,10 @@ function EventDetailContent() {
 
   const handleJoinFree = async () => {
     if (!user) {
+      // US-H-08: make it explicit *why* they're being sent away, not just a silent redirect.
       // The auth page doesn't support a return-redirect yet — just get them logged in.
-      router.push("/auth");
+      toast.info("Pro přihlášení na akci si nejprve vytvořte účet.");
+      router.push("/auth?mode=signup");
       return;
     }
     if (!event || submittingRef.current) return;
@@ -267,7 +274,7 @@ function EventDetailContent() {
           <div className="flex items-start gap-3">
             <Users className="h-5 w-5 mt-0.5 text-primary shrink-0" />
             <p className="font-semibold">
-              {approvedCount} / {event.capacity} přihlášených
+              {isUnlimitedCapacity(event.capacity) ? `${approvedCount} přihlášených · neomezená kapacita` : `${approvedCount} / ${event.capacity} přihlášených`}
               {counts.pending > 0 && (
                 <span className="text-muted-foreground font-normal"> · {counts.pending} čeká</span>
               )}
@@ -280,6 +287,9 @@ function EventDetailContent() {
                 Pořadatel: {event.organization_name ?? organizerName}
                 {event.organization_name && organizerName && (
                   <span className="text-muted-foreground font-normal"> · {organizerName}</span>
+                )}
+                {coOrganizerNames.length > 0 && (
+                  <span className="text-muted-foreground font-normal"> · spolu s {coOrganizerNames.join(", ")}</span>
                 )}
               </p>
             </div>

@@ -8,7 +8,6 @@ import {
   requestPasswordReset,
   getAuthMode,
   loginWithPassword,
-  requestNativePasswordReset,
 } from "@/integrations/payload/client";
 import { listMunicipalities, getMyRoles, MunicipalityRow } from "@/integrations/payload/queries";
 import { Button } from "@/components/ui/button";
@@ -147,11 +146,7 @@ function AuthPageContent() {
       return;
     }
     try {
-      if (authUsesAuth0) {
-        await requestPasswordReset(email);
-      } else {
-        await requestNativePasswordReset(email);
-      }
+      await requestPasswordReset(email);
       toast.success("Odkaz pro obnovení hesla jsme vám poslali e-mailem.");
     } catch {
       toast.error("Nepodařilo se odeslat odkaz pro obnovení hesla.");

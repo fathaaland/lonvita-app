@@ -18,7 +18,11 @@ const isProduction = () => process.env.NODE_ENV === 'production'
  * every boot in every environment (payload.config onInit), so these must never reach a production
  * database: that used to give each deployment a superadmin with a publicly known password. */
 const DEV_ACCOUNTS = [
-  { email: 'superadmin@lonvita.cz', password: 'superadmin1234', platformRole: 'admin' as const },
+  {
+    email: 'superadmin@lonvita.cz',
+    password: 'superadmin123456789',
+    platformRole: 'admin' as const,
+  },
   { email: 'admin@admin.cz', password: 'admin1234', platformRole: 'user' as const },
   { email: 'ucastnik@ucastnik.cz', password: 'ucastnik1234', platformRole: 'user' as const },
 ]

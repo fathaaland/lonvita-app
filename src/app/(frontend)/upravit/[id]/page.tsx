@@ -72,6 +72,7 @@ function EditEventContent() {
         capacity: values.capacity,
         registrationApprovalMode: values.registrationApprovalMode,
         organization: values.organizationId ? Number(values.organizationId) : null,
+        coOrganizers: values.coOrganizerIds.map(Number),
         categories: values.categoryIds.map(Number),
         ...(values.imageId ? { image: Number(values.imageId) } : {}),
         imagePositionX: values.imagePosition.x,
@@ -79,6 +80,7 @@ function EditEventContent() {
         isPaid: values.isPaid,
         priceCents: values.isPaid ? values.priceCents : null,
         ...(canSetVolunteering ? { isVolunteering: values.isVolunteering } : {}),
+        isHidden: values.isHidden,
       });
 
       if (values.isVolunteering && !event.is_volunteering && !canSetVolunteering) {
@@ -120,6 +122,7 @@ function EditEventContent() {
       <EventForm
         userId={String(user.id)}
         initial={event}
+        municipalityId={event.municipality_id ?? ""}
         municipalityCenter={event.lat != null && event.lng != null ? [event.lat, event.lng] : CZECHIA_CENTER}
         canSetVolunteering={canSetVolunteering}
         submitLabel="Uložit změny"

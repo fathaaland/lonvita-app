@@ -5,6 +5,7 @@ import { Calendar, MapPin } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { relativeDay, formatEventTime } from "@/lib/date";
 import { formatCzk } from "@/lib/money";
+import { isUnlimitedCapacity } from "@/lib/capacity";
 import { cn } from "@/lib/utils";
 
 export interface EventCardData {
@@ -92,7 +93,7 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
             "text-xs font-semibold",
             free > 0 ? "text-muted-foreground" : "text-destructive",
           )}>
-            {free > 0 ? `Volných míst: ${free}` : "Plno"}
+            {isUnlimitedCapacity(event.capacity) ? "Neomezená kapacita" : free > 0 ? `Volných míst: ${free}` : "Plno"}
           </span>
         </div>
       </div>

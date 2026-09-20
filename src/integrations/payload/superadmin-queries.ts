@@ -3,9 +3,12 @@
  * /superadmin — creating municipalities and managing users/roles across all of them. Distinct
  * from admin-queries.ts, which is scoped to a single municipality's admin dashboard.
  */
-import { buildQuery, del, get, patch, post } from "./client";
+import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
+import type { OrganizerRequestAdminRow, VolunteerFlagRequestAdminRow } from "./admin-queries";
+import type { EventRow, RegistrationRow } from "@/lib/analytics";
+import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from "@/lib/report";
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
   if (value == null) return null;
@@ -203,4 +206,223 @@ export async function grantCommunityRole(
 
 export async function revokeCommunityRole(userRoleId: string): Promise<void> {
   await del(`/user-roles/${userRoleId}`);
+}
+
+// --- Cross-municipality request hub (US-S-04) -------------------------------------------
+// OrganizerRequests/VolunteerFlagRequests are otherwise only visible per-obec (RequestsTable,
+// scoped by admin-queries.ts). These pull every pending request platform-wide, so the decide
+// actions themselves are reused as-is from admin-queries.ts (same PATCH call either way).
+
+export type SuperAdminOrganizerRequestRow = OrganizerRequestAdminRow & {
+  municipality_id: string;
+  municipality_name: string;
+};
+
+type PayloadOrganizerRequestSuper = {
+  id: number;
+  user: number | { id: number };
+  municipality: number | { id: number };
+  status: string;
+  createdAt: string;
+};
+
+export async function getAllOrganizerRequestsForSuperAdmin(): Promise<SuperAdminOrganizerRequestRow[]> {
+  const where = buildWhereParams({ status: { equals: "pending" } });
+  const query = buildQuery({ depth: 0, sort: "createdAt", limit: 1000 });
+  const [result, munisRes] = await Promise.all([
+    get<PayloadListResponse<PayloadOrganizerRequestSuper>>(`/organizer-requests?${where}&${query}`),
+    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
+  ]);
+  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
+
+  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
+  const nameById = new Map<string, string>();
+  if (userIds.length) {
+    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${profileWhere}&depth=0&limit=500`,
+    );
+    for (const p of profiles.docs) {
+      const uid = toId(p.user);
+      if (uid) nameById.set(uid, p.fullName);
+    }
+  }
+
+  return result.docs.map((r) => {
+    const municipalityId = toId(r.municipality)!;
+    return {
+      id: String(r.id),
+      user_id: toId(r.user)!,
+      full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
+      status: r.status as OrganizerRequestAdminRow["status"],
+      created_at: r.createdAt,
+      municipality_id: municipalityId,
+      municipality_name: muniNameById.get(municipalityId) ?? "Neznámá obec",
+    };
+  });
+}
+
+export type SuperAdminVolunteerFlagRequestRow = VolunteerFlagRequestAdminRow & {
+  municipality_id: string;
+  municipality_name: string;
+};
+
+type PayloadVolunteerFlagRequestSuper = {
+  id: number;
+  event: number | { id: number; title?: string; municipality?: number | { id: number } };
+  requestedBy: number | { id: number };
+  status: string;
+  createdAt: string;
+};
+
+export async function getAllVolunteerFlagRequestsForSuperAdmin(): Promise<SuperAdminVolunteerFlagRequestRow[]> {
+  const where = buildWhereParams({ status: { equals: "pending" } });
+  const query = buildQuery({ depth: 1, sort: "createdAt", limit: 1000 });
+  const [result, munisRes] = await Promise.all([
+    get<PayloadListResponse<PayloadVolunteerFlagRequestSuper>>(`/volunteer-flag-requests?${where}&${query}`),
+    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
+  ]);
+  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
+
+  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
+  const nameById = new Map<string, string>();
+  if (userIds.length) {
+    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${profileWhere}&depth=0&limit=500`,
+    );
+    for (const p of profiles.docs) {
+      const uid = toId(p.user);
+      if (uid) nameById.set(uid, p.fullName);
+    }
+  }
+
+  return result.docs.map((r) => {
+    const municipalityId = toId(typeof r.event === "object" ? r.event.municipality : undefined) ?? "";
+    return {
+      id: String(r.id),
+      event_id: toId(r.event)!,
+      event_title: typeof r.event === "object" ? (r.event.title ?? "") : "",
+      requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
+      status: r.status as VolunteerFlagRequestAdminRow["status"],
+      created_at: r.createdAt,
+      municipality_id: municipalityId,
+      municipality_name: muniNameById.get(municipalityId) ?? "Neznámá obec",
+    };
+  });
+}
+
+// --- Municipality comparison (US-S-07) ----------------------------------------------------
+// Runs the same computeReportMetrics used per-obec in CommunityReport.tsx, once per
+// municipality, to feed a side-by-side comparison table instead of one narrated report.
+
+export type MunicipalityComparisonRow = {
+  municipality_id: string;
+  municipality_name: string;
+  metrics: ReportMetrics;
+};
+
+type PayloadEventSuperFull = {
+  id: number;
+  title: string;
+  dateTime: string;
+  capacity: number;
+  status: string;
+  categories?: (number | { id: number })[] | null;
+  organizer?: number | { id: number } | null;
+  createdAt: string;
+  isPaid?: boolean;
+  priceCents?: number | null;
+  isVolunteering?: boolean;
+  municipality: number | { id: number };
+};
+
+type PayloadRegistrationSuperFull = {
+  id: number;
+  event: number | { id: number };
+  user: number | { id: number };
+  status: string;
+  createdAt: string;
+  attendanceStatus?: string;
+};
+
+type PayloadProfileSuperFull = {
+  id: number;
+  fullName: string;
+  createdAt: string;
+  dateOfBirth?: string | null;
+  municipality?: number | { id: number } | null;
+};
+
+export async function getMunicipalityComparison(): Promise<MunicipalityComparisonRow[]> {
+  const [munisRes, eventsRes, regsRes, profilesRes] = await Promise.all([
+    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
+    get<PayloadListResponse<PayloadEventSuperFull>>("/events?depth=0&limit=5000"),
+    get<PayloadListResponse<PayloadRegistrationSuperFull>>("/registrations?depth=0&limit=20000"),
+    get<PayloadListResponse<PayloadProfileSuperFull>>("/profiles?depth=0&limit=20000"),
+  ]);
+
+  const eventsByMuni = new Map<string, EventRow[]>();
+  const eventMuniById = new Map<string, string>();
+  for (const e of eventsRes.docs) {
+    const muniId = toId(e.municipality);
+    if (!muniId) continue;
+    const row: EventRow = {
+      id: String(e.id),
+      title: e.title,
+      date_time: e.dateTime,
+      capacity: e.capacity,
+      status: e.status,
+      category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
+      organizer_id: toId(e.organizer) ?? "",
+      created_at: e.createdAt,
+      is_paid: e.isPaid,
+      price_cents: e.priceCents ?? null,
+      is_volunteering: e.isVolunteering,
+    };
+    eventMuniById.set(row.id, muniId);
+    if (!eventsByMuni.has(muniId)) eventsByMuni.set(muniId, []);
+    eventsByMuni.get(muniId)!.push(row);
+  }
+
+  const regsByMuni = new Map<string, RegistrationRow[]>();
+  for (const r of regsRes.docs) {
+    const eventId = toId(r.event);
+    const muniId = eventId ? eventMuniById.get(eventId) : undefined;
+    if (!muniId) continue;
+    const row: RegistrationRow = {
+      id: String(r.id),
+      event_id: eventId!,
+      user_id: toId(r.user)!,
+      status: r.status,
+      created_at: r.createdAt,
+      attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
+    };
+    if (!regsByMuni.has(muniId)) regsByMuni.set(muniId, []);
+    regsByMuni.get(muniId)!.push(row);
+  }
+
+  const profilesByMuni = new Map<string, ProfileWithDob[]>();
+  for (const p of profilesRes.docs) {
+    const muniId = toId(p.municipality);
+    if (!muniId) continue;
+    const row: ProfileWithDob = {
+      id: String(p.id),
+      full_name: p.fullName,
+      created_at: p.createdAt,
+      date_of_birth: p.dateOfBirth ?? null,
+    };
+    if (!profilesByMuni.has(muniId)) profilesByMuni.set(muniId, []);
+    profilesByMuni.get(muniId)!.push(row);
+  }
+
+  return munisRes.docs.map((m) => {
+    const muniId = String(m.id);
+    const metrics = computeReportMetrics(
+      eventsByMuni.get(muniId) ?? [],
+      regsByMuni.get(muniId) ?? [],
+      profilesByMuni.get(muniId) ?? [],
+    );
+    return { municipality_id: muniId, municipality_name: m.name, metrics };
+  });
 }

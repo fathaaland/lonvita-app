@@ -88,7 +88,7 @@ export async function uploadFile<T>(collection: string, file: File, fields?: Rec
 
 // --- Payload REST `where` query-string helper ---------------------------------------
 
-type WhereOp = "equals" | "not_equals" | "in" | "greater_than" | "less_than" | "exists";
+type WhereOp = "equals" | "not_equals" | "in" | "greater_than" | "less_than" | "exists" | "like";
 type WhereClause = Record<string, Partial<Record<WhereOp, unknown>>>;
 
 /** Builds a Payload REST `where[...]` query string, e.g. `where[status][equals]=approved`. */
@@ -183,6 +183,11 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await post("/auth/forgot-password", { email });
 }
 
+/** POST /api/auth/reset-password — sets a new password from the token in the emailed link. */
+export async function resetPasswordWithToken(token: string, password: string): Promise<void> {
+  await post("/auth/reset-password", { token, password });
+}
+
 /** GET /api/auth/mode — whether Auth0 is configured, or the app is running on the fallback. */
 export async function getAuthMode(): Promise<{ auth0: boolean }> {
   try {
@@ -200,9 +205,4 @@ export async function getAuthMode(): Promise<{ auth0: boolean }> {
 export async function loginWithPassword(email: string, password: string): Promise<PayloadUser> {
   const result = await post<{ user: PayloadUser }>("/users/login", { email, password });
   return result.user;
-}
-
-/** POST /api/users/forgot-password — Payload's own reset-email flow (fallback, no Auth0). */
-export async function requestNativePasswordReset(email: string): Promise<void> {
-  await post("/users/forgot-password", { email });
 }

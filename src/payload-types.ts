@@ -402,6 +402,10 @@ export interface Event {
   coOrganizers?: (number | User)[] | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
   /**
+   * Temporarily unpublish the event without cancelling it — registrations and data stay intact, it just drops out of the public feed/map.
+   */
+  isHidden?: boolean | null;
+  /**
    * Brief §2 "Jedna akce může mít víc kategorií zároveň" — one or more categories. Filtering by a category matches any event that has it among its categories.
    */
   categories: (number | EventCategory)[];
@@ -961,6 +965,7 @@ export interface EventsSelect<T extends boolean = true> {
   organization?: T;
   coOrganizers?: T;
   status?: T;
+  isHidden?: T;
   categories?: T;
   image?: T;
   imagePositionX?: T;

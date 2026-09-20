@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { jsPDF } from "jspdf";
 import {
   getMyOrganizedEvents,
   getEventCategories,
@@ -17,8 +18,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
-import { CalendarRange, Users, Target, Download, HandHeart } from "lucide-react";
+import { CalendarRange, Users, Target, Download, FileText, HandHeart } from "lucide-react";
 import { EventRow, RegistrationRow, buildEventsCsv } from "@/lib/analytics";
+import { toast } from "sonner";
 
 function toAnalyticsEvent(e: QueryEventRow): EventRow {
   return {
@@ -80,6 +82,82 @@ function OrganizerDashboardContent() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPdf = () => {
+    const cats = new Map(categories.map((c) => [c.id, c.name]));
+    const pdf = new jsPDF({ unit: "pt", format: "a4" });
+    const marginX = 48;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    let y = 56;
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pdf.internal.pageSize.getHeight() - 48) {
+        pdf.addPage();
+        y = 56;
+      }
+    };
+
+    pdf.setFont("helvetica", "bold").setFontSize(18);
+    pdf.text(`Statistiky pořadatele — ${profile?.full_name ?? ""}`, marginX, y);
+    y += 22;
+    pdf.setFont("helvetica", "italic").setFontSize(10).setTextColor(102);
+    pdf.text(`Vygenerováno ${new Date().toLocaleString("cs-CZ")}`, marginX, y);
+    pdf.setTextColor(0);
+    y += 26;
+
+    ensureSpace(20);
+    pdf.setFont("helvetica", "bold").setFontSize(14);
+    pdf.text("Klíčová čísla", marginX, y);
+    y += 20;
+    pdf.setFont("helvetica", "normal").setFontSize(10);
+    [
+      `Počet akcí: ${events.length}`,
+      `Schválené přihlášky: ${approved.length} (čeká ${pending.length})`,
+      `Průměrná naplněnost: ${avgFillRate} %`,
+    ].forEach((line) => {
+      ensureSpace(16);
+      pdf.text(line, marginX, y);
+      y += 16;
+    });
+    y += 10;
+
+    ensureSpace(20);
+    pdf.setFont("helvetica", "bold").setFontSize(14);
+    pdf.text("Přehled akcí", marginX, y);
+    y += 18;
+
+    const colWidths = [220, 110, 60, 60, 50];
+    const colX = [
+      marginX,
+      marginX + colWidths[0],
+      marginX + colWidths[0] + colWidths[1],
+      marginX + colWidths[0] + colWidths[1] + colWidths[2],
+      marginX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3],
+    ];
+    const drawRow = (cells: string[], bold: boolean) => {
+      ensureSpace(16);
+      pdf.setFont("helvetica", bold ? "bold" : "normal").setFontSize(9);
+      cells.forEach((c, i) => pdf.text(c, colX[i], y, { maxWidth: colWidths[i] - 6 }));
+      y += 16;
+    };
+    drawRow(["Název", "Kategorie", "Kapacita", "Schváleno", "Stav"], true);
+    events.forEach((e) => {
+      const a = approved.filter((r) => r.event_id === e.id).length;
+      drawRow(
+        [
+          e.title,
+          e.category_ids.map((id) => cats.get(id)).filter(Boolean).join(", "),
+          String(e.capacity),
+          String(a),
+          e.status,
+        ],
+        false,
+      );
+    });
+
+    pdf.save(`moje-akce-${(profile?.full_name ?? "export").replace(/\s+/g, "-")}.pdf`);
+    toast.success("PDF staženo.");
+  };
+
   if (loading) return <><PageHeader title="Moje organizace" back /><Loading /></>;
 
   return (
@@ -104,9 +182,14 @@ function OrganizerDashboardContent() {
           </CardContent></Card>
         </div>
 
-        <Button variant="outline" onClick={handleExport} className="w-full h-11">
-          <Download className="h-4 w-4" /> Exportovat CSV
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={handleExport} className="h-11">
+            <Download className="h-4 w-4" /> CSV
+          </Button>
+          <Button variant="outline" onClick={handleExportPdf} className="h-11">
+            <FileText className="h-4 w-4" /> PDF
+          </Button>
+        </div>
 
         <div>
           <p className="font-bold text-sm mb-2 px-1">Vaše akce</p>

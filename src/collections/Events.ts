@@ -1,4 +1,11 @@
-import type { Access, CollectionAfterChangeHook, CollectionBeforeChangeHook, CollectionConfig, Where } from 'payload'
+import type {
+  Access,
+  CollectionAfterChangeHook,
+  CollectionAfterReadHook,
+  CollectionBeforeChangeHook,
+  CollectionConfig,
+  Where,
+} from 'payload'
 import { APIError } from 'payload'
 
 import {
@@ -378,6 +385,38 @@ const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ d
   return doc
 }
 
+/**
+ * US-P-08: an 'active'/'full' event whose end (or, single-day, start) time has passed reads back
+ * as 'finished' — computed lazily on read rather than via a scheduled worker job, since the
+ * delayed-job worker (worker/src) has no Payload/DB access, only email/SMS/push senders (see
+ * reminders.ts). The read-time value is also best-effort persisted here (fire-and-forget, guarded
+ * by `skipFinishedAutoUpdate` so the resulting update doesn't recurse into this same hook), so
+ * admin listings/exports converge on the same status without needing a cron process.
+ */
+const deriveFinishedStatus: CollectionAfterReadHook = ({ doc, req }) => {
+  if (doc.status !== 'active' && doc.status !== 'full') return doc
+  const endsAt = new Date(doc.endDateTime ?? doc.dateTime)
+  if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() >= Date.now()) return doc
+
+  if (!req.context?.skipFinishedAutoUpdate) {
+    // Deliberately not passed `req` — this fire-and-forget write must run in its own
+    // transaction, not the read's, since it isn't awaited before the read's request finishes.
+    req.payload
+      .update({
+        collection: 'events',
+        id: doc.id,
+        data: { status: 'finished' },
+        overrideAccess: true,
+        context: { skipFinishedAutoUpdate: true },
+      })
+      .catch((error) => {
+        req.payload.logger.error(`Failed to persist finished status for event ${doc.id}: ${error}`)
+      })
+  }
+
+  return { ...doc, status: 'finished' }
+}
+
 export const Events: CollectionConfig = {
   slug: 'events',
   labels: {
@@ -551,6 +590,15 @@ export const Events: CollectionConfig = {
       ],
     },
     {
+      name: 'isHidden',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: {
+        description:
+          'Temporarily unpublish the event without cancelling it — registrations and data stay intact, it just drops out of the public feed/map.',
+      },
+    },
+    {
       name: 'categories',
       type: 'relationship',
       relationTo: 'event-categories',
@@ -639,6 +687,7 @@ export const Events: CollectionConfig = {
   hooks: {
     beforeChange: [guardCancellationWindow, validateEventDates, validateEventLocationRadius, guardIsVolunteering],
     afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],
+    afterRead: [deriveFinishedStatus],
   },
   timestamps: true,
 }

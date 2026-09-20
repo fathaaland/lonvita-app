@@ -50,6 +50,23 @@ export const createAuth0DatabaseUser = async ({ email, password, fullName }: Cre
   }
 }
 
+/** Keeps the Auth0-held credential in sync when a user resets their password through our own
+ * (Resend-based) flow — Auth0 owns the actual login check for database-connection users, so
+ * without this the reset would silently not let them log back in. */
+export const updateAuth0UserPassword = async (auth0UserId: string, password: string): Promise<void> => {
+  const managementClient = getManagementClient()
+
+  try {
+    await managementClient.users.update(auth0UserId, { password })
+  } catch (error) {
+    const err = error as { statusCode?: number; message?: string; error?: string }
+    throw new Auth0ManagementError(err.message ?? 'Failed to update Auth0 user password.', {
+      status: err.statusCode,
+      code: err.error,
+    })
+  }
+}
+
 export const deleteAuth0User = async (auth0UserId: string): Promise<void> => {
   const managementClient = getManagementClient()
 

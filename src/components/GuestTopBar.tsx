@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AccessibilityControls } from "@/components/AccessibilityControls";
+import { Accessibility } from "lucide-react";
 
 /**
  * The only nav a signed-out visitor gets — TopNav/BottomNav both hide entirely for `!user`
@@ -18,6 +21,21 @@ export function GuestTopBar() {
           <LonvitaLogo size="sm" />
         </Link>
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* US-H-07: a guest needs to reach font-size/high-contrast controls without an
+              account — this was previously only reachable from /profil, which requires login. */}
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Zobrazení a přístupnost">
+                <Accessibility className="h-5 w-5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Zobrazení</DialogTitle>
+              </DialogHeader>
+              <AccessibilityControls />
+            </DialogContent>
+          </Dialog>
           <Button asChild variant="ghost" size="sm" className="px-2.5 sm:px-3">
             <Link href="/auth">Přihlásit se</Link>
           </Button>

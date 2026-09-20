@@ -14,17 +14,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { useFontSize } from "@/contexts/FontSizeContext";
-import { LogOut, Type, Settings, ArrowLeft, Mail, ShieldCheck, Megaphone } from "lucide-react";
+import { AccessibilityControls } from "@/components/AccessibilityControls";
+import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
+import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 
 function ProfileContent() {
   const router = useRouter();
   const { user, profile, isSuperAdmin, isAdmin, isOrganizer, signOut } = useAuth();
-  const { size, setSize } = useFontSize();
   const [stats, setStats] = useState({ upcoming: 0, attended: 0, volunteerHours: 0 });
   const [marketingConsent, setMarketingConsentState] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
@@ -102,19 +102,14 @@ function ProfileContent() {
 
       <div className="px-4 py-5 space-y-4">
         <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="eyebrow"><Type className="h-3 w-3" /> Velikost písma</div>
-            <div className="grid grid-cols-3 gap-2">
-              {(["normal", "large", "xlarge"] as const).map((s) => (
-                <Button key={s} variant={size === s ? "default" : "outline"} onClick={() => setSize(s)} className="h-12">
-                  <span className={s === "normal" ? "text-base" : s === "large" ? "text-lg" : "text-2xl"}>A</span>
-                </Button>
-              ))}
-            </div>
+          <CardContent className="p-4">
+            <AccessibilityControls />
           </CardContent>
         </Card>
 
         <NotificationPreferencesCard />
+
+        <EventFeedbackCard />
 
         <Card>
           <CardContent className="p-4">

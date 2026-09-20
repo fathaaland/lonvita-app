@@ -14,7 +14,16 @@ import { Bell, LogOut } from "lucide-react";
  * a jen od breakpointu md nahoru. Na mobilu zůstává spodní BottomNav.
  */
 export function TopNav() {
-  const { user, isSuperAdmin, isAdmin, isOrganizer, signOut } = useAuth();
+  const {
+    user,
+    isSuperAdmin,
+    isAdmin,
+    isOrganizer,
+    administeredMunicipalityIds,
+    organizerMunicipalityIds,
+    viewingMunicipalityId,
+    signOut,
+  } = useAuth();
   const pathname = usePathname();
   const unreadCount = useUnreadNotificationCount();
 
@@ -22,11 +31,23 @@ export function TopNav() {
   // to navigate to, so no top bar at all (it has its own header with a logout action).
   if (!user || isSuperAdmin) return null;
 
+  // `viewingMunicipalityId` is the obec the home page's switcher is currently browsing — not
+  // necessarily one this admin/organizer actually holds a role in (brief §"uživatel není vázaný
+  // lokací"). `null` = not yet known/default, treated as "own obec". Actual creation is always
+  // scoped server-side regardless of this; this only keeps the navbar from suggesting an action
+  // that isn't actually available while browsing a municipality they don't administer.
+  const canCreateHere =
+    viewingMunicipalityId == null ||
+    organizerMunicipalityIds.includes(viewingMunicipalityId) ||
+    administeredMunicipalityIds.includes(viewingMunicipalityId);
+  const canManageObecHere =
+    viewingMunicipalityId == null || administeredMunicipalityIds.includes(viewingMunicipalityId);
+
   const links: { to: string; label: string; end?: boolean }[] = [
     { to: "/", label: "Domů", end: true },
     { to: "/moje-akce", label: "Moje akce" },
-    ...(isOrganizer ? [{ to: "/vytvorit", label: "Vytvořit" }] : []),
-    ...(isAdmin ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
+    ...(isOrganizer && canCreateHere ? [{ to: "/vytvorit", label: "Vytvořit" }] : []),
+    ...(isAdmin && canManageObecHere ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
     { to: "/profil", label: "Profil" },
   ];
 

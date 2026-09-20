@@ -1,7 +1,27 @@
-import type { CollectionConfig } from 'payload'
+import type { Access, CollectionConfig, Where } from 'payload'
 
-import { isLoggedIn } from './access/shared'
+import { canReadOwnOrAdministered } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
+
+/** Only the participant who owns the underlying registration may create their own feedback. */
+const canCreateOwnFeedback: Access = async ({ req: { user, payload }, data }) => {
+  if (!user) return false
+  if (!data?.registration) return false
+  const registration = await payload.findByID({
+    collection: 'registrations',
+    id: data.registration,
+    depth: 0,
+    overrideAccess: true,
+  })
+  const ownerId = typeof registration?.user === 'object' ? registration.user.id : registration?.user
+  return String(ownerId) === String(user.id)
+}
+
+/** Only the feedback's own author may edit it later. */
+const ownFeedback: Access = ({ req: { user } }) => {
+  if (!user) return false
+  return { 'registration.user': { equals: user.id } }
+}
 
 export const EventFeedback: CollectionConfig = {
   slug: 'event-feedback',
@@ -14,9 +34,15 @@ export const EventFeedback: CollectionConfig = {
     defaultColumns: ['registration', 'satisfactionRating', 'updatedAt'],
   },
   access: {
-    read: ({ req: { user } }) => (user ? notDeleted : false),
-    create: isLoggedIn,
-    update: isLoggedIn,
+    // Own feedback, or an admin of the event's municipality (aggregate ratings on admin-obce).
+    read: async (ctx) => {
+      const inner = await canReadOwnOrAdministered('registration.user', 'registration.event.municipality')(ctx)
+      if (inner === false) return false
+      if (inner === true) return notDeleted
+      return { and: [notDeleted, inner as Where] }
+    },
+    create: canCreateOwnFeedback,
+    update: ownFeedback,
     delete: adminOnlyDelete,
   },
   fields: [

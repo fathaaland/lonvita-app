@@ -42,6 +42,13 @@ export interface ProfileRow {
   date_of_birth?: string | null;
 }
 
+export interface FeedbackRow {
+  id: string;
+  registration_id: string;
+  satisfaction_rating: number;
+  felt_welcome_rating: number | null;
+}
+
 /** Age on a given date from an ISO date-of-birth string — shared by the Datavita calc and the report. */
 export function ageOn(dobIso: string, on: Date): number {
   const dob = new Date(dobIso);
@@ -514,6 +521,31 @@ export function regStatusBreakdown(regs: RegistrationRow[]) {
     else out.rejected++;
   }
   return out;
+}
+
+/* ===== Docházka ===== */
+
+export function attendanceBreakdown(regs: RegistrationRow[]) {
+  const marked = regs.filter((r) => r.status === "approved" && r.attendance_status && r.attendance_status !== "not_marked");
+  const out = { attended: 0, no_show: 0, excused: 0 };
+  for (const r of marked) {
+    if (r.attendance_status === "attended") out.attended++;
+    else if (r.attendance_status === "no_show") out.no_show++;
+    else if (r.attendance_status === "excused") out.excused++;
+  }
+  return { ...out, total: marked.length };
+}
+
+/* ===== Hodnocení (EventFeedback) ===== */
+
+export function averageRatings(feedback: FeedbackRow[]) {
+  if (feedback.length === 0) return { avgSatisfaction: null, avgFeltWelcome: null, count: 0 };
+  const avgSatisfaction = feedback.reduce((s, f) => s + f.satisfaction_rating, 0) / feedback.length;
+  const welcomeRatings = feedback.filter((f): f is FeedbackRow & { felt_welcome_rating: number } => f.felt_welcome_rating !== null);
+  const avgFeltWelcome = welcomeRatings.length
+    ? welcomeRatings.reduce((s, f) => s + f.felt_welcome_rating, 0) / welcomeRatings.length
+    : null;
+  return { avgSatisfaction, avgFeltWelcome, count: feedback.length };
 }
 
 /* ===== Naplněnost ===== */

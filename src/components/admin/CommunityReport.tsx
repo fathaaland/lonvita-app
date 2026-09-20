@@ -1,15 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, BorderStyle, ShadingType, AlignmentType, PageOrientation,
 } from "docx";
 import { saveAs } from "file-saver";
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { FileText, Download, Copy, Sparkles } from "lucide-react";
+import { FileText, Download, Copy, Sparkles, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   EventRow, RegistrationRow,
@@ -65,6 +67,7 @@ function buildNarrative(metrics: ReportMetrics, municipalityName: string): Narra
 export function CommunityReport({ events, registrations, profiles, municipalityName }: Props) {
   const [open, setOpen] = useState(false);
   const [narrative, setNarrative] = useState<Narrative | null>(null);
+  const reportCardRef = useRef<HTMLDivElement>(null);
 
   const metrics = useMemo<ReportMetrics>(
     () => computeReportMetrics(events, registrations, profiles),
@@ -223,6 +226,103 @@ proběhl ${new Date().toLocaleString("cs-CZ")}. Nezahrnuje adresy bydliště ú�
     toast.success("Report stažen.");
   };
 
+  const reportFileBase = () => `report-${municipalityName.replace(/\s+/g, "-")}-${metrics.periodLabel.replace(/\s+/g, "-")}`;
+
+  const downloadPdf = (n: Narrative) => {
+    const dv = metrics.datavita;
+    const pdf = new jsPDF({ unit: "pt", format: "a4" });
+    const marginX = 48;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const contentWidth = pageWidth - marginX * 2;
+    let y = 56;
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pdf.internal.pageSize.getHeight() - 48) {
+        pdf.addPage();
+        y = 56;
+      }
+    };
+    const heading = (text: string) => {
+      ensureSpace(28);
+      pdf.setFont("helvetica", "bold").setFontSize(14);
+      pdf.text(text, marginX, y);
+      y += 20;
+    };
+    const paragraph = (text: string) => {
+      pdf.setFont("helvetica", "normal").setFontSize(10);
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      ensureSpace(lines.length * 14 + 10);
+      pdf.text(lines, marginX, y);
+      y += lines.length * 14 + 10;
+    };
+
+    pdf.setFont("helvetica", "bold").setFontSize(18);
+    pdf.text(`Přehled komunitního života — ${metrics.periodLabel}`, marginX, y);
+    y += 22;
+    pdf.setFont("helvetica", "italic").setFontSize(10).setTextColor(102);
+    pdf.text(`${municipalityName} · Období: ${metrics.periodFrom} – ${metrics.periodTo}`, marginX, y);
+    pdf.setTextColor(0);
+    y += 26;
+
+    heading("Shrnutí");
+    paragraph(n.summary);
+
+    heading("Klíčová čísla");
+    const colWidths = [contentWidth * 0.4, contentWidth * 0.2, contentWidth * 0.2, contentWidth * 0.2];
+    const colX = [marginX, marginX + colWidths[0], marginX + colWidths[0] + colWidths[1], marginX + colWidths[0] + colWidths[1] + colWidths[2]];
+    const rowHeight = 18;
+    const drawRow = (cells: string[], bold: boolean) => {
+      ensureSpace(rowHeight);
+      pdf.setFont("helvetica", bold ? "bold" : "normal").setFontSize(9);
+      cells.forEach((c, i) => pdf.text(c, colX[i], y));
+      y += rowHeight;
+    };
+    drawRow(["Metrika", "Toto období", "Minulé období", "Změna"], true);
+    pdf.setDrawColor(204).line(marginX, y - 12, marginX + contentWidth, y - 12);
+    rows.forEach((r) => drawRow([r.metric, r.current, r.previous, r.change], false));
+    y += 8;
+
+    heading("Co se změnilo");
+    paragraph(n.whatChanged);
+
+    heading("Datavita");
+    paragraph(
+      dv.current === null
+        ? "Nedostatek dat za toto období (potřeba alespoň 30 aktivních účastníků a 5 akcí)."
+        : `${dv.current}/100, ${dv.trend} (${dv.delta90d >= 0 ? "+" : ""}${dv.delta90d} bodů za 90 dní). ` +
+          `Participace ${dv.participation}, organizace ${dv.organization} — rozpad ukazuje, zda růst ` +
+          `komunity stojí především na účasti lidí, nebo na aktivitě organizátorů.`,
+    );
+
+    heading("Metodická poznámka");
+    paragraph(
+      `Data z klouzavého 90denního okna (${metrics.periodFrom} – ${metrics.periodTo}), srovnání ` +
+      `s předchozím 90denním oknem (${metrics.previousLabel}). Zdroj: platforma Lonvita, výpočet proběhl ` +
+      `${new Date().toLocaleString("cs-CZ")}. Nezahrnuje adresy bydliště účastníků ani údaje ze ` +
+      `sociálně-preskripční vrstvy. Kompletní metodika Datavity dostupná na vyžádání.`,
+    );
+
+    pdf.save(`${reportFileBase()}.pdf`);
+    toast.success("Report stažen jako PDF.");
+  };
+
+  const downloadJpeg = async () => {
+    if (!reportCardRef.current) return;
+    try {
+      const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: "#ffffff" });
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          toast.error("Export do JPEG se nepodařil.");
+          return;
+        }
+        saveAs(blob, `${reportFileBase()}.jpg`);
+        toast.success("Tabulka stažena jako JPEG.");
+      }, "image/jpeg", 0.92);
+    } catch {
+      toast.error("Export do JPEG se nepodařil.");
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -241,7 +341,7 @@ proběhl ${new Date().toLocaleString("cs-CZ")}. Nezahrnuje adresy bydliště ú�
             Textové sekce se generují automaticky ze skutečných čísel v tabulce níže.
           </p>
 
-          <Card>
+          <Card ref={reportCardRef}>
             <CardContent className="p-3 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -296,14 +396,20 @@ proběhl ${new Date().toLocaleString("cs-CZ")}. Nezahrnuje adresy bydliště ú�
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{narrative.whatChanged}</p>
               </section>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Button onClick={() => downloadDocx(narrative)} className="h-11">
                   <Download className="h-4 w-4" /> .docx
+                </Button>
+                <Button onClick={() => downloadPdf(narrative)} className="h-11">
+                  <Download className="h-4 w-4" /> .pdf
+                </Button>
+                <Button onClick={downloadJpeg} variant="outline" className="h-11">
+                  <ImageIcon className="h-4 w-4" /> .jpg (tabulka)
                 </Button>
                 <Button onClick={() => copyMd(narrative)} variant="outline" className="h-11">
                   <Copy className="h-4 w-4" /> Markdown
                 </Button>
-                <Button onClick={generate} variant="outline" className="h-11">
+                <Button onClick={generate} variant="outline" className="h-11 col-span-2">
                   <Sparkles className="h-4 w-4" /> Znovu
                 </Button>
               </div>

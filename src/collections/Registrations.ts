@@ -17,7 +17,11 @@ const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
  * count whenever a change could have added or removed someone from that count (a fresh
  * approval, or an existing approved registration being cancelled/rejected). Any other status
  * transition (pending -> rejected, cancelled -> pending, etc.) never touched the approved
- * count, so skip the publish rather than send a no-op update to every open detail page. */
+ * count, so skip the publish rather than send a no-op update to every open detail page.
+ *
+ * US-P-08: the same count also drives the event's own `status` — flipped to 'full' once
+ * approved registrations reach capacity, and back to 'active' once they drop below it again.
+ * Never overwrites 'cancelled' or 'finished', which are terminal/time-driven, not capacity-driven. */
 const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   const wasApproved = previousDoc?.status === 'approved'
   const isApproved = doc.status === 'approved'
@@ -38,6 +42,21 @@ const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previou
       req,
     })
     publishCapacityChange(eventId, result.totalDocs)
+
+    const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true })
+    if (event.status === 'active' || event.status === 'full') {
+      const shouldBeFull = result.totalDocs >= event.capacity
+      const nextStatus = shouldBeFull ? 'full' : 'active'
+      if (nextStatus !== event.status) {
+        await req.payload.update({
+          collection: 'events',
+          id: eventId,
+          data: { status: nextStatus },
+          overrideAccess: true,
+          req,
+        })
+      }
+    }
   } catch (error) {
     req.payload.logger.error(`Failed to broadcast capacity change for event ${eventId}: ${error}`)
   }
@@ -146,20 +165,15 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
   return doc
 }
 
-/** "Kdo dále jde" is only for the event's organizer and the obec's admin — a registration is
- * readable by the registrant themself, the event's organizer/co-organizers, an admin of the event's
- * municipality and a platform admin. Everyone else gets participant counts only, via the public
- * /api/events/registration-counts route. */
-const canReadRegistration: Access = async ({ req }) => {
+/** Registrations a user may act on: their own (to register/cancel), or any belonging to an
+ * event they organize/co-organize or whose municipality they administer (to approve/reject
+ * and mark attendance). Shared by read and update access — resolved to plain event ids up
+ * front instead of `event.organizer` / `event.coOrganizers` paths inside the access query,
+ * since OR-ing several relationship joins there matched every row. */
+const ownOrManagedRegistrationsWhere = async (req: Parameters<Access>[0]['req']): Promise<Where> => {
   const { user, payload } = req
-  if (!user) return false
-  const visible: Where = { deletedAt: { exists: false } }
-  if (user.role === 'admin') return visible
-
-  // Resolved to plain event ids up front instead of `event.organizer` / `event.coOrganizers` paths
-  // inside the access query — OR-ing several relationship joins there matched every row.
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
-  const manageableEventsWhere: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user!.id)
+  const manageableEventsWhere: Where[] = [{ organizer: { equals: user!.id } }, { coOrganizers: { in: [user!.id] } }]
   if (administeredIds.length > 0) manageableEventsWhere.push({ municipality: { in: administeredIds } })
   const manageableEvents = await payload.find({
     collection: 'events',
@@ -171,10 +185,30 @@ const canReadRegistration: Access = async ({ req }) => {
     req,
   })
 
-  const or: Where[] = [{ user: { equals: user.id } }]
+  const or: Where[] = [{ user: { equals: user!.id } }]
   if (manageableEvents.docs.length > 0) or.push({ event: { in: manageableEvents.docs.map((e) => e.id) } })
-  const where: Where = { and: [visible, { or }] }
-  return where
+  return { or }
+}
+
+/** "Kdo dále jde" is only for the event's organizer and the obec's admin — a registration is
+ * readable by the registrant themself, the event's organizer/co-organizers, an admin of the event's
+ * municipality and a platform admin. Everyone else gets participant counts only, via the public
+ * /api/events/registration-counts route. */
+const canReadRegistration: Access = async ({ req }) => {
+  if (!req.user) return false
+  const visible: Where = { deletedAt: { exists: false } }
+  if (req.user.role === 'admin') return visible
+  return { and: [visible, await ownOrManagedRegistrationsWhere(req)] }
+}
+
+/** Approving/rejecting/marking attendance is limited the same way as reading (event's
+ * organizer/co-organizers, the municipality's admin, or a platform admin); a participant may
+ * additionally update their own registration to cancel it. Without this, `isLoggedIn` alone let
+ * any logged-in user PATCH any registration in the system, including other people's. */
+const canUpdateRegistration: Access = async ({ req }) => {
+  if (!req.user) return false
+  if (req.user.role === 'admin') return true
+  return ownOrManagedRegistrationsWhere(req)
 }
 
 export const Registrations: CollectionConfig = {
@@ -190,7 +224,7 @@ export const Registrations: CollectionConfig = {
   access: {
     read: canReadRegistration,
     create: isLoggedIn,
-    update: isLoggedIn,
+    update: canUpdateRegistration,
     // Platform superadmin everywhere, or a municipality admin scoped to their own
     // municipality (traverses the relationship: registration -> event -> municipality).
     delete: isPlatformOrMunicipalityAdmin('event.municipality'),

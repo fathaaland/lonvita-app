@@ -13,10 +13,17 @@ import {
   listAllEventsForSuperAdmin,
   grantCommunityRole,
   revokeCommunityRole,
+  getAllOrganizerRequestsForSuperAdmin,
+  getAllVolunteerFlagRequestsForSuperAdmin,
+  getMunicipalityComparison,
   MunicipalityRow,
   PlatformUserRow,
   SuperAdminEventRow,
+  SuperAdminOrganizerRequestRow,
+  SuperAdminVolunteerFlagRequestRow,
+  MunicipalityComparisonRow,
 } from "@/integrations/payload/superadmin-queries";
+import { decideOrganizerRequest, decideVolunteerFlagRequest } from "@/integrations/payload/admin-queries";
 import { getEventCategories, createEvent, listMunicipalities } from "@/integrations/payload/queries";
 import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { PayloadApiError } from "@/integrations/payload/client";
@@ -25,6 +32,7 @@ import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { CancelEventButton } from "@/components/CancelEventButton";
+import { EventForm, EventFormValues } from "@/components/EventForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +44,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ConfirmDeleteButton } from "@/components/ConfirmDeleteButton";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, HandHeart, BarChart3 } from "lucide-react";
+import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
@@ -82,7 +102,15 @@ function SuperAdminContent() {
   const [users, setUsers] = useState<PlatformUserRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [events, setEvents] = useState<SuperAdminEventRow[]>([]);
+  const [orgRequests, setOrgRequests] = useState<SuperAdminOrganizerRequestRow[]>([]);
+  const [volRequests, setVolRequests] = useState<SuperAdminVolunteerFlagRequestRow[]>([]);
+  const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Obce tab — list vs. side-by-side comparison view
+  const [muniView, setMuniView] = useState<"list" | "comparison">("list");
+  const [comparison, setComparison] = useState<MunicipalityComparisonRow[] | null>(null);
+  const [loadingComparison, setLoadingComparison] = useState(false);
 
   // Obce tab — new municipality form
   const [muniName, setMuniName] = useState("");
@@ -110,17 +138,15 @@ function SuperAdminContent() {
   const [newInterests, setNewInterests] = useState<string[]>([]);
   const [creatingUser, setCreatingUser] = useState(false);
 
-  // Akce tab — new event form
-  const [evTitle, setEvTitle] = useState("");
-  const [evDescription, setEvDescription] = useState("");
-  const [evDate, setEvDate] = useState("");
-  const [evTime, setEvTime] = useState("");
-  const [evLocation, setEvLocation] = useState<PickedLocation | null>(null);
-  const [evCapacity, setEvCapacity] = useState("10");
-  const [evCategoryId, setEvCategoryId] = useState("");
+  // Akce tab — new event form. Superadmin picks obec + pořadatel first (an organizer/admin's
+  // own /vytvorit derives these from their own roles instead), then gets the exact same
+  // EventForm every organizer/admin uses (brief §2 "flow ... musí kopírovat" — 1:1, not a
+  // separate hand-rolled form).
   const [evMuniId, setEvMuniId] = useState("");
   const [evOrganizerId, setEvOrganizerId] = useState("");
-  const [creatingEvent, setCreatingEvent] = useState(false);
+  // Bumped after each successful create to remount EventForm with a clean slate — it owns its
+  // own internal state, so there's nothing here to reset otherwise.
+  const [eventFormKey, setEventFormKey] = useState(0);
 
   // Role tab — grant form
   const [grantUserId, setGrantUserId] = useState("");
@@ -129,18 +155,30 @@ function SuperAdminContent() {
 
   const load = async () => {
     setLoading(true);
-    const [munis, points, us, cats, evs] = await Promise.all([
+    // "Porovnání" used to be fetched once and cached forever, so every event/user/role mutation
+    // made elsewhere in the panel silently went stale there until a full page reload (brief §3
+    // "prubezne propisovani do porovnani"). load() is the one function every mutation handler
+    // below already calls, so folding the comparison refetch in here — whenever that view is the
+    // one on screen — keeps it live without threading a refetch through each handler individually.
+    const wantsComparison = muniView === "comparison";
+    const [munis, points, us, cats, evs, orgReqs, volReqs, comp] = await Promise.all([
       listMunicipalitiesForSuperAdmin(),
       listMunicipalities(),
       listAllUsersForSuperAdmin(),
       getEventCategories(),
       listAllEventsForSuperAdmin(),
+      getAllOrganizerRequestsForSuperAdmin(),
+      getAllVolunteerFlagRequestsForSuperAdmin(),
+      wantsComparison ? getMunicipalityComparison() : Promise.resolve(null),
     ]);
     setMunicipalities(munis);
     setMapPoints(points);
     setUsers(us);
     setCategories(cats);
     setEvents(evs);
+    setOrgRequests(orgReqs);
+    setVolRequests(volReqs);
+    if (wantsComparison) setComparison(comp);
     setLoading(false);
   };
 
@@ -288,53 +326,41 @@ function SuperAdminContent() {
     }
   };
 
-  const handleCreateEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!evTitle.trim() || !evDescription.trim() || !evDate || !evTime || !evLocation) {
-      toast.error("Vyplňte všechna pole a vyberte místo na mapě.");
-      return;
-    }
-    if (!evCategoryId || !evMuniId || !evOrganizerId) {
-      toast.error("Vyberte kategorii, obec a pořadatele.");
-      return;
-    }
-    if (new Date(`${evDate}T${evTime}`).getTime() < Date.now()) {
-      toast.error("Akce nemůže začínat v minulosti.");
-      return;
-    }
-    setCreatingEvent(true);
+  // Same call shape as /vytvorit's handleSubmit — the only difference is organizer + obec come
+  // from the pickers above instead of the logged-in user's own roles.
+  const handleCreateEvent = async (values: EventFormValues) => {
     try {
-      const dt = new Date(`${evDate}T${evTime}`);
       await createEvent({
-        title: evTitle.trim(),
-        description: evDescription.trim(),
-        dateTimeIso: dt.toISOString(),
-        locationText: evLocation.label,
-        lat: evLocation.lat,
-        lng: evLocation.lng,
-        capacity: Number(evCapacity),
+        title: values.title,
+        description: values.description,
+        dateTimeIso: values.dateTimeIso,
+        endDateTimeIso: values.endDateTimeIso ?? undefined,
+        recurrenceRule: values.recurrenceRule ?? undefined,
+        locationText: values.location.label,
+        lat: values.location.lat,
+        lng: values.location.lng,
+        accessibilityTags: values.accessibilityTags,
+        capacity: values.capacity,
+        registrationApprovalMode: values.registrationApprovalMode,
         organizerUserId: evOrganizerId,
         municipalityId: evMuniId,
-        // Superadmin picks one category here for now — multi-select is on the organizer-facing
-        // "vytvorit" form (brief §2); this internal ops form can catch up later.
-        categoryIds: [evCategoryId],
+        organizationId: values.organizationId ?? undefined,
+        coOrganizerIds: values.coOrganizerIds,
+        categoryIds: values.categoryIds,
+        imageId: values.imageId ?? undefined,
+        imagePositionX: values.imagePosition.x,
+        imagePositionY: values.imagePosition.y,
+        isVolunteering: values.isVolunteering,
+        isPaid: values.isPaid,
+        priceCents: values.priceCents ?? undefined,
       });
       toast.success("Akce vytvořena.");
-      setEvTitle("");
-      setEvDescription("");
-      setEvDate("");
-      setEvTime("");
-      setEvLocation(null);
-      setEvCapacity("10");
-      setEvCategoryId("");
-      setEvMuniId("");
-      setEvOrganizerId("");
+      setEventFormKey((k) => k + 1);
+      await load();
     } catch (error) {
       toast.error(
         error instanceof PayloadApiError && error.status === 400 ? error.message : "Nepodařilo se vytvořit akci.",
       );
-    } finally {
-      setCreatingEvent(false);
     }
   };
 
@@ -368,6 +394,47 @@ function SuperAdminContent() {
     }
   };
 
+  const handleShowComparison = async () => {
+    setMuniView("comparison");
+    // Always refetch — load() only refreshes this while the view is already open (see load()'s
+    // comment), so switching into it needs its own fetch too. No caching: this is a superadmin
+    // ops panel, not a hot path, and stale numbers here are exactly the bug being fixed.
+    setLoadingComparison(true);
+    try {
+      setComparison(await getMunicipalityComparison());
+    } catch {
+      toast.error("Nepodařilo se načíst porovnání obcí.");
+    } finally {
+      setLoadingComparison(false);
+    }
+  };
+
+  const handleOrganizerRequestDecision = async (id: string, approve: boolean) => {
+    setRequestBusyId(id);
+    try {
+      await decideOrganizerRequest(id, approve);
+      toast.success(approve ? "Role organizátora schválena." : "Žádost zamítnuta.");
+      await load();
+    } catch {
+      toast.error("Nepodařilo se vyřídit žádost.");
+    } finally {
+      setRequestBusyId(null);
+    }
+  };
+
+  const handleVolunteerRequestDecision = async (id: string, approve: boolean) => {
+    setRequestBusyId(id);
+    try {
+      await decideVolunteerFlagRequest(id, approve);
+      toast.success(approve ? "Příznak Dobrovolnictví schválen." : "Žádost zamítnuta.");
+      await load();
+    } catch {
+      toast.error("Nepodařilo se vyřídit žádost.");
+    } finally {
+      setRequestBusyId(null);
+    }
+  };
+
   const logoutAction = (
     <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
       <LogOut className="h-4 w-4" />
@@ -378,6 +445,8 @@ function SuperAdminContent() {
   if (loading) return <><PageHeader title="Superadmin" right={logoutAction} /><Loading /></>;
 
   const newUserMuniName = mapPoints.find((m) => m.id === newUserMuniId)?.name;
+  const evMuniPoint = mapPoints.find((m) => m.id === evMuniId);
+  const evMuniCenter: [number, number] = evMuniPoint ? [evMuniPoint.lat, evMuniPoint.lng] : CZECHIA_CENTER;
 
   return (
     <div className="animate-fade-in">
@@ -385,7 +454,7 @@ function SuperAdminContent() {
       {/* Wider on large screens so the municipality/location maps in these forms get room too. */}
       <div className="px-4 py-5 max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4">
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="w-full h-14 grid grid-cols-4">
+          <TabsList className="w-full h-14 grid grid-cols-5">
             <TabsTrigger value="municipalities" className="flex-col gap-0.5 text-[11px]">
               <Building2 className="h-4 w-4" /> Obce
             </TabsTrigger>
@@ -397,6 +466,14 @@ function SuperAdminContent() {
             </TabsTrigger>
             <TabsTrigger value="roles" className="flex-col gap-0.5 text-[11px]">
               <Shield className="h-4 w-4" /> Role
+            </TabsTrigger>
+            <TabsTrigger value="requests" className="relative flex-col gap-0.5 text-[11px]">
+              <ClipboardList className="h-4 w-4" /> Žádosti
+              {orgRequests.length + volRequests.length > 0 && (
+                <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px] absolute -top-1 -right-1">
+                  {orgRequests.length + volRequests.length}
+                </Badge>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -442,6 +519,66 @@ function SuperAdminContent() {
               </CardContent>
             </Card>
 
+            <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-xs">
+              <button
+                onClick={() => setMuniView("list")}
+                className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
+                  muniView === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Seznam
+              </button>
+              <button
+                onClick={handleShowComparison}
+                className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
+                  muniView === "comparison" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Porovnání
+              </button>
+            </div>
+
+            {muniView === "comparison" ? (
+              loadingComparison || comparison === null ? (
+                <p className="text-center text-muted-foreground py-8">Načítám…</p>
+              ) : comparison.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">Žádné obce k porovnání.</p>
+              ) : (
+                <Card>
+                  <CardContent className="p-0 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50 text-left">
+                        <tr>
+                          <th className="p-3 font-semibold sticky left-0 bg-muted/50">Obec</th>
+                          <th className="p-3 font-semibold text-right">Akcí (90 dní)</th>
+                          <th className="p-3 font-semibold text-right">Účastníků</th>
+                          <th className="p-3 font-semibold text-right">Naplněnost</th>
+                          <th className="p-3 font-semibold text-right">Organizátorů</th>
+                          <th className="p-3 font-semibold text-right">Datavita</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comparison
+                          .slice()
+                          .sort((a, b) => (b.metrics.datavita.current ?? -1) - (a.metrics.datavita.current ?? -1))
+                          .map((c) => (
+                            <tr key={c.municipality_id} className="border-t border-border">
+                              <td className="p-3 font-medium whitespace-nowrap sticky left-0 bg-background">{c.municipality_name}</td>
+                              <td className="p-3 text-right tabular-nums">{c.metrics.current.eventsCount}</td>
+                              <td className="p-3 text-right tabular-nums">{c.metrics.current.participantsUnique}</td>
+                              <td className="p-3 text-right tabular-nums">{pct(c.metrics.current.avgFillRate)}</td>
+                              <td className="p-3 text-right tabular-nums">{c.metrics.current.activeOrganizers}</td>
+                              <td className="p-3 text-right tabular-nums font-bold">
+                                {c.metrics.datavita.current ?? "—"}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </CardContent>
+                </Card>
+              )
+            ) : (
             <div className="space-y-2">
               {municipalities.map((m) =>
                 editingMuniId === m.id ? (
@@ -509,6 +646,7 @@ function SuperAdminContent() {
                 ),
               )}
             </div>
+            )}
           </TabsContent>
 
           {/* --- Uživatelé -------------------------------------------------------------- */}
@@ -665,16 +803,50 @@ function SuperAdminContent() {
                         Superadmin
                       </Badge>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0"
-                      onClick={() => handleToggleUserRole(u)}
-                      aria-label={u.platformRole === "admin" ? "Odebrat superadmina" : "Udělat superadminem"}
-                      title={u.platformRole === "admin" ? "Odebrat superadmina" : "Udělat superadminem"}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    {u.platformRole === "admin" ? (
+                      // Removing platform-admin rights is the "undo" direction — safe enough to
+                      // fire directly, same as before.
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-muted-foreground"
+                        onClick={() => handleToggleUserRole(u)}
+                        aria-label="Odebrat superadmina"
+                        title="Odebrat superadmina"
+                      >
+                        <Shield className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      // Granting platform-admin never happens implicitly (brief §1 "to je
+                      // ZAKAZANE") — creating a user always leaves them a plain "user"; this
+                      // confirm is the *only* place that can change, and it needs an explicit yes.
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-muted-foreground"
+                            aria-label="Udělat superadminem"
+                            title="Udělat superadminem"
+                          >
+                            <Shield className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Udělat z „{u.fullName ?? u.email}“ superadmina?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Superadmin má plný přístup ke všem obcím, uživatelům a akcím v aplikaci. Přiřaďte tuhle
+                              roli jen lidem, kterým opravdu chcete dát správu celé platformy.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Zrušit</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleToggleUserRole(u)}>Udělat superadminem</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                     <ConfirmDeleteButton
                       title={`Smazat uživatele „${u.fullName ?? u.email}“?`}
                       description="Smazání účtu nejde vrátit zpět."
@@ -694,61 +866,14 @@ function SuperAdminContent() {
                 <div className="eyebrow">
                   <CalendarPlus className="h-3 w-3" /> Nová akce
                 </div>
-                <form onSubmit={handleCreateEvent} className="space-y-3">
-                  <div>
-                    <Label htmlFor="ev-title">Název akce *</Label>
-                    <Input id="ev-title" value={evTitle} onChange={(e) => setEvTitle(e.target.value)} className="h-11 mt-1.5" />
-                  </div>
-                  <Select value={evCategoryId} onValueChange={setEvCategoryId}>
-                    <SelectTrigger className="h-11">
-                      <SelectValue placeholder="Vyberte kategorii" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div>
-                    <Label htmlFor="ev-desc">Popis *</Label>
-                    <Textarea id="ev-desc" value={evDescription} onChange={(e) => setEvDescription(e.target.value)} className="mt-1.5" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label htmlFor="ev-date">Datum *</Label>
-                      <Input id="ev-date" type="date" min={toDateInputValue()} value={evDate} onChange={(e) => setEvDate(e.target.value)} className="h-11 mt-1.5" />
-                    </div>
-                    <div>
-                      <Label htmlFor="ev-time">Čas *</Label>
-                      <Input id="ev-time" type="time" value={evTime} onChange={(e) => setEvTime(e.target.value)} className="h-11 mt-1.5" />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Místo konání *</Label>
-                    <div className="mt-1.5">
-                      <LocationPicker
-                        value={evLocation}
-                        onChange={setEvLocation}
-                        initialCenter={CZECHIA_CENTER}
-                        existingPoints={mapPoints}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="ev-cap">Kapacita *</Label>
-                    <Input
-                      id="ev-cap"
-                      type="number"
-                      min="1"
-                      value={evCapacity}
-                      onChange={(e) => setEvCapacity(e.target.value)}
-                      className="h-11 mt-1.5"
-                    />
-                  </div>
+                <p className="text-xs text-muted-foreground">
+                  Obec a pořadatel se vybírají tady — organizátor a admin obce mají tyhle dvě věci dané
+                  vlastní rolí, superadmin je vybírá ručně. Zbytek je přesně ten samý formulář jako na „Vytvořit akci“.
+                </p>
+                <div>
+                  <Label>Obec *</Label>
                   <Select value={evMuniId} onValueChange={setEvMuniId}>
-                    <SelectTrigger className="h-11">
+                    <SelectTrigger className="h-11 mt-1.5">
                       <SelectValue placeholder="Vyberte obec" />
                     </SelectTrigger>
                     <SelectContent>
@@ -759,8 +884,11 @@ function SuperAdminContent() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label>Pořadatel *</Label>
                   <Select value={evOrganizerId} onValueChange={setEvOrganizerId}>
-                    <SelectTrigger className="h-11">
+                    <SelectTrigger className="h-11 mt-1.5">
                       <SelectValue placeholder="Vyberte pořadatele" />
                     </SelectTrigger>
                     <SelectContent>
@@ -771,12 +899,27 @@ function SuperAdminContent() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button type="submit" disabled={creatingEvent} className="w-full h-11">
-                    Vytvořit akci
-                  </Button>
-                </form>
+                </div>
               </CardContent>
             </Card>
+
+            {evMuniId && evOrganizerId ? (
+              <Card>
+                <CardContent className="p-0">
+                  <EventForm
+                    key={eventFormKey}
+                    userId={evOrganizerId}
+                    municipalityId={evMuniId}
+                    municipalityCenter={evMuniCenter}
+                    canSetVolunteering
+                    submitLabel="Vytvořit akci"
+                    onSubmit={handleCreateEvent}
+                  />
+                </CardContent>
+              </Card>
+            ) : (
+              <p className="text-center text-sm text-muted-foreground py-6">Nejdřív vyberte obec a pořadatele.</p>
+            )}
 
             <div className="space-y-2">
               {events.map((ev) => (
@@ -877,6 +1020,93 @@ function SuperAdminContent() {
                 </Card>
               ))}
             </div>
+          </TabsContent>
+
+          {/* --- Žádosti (napříč obcemi) ------------------------------------------------ */}
+          <TabsContent value="requests" className="pt-4 space-y-5">
+            {orgRequests.length === 0 && volRequests.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">Žádné čekající žádosti.</p>
+            ) : (
+              <>
+                {orgRequests.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <UserPlus className="h-4 w-4 text-primary" />
+                      <p className="font-bold text-sm">Žádosti o roli organizátora</p>
+                    </div>
+                    {orgRequests.map((r) => (
+                      <Card key={r.id}>
+                        <CardContent className="p-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate">{r.full_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {r.municipality_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9 text-success border-success/40"
+                            disabled={requestBusyId === r.id}
+                            onClick={() => handleOrganizerRequestDecision(r.id, true)}
+                          >
+                            <Check className="h-4 w-4" /> Schválit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9 text-destructive border-destructive/40"
+                            disabled={requestBusyId === r.id}
+                            onClick={() => handleOrganizerRequestDecision(r.id, false)}
+                          >
+                            <X className="h-4 w-4" /> Zamítnout
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {volRequests.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <HandHeart className="h-4 w-4 text-primary" />
+                      <p className="font-bold text-sm">Žádosti o příznak Dobrovolnictví</p>
+                    </div>
+                    {volRequests.map((r) => (
+                      <Card key={r.id}>
+                        <CardContent className="p-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate">{r.event_title}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {r.municipality_name} · {r.requested_by_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9 text-success border-success/40"
+                            disabled={requestBusyId === r.id}
+                            onClick={() => handleVolunteerRequestDecision(r.id, true)}
+                          >
+                            <Check className="h-4 w-4" /> Schválit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9 text-destructive border-destructive/40"
+                            disabled={requestBusyId === r.id}
+                            onClick={() => handleVolunteerRequestDecision(r.id, false)}
+                          >
+                            <X className="h-4 w-4" /> Zamítnout
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </TabsContent>
         </Tabs>
       </div>

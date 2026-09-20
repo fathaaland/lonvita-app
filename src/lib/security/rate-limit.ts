@@ -1,0 +1,140 @@
+import { createHash } from 'node:crypto'
+
+import Redis from 'ioredis'
+
+export type RateLimitConfig = {
+  max: number
+  windowSeconds: number
+}
+
+export type RateLimitResult = {
+  allowed: boolean
+  retryAfter: number
+}
+
+type RateLimitStore = {
+  incr: (key: string) => Promise<number>
+  expire: (key: string, seconds: number) => Promise<number>
+  ttl: (key: string) => Promise<number>
+}
+
+const PASSWORD_RESET_ACTION_LIMIT: RateLimitConfig = {
+  max: 5,
+  windowSeconds: 15 * 60,
+}
+
+const MAX_CLIENT_IP_LENGTH = 256
+
+let redis: RateLimitStore | null | undefined
+
+const getRedis = (): RateLimitStore | null => {
+  if (redis !== undefined) return redis
+
+  if (process.env.REDIS_URL) {
+    const client = new Redis(process.env.REDIS_URL, {
+      retryStrategy: (times: number) => Math.min(times * 50, 2000),
+    })
+
+    client.on('error', () => undefined)
+    redis = client
+  } else {
+    redis = null
+  }
+
+  return redis
+}
+
+const hashIdentifier = (identifier: string): string => createHash('sha256').update(identifier).digest('hex')
+
+export const getClientIp = (requestHeaders: { get: (name: string) => string | null }): string => {
+  const forwardedFor = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim()
+  return (forwardedFor || requestHeaders.get('x-real-ip')?.trim() || 'unknown').slice(0, MAX_CLIENT_IP_LENGTH)
+}
+
+export const consumeRateLimit = async ({
+  namespace,
+  identifier,
+  max,
+  windowSeconds,
+  store = getRedis(),
+}: {
+  namespace: string
+  identifier: string
+  max: number
+  windowSeconds: number
+  store?: RateLimitStore | null
+}): Promise<RateLimitResult> => {
+  const retryAfter = windowSeconds
+
+  if (!store) {
+    return { allowed: true, retryAfter }
+  }
+
+  const key = `ratelimit:${namespace}:${hashIdentifier(identifier)}`
+
+  try {
+    const count = await store.incr(key)
+
+    if (count === 1) {
+      await store.expire(key, windowSeconds)
+    }
+
+    if (count <= max) {
+      return { allowed: true, retryAfter }
+    }
+
+    const ttl = await store.ttl(key)
+    return {
+      allowed: false,
+      retryAfter: ttl > 0 ? ttl : retryAfter,
+    }
+  } catch {
+    // Keep authentication usable when the optional rate-limit backend is unavailable.
+    console.error('Rate-limit backend unavailable')
+    return { allowed: true, retryAfter }
+  }
+}
+
+export const enforcePasswordResetRateLimit = async ({
+  operation,
+  requestHeaders,
+  email,
+}: {
+  operation: 'forgot-password' | 'reset-password'
+  requestHeaders: { get: (name: string) => string | null }
+  email?: string
+}): Promise<RateLimitResult> => {
+  const identifiers = [
+    {
+      namespace: `password-reset-action:${operation}:ip`,
+      value: getClientIp(requestHeaders),
+    },
+  ]
+
+  if (operation === 'forgot-password' && email) {
+    identifiers.push({
+      namespace: `password-reset-action:${operation}:email`,
+      value: email,
+    })
+  }
+
+  const results = await Promise.all(
+    identifiers.map(({ namespace, value }) =>
+      consumeRateLimit({
+        namespace,
+        identifier: value,
+        ...PASSWORD_RESET_ACTION_LIMIT,
+      }),
+    ),
+  )
+
+  const blocked = results.filter((result) => !result.allowed)
+  if (blocked.length === 0) {
+    return { allowed: true, retryAfter: PASSWORD_RESET_ACTION_LIMIT.windowSeconds }
+  }
+
+  return {
+    allowed: false,
+    retryAfter: Math.max(...blocked.map((result) => result.retryAfter)),
+  }
+}

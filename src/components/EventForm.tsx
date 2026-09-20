@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getEventCategories, uploadEventImage, EventRow } from "@/integrations/payload/queries";
+import { getEventCategories, uploadEventImage, getFullNamesByUserIds, EventRow } from "@/integrations/payload/queries";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
 import { OrganizationPicker } from "@/components/OrganizationPicker";
+import { CoOrganizerPicker } from "@/components/CoOrganizerPicker";
 import { ImagePositionEditor, CENTERED_IMAGE_POSITION, ImagePosition } from "@/components/ImagePositionEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
 import { toDateInputValue } from "@/lib/date";
+import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
 
 const ACCESSIBILITY_OPTIONS = [
   { value: "wheelchair_access", label: "Bezbariérový přístup" },
@@ -42,7 +44,7 @@ const schema = z.object({
   time: z.string().min(1, "Vyberte čas"),
   endDate: z.string().optional(),
   endTime: z.string().optional(),
-  capacity: z.coerce.number().int().min(1).max(1000),
+  capacity: z.coerce.number().int().min(1).max(UNLIMITED_CAPACITY),
   category_ids: z.array(z.string()).min(1, "Vyberte alespoň jednu kategorii"),
   priceCzk: z.coerce.number().min(0).optional(),
 });
@@ -66,6 +68,8 @@ export type EventFormValues = {
   isVolunteering: boolean;
   isPaid: boolean;
   priceCents: number | null;
+  coOrganizerIds: string[];
+  isHidden: boolean;
 };
 
 const toLocalTime = (iso: string) => new Date(iso).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
@@ -82,6 +86,7 @@ interface Props {
   userId: string;
   /** Present when editing an existing event — prefills every field. */
   initial?: EventRow;
+  municipalityId: string;
   municipalityCenter: [number, number];
   /** A platform/municipality admin sets the volunteering flag directly; others request it. */
   canSetVolunteering: boolean;
@@ -91,7 +96,7 @@ interface Props {
 }
 
 /** The event create/edit form (brief §4 "Vytvoření akce" + organizer self-service edit). */
-export function EventForm({ userId, initial, municipalityCenter, canSetVolunteering, submitLabel, onSubmit }: Props) {
+export function EventForm({ userId, initial, municipalityId, municipalityCenter, canSetVolunteering, submitLabel, onSubmit }: Props) {
   const initialWeekdays = initial?.recurrence_rule?.startsWith("weekly:")
     ? initial.recurrence_rule.slice("weekly:".length).split(",").filter(Boolean)
     : [];
@@ -120,7 +125,10 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
   const [recurWeekdays, setRecurWeekdays] = useState<string[]>(initialWeekdays);
   const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
   const [organizationId, setOrganizationId] = useState<string>(initial?.organization_id ?? "");
+  const [coOrganizers, setCoOrganizers] = useState<{ id: string; full_name: string }[]>([]);
+  const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
+  const [isHidden, setIsHidden] = useState(Boolean(initial?.is_hidden));
   const [imageId, setImageId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initial?.image_url ?? null);
   const [imagePosition, setImagePosition] = useState<ImagePosition>(initial?.image_position ?? CENTERED_IMAGE_POSITION);
@@ -136,6 +144,15 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
   useEffect(() => {
     getEventCategories().then(setCategories);
   }, []);
+
+  useEffect(() => {
+    const ids = initial?.co_organizer_ids ?? [];
+    if (ids.length === 0) return;
+    getFullNamesByUserIds(ids).then((names) => {
+      setCoOrganizers(ids.map((id) => ({ id, full_name: names.get(id) ?? id })));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.id]);
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -203,12 +220,14 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
         capacity: parsed.data.capacity,
         registrationApprovalMode: approvalMode,
         organizationId: organizationId || null,
+        coOrganizerIds: coOrganizers.map((c) => c.id),
         categoryIds: parsed.data.category_ids,
         imageId,
         imagePosition,
         isVolunteering,
         isPaid,
         priceCents: isPaid && parsed.data.priceCzk ? Math.round(parsed.data.priceCzk * 100) : null,
+        isHidden,
       });
     } finally {
       setSubmitting(false);
@@ -216,6 +235,11 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
   };
 
   const today = toDateInputValue();
+  // Editing used to leave the date picker's `min` unset entirely, so an organizer/admin could
+  // pick a brand-new past date for an *upcoming* event — a selection that then silently failed
+  // at submit time (handleSubmit's startChanged/past-date check above). Only lift the floor when
+  // the event's own original date is already in the past (so its existing value stays pickable).
+  const originalEventIsPast = !!initial && new Date(initial.date_time).getTime() < Date.now();
 
   return (
     <form onSubmit={handleSubmit} className="px-4 py-5 space-y-4">
@@ -270,7 +294,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label htmlFor="date" className="text-base">Datum {isMultiDay ? "začátku" : ""} *</Label>
-          <Input id="date" type="date" min={initial ? undefined : today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="h-12 mt-1.5" />
+          <Input id="date" type="date" min={originalEventIsPast ? undefined : today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="h-12 mt-1.5" />
         </div>
         <div>
           <Label htmlFor="time" className="text-base">Čas {isMultiDay ? "začátku" : ""} *</Label>
@@ -287,7 +311,7 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
         <div className="grid grid-cols-2 gap-3 -mt-2">
           <div>
             <Label htmlFor="endDate" className="text-base">Datum konce *</Label>
-            <Input id="endDate" type="date" min={form.date || (initial ? undefined : today)} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="h-12 mt-1.5" />
+            <Input id="endDate" type="date" min={form.date || (originalEventIsPast ? undefined : today)} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="h-12 mt-1.5" />
           </div>
           <div>
             <Label htmlFor="endTime" className="text-base">Čas konce *</Label>
@@ -351,7 +375,29 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
 
       <div>
         <Label htmlFor="cap" className="text-base">Kapacita *</Label>
-        <Input id="cap" type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} className="h-12 mt-1.5" />
+        <Input
+          id="cap"
+          type="number"
+          min="1"
+          max={UNLIMITED_CAPACITY - 1}
+          disabled={unlimitedCapacity}
+          value={unlimitedCapacity ? "" : form.capacity}
+          placeholder={unlimitedCapacity ? "Neomezená" : undefined}
+          onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+          className="h-12 mt-1.5 disabled:opacity-60"
+        />
+        <label className="flex items-center gap-2.5 text-sm cursor-pointer mt-2">
+          <Checkbox
+            checked={unlimitedCapacity}
+            onCheckedChange={(v) => {
+              const on = v === true;
+              setUnlimitedCapacity(on);
+              // Remember what was typed so unchecking restores it instead of leaving "999999".
+              setForm((f) => ({ ...f, capacity: on ? String(UNLIMITED_CAPACITY) : f.capacity === String(UNLIMITED_CAPACITY) ? "10" : f.capacity }));
+            }}
+          />
+          <span>Neomezená kapacita.</span>
+        </label>
       </div>
 
       <div>
@@ -385,6 +431,19 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
         </div>
       </div>
 
+      <div>
+        <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
+        <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
+          Akce se jim objeví v jejich vlastní organizaci a mohou ji spravovat.
+        </p>
+        <CoOrganizerPicker
+          municipalityId={municipalityId}
+          value={coOrganizers}
+          onChange={setCoOrganizers}
+          excludeUserIds={[userId, ...(initial?.organizer_id ? [initial.organizer_id] : [])]}
+        />
+      </div>
+
       <label className={cn("flex items-start gap-2.5 text-sm", volunteeringLocked ? "opacity-70" : "cursor-pointer")}>
         <Checkbox
           checked={isVolunteering}
@@ -414,6 +473,15 @@ export function EventForm({ userId, initial, municipalityCenter, canSetVolunteer
             Platbu si s účastníky domlouváte sami mimo aplikaci — Lonvita platby nezpracovává.
           </p>
         </div>
+      )}
+
+      {initial && (
+        <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+          <Checkbox checked={isHidden} onCheckedChange={(v) => setIsHidden(v === true)} className="mt-0.5" />
+          <span>
+            Pozastavit zobrazení akce <span className="font-normal text-muted-foreground">— zmizí z veřejného přehledu a mapy, přihlášení účastníci a data zůstanou zachovaní.</span>
+          </span>
+        </label>
       )}
 
       <Button type="submit" disabled={submitting || uploadingImage} className="w-full h-14 text-base font-semibold">

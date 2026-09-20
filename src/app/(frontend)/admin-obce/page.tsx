@@ -7,6 +7,7 @@ import {
   getRegistrationsForEventIds,
   getAllCategoriesForAdmin,
   getMunicipalityProfilesForAdmin,
+  getFeedbackForEventIds,
 } from "@/integrations/payload/admin-queries";
 import { getMunicipality, getMyAdministeredMunicipalityId, RulesForCreation } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,7 +25,7 @@ import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
-import { EventRow, RegistrationRow, CategoryRow } from "@/lib/analytics";
+import { EventRow, RegistrationRow, CategoryRow, FeedbackRow } from "@/lib/analytics";
 import type { ProfileWithDob } from "@/lib/report";
 
 function AdminContent() {
@@ -32,6 +33,7 @@ function AdminContent() {
   const { user, profile } = useAuth();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileWithDob[]>([]);
   const [muniName, setMuniName] = useState<string>("");
@@ -58,10 +60,15 @@ function AdminContent() {
       getMunicipalityProfilesForAdmin(muniId),
     ]);
 
-    const regRows = evRows.length ? await getRegistrationsForEventIds(evRows.map((e) => e.id)) : [];
+    const eventIds = evRows.map((e) => e.id);
+    const [regRows, feedbackRows] = await Promise.all([
+      eventIds.length ? getRegistrationsForEventIds(eventIds) : Promise.resolve([]),
+      eventIds.length ? getFeedbackForEventIds(eventIds) : Promise.resolve([]),
+    ]);
 
     setEvents(evRows);
     setRegistrations(regRows);
+    setFeedback(feedbackRows);
     setCategories(cats);
     setProfiles(profsRows);
     setMuniName(muni?.name ?? "");
@@ -81,6 +88,11 @@ function AdminContent() {
     const ids = new Set(scopedEvents.map((e) => e.id));
     return registrations.filter((r) => ids.has(r.event_id));
   }, [registrations, scope, scopedEvents]);
+  const scopedFeedback = useMemo(() => {
+    if (scope !== "mine") return feedback;
+    const regIds = new Set(scopedRegistrations.map((r) => r.id));
+    return feedback.filter((f) => regIds.has(f.registration_id));
+  }, [feedback, scope, scopedRegistrations]);
 
   if (loading) return <><PageHeader title="Administrace" back /><Loading /></>;
 
@@ -142,6 +154,7 @@ function AdminContent() {
               <AnalyticsOverview
                 events={scopedEvents}
                 registrations={scopedRegistrations}
+                feedback={scopedFeedback}
                 categories={categories}
                 profiles={profiles}
                 municipalityName={muniName}

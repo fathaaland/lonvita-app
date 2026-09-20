@@ -22,6 +22,10 @@ export const getAdministeredMunicipalityIds = async (
  * (a "user-roles" row with role "municipality_admin") scoped to the municipalities they administer.
  * Used by collections where a municipality admin needs to manage rows without being a
  * platform-level admin.
+ *
+ * Only valid for `read`/`update`/`delete` — Payload only ever applies an Access function's
+ * returned `Where` clause to *filter existing rows*, which a `create` has none of. Wiring this
+ * to `access.create` would silently grant unrestricted create (see `canCreateForAdministeredMunicipality`).
  */
 export const isPlatformOrMunicipalityAdmin =
   (municipalityField = 'municipality'): Access =>
@@ -34,6 +38,34 @@ export const isPlatformOrMunicipalityAdmin =
     if (municipalityIds.length === 0) return false
 
     return { [municipalityField]: { in: municipalityIds } }
+  }
+
+/**
+ * The `create`-safe counterpart to `isPlatformOrMunicipalityAdmin` above: a `create` access
+ * function has no existing row to filter, so it must resolve to an actual boolean, checked
+ * against the municipality on the submitted `data` itself — otherwise a municipality admin of
+ * *any* obec could create rows filed under an obec they don't administer (e.g. grant themselves
+ * "municipality_admin" of a town they have no role in).
+ */
+export const canCreateForAdministeredMunicipality =
+  (municipalityField = 'municipality'): Access =>
+  async ({ req, data }) => {
+    const { user, payload } = req
+    if (!user) return false
+    if (user.role === 'admin') return true
+
+    const municipalityIds = await getAdministeredMunicipalityIds(payload, user.id)
+    if (municipalityIds.length === 0) return false
+
+    const submitted = (data as Record<string, unknown> | undefined)?.[municipalityField]
+    const submittedId =
+      submitted && typeof submitted === 'object' && 'id' in submitted
+        ? String((submitted as { id: unknown }).id)
+        : submitted != null
+          ? String(submitted)
+          : undefined
+
+    return submittedId ? municipalityIds.includes(submittedId) : false
   }
 
 /**

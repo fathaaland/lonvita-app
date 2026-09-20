@@ -126,6 +126,7 @@ export type EventRow = {
   co_organizer_ids: string[];
   municipality_id?: string;
   status?: "active" | "full" | "finished" | "cancelled";
+  is_hidden?: boolean;
   is_paid?: boolean;
   price_cents?: number | null;
   is_volunteering?: boolean;
@@ -155,6 +156,7 @@ type PayloadEvent = {
   coOrganizers?: (number | { id: number })[] | null;
   municipality?: number | { id: number };
   status?: EventRow["status"];
+  isHidden?: boolean;
   isPaid?: boolean;
   priceCents?: number | null;
   isVolunteering?: boolean;
@@ -189,6 +191,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   co_organizer_ids: (e.coOrganizers ?? []).map(toId).filter((v): v is string => Boolean(v)),
   municipality_id: toId(e.municipality) ?? undefined,
   status: e.status,
+  is_hidden: e.isHidden,
   is_paid: e.isPaid,
   price_cents: e.priceCents ?? null,
   is_volunteering: e.isVolunteering,
@@ -201,6 +204,7 @@ export async function getUpcomingEvents(municipalityId: string | null): Promise<
   const where = buildWhereParams({
     ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
     status: { not_equals: "cancelled" },
+    isHidden: { not_equals: true },
     dateTime: { greater_than: new Date().toISOString() },
   });
   const query = buildQuery({ sort: "dateTime", depth: 1, limit: 200 });
@@ -243,6 +247,7 @@ type CreateEventInput = {
   organizerUserId: string;
   municipalityId: string;
   organizationId?: string;
+  coOrganizerIds?: string[];
   categoryIds: string[];
   imageId?: string;
   /** Framing of the photo in the 16:10 crop (object-position percentages); centred when omitted. */
@@ -269,6 +274,7 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     organizer: Number(input.organizerUserId),
     municipality: Number(input.municipalityId),
     organization: input.organizationId ? Number(input.organizationId) : undefined,
+    coOrganizers: input.coOrganizerIds?.length ? input.coOrganizerIds.map(Number) : undefined,
     categories: input.categoryIds.map(Number),
     image: input.imageId ? Number(input.imageId) : undefined,
     imagePositionX: input.imagePositionX ?? 50,
@@ -355,10 +361,17 @@ export async function updateRegistrationStatus(
 
 type PayloadCategoryPopulated = { id: number; name: string; icon?: string | null; color?: string | null };
 type PayloadEventWithCategory = PayloadEvent & { categories?: (number | PayloadCategoryPopulated)[] | null };
-type PayloadRegistrationWithEvent = { id: number; status: RegistrationRow["status"]; event: PayloadEventWithCategory | null };
+type PayloadRegistrationWithEvent = {
+  id: number;
+  status: RegistrationRow["status"];
+  attendanceStatus?: AttendanceStatus;
+  event: PayloadEventWithCategory | null;
+};
 
 export type RegistrationWithEventRow = {
+  id: string;
   status: RegistrationRow["status"];
+  attendance_status: AttendanceStatus;
   events: (EventRow & { categories: CategoryRow[] }) | null;
 };
 
@@ -371,13 +384,80 @@ export async function getMyRegistrationsWithEvents(userId: string): Promise<Regi
   );
 
   return result.docs.map((r) => {
-    if (!r.event || typeof r.event !== "object") return { status: r.status, events: null };
+    const attendance_status = r.attendanceStatus ?? "not_marked";
+    if (!r.event || typeof r.event !== "object")
+      return { id: String(r.id), status: r.status, attendance_status, events: null };
     const event = mapEvent(r.event);
     const categories: CategoryRow[] = (r.event.categories ?? [])
       .filter((c): c is PayloadCategoryPopulated => typeof c === "object" && "name" in c)
       .map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
-    return { status: r.status, events: { ...event, categories } };
+    return { id: String(r.id), status: r.status, attendance_status, events: { ...event, categories } };
   });
+}
+
+// --- Event feedback -------------------------------------------------------------------
+
+export type EventFeedbackRow = {
+  id: string;
+  registration_id: string;
+  satisfaction_rating: number;
+  felt_welcome_rating: number | null;
+  met_someone_new: boolean;
+  came_alone: boolean;
+  comment: string | null;
+};
+
+type PayloadEventFeedback = {
+  id: number;
+  registration: number | { id: number };
+  satisfactionRating: number;
+  feltWelcomeRating?: number | null;
+  metSomeoneNew?: boolean | null;
+  cameAlone?: boolean | null;
+  comment?: string | null;
+};
+
+const mapEventFeedback = (f: PayloadEventFeedback): EventFeedbackRow => ({
+  id: String(f.id),
+  registration_id: toId(f.registration)!,
+  satisfaction_rating: f.satisfactionRating,
+  felt_welcome_rating: f.feltWelcomeRating ?? null,
+  met_someone_new: Boolean(f.metSomeoneNew),
+  came_alone: Boolean(f.cameAlone),
+  comment: f.comment ?? null,
+});
+
+/** Feedback already left for any of the given registrations, keyed by registration id — for
+ * deciding which past attended events still need a feedback prompt. */
+export async function getMyFeedbackForRegistrations(registrationIds: string[]): Promise<Map<string, EventFeedbackRow>> {
+  const byRegistration = new Map<string, EventFeedbackRow>();
+  if (registrationIds.length === 0) return byRegistration;
+  const where = buildWhereParams({ registration: { in: registrationIds } });
+  const result = await get<PayloadListResponse<PayloadEventFeedback>>(`/event-feedback?${where}&depth=0&limit=500`);
+  for (const doc of result.docs) {
+    const row = mapEventFeedback(doc);
+    byRegistration.set(row.registration_id, row);
+  }
+  return byRegistration;
+}
+
+export async function submitEventFeedback(input: {
+  registrationId: string;
+  satisfactionRating: number;
+  feltWelcomeRating?: number;
+  metSomeoneNew?: boolean;
+  cameAlone?: boolean;
+  comment?: string;
+}): Promise<EventFeedbackRow> {
+  const doc = await post<PayloadEventFeedback>("/event-feedback", {
+    registration: Number(input.registrationId),
+    satisfactionRating: input.satisfactionRating,
+    feltWelcomeRating: input.feltWelcomeRating,
+    metSomeoneNew: input.metSomeoneNew ?? false,
+    cameAlone: input.cameAlone ?? false,
+    comment: input.comment || undefined,
+  });
+  return mapEventFeedback(doc);
 }
 
 /** For EventDetail.tsx — pending+approved registrations for one event, with each participant's name. */
@@ -537,6 +617,7 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
 
 export type VolunteerRow = {
   id: string;
+  user_id: string;
   full_name: string;
   phone: string | null;
   email: string | null;
@@ -556,6 +637,7 @@ export async function getVolunteers(municipalityId: string): Promise<VolunteerRo
   );
   return result.docs.map((p) => ({
     id: String(p.id),
+    user_id: String(typeof p.user === "object" ? p.user.id : p.user),
     full_name: p.fullName,
     phone: p.phone ?? null,
     email: typeof p.user === "object" ? p.user.email : null,
@@ -563,6 +645,54 @@ export async function getVolunteers(municipalityId: string): Promise<VolunteerRo
     volunteer_note: p.volunteerNote ?? null,
     volunteer_since: p.volunteerSince ?? null,
   }));
+}
+
+/** Admin adds someone (by user id) to their municipality's volunteer pool — Profiles.access.update
+ * is self-only, so this goes through a dedicated overrideAccess endpoint. */
+export async function addVolunteer(userId: string, municipalityId: string): Promise<void> {
+  await post("/admin/volunteers", { userId: Number(userId), municipalityId: Number(municipalityId), isVolunteer: true });
+}
+
+/** Admin removes someone (by user id) from their municipality's volunteer pool. */
+export async function removeVolunteer(userId: string, municipalityId: string): Promise<void> {
+  await post("/admin/volunteers", { userId: Number(userId), municipalityId: Number(municipalityId), isVolunteer: false });
+}
+
+/** Display names for a list of user ids (e.g. co-organizers on an event detail page). */
+export async function getFullNamesByUserIds(userIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (userIds.length === 0) return names;
+  const where = buildWhereParams({ user: { in: userIds } });
+  const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&depth=0&limit=200`);
+  for (const p of result.docs) {
+    const uid = toId(p.user);
+    if (uid) names.set(uid, p.fullName);
+  }
+  return names;
+}
+
+export type MunicipalityUserRow = { id: string; full_name: string; email: string | null };
+
+/** For CoOrganizerPicker — people with a profile in this municipality, matched by name, so an
+ * organizer can pick a co-organizer without knowing their exact email. */
+export async function searchMunicipalityUsers(municipalityId: string, query: string): Promise<MunicipalityUserRow[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  const where = buildWhereParams({
+    municipality: { equals: municipalityId },
+    fullName: { like: trimmed },
+  });
+  const q = buildQuery({ sort: "fullName", depth: 1, limit: 10 });
+  const result = await get<PayloadListResponse<PayloadProfile & { user: number | { id: number; email: string } }>>(
+    `/profiles?${where}&${q}`,
+  );
+  return result.docs
+    .filter((p) => typeof p.user === "object")
+    .map((p) => ({
+      id: String((p.user as { id: number }).id),
+      full_name: p.fullName,
+      email: (p.user as { email: string }).email ?? null,
+    }));
 }
 
 export async function getMyProfile(userId: string): Promise<ProfileRow | null> {

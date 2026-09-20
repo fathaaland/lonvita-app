@@ -1,6 +1,6 @@
 import type { CollectionConfig, PayloadRequest } from 'payload'
 
-import { isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { canCreateForAdministeredMunicipality, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
 
 const relId = (value: number | { id: number }): number =>
@@ -54,7 +54,9 @@ export const UserRoles: CollectionConfig = {
       if (user.role === 'admin') return true
       return { user: { equals: user.id } }
     },
-    create: isPlatformOrMunicipalityAdmin(),
+    // create ignores any Where clause (see canCreateForAdministeredMunicipality) — must resolve
+    // to a boolean checked against the submitted row's own municipality.
+    create: canCreateForAdministeredMunicipality(),
     update: isPlatformOrMunicipalityAdmin(),
     delete: isPlatformOrMunicipalityAdmin(),
   },
@@ -70,6 +72,10 @@ export const UserRoles: CollectionConfig = {
       type: 'relationship',
       relationTo: 'municipalities',
       required: true,
+      // `access.update` above only gates *which* row a municipality admin may touch (one already
+      // filed under an obec they administer) — without this, they could still reassign that same
+      // row to a different obec in the same PATCH. Matches Events.municipality's field-level lock.
+      access: { update: ({ req: { user } }) => user?.role === 'admin' },
       admin: {
         description: 'The municipality this role applies to.',
       },
@@ -161,6 +167,40 @@ export const UserRoles: CollectionConfig = {
           municipalityIds.add(relId(previousDoc.municipality))
         for (const municipalityId of municipalityIds) {
           await syncMunicipalityAdminUser(req, municipalityId)
+        }
+        return doc
+      },
+      // Granting "municipality_admin" (e.g. via the superadmin panel's "Přidat roli") used to only
+      // ever write this user-roles row — the admin's own profile.municipality (their dashboard's
+      // home obec, see page.tsx's `viewing` default) never followed, so they'd land on "Všechny
+      // obce"/their old town on next login instead of the obec they were just put in charge of.
+      // The beforeValidate hook above guarantees a user holds "municipality_admin" for at most one
+      // obec at a time, so forcing their profile to match here is always safe.
+      async ({ doc, req }) => {
+        if (doc.role !== 'municipality_admin') return doc
+
+        const userId = relId(doc.user)
+        const municipalityId = relId(doc.municipality)
+        const profiles = await req.payload.find({
+          collection: 'profiles',
+          where: { user: { equals: userId } },
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          req,
+        })
+        const profile = profiles.docs[0]
+        if (!profile) return doc
+
+        const currentMunicipalityId = profile.municipality == null ? null : relId(profile.municipality)
+        if (currentMunicipalityId !== municipalityId) {
+          await req.payload.update({
+            collection: 'profiles',
+            id: profile.id,
+            data: { municipality: municipalityId },
+            overrideAccess: true,
+            req,
+          })
         }
         return doc
       },

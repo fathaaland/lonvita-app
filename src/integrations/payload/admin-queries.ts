@@ -4,10 +4,10 @@
  * RegistrationRow/CategoryRow/ProfileRow interfaces directly, since those pure
  * client-side analytics functions are unaware of Payload and expect that exact shape.
  */
-import { buildQuery, buildWhereParams, get, patch } from "./client";
+import { buildQuery, buildWhereParams, del, get, patch } from "./client";
 
 import type { PayloadListResponse } from "./client";
-import type { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
+import type { EventRow, RegistrationRow, CategoryRow, ProfileRow, FeedbackRow } from "@/lib/analytics";
 import type { ProfileWithDob } from "@/lib/report";
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
@@ -72,6 +72,29 @@ export async function getRegistrationsForEventIds(eventIds: string[]): Promise<R
   }));
 }
 
+type PayloadEventFeedbackAdmin = {
+  id: number;
+  registration: number | { id: number };
+  satisfactionRating: number;
+  feltWelcomeRating?: number | null;
+}
+
+/** Feedback for every registration on these events — joined through `registration.event`,
+ * since EventFeedback only relates to a registration, not directly to an event. Feeds the
+ * admin overview's average-rating KPIs (US-A-08). */
+export async function getFeedbackForEventIds(eventIds: string[]): Promise<FeedbackRow[]> {
+  if (eventIds.length === 0) return [];
+  const where = buildWhereParams({ "registration.event": { in: eventIds } });
+  const query = buildQuery({ depth: 0, limit: 5000 });
+  const result = await get<PayloadListResponse<PayloadEventFeedbackAdmin>>(`/event-feedback?${where}&${query}`);
+  return result.docs.map((f) => ({
+    id: String(f.id),
+    registration_id: toId(f.registration)!,
+    satisfaction_rating: f.satisfactionRating,
+    felt_welcome_rating: f.feltWelcomeRating ?? null,
+  }));
+}
+
 type PayloadCategoryAdmin = { id: number; name: string; icon?: string | null; color?: string | null };
 
 export async function getAllCategoriesForAdmin(): Promise<CategoryRow[]> {
@@ -99,6 +122,12 @@ export async function getMunicipalityProfilesForAdmin(municipalityId: string): P
  * Access-controlled to platform superadmins and the event's own municipality admin. */
 export async function deleteEvent(eventId: string): Promise<void> {
   await patch(`/events/${eventId}`, { deletedAt: new Date().toISOString(), status: "cancelled" });
+}
+
+/** Removes an already-granted "Dobrovolnictví" flag directly — a plain field flip, distinct
+ * from deciding a pending VolunteerFlagRequests row (US-A-09). */
+export async function removeVolunteeringFlag(eventId: string): Promise<void> {
+  await patch(`/events/${eventId}`, { isVolunteering: false });
 }
 
 // --- Žádosti: role organizátora + příznak Dobrovolnictví ---------------------------------
@@ -196,4 +225,45 @@ export async function getVolunteerFlagRequestsForAdmin(municipalityId: string): 
 
 export async function decideVolunteerFlagRequest(requestId: string, approve: boolean): Promise<void> {
   await patch(`/volunteer-flag-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
+}
+
+// --- Aktivní organizátoři (revoke role, US-A-09) ------------------------------------------
+
+export type OrganizerRoleRow = {
+  id: string;
+  user_id: string;
+  full_name: string;
+};
+
+type PayloadUserRoleAdmin = { id: number; user: number | { id: number }; role: string };
+
+/** Users currently holding the "organizer" role in this municipality — mirrors the
+ * superadmin panel's grant/revoke UI, but scoped to the admin's own obec. */
+export async function getOrganizersForAdmin(municipalityId: string): Promise<OrganizerRoleRow[]> {
+  const where = buildWhereParams({ municipality: { equals: municipalityId }, role: { equals: "organizer" } });
+  const query = buildQuery({ depth: 0, sort: "createdAt", limit: 500 });
+  const result = await get<PayloadListResponse<PayloadUserRoleAdmin>>(`/user-roles?${where}&${query}`);
+
+  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
+  const nameById = new Map<string, string>();
+  if (userIds.length) {
+    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${profileWhere}&depth=0&limit=500`,
+    );
+    for (const p of profiles.docs) {
+      const uid = toId(p.user);
+      if (uid) nameById.set(uid, p.fullName);
+    }
+  }
+
+  return result.docs.map((r) => ({
+    id: String(r.id),
+    user_id: toId(r.user)!,
+    full_name: nameById.get(toId(r.user) ?? "") ?? "Organizátor",
+  }));
+}
+
+export async function revokeOrganizerRole(userRoleId: string): Promise<void> {
+  await del(`/user-roles/${userRoleId}`);
 }

@@ -73,6 +73,7 @@ function CreateEventContent() {
         organizerUserId: String(user.id),
         municipalityId,
         organizationId: values.organizationId ?? undefined,
+        coOrganizerIds: values.coOrganizerIds,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,
         imagePositionX: values.imagePosition.x,
@@ -124,6 +125,7 @@ function CreateEventContent() {
       <PageHeader title="Vytvořit akci" back />
       <EventForm
         userId={String(user.id)}
+        municipalityId={municipalityId}
         municipalityCenter={center}
         canSetVolunteering={isAdmin}
         submitLabel="Vytvořit akci"

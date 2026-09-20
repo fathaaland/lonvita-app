@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   }
 
   const payload = await getPayload({ config })
-  const user = await upsertUser({ payload, email })
+  const user = await upsertUser({ payload, email, fullName: session.user.name })
 
   const provider = session.user.sub.split('|')[0] ?? 'auth0'
   const existingIdentity = await payload.find({

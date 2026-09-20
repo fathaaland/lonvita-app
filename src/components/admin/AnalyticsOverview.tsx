@@ -31,6 +31,9 @@ import {
   Award,
   Sparkles,
   Download,
+  UserCheck,
+  Star,
+  Smile,
 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatEventDate } from "@/lib/date";
@@ -40,6 +43,7 @@ import {
   RegistrationRow,
   CategoryRow,
   ProfileRow,
+  FeedbackRow,
   periodStart,
   periodLabel,
   filterEvents,
@@ -51,6 +55,8 @@ import {
   topOrganizers,
   topEvents,
   regStatusBreakdown,
+  attendanceBreakdown,
+  averageRatings,
   fillBuckets,
   buildEventsCsv,
   datavitaSeries,
@@ -62,6 +68,7 @@ import {
 interface Props {
   events: EventRow[];
   registrations: RegistrationRow[];
+  feedback: FeedbackRow[];
   categories: CategoryRow[];
   profiles: ProfileRow[];
   municipalityName: string;
@@ -77,6 +84,7 @@ const PERIODS: { v: Period; label: string }[] = [
 export function AnalyticsOverview({
   events,
   registrations,
+  feedback,
   categories,
   profiles,
   municipalityName,
@@ -97,6 +105,8 @@ export function AnalyticsOverview({
   const fill = useMemo(() => fillBuckets(evF, regF), [evF, regF]);
   const dvSeries = useMemo(() => datavitaSeries(events, registrations, profiles, 26), [events, registrations, profiles]);
   const dvTrend = useMemo(() => datavitaTrend(dvSeries), [dvSeries]);
+  const attendance = useMemo(() => attendanceBreakdown(regF), [regF]);
+  const ratings = useMemo(() => averageRatings(feedback), [feedback]);
 
   const handleExport = () => {
     const csv = buildEventsCsv(evF, regF, categories, profiles);
@@ -159,6 +169,20 @@ export function AnalyticsOverview({
         <KpiCard icon={Award} label="Pořadatelů" value={kpis.activeOrganizers} sub="aktivních" tone="primary" />
         <KpiCard icon={Repeat} label="Vrací se" value={`${Math.round(kpis.repeatParticipationRate * 100)} %`} sub="lidí 2+ akce" tone="accent" />
         <KpiCard icon={Sparkles} label="Aktivita" value={kpis.avgEventsPerActive.toFixed(1)} sub="akcí / člověk" tone="primary" />
+        <KpiCard
+          icon={UserCheck}
+          label="Docházka"
+          value={attendance.total > 0 ? `${Math.round((attendance.attended / attendance.total) * 100)} %` : "—"}
+          sub={attendance.total > 0 ? `${attendance.attended}/${attendance.total} označených` : "zatím nic"}
+          tone="success"
+        />
+        <KpiCard
+          icon={Star}
+          label="Spokojenost"
+          value={ratings.avgSatisfaction !== null ? ratings.avgSatisfaction.toFixed(1) : "—"}
+          sub={ratings.count > 0 ? `${ratings.count} hodnocení` : "zatím žádné"}
+          tone="accent"
+        />
       </div>
 
       {/* Datavita — index vitality komunity */}
@@ -362,6 +386,81 @@ export function AnalyticsOverview({
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                   </PieChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Docházka + hodnocení */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div>
+              <p className="font-bold text-base">Docházka</p>
+              <p className="text-xs text-muted-foreground">Označené přihlášky v období</p>
+            </div>
+            {attendance.total === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">Žádná data.</p>
+            ) : (
+              <div className="space-y-2">
+                {[
+                  { label: "Přítomen/na", value: attendance.attended, color: "hsl(var(--success))" },
+                  { label: "Omluven/a", value: attendance.excused, color: "hsl(var(--warning))" },
+                  { label: "Nedostavil/a se", value: attendance.no_show, color: "hsl(var(--destructive))" },
+                ].map((row) => (
+                  <div key={row.label} className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-semibold flex-1">{row.label}</span>
+                      <span className="font-bold tabular-nums">{row.value}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums w-12 text-right">
+                        {Math.round((row.value / attendance.total) * 100)} %
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${(row.value / attendance.total) * 100}%`, backgroundColor: row.color }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div>
+              <p className="font-bold text-base">Hodnocení účastníků</p>
+              <p className="text-xs text-muted-foreground">Zpětná vazba po akcích</p>
+            </div>
+            {ratings.count === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">Zatím žádná hodnocení.</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg flex items-center justify-center text-accent bg-accent-soft">
+                    <Star className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Celková spokojenost</p>
+                    <p className="font-bold tabular-nums">{ratings.avgSatisfaction?.toFixed(1)} / 5</p>
+                  </div>
+                </div>
+                {ratings.avgFeltWelcome !== null && (
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg flex items-center justify-center text-primary bg-primary-soft">
+                      <Smile className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs text-muted-foreground">Pocit vítání</p>
+                      <p className="font-bold tabular-nums">{ratings.avgFeltWelcome.toFixed(1)} / 5</p>
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">Na základě {ratings.count} hodnocení</p>
               </div>
             )}
           </CardContent>

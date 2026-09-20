@@ -43,7 +43,7 @@ type HomeEvent = EventCardData & { municipality_id?: string };
 const MAP_POINTS_CLASS = "w-full rounded-2xl overflow-hidden border border-border";
 
 function IndexContent() {
-  const { user, profile, loading: authLoading, isSuperAdmin } = useAuth();
+  const { user, profile, loading: authLoading, isSuperAdmin, setViewingMunicipalityId } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -57,7 +57,11 @@ function IndexContent() {
   // Onboarding gate for signed-in users only — a signed-out visitor never needed onboarding
   // to begin with (brief §2 read-only browsing). This replaces the redirect RequireAuth used
   // to do, now that the page itself is open to anonymous visitors.
-  const needsOnboarding = !!profile && !profile.onboarding_completed;
+  // `profile` is `null` both while it's still loading AND for a signed-in user with no Profile
+  // row at all (e.g. first Auth0/Google sign-in) — by the time `authLoading` is false those two
+  // are distinguishable, and a real "no profile yet" must still route to onboarding rather than
+  // read as "nothing to gate", which used to let the dashboard render before onboarding did.
+  const needsOnboarding = !!user && (!profile || !profile.onboarding_completed);
   useEffect(() => {
     if (authLoading) return;
     if (needsOnboarding) router.replace("/onboarding");
@@ -101,6 +105,13 @@ function IndexContent() {
     setViewing(stored ?? (user ? (profile?.municipality_id ?? ALL) : null));
     setViewingReady(true);
   }, [authLoading, municipalitiesLoaded, allMunicipalities, user?.id, profile?.municipality_id]);
+
+  // Mirrors this page's own "browsing" pick into AuthContext, so nav chrome elsewhere (top/bottom
+  // nav) can tell an admin/organizer apart from someone just looking at a different obec's feed —
+  // e.g. an admin of Prague browsing Brno here must not see "Vytvořit" in the navbar while there.
+  useEffect(() => {
+    setViewingMunicipalityId(viewing);
+  }, [viewing, setViewingMunicipalityId]);
 
   const switchMunicipality = (next: string) => {
     setViewing(next);

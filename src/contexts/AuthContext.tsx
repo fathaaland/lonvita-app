@@ -2,7 +2,14 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { getCurrentPayloadUser, PayloadUser, signOutRedirect } from "@/integrations/payload/client";
-import { getMyProfile, getMyRoles, ProfileRow, AppRole } from "@/integrations/payload/queries";
+import {
+  getMyProfile,
+  getMyRoles,
+  getMyAdministeredMunicipalityIds,
+  getMyOrganizerMunicipalityIds,
+  ProfileRow,
+  AppRole,
+} from "@/integrations/payload/queries";
 
 export type { AppRole };
 
@@ -15,6 +22,18 @@ interface AuthContextValue {
   isAdmin: boolean;
   isOrganizer: boolean;
   isPrescriber: boolean;
+  /** Obce (by id) this account actually holds "municipality_admin"/"organizer" in — distinct
+   * from `isAdmin`/`isOrganizer`, which are global flags. Used to scope nav links to the obec
+   * currently being browsed (see `viewingMunicipalityId`), not every obec platform-wide. */
+  administeredMunicipalityIds: string[];
+  organizerMunicipalityIds: string[];
+  /** The obec the home page's switcher is currently browsing (brief §2 "uživatel není vázaný
+   * lokací"), kept here (not just local to "/") so nav chrome elsewhere can tell whether the
+   * signed-in admin/organizer is looking at an obec they actually hold that role in — e.g. an
+   * admin of Prague browsing Brno must not see "Vytvořit"/"Přehled obce" there. `null` = not yet
+   * known/on the home page's default (treated as "own obec" by consumers). */
+  viewingMunicipalityId: string | null;
+  setViewingMunicipalityId: (id: string | null) => void;
   signOut: () => void;
   refreshProfile: () => Promise<void>;
 }
@@ -25,12 +44,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<PayloadUser | null>(null);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
+  const [administeredMunicipalityIds, setAdministeredMunicipalityIds] = useState<string[]>([]);
+  const [organizerMunicipalityIds, setOrganizerMunicipalityIds] = useState<string[]>([]);
+  const [viewingMunicipalityId, setViewingMunicipalityId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadProfileAndRoles = useCallback(async (userId: string) => {
-    const [prof, roleRows] = await Promise.all([getMyProfile(userId), getMyRoles(userId)]);
+    const [prof, roleRows, administeredIds, organizerIds] = await Promise.all([
+      getMyProfile(userId),
+      getMyRoles(userId),
+      getMyAdministeredMunicipalityIds(userId),
+      getMyOrganizerMunicipalityIds(userId),
+    ]);
     setProfile(prof);
     setRoles(roleRows);
+    setAdministeredMunicipalityIds(administeredIds);
+    setOrganizerMunicipalityIds(organizerIds);
   }, []);
 
   useEffect(() => {
@@ -47,6 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setProfile(null);
         setRoles([]);
+        setAdministeredMunicipalityIds([]);
+        setOrganizerMunicipalityIds([]);
+        setViewingMunicipalityId(null);
       }
 
       if (active) setLoading(false);
@@ -82,6 +114,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isOrganizer: roles.includes("organizer") || roles.includes("municipality_admin"),
         // Intervention/social-prescribing module isn't wired up in this backend yet.
         isPrescriber: false,
+        administeredMunicipalityIds,
+        organizerMunicipalityIds,
+        viewingMunicipalityId,
+        setViewingMunicipalityId,
         signOut,
         refreshProfile,
       }}
