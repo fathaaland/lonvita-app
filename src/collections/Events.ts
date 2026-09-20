@@ -116,6 +116,60 @@ const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, orig
   return data
 }
 
+const relationId = (value: unknown): string | null => {
+  if (value == null) return null
+  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
+}
+
+/**
+ * An event is always filed under someone who actually organizes in that obec — its organizer
+ * holds "municipality_admin" or "organizer" there. `canCreateEvent` covers that for anyone
+ * creating their own event, but it lets a platform superadmin straight through, and the
+ * superadmin panel passes `organizer` explicitly — so a plain účastník could be made pořadatel
+ * of an obec's event without ever getting the role. Enforced on create, and on update only when
+ * the organizer or the obec actually changes, so editing an older event whose organizer has
+ * since lost the role keeps working.
+ */
+const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
+  if (!data) return data
+
+  const organizerId = relationId(data.organizer ?? originalDoc?.organizer)
+  const municipalityId = relationId(data.municipality ?? originalDoc?.municipality)
+  if (!organizerId || !municipalityId) return data
+
+  if (
+    operation === 'update' &&
+    relationId(originalDoc?.organizer) === organizerId &&
+    relationId(originalDoc?.municipality) === municipalityId
+  ) {
+    return data
+  }
+
+  const roles = await req.payload.find({
+    collection: 'user-roles',
+    where: {
+      and: [
+        { user: { equals: organizerId } },
+        { municipality: { equals: municipalityId } },
+        { role: { in: ['municipality_admin', 'organizer'] } },
+      ],
+    },
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    req,
+  })
+
+  if (roles.docs.length === 0) {
+    throw new APIError(
+      'Vybraný pořadatel nemá v téhle obci roli „Admin obce“ ani „Organizátor“. Nejdřív mu roli přiřaďte, teprve potom pro něj lze akci vytvořit.',
+      400,
+    )
+  }
+
+  return data
+}
+
 /** A new event can't start in the past, and neither can one that gets rescheduled — but the
  * start is only checked when it actually changes, so editing e.g. the title of an event that is
  * already running (or over) keeps working. A multi-day event can't end before it starts. */
@@ -685,7 +739,13 @@ export const Events: CollectionConfig = {
     },
   ],
   hooks: {
-    beforeChange: [guardCancellationWindow, validateEventDates, validateEventLocationRadius, guardIsVolunteering],
+    beforeChange: [
+      guardCancellationWindow,
+      validateEventDates,
+      validateEventLocationRadius,
+      requireOrganizerRole,
+      guardIsVolunteering,
+    ],
     afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],
     afterRead: [deriveFinishedStatus],
   },

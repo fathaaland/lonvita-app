@@ -15,6 +15,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { PayloadApiError } from "@/integrations/payload/client";
 
 interface Props {
   title: string;
@@ -35,8 +36,10 @@ export function ConfirmDeleteButton({ title, description, onConfirm, errorMessag
     try {
       await onConfirm();
       setOpen(false);
-    } catch {
-      toast.error(errorMessage);
+    } catch (error) {
+      // A refusal the backend spelled out (e.g. "uživatel je pořadatelem 3 akcí") says what to do
+      // about it — the generic fallback doesn't, so prefer the real message when there is one.
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : errorMessage);
     } finally {
       setBusy(false);
     }

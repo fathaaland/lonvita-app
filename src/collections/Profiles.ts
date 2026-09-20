@@ -38,6 +38,9 @@ export const Profiles: CollectionConfig = {
     create: isLoggedIn,
     update: ({ req: { user } }) => {
       if (!user) return false
+      // A platform superadmin edits other people's profiles from the "Uživatelé" tab
+      // (the pencil next to each account); everyone else may only touch their own.
+      if (user.role === 'admin') return true
       return { user: { equals: user.id } }
     },
     delete: adminOnlyDelete,

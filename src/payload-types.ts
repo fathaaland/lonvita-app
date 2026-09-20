@@ -156,7 +156,7 @@ export interface UserAuthOperations {
 export interface User {
   id: number;
   /**
-   * Platform-level role — controls Payload admin access, not community roles.
+   * Platform-level role — controls Payload admin access, not community roles. Not editable through the app: grant it from a seed/script (Local API) only.
    */
   role: 'admin' | 'user';
   tenants?:

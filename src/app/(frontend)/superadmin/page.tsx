@@ -8,7 +8,7 @@ import {
   deleteMunicipality,
   createUserAsSuperAdmin,
   listAllUsersForSuperAdmin,
-  updateUserPlatformRole,
+  updateUserAsSuperAdmin,
   deleteUserAsSuperAdmin,
   listAllEventsForSuperAdmin,
   grantCommunityRole,
@@ -33,7 +33,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { CancelEventButton } from "@/components/CancelEventButton";
 import { EventForm, EventFormValues } from "@/components/EventForm";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,8 +53,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, HandHeart, BarChart3 } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
@@ -74,8 +81,16 @@ const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 const ROLE_LABEL: Record<string, string> = {
   participant: "Účastník",
   municipality_admin: "Admin obce",
+  organizer: "Organizátor",
   prescriber: "Prescriber",
 };
+
+/** Radix Select has no empty-string value, so "bez obce" needs a sentinel of its own. */
+const NO_MUNICIPALITY = "none";
+
+/** Roles that make someone a legitimate pořadatel in an obec — the same pair Events' own
+ * `requireOrganizerRole` hook checks server-side. */
+const ORGANIZER_ROLES = ["municipality_admin", "organizer"] as const;
 
 type Gender = "zena" | "muz" | "jine" | "neuvedeno";
 
@@ -137,6 +152,23 @@ function SuperAdminContent() {
   const [newPhone, setNewPhone] = useState("");
   const [newInterests, setNewInterests] = useState<string[]>([]);
   const [creatingUser, setCreatingUser] = useState(false);
+
+  // Uživatelé tab — edit an existing account (the pencil next to the bin). Profile data only:
+  // the platform role isn't editable anywhere anymore (Users.role field access), the e-mail is
+  // what Auth0 sign-ins are matched on, and obec roles live in the Role tab.
+  const [editUser, setEditUser] = useState<PlatformUserRow | null>(null);
+  const [editFullName, setEditFullName] = useState("");
+  const [editUserMuniId, setEditUserMuniId] = useState("");
+  const [editDob, setEditDob] = useState("");
+  const [editGender, setEditGender] = useState<Gender>("neuvedeno");
+  const [editPhone, setEditPhone] = useState("");
+  const [editInterests, setEditInterests] = useState<string[]>([]);
+  const [savingUser, setSavingUser] = useState(false);
+
+  // Role tab — revoking someone's last obec role deletes the account with it, so that one
+  // needs its own confirm (the other revokes are a single click, as before).
+  const [lastRoleRevoke, setLastRoleRevoke] = useState<PlatformUserRow | null>(null);
+  const [deletingLastRole, setDeletingLastRole] = useState(false);
 
   // Akce tab — new event form. Superadmin picks obec + pořadatel first (an organizer/admin's
   // own /vytvorit derives these from their own roles instead), then gets the exact same
@@ -253,14 +285,44 @@ function SuperAdminContent() {
     load();
   };
 
-  const handleToggleUserRole = async (u: PlatformUserRow) => {
-    const next = u.platformRole === "admin" ? "user" : "admin";
+  const startEditUser = (u: PlatformUserRow) => {
+    setEditUser(u);
+    setEditFullName(u.fullName ?? "");
+    setEditUserMuniId(u.homeMunicipalityId ?? "");
+    setEditDob(u.dateOfBirth ?? "");
+    setEditGender(u.gender);
+    setEditPhone(u.phone ?? "");
+    setEditInterests(u.interestIds);
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editUser?.profileId) return;
+    if (!editFullName.trim()) {
+      toast.error("Zadejte celé jméno.");
+      return;
+    }
+    if (editPhone.trim() && !PHONE_RE.test(editPhone.trim())) {
+      toast.error("Zadejte platné české telefonní číslo.");
+      return;
+    }
+    setSavingUser(true);
     try {
-      await updateUserPlatformRole(u.id, next);
-      toast.success(next === "admin" ? "Uživatel je teď platformní admin." : "Platformní admin práva odebrána.");
+      await updateUserAsSuperAdmin(editUser.profileId, {
+        fullName: editFullName.trim(),
+        municipalityId: editUserMuniId || null,
+        dateOfBirth: editDob || null,
+        gender: editGender,
+        phone: editPhone.trim() || null,
+        interestIds: editInterests,
+      });
+      toast.success("Uživatel upraven.");
+      setEditUser(null);
       load();
-    } catch {
-      toast.error("Nepodařilo se upravit roli uživatele.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError ? error.message : "Nepodařilo se uložit uživatele.");
+    } finally {
+      setSavingUser(false);
     }
   };
 
@@ -394,6 +456,25 @@ function SuperAdminContent() {
     }
   };
 
+  /** Taking away someone's only remaining obec role leaves an account that belongs nowhere, so
+   * it goes with the role. Deleting the user is enough on its own — Users' beforeDelete hook
+   * clears their user-roles row (and the rest of their data) in the same transaction, so there's
+   * no window where the role is gone but the account isn't. */
+  const handleDeleteWithLastRole = async () => {
+    if (!lastRoleRevoke) return;
+    setDeletingLastRole(true);
+    try {
+      await deleteUserAsSuperAdmin(lastRoleRevoke.id);
+      toast.success("Poslední role odebrána — účet smazán.");
+      setLastRoleRevoke(null);
+      load();
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError ? error.message : "Uživatele se nepodařilo smazat.");
+    } finally {
+      setDeletingLastRole(false);
+    }
+  };
+
   const handleShowComparison = async () => {
     setMuniView("comparison");
     // Always refetch — load() only refreshes this while the view is already open (see load()'s
@@ -447,6 +528,16 @@ function SuperAdminContent() {
   const newUserMuniName = mapPoints.find((m) => m.id === newUserMuniId)?.name;
   const evMuniPoint = mapPoints.find((m) => m.id === evMuniId);
   const evMuniCenter: [number, number] = evMuniPoint ? [evMuniPoint.lat, evMuniPoint.lng] : CZECHIA_CENTER;
+  // Only people who already organize in the chosen obec. A superadmin used to be able to file
+  // an obec's event under any účastník at all; now the role comes first (Events' own
+  // `requireOrganizerRole` hook enforces the same thing server-side).
+  const evOrganizerOptions = evMuniId
+    ? users.filter((u) =>
+        u.communityRoles.some(
+          (r) => r.municipalityId === evMuniId && ORGANIZER_ROLES.includes(r.role as (typeof ORGANIZER_ROLES)[number]),
+        ),
+      )
+    : [];
 
   return (
     <div className="animate-fade-in">
@@ -803,53 +894,23 @@ function SuperAdminContent() {
                         Superadmin
                       </Badge>
                     )}
-                    {u.platformRole === "admin" ? (
-                      // Removing platform-admin rights is the "undo" direction — safe enough to
-                      // fire directly, same as before.
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 shrink-0 text-muted-foreground"
-                        onClick={() => handleToggleUserRole(u)}
-                        aria-label="Odebrat superadmina"
-                        title="Odebrat superadmina"
-                      >
-                        <Shield className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      // Granting platform-admin never happens implicitly (brief §1 "to je
-                      // ZAKAZANE") — creating a user always leaves them a plain "user"; this
-                      // confirm is the *only* place that can change, and it needs an explicit yes.
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 text-muted-foreground"
-                            aria-label="Udělat superadminem"
-                            title="Udělat superadminem"
-                          >
-                            <Shield className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Udělat z „{u.fullName ?? u.email}“ superadmina?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Superadmin má plný přístup ke všem obcím, uživatelům a akcím v aplikaci. Přiřaďte tuhle
-                              roli jen lidem, kterým opravdu chcete dát správu celé platformy.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Zrušit</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleToggleUserRole(u)}>Udělat superadminem</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
+                    {/* Platform role is deliberately not editable from here — a superadmin can't
+                        hand that role to anyone (Users.role is locked server-side too). The pencil
+                        edits the account's profile data instead. */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0 text-muted-foreground"
+                      onClick={() => startEditUser(u)}
+                      disabled={!u.profileId}
+                      aria-label="Upravit uživatele"
+                      title={u.profileId ? "Upravit uživatele" : "Účet zatím nemá profil"}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                     <ConfirmDeleteButton
                       title={`Smazat uživatele „${u.fullName ?? u.email}“?`}
-                      description="Smazání účtu nejde vrátit zpět."
+                      description="Smazání účtu nejde vrátit zpět. Smaže se i profil, role, přihlášky na akce a oznámení."
                       onConfirm={() => handleDeleteUser(u.id)}
                       errorMessage="Uživatele se nepodařilo smazat."
                     />
@@ -857,6 +918,116 @@ function SuperAdminContent() {
                 </Card>
               ))}
             </div>
+
+            <Dialog open={editUser !== null} onOpenChange={(open) => !open && !savingUser && setEditUser(null)}>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Upravit uživatele</DialogTitle>
+                  <DialogDescription>
+                    {editUser?.email} — e-mail ani platformní roli odsud měnit nelze. E-mailem se účet páruje
+                    s přihlášením, role obce se přiřazují v záložce „Role“.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleSaveUser} className="space-y-4">
+                  <div>
+                    <Label htmlFor="eu-name">Celé jméno *</Label>
+                    <Input
+                      id="eu-name"
+                      value={editFullName}
+                      onChange={(e) => setEditFullName(e.target.value)}
+                      className="h-11 mt-1.5"
+                    />
+                  </div>
+                  <div>
+                    <Label>Obec</Label>
+                    <Select
+                      value={editUserMuniId || NO_MUNICIPALITY}
+                      onValueChange={(v) => setEditUserMuniId(v === NO_MUNICIPALITY ? "" : v)}
+                    >
+                      <SelectTrigger className="h-11 mt-1.5">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_MUNICIPALITY}>Bez obce — vidí akce ze všech obcí</SelectItem>
+                        {municipalities.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="eu-dob">Datum narození</Label>
+                      <Input
+                        id="eu-dob"
+                        type="date"
+                        min="1920-01-01"
+                        max={toDateInputValue()}
+                        value={editDob}
+                        onChange={(e) => setEditDob(e.target.value)}
+                        className="h-11 mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="eu-phone">Telefon</Label>
+                      <Input
+                        id="eu-phone"
+                        type="tel"
+                        placeholder="+420 601 234 567"
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        className="h-11 mt-1.5"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Pohlaví</Label>
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {GENDER_OPTIONS.map((g) => (
+                        <button
+                          key={g.value}
+                          type="button"
+                          onClick={() => setEditGender(g.value)}
+                          className={chipClass(editGender === g.value)}
+                        >
+                          {g.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Zájmy</Label>
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {categories.map((c) => {
+                        const active = editInterests.includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() =>
+                              setEditInterests((prev) => (active ? prev.filter((id) => id !== c.id) : [...prev, c.id]))
+                            }
+                            className={chipClass(active)}
+                          >
+                            {c.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <DialogFooter className="gap-2">
+                    <Button type="button" variant="outline" onClick={() => setEditUser(null)} disabled={savingUser}>
+                      Zrušit
+                    </Button>
+                    <Button type="submit" disabled={savingUser}>
+                      {savingUser ? "Ukládám…" : "Uložit"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* --- Akce -------------------------------------------------------------------- */}
@@ -872,7 +1043,15 @@ function SuperAdminContent() {
                 </p>
                 <div>
                   <Label>Obec *</Label>
-                  <Select value={evMuniId} onValueChange={setEvMuniId}>
+                  <Select
+                    value={evMuniId}
+                    onValueChange={(v) => {
+                      setEvMuniId(v);
+                      // The eligible pořadatelé differ per obec — a pick from the previous one
+                      // would silently stay selected (and be rejected on submit).
+                      setEvOrganizerId("");
+                    }}
+                  >
                     <SelectTrigger className="h-11 mt-1.5">
                       <SelectValue placeholder="Vyberte obec" />
                     </SelectTrigger>
@@ -887,18 +1066,23 @@ function SuperAdminContent() {
                 </div>
                 <div>
                   <Label>Pořadatel *</Label>
-                  <Select value={evOrganizerId} onValueChange={setEvOrganizerId}>
+                  <Select value={evOrganizerId} onValueChange={setEvOrganizerId} disabled={!evMuniId}>
                     <SelectTrigger className="h-11 mt-1.5">
-                      <SelectValue placeholder="Vyberte pořadatele" />
+                      <SelectValue placeholder={evMuniId ? "Vyberte pořadatele" : "Nejdřív vyberte obec"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {users.map((u) => (
+                      {evOrganizerOptions.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.fullName ?? u.email}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    {evMuniId && evOrganizerOptions.length === 0
+                      ? "V téhle obci zatím nikdo nemá roli „Admin obce“ ani „Organizátor“. Přiřaďte ji v záložce „Role“, potom půjde akci vytvořit."
+                      : "Nabízí se jen lidé s rolí „Admin obce“ nebo „Organizátor“ ve vybrané obci."}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -1002,16 +1186,16 @@ function SuperAdminContent() {
                         {u.communityRoles.map((r) => (
                           <Badge key={r.userRoleId} variant="secondary" className="gap-1 pr-1">
                             {ROLE_LABEL[r.role] ?? r.role} · {r.municipalityName}
-                            {r.role !== "participant" && (
-                              <button
-                                type="button"
-                                onClick={() => handleRevoke(r.userRoleId)}
-                                className="ml-0.5 hover:text-destructive"
-                                aria-label="Odebrat roli"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                u.communityRoles.length === 1 ? setLastRoleRevoke(u) : handleRevoke(r.userRoleId)
+                              }
+                              className="ml-0.5 hover:text-destructive"
+                              aria-label="Odebrat roli"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
                           </Badge>
                         ))}
                       </div>
@@ -1020,6 +1204,36 @@ function SuperAdminContent() {
                 </Card>
               ))}
             </div>
+
+            <AlertDialog
+              open={lastRoleRevoke !== null}
+              onOpenChange={(open) => !open && !deletingLastRole && setLastRoleRevoke(null)}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Odebrat poslední roli „{lastRoleRevoke?.fullName ?? lastRoleRevoke?.email}“?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Tohle je jediná role, kterou uživatel má. Bez role by účet nepatřil do žádné obce, takže se
+                    spolu s rolí smaže i on — včetně profilu, přihlášek na akce a oznámení. Nejde to vrátit zpět.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deletingLastRole}>Zrušit</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleDeleteWithLastRole();
+                    }}
+                    disabled={deletingLastRole}
+                    className={buttonVariants({ variant: "destructive" })}
+                  >
+                    {deletingLastRole ? "Mažu…" : "Odebrat a smazat účet"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           {/* --- Žádosti (napříč obcemi) ------------------------------------------------ */}

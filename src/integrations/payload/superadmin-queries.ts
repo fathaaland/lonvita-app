@@ -70,9 +70,11 @@ export async function deleteMunicipality(municipalityId: string): Promise<void> 
 
 // --- Users + community roles -------------------------------------------------------------
 
+export type Gender = "zena" | "muz" | "jine" | "neuvedeno";
+
 export type CommunityRoleEntry = {
   userRoleId: string;
-  role: "participant" | "municipality_admin" | "prescriber";
+  role: "participant" | "municipality_admin" | "organizer" | "prescriber";
   municipalityId: string;
   municipalityName: string;
 };
@@ -81,13 +83,29 @@ export type PlatformUserRow = {
   id: string;
   email: string;
   platformRole: "admin" | "user";
+  /** null when the account has no profile row yet — nothing to edit in that case. */
+  profileId: string | null;
   fullName: string | null;
+  homeMunicipalityId: string | null;
   homeMunicipalityName: string | null;
+  dateOfBirth: string | null;
+  gender: Gender;
+  phone: string | null;
+  interestIds: string[];
   communityRoles: CommunityRoleEntry[];
 };
 
 type PayloadUserRaw = { id: number; email: string; role: "admin" | "user"; createdAt: string };
-type PayloadProfileRaw = { id: number; user: number | { id: number }; fullName: string; municipality?: number | { id: number } | null };
+type PayloadProfileRaw = {
+  id: number;
+  user: number | { id: number };
+  fullName: string;
+  municipality?: number | { id: number } | null;
+  dateOfBirth?: string | null;
+  gender?: Gender | null;
+  phone?: string | null;
+  interests?: (number | { id: number })[] | null;
+};
 type PayloadUserRoleRaw = { id: number; user: number | { id: number }; municipality: number | { id: number }; role: CommunityRoleEntry["role"] };
 
 export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
@@ -115,8 +133,14 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
       id: uid,
       email: u.email,
       platformRole: u.role,
+      profileId: profile ? String(profile.id) : null,
       fullName: profile?.fullName ?? null,
+      homeMunicipalityId: homeMuniId,
       homeMunicipalityName: homeMuniId ? (muniNameById.get(homeMuniId) ?? null) : null,
+      dateOfBirth: profile?.dateOfBirth ? profile.dateOfBirth.slice(0, 10) : null,
+      gender: profile?.gender ?? "neuvedeno",
+      phone: profile?.phone ?? null,
+      interestIds: (profile?.interests ?? []).map(toId).filter((v): v is string => Boolean(v)),
       communityRoles: (rolesByUserId.get(uid) ?? []).map((r) => {
         const municipalityId = toId(r.municipality)!;
         return {
@@ -140,7 +164,7 @@ export async function createUserAsSuperAdmin(input: {
   /** null = "bez obce". */
   municipalityId: string | null;
   dateOfBirth: string | null;
-  gender: "zena" | "muz" | "jine" | "neuvedeno";
+  gender: Gender;
   phone: string | null;
   interestIds: string[];
 }): Promise<void> {
@@ -156,10 +180,30 @@ export async function createUserAsSuperAdmin(input: {
   });
 }
 
-/** Platform role only (Users.role) — community roles (municipality_admin/organizer/…) are
- * managed via the Role tab's grant/revoke instead. */
-export async function updateUserPlatformRole(userId: string, role: "admin" | "user"): Promise<void> {
-  await patch(`/users/${userId}`, { role });
+/** Edits an existing account's profile from the Uživatelé tab's pencil. Deliberately limited to
+ * profile data: the platform role is locked at the collection (Users.role field access), and the
+ * e-mail is the key Auth0 logins are matched on (see authenticateUser), so changing it here would
+ * orphan the account on next sign-in. Community roles have their own tab. */
+export async function updateUserAsSuperAdmin(
+  profileId: string,
+  input: {
+    fullName: string;
+    /** null = "bez obce". */
+    municipalityId: string | null;
+    dateOfBirth: string | null;
+    gender: Gender;
+    phone: string | null;
+    interestIds: string[];
+  },
+): Promise<void> {
+  await patch(`/profiles/${profileId}`, {
+    fullName: input.fullName,
+    municipality: input.municipalityId ? Number(input.municipalityId) : null,
+    dateOfBirth: input.dateOfBirth,
+    gender: input.gender,
+    phone: input.phone,
+    interests: input.interestIds.map(Number),
+  });
 }
 
 export async function deleteUserAsSuperAdmin(userId: string): Promise<void> {

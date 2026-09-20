@@ -50,6 +50,16 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
       data: { user: adminOfA.id, municipality: municipalityA.id, role: 'municipality_admin' },
       overrideAccess: true,
     })
+    // The fixture events below are filed under plainUserA, and an event's organizer always holds
+    // the role in its obec (Events.requireOrganizerRole). "organizer" still isn't an admin — which
+    // is exactly what the delete assertions below are about.
+    for (const municipality of [municipalityA, municipalityB]) {
+      await payload.create({
+        collection: 'user-roles',
+        data: { user: plainUserA.id, municipality: municipality.id, role: 'organizer' },
+        overrideAccess: true,
+      })
+    }
 
     category = await payload.create({
       collection: 'event-categories',
@@ -88,6 +98,7 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     await payload.delete({ collection: 'events', id: eventInB.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'user-roles', where: { user: { equals: adminOfA.id } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'user-roles', where: { user: { equals: plainUserA.id } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'users', id: adminOfA.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'users', id: plainUserA.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'municipalities', id: municipalityA.id, overrideAccess: true }).catch(() => {})
@@ -105,7 +116,7 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     ).rejects.toThrow()
   })
 
-  it('a plain (non-admin) user cannot delete an event, even in their own municipality', async () => {
+  it("a non-admin cannot delete an event, not even the one they organize themselves", async () => {
     await expect(
       payload.delete({
         collection: 'events',

@@ -38,6 +38,12 @@ describe('Registrations & EventFeedback', () => {
       data: { email: `participant-${STAMP}@test.local`, password: 'test1234', role: 'user' },
       overrideAccess: true,
     })
+    // An event's organizer always holds the role in its obec (Events.requireOrganizerRole).
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: organizer.id, municipality: municipality.id, role: 'organizer' },
+      overrideAccess: true,
+    })
     event = await payload.create({
       collection: 'events',
       data: {
