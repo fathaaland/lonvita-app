@@ -14,11 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
-import { MapBreakout } from "@/components/map/MapBreakout";
+import { MunicipalityPicker } from "@/components/map/MunicipalityPicker";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Mail, Lock, User as UserIcon, MapPin } from "lucide-react";
+import { Mail, Lock, User as UserIcon } from "lucide-react";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 
 const signUpSchema = z
@@ -31,7 +30,7 @@ const signUpSchema = z
     consent_accepted: z.boolean().refine((v) => v === true, "Musíte souhlasit s podmínkami používání"),
   })
   .refine((v) => v.no_municipality || v.municipality.length > 0, {
-    message: "Vyberte svou obec na mapě, nebo zaškrtněte, že tu zatím není.",
+    message: "Vyberte svou obec — klepněte na pole „Vaše obec“ a najděte ji na mapě.",
   });
 
 function AuthPageContent() {
@@ -153,7 +152,7 @@ function AuthPageContent() {
     }
   };
 
-  const selectedMunicipalityName = municipalities.find((m) => m.id === municipality)?.name;
+  const isSignUp = mode === "signup";
 
   return (
     <div className="w-full">
@@ -168,8 +167,19 @@ function AuthPageContent() {
         </div>
       </div>
 
-      <div className="px-4 pb-8 lg:px-0 lg:pb-0 relative z-10 space-y-4">
-          <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="px-4 pb-8 lg:px-0 lg:pb-0 relative z-10 space-y-5">
+          <div className="space-y-1.5">
+            <h1 className="text-[1.75rem] font-bold leading-tight tracking-[-0.01em]">
+              {isSignUp ? "Založte si účet" : "Vítejte zpátky"}
+            </h1>
+            <p className="text-[15px] leading-relaxed text-muted-foreground">
+              {isSignUp
+                ? "Pár údajů, vyberete obec a jste v obraze."
+                : "Přihlaste se a podívejte se, co se u vás chystá."}
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "signup" && (
               <div className="space-y-1.5">
                 <Label htmlFor="fullName" className="text-base">Celé jméno</Label>
@@ -219,34 +229,22 @@ function AuthPageContent() {
               </div>
             )}
             {mode === "signup" && (
-              <div className="space-y-2">
-                <Label className="text-base">Vaše obec</Label>
-                {!noMunicipality && (
-                  <>
-                    <p className="text-sm text-muted-foreground">Klepněte na mapě na obec, ve které bydlíte.</p>
-                    <MapBreakout>
-                      <MunicipalitiesMap points={municipalities} selectedId={municipality || null} onSelect={setMunicipality} />
-                    </MapBreakout>
-                    {selectedMunicipalityName && (
-                      <div className="flex items-center gap-1.5 text-sm font-semibold justify-center">
-                        <MapPin className="h-4 w-4 text-primary" />
-                        {selectedMunicipalityName}
-                      </div>
-                    )}
-                  </>
-                )}
-                <label className="flex items-start gap-2.5 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={noMunicipality}
-                    onCheckedChange={(v) => {
-                      const on = v === true;
-                      setNoMunicipality(on);
-                      if (on) setMunicipality("");
-                    }}
-                    className="mt-0.5"
-                  />
-                  <span>Moje obec tu zatím není — pokračovat bez obce (uvidím akce ze všech obcí).</span>
-                </label>
+              <div className="space-y-1.5">
+                <Label htmlFor="municipality" className="text-base">Vaše obec</Label>
+                <MunicipalityPicker
+                  id="municipality"
+                  points={municipalities}
+                  value={{ id: municipality, noMunicipality }}
+                  onChange={({ id, noMunicipality: none }) => {
+                    setMunicipality(id);
+                    setNoMunicipality(none);
+                  }}
+                />
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  {noMunicipality
+                    ? "Uvidíte akce ze všech obcí. Svoji obec si můžete vybrat později v profilu."
+                    : "Určuje, čí akce uvidíte. Změnit ji jde kdykoliv později v profilu."}
+                </p>
               </div>
             )}
 
@@ -271,7 +269,7 @@ function AuthPageContent() {
               </div>
             )}
 
-            <Button type="submit" disabled={loading} className="w-full h-14 text-base font-semibold">
+            <Button type="submit" disabled={loading} className="mt-2 w-full h-14 text-base font-semibold">
               {mode === "signin" ? "Přihlásit se" : "Vytvořit účet"}
             </Button>
 
@@ -288,30 +286,35 @@ function AuthPageContent() {
             )}
           </form>
 
-          <div className="text-center space-y-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-              className="text-sm text-primary font-semibold underline-offset-4 hover:underline"
-            >
-              {mode === "signin" ? "Nemáte účet? Zaregistrujte se" : "Už máte účet? Přihlaste se"}
-            </button>
+          <div className="space-y-2.5 text-center">
             {mode === "signin" && (
-              <div>
-                <button
-                  type="button"
-                  onClick={handleForgot}
-                  className="text-sm text-muted-foreground underline-offset-4 hover:underline"
-                >
-                  Zapomněli jste heslo?
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleForgot}
+                className="text-[15px] text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Zapomněli jste heslo?
+              </button>
             )}
+            {/* The question is text and only the action is a link — the whole sentence as one
+                link made the target vague about what clicking it actually does. */}
+            <p className="text-[15px] text-muted-foreground">
+              {isSignUp ? "Už máte účet? " : "Nemáte účet? "}
+              <button
+                type="button"
+                onClick={() => setMode(isSignUp ? "signin" : "signup")}
+                className="font-semibold text-primary underline-offset-4 hover:underline"
+              >
+                {isSignUp ? "Přihlaste se" : "Zaregistrujte se"}
+              </button>
+            </p>
           </div>
 
-          <p className="text-xs text-center text-muted-foreground pt-4">
-            Přihlášením souhlasíte s tím, že vystupujete pod svým skutečným jménem.
-          </p>
+          {!isSignUp && (
+            <p className="text-[13px] leading-relaxed text-center text-muted-foreground">
+              Přihlášením souhlasíte s tím, že vystupujete pod svým skutečným jménem.
+            </p>
+          )}
         </div>
       </div>
   );
