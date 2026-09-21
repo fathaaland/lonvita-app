@@ -1,4 +1,7 @@
 import { getCorrelationId } from './correlation'
+import { serializeError } from './serialize-error'
+
+export { serializeError } from './serialize-error'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -41,19 +44,6 @@ const environment = process.env.VERCEL_ENV?.trim() || process.env.NODE_ENV || 'd
 const SENSITIVE_KEY = /pass(word)?|token|secret|authorization|cookie|api[-_]?key|credential/i
 const MAX_DEPTH = 4
 
-export const serializeError = (error: unknown): LogContext => {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      // A stack in production log storage is a liability more than a help for handled errors;
-      // the message plus the correlationId is enough to find the request.
-      ...(process.env.NODE_ENV === 'production' ? {} : { stack: error.stack }),
-    }
-  }
-  return { message: String(error) }
-}
-
 /**
  * Logs are shipped to a third party and kept for weeks, so nothing that could authenticate
  * anybody may travel with them. Keys are matched by name rather than value because that is the
@@ -80,10 +70,32 @@ const redact = (value: unknown, depth = 0): unknown => {
  * Both env vars come from a source's "Data ingestion" tab at betterstack.com. Absent either
  * one, this is a no-op — console logging (below) is always the baseline regardless.
  */
-const betterStackToken = process.env.BETTERSTACK_SOURCE_TOKEN
-const betterStackHost = process.env.BETTERSTACK_INGESTING_HOST
+const betterStackToken = process.env.BETTERSTACK_SOURCE_TOKEN?.trim()
+// Normalised rather than taken literally: these are pasted into a dashboard by hand, and a
+// trailing newline or a leading `https://` turns the URL below into one fetch() refuses to
+// parse — which, being a rejected promise, used to vanish without a trace.
+const betterStackHost = process.env.BETTERSTACK_INGESTING_HOST?.trim()
+  .replace(/^https?:\/\//i, '')
+  .replace(/\/+$/, '')
+
+/** Whether this deployment can ship at all, stated once per cold start. The alternative is
+ * what happened the first time: a silent no-op that looks exactly like a working logger. */
+console.info(
+  JSON.stringify({
+    level: 'info',
+    message: 'logger.betterstack_config',
+    service,
+    env: environment,
+    enabled: Boolean(betterStackToken && betterStackHost),
+    // Shapes only — never the values. Enough to tell "missing" from "pasted with a newline".
+    tokenLength: betterStackToken?.length ?? 0,
+    hostLength: betterStackHost?.length ?? 0,
+  }),
+)
 
 const pending = new Set<Promise<unknown>>()
+
+let keepAliveReported = false
 
 type VercelRequestContext = {
   get?: () => { waitUntil?: (promise: Promise<unknown>) => void } | undefined
@@ -103,7 +115,24 @@ const keepAliveUntilSettled = (promise: Promise<unknown>) => {
 
   const context = (globalThis as Record<symbol, unknown>)[Symbol.for('@vercel/request-context')] as
     VercelRequestContext | undefined
-  context?.get?.()?.waitUntil?.(promise)
+  const waitUntil = context?.get?.()?.waitUntil
+
+  // Said once per cold start: if the platform hands out no waitUntil, every line shipped from a
+  // short handler is a race against the instance being frozen, and losing it looks like silence.
+  if (!keepAliveReported) {
+    keepAliveReported = true
+    console.info(
+      JSON.stringify({
+        level: 'info',
+        message: 'logger.keepalive',
+        service,
+        env: environment,
+        waitUntilAvailable: typeof waitUntil === 'function',
+      }),
+    )
+  }
+
+  waitUntil?.(promise)
 }
 
 function shipToBetterStack(level: LogLevel, message: string, fields: LogContext) {
@@ -116,10 +145,30 @@ function shipToBetterStack(level: LogLevel, message: string, fields: LogContext)
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ message, level, dt: new Date().toISOString(), ...fields }),
-  }).catch(() => {
-    // Deliberately silent — falling back to console (already logged below) is enough; a
-    // console.error here about a logging failure would just be more noise to ship nowhere.
   })
+    .then(async (response) => {
+      if (response.ok) return
+      // A rejected token or a wrong host answers with a perfectly ordinary 4xx that a bare
+      // fire-and-forget fetch throws away. Reported through console on purpose: routing it
+      // back through `logger` would try to ship the report with the same broken settings.
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: 'logger.betterstack_rejected',
+          status: response.status,
+          body: (await response.text().catch(() => '')).slice(0, 200),
+        }),
+      )
+    })
+    .catch((error: unknown) => {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          message: 'logger.betterstack_unreachable',
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    })
 
   keepAliveUntilSettled(request)
 }

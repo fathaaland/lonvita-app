@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 
 import Redis from 'ioredis'
 
-import { logger, serializeError } from '@/lib/logger'
+import { logger } from '@/lib/logger'
+import { serializeError } from '@/lib/logger/serialize-error'
 
 export type RateLimitConfig = {
   max: number
