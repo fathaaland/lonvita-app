@@ -23,9 +23,17 @@ const failTo = (appUrl: string, error: AuthError) => {
   return response
 }
 
-/** The flow is over either way — don't leave a state cookie lying around to be replayed. */
+/** The flow is over either way — don't leave a state cookie lying around to be replayed.
+ *
+ * Appends a raw header rather than going through `response.cookies`: that API re-serialises the
+ * whole Set-Cookie set from its own store, and on a NextResponse whose cookies were never touched
+ * the store starts out empty — so it silently dropped the session cookie appended just above,
+ * and the Google sign-in landed back on /auth with no session at all. */
 function clearStateCookie(response: NextResponse) {
-  response.cookies.set(OAUTH_STATE_COOKIE, '', { path: OAUTH_STATE_COOKIE_PATH, maxAge: 0 })
+  response.headers.append(
+    'Set-Cookie',
+    `${OAUTH_STATE_COOKIE}=; Path=${OAUTH_STATE_COOKIE_PATH}; HttpOnly; SameSite=Lax; Max-Age=0`,
+  )
 }
 
 export async function GET(request: Request) {
