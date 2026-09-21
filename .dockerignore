@@ -1,0 +1,30 @@
+# The worker image is built with `COPY . .` (worker/Dockerfile), so anything not listed here
+# ends up inside it. Without this file the build context is ~3 GB — and the host's node_modules
+# would overwrite the Linux ones installed in the layer above, putting macOS-native binaries
+# (sharp) into a linux/amd64 image.
+node_modules
+**/node_modules
+.next
+.git
+.gitignore
+
+# Agent/editor state — .claude/worktrees alone is a full second copy of the repo.
+.claude
+.serena
+.vscode
+
+# Secrets stay out of the image. Compose injects them at runtime via `env_file`, and Railway
+# through its own service variables; `import 'dotenv/config'` in worker/src/run.ts simply finds
+# nothing to read, which is what we want.
+.env
+.env.*
+!.env.example
+
+# Build output and test artefacts the worker never reads.
+worker/dist
+tsconfig.tsbuildinfo
+coverage
+test-results
+playwright-report
+tests
+*.log
