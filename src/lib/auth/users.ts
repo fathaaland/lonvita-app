@@ -21,7 +21,18 @@ type UpsertUserParams = {
  * /onboarding's own submit silently no-ops without a profile id to update. Self-healing this
  * here — the single choke point every auth entry point already calls into — fixes both.
  */
-const ensureProfile = async (payload: Payload, user: User, fullName?: string): Promise<void> => {
+type EnsureProfileOptions = {
+  /** Mark the new Profile as already onboarded — for accounts that aren't participants and have
+   * nothing to answer in /onboarding (the platform superadmin has no municipality or interests). */
+  onboardingCompleted?: boolean
+}
+
+export const ensureProfile = async (
+  payload: Payload,
+  user: User,
+  fullName?: string,
+  options: EnsureProfileOptions = {},
+): Promise<void> => {
   const existing = await payload.find({
     collection: 'profiles',
     where: { user: { equals: user.id } },
@@ -36,6 +47,7 @@ const ensureProfile = async (payload: Payload, user: User, fullName?: string): P
       user: user.id,
       fullName: fullName?.trim() || user.email.split('@')[0],
       municipality: null,
+      ...(options.onboardingCompleted ? { onboardingCompleted: true } : {}),
     },
     overrideAccess: true,
   })

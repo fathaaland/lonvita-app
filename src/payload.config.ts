@@ -45,7 +45,9 @@ export default buildConfig({
       payload.logger.info('PAYLOAD_MIGRATING is set — skipping seed.')
       return
     }
-    await runSeed(payload)
+    // Demo data is left to POST /api/seed in production — see RunSeedOptions. The cheap part
+    // (categories, the SEED_SUPERADMIN_* bootstrap) still runs on every boot, as intended.
+    await runSeed(payload, { includeDemoData: process.env.NODE_ENV !== 'production' })
   },
   admin: {
     user: Users.slug,

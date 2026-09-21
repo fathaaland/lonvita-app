@@ -2,6 +2,8 @@ import type { Payload } from 'payload'
 
 import type { User } from '@/payload-types'
 
+import { ensureProfile } from '@/lib/auth/users'
+
 const CATEGORIES = [
   { name: 'Sport', icon: 'Dumbbell', color: '#F97316' },
   { name: 'Kultura', icon: 'Music', color: '#8B5CF6' },
@@ -55,14 +57,25 @@ async function bootstrapProductionSuperadmin(payload: Payload): Promise<void> {
     depth: 0,
     overrideAccess: true,
   })
-  if (existing.docs[0]) return
+  const existingUser = existing.docs[0]
+  const user =
+    existingUser ??
+    (await payload.create({
+      collection: 'users',
+      data: { email, password, role: 'admin' },
+      overrideAccess: true,
+    }))
+  if (!existingUser) {
+    payload.logger.info(`Created superadmin ${email} from SEED_SUPERADMIN_EMAIL.`)
+  }
 
-  await payload.create({
-    collection: 'users',
-    data: { email, password, role: 'admin' },
-    overrideAccess: true,
-  })
-  payload.logger.info(`Created superadmin ${email} from SEED_SUPERADMIN_EMAIL.`)
+  // Signing in with a password goes straight to Payload's own /api/users/login, which never
+  // reaches upsertUser's ensureProfile — that self-heal only sits on the Google path. Without a
+  // Profile row RequireAuth reads `profile === null` as "not onboarded" and bounces this account
+  // to /onboarding, whose submit then no-ops for want of a profile id to update: a login loop no
+  // amount of clicking gets out of. Deliberately outside the early return above, so a deployment
+  // that already bootstrapped a profile-less superadmin is healed on its next boot.
+  await ensureProfile(payload, user, undefined, { onboardingCompleted: true })
 }
 
 // --- Demo data --------------------------------------------------------------------------------
@@ -560,7 +573,18 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
   }
 }
 
-export async function runSeed(payload: Payload) {
+type RunSeedOptions = {
+  /** The demo data is ~150 sequential round trips to the database. That is fine as a one-off
+   * POST /api/seed (which sets maxDuration = 60 for exactly this reason), but it cannot finish
+   * inside the default budget of the ordinary page request that happens to cold-start a
+   * serverless instance — and Payload runs onInit on every one of those. The booting request
+   * then dies part-way through, which is how production ended up with the municipalities and
+   * people the loops create first, no events at all, and an empty map on the very first load.
+   * So production seeds demo data only from /api/seed; locally onInit still does the lot. */
+  includeDemoData?: boolean
+}
+
+export async function runSeed(payload: Payload, { includeDemoData = true }: RunSeedOptions = {}) {
   payload.logger.info('Seeding event categories…')
   const categoryIds = new Map<string, number>()
   for (const cat of CATEGORIES) {
@@ -586,7 +610,7 @@ export async function runSeed(payload: Payload) {
     await bootstrapProductionSuperadmin(payload)
   }
 
-  if (shouldSeedDemoData()) {
+  if (includeDemoData && shouldSeedDemoData()) {
     for (const account of DEV_ACCOUNTS) {
       // A demo deployment (production + SEED_DEMO_DATA) still gets its superadmin only from SEED_SUPERADMIN_*.
       if (isProduction() && account.platformRole === 'admin') continue
