@@ -43,7 +43,15 @@ export type CleanupNotificationsJobResult = {
   deleted: number
 }
 
+/**
+ * Carried on every job so a failure in the worker can be traced back to the web request that
+ * produced it — the same id the proxy put on the original request. Without it the two halves
+ * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
+ * two unrelated log lines minutes apart.
+ */
+type Traced = { correlationId?: string }
+
 export type QueueJobEnvelope =
-  | { jobType: typeof JOB_NAMES.SEND_EMAIL; payload: EmailJobData }
-  | { jobType: typeof JOB_NAMES.SEND_SMS; payload: SmsJobData }
-  | { jobType: typeof JOB_NAMES.CLEANUP_NOTIFICATIONS; payload: CleanupNotificationsJobData }
+  | ({ jobType: typeof JOB_NAMES.SEND_EMAIL; payload: EmailJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.SEND_SMS; payload: SmsJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.CLEANUP_NOTIFICATIONS; payload: CleanupNotificationsJobData } & Traced)

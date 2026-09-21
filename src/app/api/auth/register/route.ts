@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { logger, serializeError } from '@/lib/logger'
+import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const CONSENT_VERSION = '1.0'
@@ -44,6 +46,11 @@ export async function POST(request: Request) {
   const body = (await request.json()) as RegisterBody
   const validationError = validate(body)
   if (validationError) {
+    logger.info('auth.registration_rejected', {
+      event: 'auth.registration_rejected',
+      reason: validationError,
+      correlationId: correlationIdFromHeaders(request.headers),
+    })
     return NextResponse.json({ error: validationError }, { status: 400 })
   }
 
@@ -118,14 +125,37 @@ export async function POST(request: Request) {
       })
     }
 
+    logger.info('auth.registration_succeeded', {
+      event: 'auth.registration_succeeded',
+      userId: payloadUser.id,
+      userEmail: payloadUser.email,
+      municipality: municipality ?? null,
+      marketingConsent: Boolean(marketingConsent),
+      correlationId: correlationIdFromHeaders(request.headers),
+    })
+
     return NextResponse.json({ redirectTo: '/auth?registered=true' }, { status: 201 })
   } catch (error) {
-    console.error('[register] failed, rolling back', error)
+    // A half-finished registration is the worst outcome here (an account with no roles or
+    // consents), so the log has to say whether the rollback below actually ran.
+    logger.error('auth.registration_failed', {
+      event: 'auth.registration_failed',
+      rollbackUserId: createdPayloadUserId ?? null,
+      ...serializeError(error),
+      correlationId: correlationIdFromHeaders(request.headers),
+    })
 
     if (createdPayloadUserId) {
       await payload
         .delete({ collection: 'users', id: createdPayloadUserId, overrideAccess: true })
-        .catch(() => {})
+        .catch((rollbackError) => {
+          logger.error('auth.registration_rollback_failed', {
+            event: 'auth.registration_rollback_failed',
+            userId: createdPayloadUserId,
+            ...serializeError(rollbackError),
+            correlationId: correlationIdFromHeaders(request.headers),
+          })
+        })
     }
     return NextResponse.json({ error: 'Registration failed. Please try again.' }, { status: 500 })
   }

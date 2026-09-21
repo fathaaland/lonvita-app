@@ -29,6 +29,15 @@ export async function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } })
   response.headers.set('x-correlation-id', correlationId)
+  // Readable from JS on purpose: it carries no authority, and it is the only way a browser can
+  // quote the id of the request that rendered the page when it reports a crash to /api/log.
+  // Response headers aren't reachable from the document, so a cookie is the mechanism left.
+  response.cookies.set('x-correlation-id', correlationId, {
+    httpOnly: false,
+    sameSite: 'lax',
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+  })
 
   return applySecurityHeaders(response)
 }

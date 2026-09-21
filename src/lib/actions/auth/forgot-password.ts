@@ -5,6 +5,8 @@ import { getPayload } from 'payload'
 
 import { enqueueEmail } from '@/lib/queue/queues'
 import { forgotPasswordInputSchema } from '@/lib/auth/password-reset-schema'
+import { logger, serializeError } from '@/lib/logger'
+import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { enforcePasswordResetRateLimit } from '@/lib/security/rate-limit'
 
 type ForgotPasswordInput = {
@@ -23,15 +25,36 @@ const buildResetPasswordEmailHtml = (resetUrl: string): string => `
 /** Always resolves (never leaks whether the e-mail exists) — the caller shows the same
  * "check your inbox" message regardless. Sends via the BullMQ email queue (Resend). */
 export async function forgotPasswordAction({ email, appUrl, requestHeaders }: ForgotPasswordInput): Promise<void> {
+  // Every branch below returns void so the response never reveals whether the account exists.
+  // That silence is for the caller, not for us: the log records which branch was taken, or a
+  // request that produced no e-mail is indistinguishable from one that worked.
+  const correlationId = correlationIdFromHeaders(requestHeaders)
+
   const parsed = forgotPasswordInputSchema.safeParse({ email })
-  if (!parsed.success) return
+  if (!parsed.success) {
+    logger.info('auth.forgot_password_rejected', {
+      event: 'auth.forgot_password_rejected',
+      reason: 'invalid_email',
+      correlationId,
+    })
+    return
+  }
 
   const rateLimit = await enforcePasswordResetRateLimit({
     operation: 'forgot-password',
     requestHeaders,
     email: parsed.data.email,
   })
-  if (!rateLimit.allowed) return
+  if (!rateLimit.allowed) {
+    logger.warn('auth.forgot_password_rejected', {
+      event: 'auth.forgot_password_rejected',
+      reason: 'rate_limited',
+      userEmail: parsed.data.email,
+      retryAfter: rateLimit.retryAfter,
+      correlationId,
+    })
+    return
+  }
 
   const payload = await getPayload({ config })
 
@@ -43,16 +66,55 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }: Fo
       disableEmail: true,
       data: { email: parsed.data.email },
     })
-  } catch {
+  } catch (error) {
+    // Expected for an address nobody registered — recorded at info because a sudden run of
+    // these is how account enumeration looks from the inside.
+    logger.info('auth.forgot_password_rejected', {
+      event: 'auth.forgot_password_rejected',
+      reason: 'no_matching_account',
+      userEmail: parsed.data.email,
+      ...serializeError(error),
+      correlationId,
+    })
     return
   }
-  if (!token) return
+  if (!token) {
+    logger.warn('auth.forgot_password_rejected', {
+      event: 'auth.forgot_password_rejected',
+      reason: 'no_token_issued',
+      userEmail: parsed.data.email,
+      correlationId,
+    })
+    return
+  }
 
   const resetUrl = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`
 
-  await enqueueEmail({
-    to: parsed.data.email,
-    subject: 'Obnovení hesla — Lonvita',
-    body: buildResetPasswordEmailHtml(resetUrl),
-  })
+  try {
+    const job = await enqueueEmail(
+      {
+        to: parsed.data.email,
+        subject: 'Obnovení hesla — Lonvita',
+        body: buildResetPasswordEmailHtml(resetUrl),
+      },
+      { correlationId },
+    )
+
+    logger.info('auth.forgot_password_email_queued', {
+      event: 'auth.forgot_password_email_queued',
+      userEmail: parsed.data.email,
+      jobId: job.id,
+      correlationId,
+    })
+  } catch (error) {
+    // The token is already minted at this point, so a queue outage leaves a user waiting for
+    // an e-mail that will never come. This is the line that says so.
+    logger.error('auth.forgot_password_email_enqueue_failed', {
+      event: 'auth.forgot_password_email_enqueue_failed',
+      userEmail: parsed.data.email,
+      ...serializeError(error),
+      correlationId,
+    })
+    throw error
+  }
 }

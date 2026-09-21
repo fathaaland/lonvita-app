@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { logger, serializeError } from '@/lib/logger'
+import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const GENDERS = ['zena', 'muz', 'jine', 'neuvedeno'] as const
@@ -91,9 +93,23 @@ export async function POST(request: Request) {
       })
     }
 
+    // An account created by staff on somebody else's behalf is exactly the kind of privileged
+    // action an audit trail exists for.
+    logger.info('admin.user_created', {
+      event: 'admin.user_created',
+      userId: newUser.id,
+      userEmail: newUser.email,
+      correlationId: correlationIdFromHeaders(request.headers),
+    })
+
     return NextResponse.json({ id: newUser.id, email: newUser.email }, { status: 201 })
   } catch (error) {
-    console.error('[superadmin/create-user] failed', error)
+    logger.error('admin.user_creation_failed', {
+      event: 'admin.user_creation_failed',
+      rollbackUserId: createdUserId ?? null,
+      ...serializeError(error),
+      correlationId: correlationIdFromHeaders(request.headers),
+    })
     // Don't leave a half-created account (user without a profile) behind.
     if (createdUserId) {
       await payload.delete({ collection: 'users', id: createdUserId, overrideAccess: true }).catch(() => {})

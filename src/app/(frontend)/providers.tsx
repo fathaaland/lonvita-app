@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { FontSizeProvider } from "@/contexts/FontSizeContext";
 import { AppShell } from "@/components/AppShell";
+import { ClientErrorReporter } from "@/components/ClientErrorReporter";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -16,6 +17,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <FontSizeProvider>
         <TooltipProvider>
+          <ClientErrorReporter />
           <Toaster />
           <Sonner />
           <AuthProvider>

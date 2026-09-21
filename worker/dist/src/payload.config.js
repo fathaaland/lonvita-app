@@ -1,0 +1,174 @@
+import { postgresAdapter } from '@payloadcms/db-postgres';
+import { resendAdapter } from '@payloadcms/email-resend';
+import { multiTenantPlugin } from '@payloadcms/plugin-multi-tenant';
+import { lexicalEditor } from '@payloadcms/richtext-lexical';
+import { s3Storage } from '@payloadcms/storage-s3';
+import { sql } from 'drizzle-orm';
+import { uniqueIndex } from 'drizzle-orm/pg-core';
+import path from 'path';
+import { buildConfig } from 'payload';
+import { fileURLToPath } from 'url';
+import sharp from 'sharp';
+import { Users } from './collections/Users';
+import { Media } from './collections/Media';
+import { Municipalities } from './collections/Municipalities';
+import { EventCategories } from './collections/EventCategories';
+import { Profiles } from './collections/Profiles';
+import { UserRoles } from './collections/UserRoles';
+import { Events } from './collections/Events';
+import { Registrations } from './collections/Registrations';
+import { EventMedia } from './collections/EventMedia';
+import { EventFeedback } from './collections/EventFeedback';
+import { AuthIdentities } from './collections/AuthIdentities';
+import { MunicipalityAreas } from './collections/MunicipalityAreas';
+import { Consents } from './collections/Consents';
+import { AuditLog } from './collections/AuditLog';
+import { Notifications } from './collections/Notifications';
+import { Organizations } from './collections/Organizations';
+import { OrganizerRequests } from './collections/OrganizerRequests';
+import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests';
+import { s3ClientConfig } from './lib/s3/client';
+import { logger, serializeError } from './lib/logger';
+import { correlationIdFromHeaders } from './lib/logger/correlation';
+import { withCrudLogging } from './lib/logger/collection-logger';
+import { runSeed } from './lib/seed/run';
+const filename = fileURLToPath(import.meta.url);
+const dirname = path.dirname(filename);
+export default buildConfig({
+    onInit: async (payload) => {
+        // Every process that builds a Payload instance runs this — the Next app, `payload migrate`,
+        // and now the worker (which needs Payload for the cleanup job). Only the app should seed:
+        // migrations must not write rows mid-schema-change, and a second seeding process just races
+        // the first. Payload sets PAYLOAD_MIGRATING itself during migrations; the worker sets it in
+        // its own start script for the same reason.
+        if (process.env.PAYLOAD_MIGRATING === 'true') {
+            payload.logger.info('PAYLOAD_MIGRATING is set — skipping seed.');
+            return;
+        }
+        // Demo data is left to POST /api/seed in production — see RunSeedOptions. The cheap part
+        // (categories, the SEED_SUPERADMIN_* bootstrap) still runs on every boot, as intended.
+        await runSeed(payload, { includeDemoData: process.env.NODE_ENV !== 'production' });
+    },
+    admin: {
+        user: Users.slug,
+        importMap: {
+            baseDir: path.resolve(dirname),
+        },
+    },
+    // Every collection gets the same CRUD trail (create/update/delete at info, reads at debug),
+    // applied here rather than collection by collection so a new collection is covered the moment
+    // it joins this list instead of when somebody remembers to add the hook.
+    collections: [
+        Users,
+        Media,
+        Municipalities,
+        EventCategories,
+        Profiles,
+        UserRoles,
+        Events,
+        Registrations,
+        EventMedia,
+        EventFeedback,
+        AuthIdentities,
+        MunicipalityAreas,
+        Consents,
+        AuditLog,
+        Notifications,
+        Organizations,
+        OrganizerRequests,
+        VolunteerFlagRequests,
+    ].map(withCrudLogging),
+    hooks: {
+        afterError: [
+            ({ error, req, collection }) => {
+                const user = req?.user;
+                const correlationId = correlationIdFromHeaders(req?.headers);
+                // The last net: anything Payload throws and nobody caught — a failed login, a rejected
+                // access rule, a database column that does not exist — lands here instead of only in
+                // the platform's own request log.
+                logger.error('payload.unhandled_error', {
+                    event: 'payload.unhandled_error',
+                    ...serializeError(error),
+                    collection: collection?.slug ?? null,
+                    pathname: req?.url,
+                    method: req?.method,
+                    userId: user?.id,
+                    userEmail: user?.email,
+                    userRole: user?.role,
+                    correlationId,
+                });
+                // Handing the id back means a user can quote the number from the screen and it maps
+                // straight onto one line in BetterStack.
+                return { response: { errors: [{ message: error.message }], correlationId } };
+            },
+        ],
+    },
+    editor: lexicalEditor(),
+    secret: process.env.PAYLOAD_SECRET || '',
+    // Frontend and backend are the same Next.js app now, so this is a safety net for
+    // anyone hitting the API from a different origin, not the primary defense.
+    cors: [process.env.NEXT_PUBLIC_APP_URL].filter(Boolean),
+    csrf: [process.env.NEXT_PUBLIC_APP_URL].filter(Boolean),
+    typescript: {
+        outputFile: path.resolve(dirname, 'payload-types.ts'),
+    },
+    db: postgresAdapter({
+        pool: {
+            connectionString: process.env.DATABASE_URI || process.env.DATABASE_URI_DATABASE_URL || '',
+        },
+        afterSchemaInit: [
+            ({ schema, extendTable }) => {
+                // The Registrations beforeValidate hook's "is this user already registered"
+                // check is a find-then-create that isn't atomic — two near-simultaneous
+                // requests (a double-click, a slow-network retry) can both pass the check
+                // before either row commits, leaving two active registrations for the same
+                // event+user and throwing off capacity counts. This index makes the DB itself
+                // reject the second insert, closing the race the application-level check can't.
+                extendTable({
+                    table: schema.tables.registrations,
+                    extraConfig: (table) => ({
+                        oneActiveRegistrationPerEventUser: uniqueIndex('registrations_active_event_user_idx')
+                            .on(table.event, table.user)
+                            .where(sql `${table.status} != 'cancelled'`),
+                    }),
+                });
+                return schema;
+            },
+        ],
+    }),
+    email: resendAdapter({
+        defaultFromAddress: process.env.RESEND_FROM_EMAIL || 'noreply@lonvita.cz',
+        defaultFromName: process.env.RESEND_FROM_NAME || 'Lonvita',
+        apiKey: process.env.RESEND_API_KEY || '',
+    }),
+    sharp,
+    plugins: [
+        s3Storage({
+            collections: { media: { prefix: 'media' } },
+            bucket: process.env.S3_BUCKET,
+            config: s3ClientConfig,
+        }),
+        multiTenantPlugin({
+            // Domain collections (profiles, events, registrations, ...) each carry their own
+            // explicit `municipality` relationship field instead of being registered here —
+            // that's the field the ERD and the frontend actually query against (matches the
+            // existing Index.tsx pattern of `.eq('municipality_id', muniId)`). Wiring them into
+            // the plugin's own tenant-scoping mechanism is deferred until roles/admin scoping
+            // (a later subproject) needs it for the Payload admin UI specifically.
+            collections: {},
+            tenantsSlug: 'municipalities',
+            tenantsArrayField: {
+                includeDefaultField: true,
+            },
+            // No domain collections are tenant-scoped yet (collections: {} above), so there's
+            // no cross-tenant isolation to weaken here. Without this, the plugin's default
+            // tenant-access wrapper overrides Municipalities' own `access` block entirely —
+            // e.g. a logged-out request would see MORE than a logged-in one. Municipalities.ts
+            // now has its own role==='admin' check for mutations, so this is doing the job
+            // that useTenantsCollectionAccess would otherwise do. Revisit once domain
+            // collections start getting added to `collections` above.
+            useTenantsCollectionAccess: false,
+            userHasAccessToAllTenants: (user) => user?.role === 'admin',
+        }),
+    ],
+});

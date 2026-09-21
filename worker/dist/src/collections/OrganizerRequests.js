@@ -1,0 +1,190 @@
+import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared';
+import { getMunicipalityAdminUserIds, sendNotification } from './shared/notify';
+import { writeAuditLog } from './shared/auditLog';
+const canCreateOwnRequest = ({ req: { user }, data }) => {
+    if (!user)
+        return false;
+    if (user.role === 'admin')
+        return true;
+    return String(data?.user) === String(user.id);
+};
+const notifyOnRequestChange = async ({ doc, previousDoc, operation, req }) => {
+    const userId = typeof doc.user === 'object' ? doc.user.id : doc.user;
+    const municipalityId = typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality;
+    if (operation === 'create') {
+        const adminIds = await getMunicipalityAdminUserIds(req.payload, municipalityId);
+        for (const adminId of adminIds) {
+            sendNotification(req.payload, {
+                userId: adminId,
+                title: 'Nová žádost o roli organizátora',
+                link: '/admin-obce',
+                message: 'Někdo v obci požádal o roli organizátora — vyřiďte to v sekci Žádosti.',
+                email: {
+                    subject: 'Nová žádost o roli organizátora',
+                    body: '<p>Někdo ve vaší obci požádal o roli organizátora — vyřiďte to v sekci Žádosti v adminu obce.</p>',
+                },
+            });
+        }
+        return;
+    }
+    if (operation === 'update' && doc.status !== previousDoc?.status) {
+        if (doc.status === 'approved') {
+            // The one trusted path allowed to grant the role — beforeChange below still runs
+            // UserRoles' own uniqueness hook, so approving twice can't double-grant.
+            try {
+                await req.payload.create({
+                    collection: 'user-roles',
+                    data: { user: userId, municipality: municipalityId, role: 'organizer' },
+                    overrideAccess: true,
+                });
+            }
+            catch (error) {
+                req.payload.logger.error(`Failed to grant organizer role after request ${doc.id} approval: ${error}`);
+            }
+            sendNotification(req.payload, {
+                userId,
+                title: 'Role organizátora schválena',
+                link: '/vytvorit',
+                message: 'Vaše žádost o roli organizátora byla schválena.',
+                email: {
+                    subject: 'Role organizátora schválena',
+                    body: '<p>Vaše žádost o roli organizátora byla schválena. Teď můžete v aplikaci zakládat vlastní akce.</p>',
+                },
+            });
+            writeAuditLog(req.payload, {
+                action: 'organizer-requests.approve',
+                actor: req.user?.id ?? null,
+                targetCollection: 'organizer-requests',
+                targetId: doc.id,
+                municipality: municipalityId,
+                metadata: { requestedBy: userId },
+            });
+        }
+        else if (doc.status === 'rejected') {
+            sendNotification(req.payload, {
+                userId,
+                title: 'Žádost o roli organizátora zamítnuta',
+                link: '/profil',
+                message: 'Vaše žádost o roli organizátora byla zamítnuta.',
+                email: {
+                    subject: 'Žádost o roli organizátora zamítnuta',
+                    body: '<p>Vaše žádost o roli organizátora byla bohužel zamítnuta.</p>',
+                },
+            });
+            writeAuditLog(req.payload, {
+                action: 'organizer-requests.reject',
+                actor: req.user?.id ?? null,
+                targetCollection: 'organizer-requests',
+                targetId: doc.id,
+                municipality: municipalityId,
+                metadata: { requestedBy: userId },
+            });
+        }
+    }
+};
+export const OrganizerRequests = {
+    slug: 'organizer-requests',
+    labels: {
+        singular: 'Organizer Request',
+        plural: 'Organizer Requests',
+    },
+    admin: {
+        useAsTitle: 'id',
+        defaultColumns: ['user', 'municipality', 'status', 'updatedAt'],
+    },
+    access: {
+        read: canReadOwnOrAdministered('user'),
+        create: canCreateOwnRequest,
+        update: isPlatformOrMunicipalityAdmin(),
+        delete: isPlatformOrMunicipalityAdmin(),
+    },
+    fields: [
+        {
+            name: 'user',
+            type: 'relationship',
+            relationTo: 'users',
+            required: true,
+        },
+        {
+            name: 'municipality',
+            type: 'relationship',
+            relationTo: 'municipalities',
+            required: true,
+        },
+        {
+            name: 'status',
+            type: 'select',
+            required: true,
+            defaultValue: 'pending',
+            options: [
+                { label: 'Pending', value: 'pending' },
+                { label: 'Approved', value: 'approved' },
+                { label: 'Rejected', value: 'rejected' },
+            ],
+        },
+        {
+            name: 'reviewedBy',
+            type: 'relationship',
+            relationTo: 'users',
+            admin: { position: 'sidebar' },
+        },
+        {
+            name: 'reviewedAt',
+            type: 'date',
+            admin: { position: 'sidebar' },
+        },
+    ],
+    hooks: {
+        beforeValidate: [
+            async ({ data, req, operation, originalDoc }) => {
+                if (!data?.user || !data?.municipality)
+                    return data;
+                if (operation !== 'create')
+                    return data;
+                const existing = await req.payload.find({
+                    collection: 'organizer-requests',
+                    where: {
+                        and: [
+                            { user: { equals: data.user } },
+                            { municipality: { equals: data.municipality } },
+                            { status: { equals: 'pending' } },
+                        ],
+                    },
+                    limit: 1,
+                    overrideAccess: true,
+                });
+                if (existing.docs.length > 0) {
+                    throw new Error('You already have a pending organizer request for this municipality.');
+                }
+                const existingRole = await req.payload.find({
+                    collection: 'user-roles',
+                    where: {
+                        and: [
+                            { user: { equals: data.user } },
+                            { municipality: { equals: data.municipality } },
+                            { role: { equals: 'organizer' } },
+                        ],
+                    },
+                    limit: 1,
+                    overrideAccess: true,
+                });
+                if (existingRole.docs.length > 0) {
+                    throw new Error('You are already an organizer in this municipality.');
+                }
+                return data;
+            },
+            // Stamp reviewedBy/reviewedAt whenever status is set on update (approve/reject).
+            ({ data, req, operation, originalDoc }) => {
+                if (operation !== 'update' || !data)
+                    return data;
+                if (data.status && data.status !== originalDoc?.status) {
+                    data.reviewedBy = req.user?.id;
+                    data.reviewedAt = new Date().toISOString();
+                }
+                return data;
+            },
+        ],
+        afterChange: [notifyOnRequestChange],
+    },
+    timestamps: true,
+};

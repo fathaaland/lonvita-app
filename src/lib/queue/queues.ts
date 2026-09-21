@@ -1,5 +1,7 @@
 import { Queue } from 'bullmq'
 
+import { getCorrelationId } from '@/lib/logger/correlation'
+
 import { JOB_NAMES, QUEUE_NAME } from './contracts'
 import { queueOptions } from './options'
 
@@ -14,10 +16,12 @@ export const getQueue = (): Queue<QueueJobEnvelope, unknown, JobName> => {
   return queueInstance
 }
 
-type EnqueueOptions = { jobId?: string; delay?: number }
+type EnqueueOptions = { jobId?: string; delay?: number; correlationId?: string }
 
 const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions) => {
-  return getQueue().add(job.jobType, job, {
+  const traced = { ...job, correlationId: options?.correlationId ?? getCorrelationId() }
+
+  return getQueue().add(job.jobType, traced, {
     ...(options?.jobId ? { jobId: options.jobId } : {}),
     ...(options?.delay ? { delay: options.delay } : {}),
   })

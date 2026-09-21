@@ -29,6 +29,9 @@ import { Organizations } from './collections/Organizations'
 import { OrganizerRequests } from './collections/OrganizerRequests'
 import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests'
 import { s3ClientConfig } from './lib/s3/client'
+import { logger, serializeError } from './lib/logger'
+import { correlationIdFromHeaders } from './lib/logger/correlation'
+import { withCrudLogging } from './lib/logger/collection-logger'
 import { runSeed } from './lib/seed/run'
 
 const filename = fileURLToPath(import.meta.url)
@@ -55,6 +58,9 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
+  // Every collection gets the same CRUD trail (create/update/delete at info, reads at debug),
+  // applied here rather than collection by collection so a new collection is covered the moment
+  // it joins this list instead of when somebody remembers to add the hook.
   collections: [
     Users,
     Media,
@@ -74,7 +80,34 @@ export default buildConfig({
     Organizations,
     OrganizerRequests,
     VolunteerFlagRequests,
-  ],
+  ].map(withCrudLogging),
+  hooks: {
+    afterError: [
+      ({ error, req, collection }) => {
+        const user = req?.user as { id?: number | string; email?: string; role?: string } | undefined
+        const correlationId = correlationIdFromHeaders(req?.headers)
+
+        // The last net: anything Payload throws and nobody caught — a failed login, a rejected
+        // access rule, a database column that does not exist — lands here instead of only in
+        // the platform's own request log.
+        logger.error('payload.unhandled_error', {
+          event: 'payload.unhandled_error',
+          ...serializeError(error),
+          collection: collection?.slug ?? null,
+          pathname: req?.url,
+          method: req?.method,
+          userId: user?.id,
+          userEmail: user?.email,
+          userRole: user?.role,
+          correlationId,
+        })
+
+        // Handing the id back means a user can quote the number from the screen and it maps
+        // straight onto one line in BetterStack.
+        return { response: { errors: [{ message: error.message }], correlationId } }
+      },
+    ],
+  },
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   // Frontend and backend are the same Next.js app now, so this is a safety net for

@@ -9,6 +9,8 @@ import type {
 } from 'payload'
 import { APIError } from 'payload'
 
+import { logForgotPasswordIssued, logLoginSuccess, logLogout } from '@/lib/logger/auth-logger'
+
 import { payloadTokenJwtStrategy } from './auth/strategies/payload-token-jwt'
 
 // An account created by a Google sign-in has no password of its own, but Payload's `auth`
@@ -188,6 +190,9 @@ export const Users: CollectionConfig = {
     beforeOperation: [lockPlatformRole],
     beforeValidate: [setGeneratedPasswordIfMissing],
     beforeDelete: [cleanupUserRelations],
+    afterLogin: [logLoginSuccess],
+    afterLogout: [logLogout],
+    afterForgotPassword: [logForgotPasswordIssued],
   },
   timestamps: true,
 }

@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq'
 
-import { logger } from '@/lib/logger'
+import { logger, serializeError } from '@/lib/logger'
+import { runWithCorrelationId } from '@/lib/logger/correlation'
 import { QUEUE_NAME } from '@/lib/queue/contracts'
 import { queueConnectionOptions } from '@/lib/valkey/client'
 
@@ -25,10 +26,15 @@ export const spawnQueueWorker = (): QueueWorker => {
   const worker = new Worker<QueueJobEnvelope, unknown, JobName>(
     QUEUE_NAME,
     async (job) => {
-      return dispatchJobByType(job.data, {
-        jobId: job.id,
-        attemptsMade: job.attemptsMade,
-      })
+      // Re-enter the trace the web request started: everything the processors log from here
+      // on carries the same correlationId as the HTTP request that enqueued the job, so a
+      // failed e-mail on Railway lines up with the click on Vercel that asked for it.
+      return runWithCorrelationId(job.data.correlationId ?? 'no-correlation-id', () =>
+        dispatchJobByType(job.data, {
+          jobId: job.id,
+          attemptsMade: job.attemptsMade,
+        }),
+      )
     },
     {
       connection: queueConnectionOptions,
@@ -37,32 +43,38 @@ export const spawnQueueWorker = (): QueueWorker => {
   )
 
   worker.on('completed', (job, result) => {
-    logger.info('[Worker] Job completed', {
+    logger.info('queue.job_completed', {
+      event: 'queue.job_completed',
       jobId: job.id,
       jobType: job.data.jobType,
+      correlationId: job.data.correlationId,
       result,
     })
   })
 
   worker.on('failed', (job, err) => {
-    logger.error('[Worker] Job failed', {
+    logger.error('queue.job_failed', {
+      event: 'queue.job_failed',
       jobId: job?.id,
       jobType: job?.data.jobType,
       attemptsMade: job?.attemptsMade,
-      error: err?.message ?? String(err),
-      stack: err?.stack,
+      // A job that has used up its attempts is gone for good unless somebody replays it — the
+      // distinction decides whether this line needs acting on.
+      exhausted: job ? job.attemptsMade >= (job.opts?.attempts ?? 1) : undefined,
+      correlationId: job?.data.correlationId,
+      ...serializeError(err),
     })
   })
 
   worker.on('stalled', (jobId) => {
-    logger.warn('[Worker] Job stalled - will be retried', { jobId })
+    logger.warn('queue.job_stalled', { event: 'queue.job_stalled', jobId })
   })
 
   worker.on('error', (err) => {
-    logger.error('[Worker] Worker-level error', { error: err.message })
+    logger.error('queue.worker_error', { event: 'queue.worker_error', ...serializeError(err) })
   })
 
-  logger.info('[Worker] Queue worker started', { queue: QUEUE_NAME, concurrency })
+  logger.info('queue.worker_started', { event: 'queue.worker_started', queue: QUEUE_NAME, concurrency })
 
   return {
     name: worker.name,

@@ -1,4 +1,4 @@
-import { logger } from '@/lib/logger'
+import { flushLogs, logger } from '@/lib/logger'
 
 import type { QueueWorker } from './spawn-worker'
 
@@ -7,6 +7,9 @@ export const registerShutdown = (label: string, workers: QueueWorker[]): void =>
     logger.info(`[${label}] Shutting down gracefully...`)
     await Promise.all(workers.map((worker) => worker.close()))
     logger.info(`[${label}] All workers stopped`)
+    // Shipping is fire-and-forget, so without this the last few lines — the ones explaining
+    // why the process is going down — die with the process.
+    await flushLogs()
     process.exit(0)
   }
 

@@ -12,6 +12,8 @@ import {
 } from '@/lib/auth/google/provider'
 import { OAUTH_STATE_COOKIE, OAUTH_STATE_COOKIE_PATH, verifyOAuthState } from '@/lib/auth/google/state'
 import { buildPayloadTokenCookie } from '@/lib/auth/session-cookie'
+import { logger, serializeError } from '@/lib/logger'
+import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 
 /** Error codes the /auth page turns into Czech copy — never the raw provider message, which
  * can echo back request details. */
@@ -37,14 +39,36 @@ function clearStateCookie(response: NextResponse) {
 }
 
 export async function GET(request: Request) {
+  // Every early return below sends the user to /auth with an opaque code, which is right for
+  // them and useless for us — so each one says here which of the six ways it failed.
+  const correlationId = correlationIdFromHeaders(request.headers)
+  const fail = (appUrl: string, error: AuthError, reason: string, context?: Record<string, unknown>) => {
+    logger.warn('auth.google_sign_in_failed', {
+      event: 'auth.google_sign_in_failed',
+      reason,
+      error,
+      ...context,
+      correlationId,
+    })
+    return failTo(appUrl, error)
+  }
+
   const appUrl = getAppUrl(request)
-  if (!isGoogleAuthConfigured()) return failTo(appUrl, 'google-unavailable')
+  if (!isGoogleAuthConfigured()) {
+    return fail(appUrl, 'google-unavailable', 'provider_not_configured')
+  }
 
   const { searchParams } = new URL(request.url)
 
   // Google reports a user who cancelled with ?error=access_denied — that's not a failure worth
   // an error banner, they just changed their mind.
-  if (searchParams.get('error')) {
+  const providerError = searchParams.get('error')
+  if (providerError) {
+    logger.info('auth.google_sign_in_abandoned', {
+      event: 'auth.google_sign_in_abandoned',
+      providerError,
+      correlationId,
+    })
     const response = NextResponse.redirect(new URL('/auth', appUrl))
     clearStateCookie(response)
     return response
@@ -58,21 +82,27 @@ export async function GET(request: Request) {
     ?.slice(OAUTH_STATE_COOKIE.length + 1)
 
   const verified = verifyOAuthState(searchParams.get('state'), stateCookie)
-  if (!verified.valid) return failTo(appUrl, 'google-failed')
+  if (!verified.valid) {
+    return fail(appUrl, 'google-failed', 'state_mismatch', { hadStateCookie: Boolean(stateCookie) })
+  }
 
   const code = searchParams.get('code')
-  if (!code) return failTo(appUrl, 'google-failed')
+  if (!code) return fail(appUrl, 'google-failed', 'missing_authorization_code')
 
   const payload = await getPayload({ config })
 
   try {
     const accessToken = await exchangeCodeForAccessToken(code, getGoogleCallbackUrl(appUrl))
     const profile = await fetchGoogleProfile(accessToken)
-    if (!profile.providerSubject) return failTo(appUrl, 'google-failed')
+    if (!profile.providerSubject) return fail(appUrl, 'google-failed', 'profile_without_subject')
 
     const result = await resolveGoogleUser(payload, profile)
     if (!result.ok) {
-      return failTo(appUrl, result.reason === 'no-email' ? 'google-no-email' : 'google-email-unverified')
+      return fail(
+        appUrl,
+        result.reason === 'no-email' ? 'google-no-email' : 'google-email-unverified',
+        `profile_${result.reason}`,
+      )
     }
 
     // Someone who hasn't finished onboarding goes there rather than to wherever they were
@@ -89,9 +119,25 @@ export async function GET(request: Request) {
     const response = NextResponse.redirect(new URL(destination, appUrl))
     response.headers.append('Set-Cookie', await buildPayloadTokenCookie(payload, result.user))
     clearStateCookie(response)
+
+    logger.info('auth.google_sign_in_succeeded', {
+      event: 'auth.google_sign_in_succeeded',
+      userId: result.user.id,
+      userEmail: result.user.email,
+      destination,
+      correlationId,
+    })
+
     return response
   } catch (error) {
-    payload.logger.error({ err: error }, '[GoogleAuth] Sign-in failed')
+    // Where a redirect_uri_mismatch or a revoked client secret surfaces — the message from
+    // Google is the whole diagnosis, and until now it only existed in the platform log.
+    logger.error('auth.google_sign_in_error', {
+      event: 'auth.google_sign_in_error',
+      callbackUrl: getGoogleCallbackUrl(appUrl),
+      ...serializeError(error),
+      correlationId,
+    })
     return failTo(appUrl, 'google-failed')
   }
 }

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import Redis from 'ioredis'
 
+import { logger, serializeError } from '@/lib/logger'
+
 export type RateLimitConfig = {
   max: number
   windowSeconds: number
@@ -84,13 +86,28 @@ export const consumeRateLimit = async ({
     }
 
     const ttl = await store.ttl(key)
+
+    logger.warn('security.rate_limit_exceeded', {
+      event: 'security.rate_limit_exceeded',
+      namespace,
+      max,
+      windowSeconds,
+      count,
+    })
+
     return {
       allowed: false,
       retryAfter: ttl > 0 ? ttl : retryAfter,
     }
-  } catch {
-    // Keep authentication usable when the optional rate-limit backend is unavailable.
-    console.error('Rate-limit backend unavailable')
+  } catch (error) {
+    // Keep authentication usable when the optional rate-limit backend is unavailable. This
+    // fails *open*, so it has to be loud: until it shows up in the log, the app silently has
+    // no rate limiting at all.
+    logger.error('security.rate_limit_backend_unavailable', {
+      event: 'security.rate_limit_backend_unavailable',
+      namespace,
+      ...serializeError(error),
+    })
     return { allowed: true, retryAfter }
   }
 }
