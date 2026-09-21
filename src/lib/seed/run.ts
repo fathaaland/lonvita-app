@@ -79,7 +79,7 @@ const DEMO_PASSWORD = 'demo1234'
 const MUNICIPALITIES = [
   {
     name: 'Nové Veselí',
-    description: 'Nové Veselí na Žďársk a okolí a na Vysočině',
+    description: 'Nové Veselí na Žďársk a okolí a na Vysočině a Česku',
     lat: 49.5198752,
     lng: 15.9084979,
   },
