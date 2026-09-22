@@ -31,7 +31,7 @@ export async function resetPasswordAction({ token, password, requestHeaders }) {
     const correlationId = correlationIdFromHeaders(requestHeaders);
     const parsed = resetPasswordInputSchema.safeParse({ token, password });
     if (!parsed.success) {
-        logger.info('auth.password_reset_failed', {
+        logger.info('Password reset failed', {
             event: 'auth.password_reset_failed',
             reason: 'invalid_input',
             correlationId,
@@ -40,7 +40,7 @@ export async function resetPasswordAction({ token, password, requestHeaders }) {
     }
     const rateLimit = await enforcePasswordResetRateLimit({ operation: 'reset-password', requestHeaders });
     if (!rateLimit.allowed) {
-        logger.warn('auth.password_reset_failed', {
+        logger.warn('Password reset failed', {
             event: 'auth.password_reset_failed',
             reason: 'rate_limited',
             retryAfter: rateLimit.retryAfter,
@@ -59,7 +59,7 @@ export async function resetPasswordAction({ token, password, requestHeaders }) {
         if (user.id !== undefined) {
             await invalidateResetToken(payload, user.id);
         }
-        logger.info('auth.password_reset_succeeded', {
+        logger.info('Password reset succeeded', {
             event: 'auth.password_reset_succeeded',
             userId: user.id,
             userEmail: user.email,
@@ -70,7 +70,7 @@ export async function resetPasswordAction({ token, password, requestHeaders }) {
     catch (error) {
         // A spent or forged token looks exactly like a mistyped one from here, so this stays at
         // warn: a single line is noise, a run of them against one address is an attack.
-        logger.warn('auth.password_reset_failed', {
+        logger.warn('Password reset failed', {
             event: 'auth.password_reset_failed',
             reason: 'token_rejected',
             ...serializeError(error),

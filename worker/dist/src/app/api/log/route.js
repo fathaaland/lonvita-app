@@ -20,6 +20,17 @@ const reportSchema = z.object({
     url: z.string().max(2_000).optional(),
     correlationId: z.string().max(200).optional(),
 });
+/**
+ * The message column of the log store should read as a sentence; the machine-readable name
+ * travels in `event`. Unknown values still get through — a browser that reports something new
+ * is worth seeing, just not worth trusting with the wording.
+ */
+const BROWSER_EVENT_LABEL = {
+    render_error: 'Browser render error',
+    global_error: 'Browser fatal render error',
+    window_error: 'Browser uncaught error',
+    unhandled_rejection: 'Browser unhandled promise rejection',
+};
 const SESSION_COOKIE = 'payload-token';
 /** Attribution is a bonus, not a requirement: anonymous crashes on /auth are exactly the ones
  * worth seeing, so an unauthenticated report is still accepted. Payload is only touched when a
@@ -66,9 +77,9 @@ export async function POST(request) {
     }
     const { event, level, message, stack, componentStack, digest, url, correlationId } = parsed.data;
     const reporter = await resolveReporter(request);
-    logger[level ?? 'error'](`client.${event}`, {
+    logger[level ?? 'error'](BROWSER_EVENT_LABEL[event] ?? `Browser error (${event})`, {
         event: `client.${event}`,
-        message,
+        errorMessage: message,
         stack,
         componentStack,
         digest,

@@ -21,7 +21,7 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }) {
     const correlationId = correlationIdFromHeaders(requestHeaders);
     const parsed = forgotPasswordInputSchema.safeParse({ email });
     if (!parsed.success) {
-        logger.info('auth.forgot_password_rejected', {
+        logger.info('Forgot password rejected', {
             event: 'auth.forgot_password_rejected',
             reason: 'invalid_email',
             correlationId,
@@ -34,7 +34,7 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }) {
         email: parsed.data.email,
     });
     if (!rateLimit.allowed) {
-        logger.warn('auth.forgot_password_rejected', {
+        logger.warn('Forgot password rejected', {
             event: 'auth.forgot_password_rejected',
             reason: 'rate_limited',
             userEmail: parsed.data.email,
@@ -56,7 +56,7 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }) {
     catch (error) {
         // Expected for an address nobody registered — recorded at info because a sudden run of
         // these is how account enumeration looks from the inside.
-        logger.info('auth.forgot_password_rejected', {
+        logger.info('Forgot password rejected', {
             event: 'auth.forgot_password_rejected',
             reason: 'no_matching_account',
             userEmail: parsed.data.email,
@@ -66,7 +66,7 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }) {
         return;
     }
     if (!token) {
-        logger.warn('auth.forgot_password_rejected', {
+        logger.warn('Forgot password rejected', {
             event: 'auth.forgot_password_rejected',
             reason: 'no_token_issued',
             userEmail: parsed.data.email,
@@ -81,7 +81,7 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }) {
             subject: 'Obnovení hesla — Lonvita',
             body: buildResetPasswordEmailHtml(resetUrl),
         }, { correlationId });
-        logger.info('auth.forgot_password_email_queued', {
+        logger.info('Forgot password e-mail queued', {
             event: 'auth.forgot_password_email_queued',
             userEmail: parsed.data.email,
             jobId: job.id,
@@ -91,7 +91,7 @@ export async function forgotPasswordAction({ email, appUrl, requestHeaders }) {
     catch (error) {
         // The token is already minted at this point, so a queue outage leaves a user waiting for
         // an e-mail that will never come. This is the line that says so.
-        logger.error('auth.forgot_password_email_enqueue_failed', {
+        logger.error('Forgot password e-mail enqueue failed', {
             event: 'auth.forgot_password_email_enqueue_failed',
             userEmail: parsed.data.email,
             ...serializeError(error),

@@ -55,7 +55,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         })
         send({ approvedCount: result.totalDocs })
       } catch (error) {
-        logger.error('capacity-stream: failed initial count', { err: String(error), eventId: id })
+        logger.error('Capacity stream initial count failed', {
+          event: 'realtime.capacity_stream_count_failed',
+          err: String(error),
+          eventId: id,
+        })
       }
 
       subscriber.on('message', (_channel: string, message: string) => {
@@ -66,7 +70,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         }
       })
       subscriber.subscribe(channel).catch((error) => {
-        logger.error('capacity-stream: subscribe failed', { err: String(error), eventId: id })
+        logger.error('Capacity stream subscribe failed', {
+          event: 'realtime.capacity_stream_subscribe_failed',
+          err: String(error),
+          eventId: id,
+        })
       })
 
       // Most platforms (and browsers) will otherwise time out an idle streamed connection.

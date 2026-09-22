@@ -9,7 +9,7 @@ const run = async () => {
     process.exit(0);
 };
 run().catch(async (error) => {
-    logger.error('seed.cli_failed', { event: 'seed.cli_failed', ...serializeError(error) });
+    logger.error('Seed CLI failed', { event: 'seed.cli_failed', ...serializeError(error) });
     await flushLogs();
     process.exit(1);
 });

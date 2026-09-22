@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
-import { logger, serializeError } from '@/lib/logger';
+import { logger } from '@/lib/logger';
+import { serializeError } from '@/lib/logger/serialize-error';
 const PASSWORD_RESET_ACTION_LIMIT = {
     max: 5,
     windowSeconds: 15 * 60,
@@ -42,7 +43,7 @@ export const consumeRateLimit = async ({ namespace, identifier, max, windowSecon
             return { allowed: true, retryAfter };
         }
         const ttl = await store.ttl(key);
-        logger.warn('security.rate_limit_exceeded', {
+        logger.warn('Rate limit exceeded', {
             event: 'security.rate_limit_exceeded',
             namespace,
             max,
@@ -58,7 +59,7 @@ export const consumeRateLimit = async ({ namespace, identifier, max, windowSecon
         // Keep authentication usable when the optional rate-limit backend is unavailable. This
         // fails *open*, so it has to be loud: until it shows up in the log, the app silently has
         // no rate limiting at all.
-        logger.error('security.rate_limit_backend_unavailable', {
+        logger.error('Rate limit backend unavailable', {
             event: 'security.rate_limit_backend_unavailable',
             namespace,
             ...serializeError(error),

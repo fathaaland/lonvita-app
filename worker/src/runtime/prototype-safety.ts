@@ -8,7 +8,8 @@ export const warnIfArrayPrototypeIsPolluted = (workerName: string): void => {
     return
   }
 
-  logger.warn('[Worker] Detected enumerable Array.prototype.random', {
+  logger.warn('Detected enumerable Array.prototype.random', {
+    event: 'worker.prototype_pollution_detected',
     worker: workerName,
     property: 'Array.prototype.random',
     enumerable: descriptor.enumerable,

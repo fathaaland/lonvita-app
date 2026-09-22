@@ -4,9 +4,9 @@ import type { QueueWorker } from './spawn-worker'
 
 export const registerShutdown = (label: string, workers: QueueWorker[]): void => {
   const shutdown = async () => {
-    logger.info(`[${label}] Shutting down gracefully...`)
+    logger.info('Shutting down gracefully', { event: 'worker.shutdown_started', worker: label })
     await Promise.all(workers.map((worker) => worker.close()))
-    logger.info(`[${label}] All workers stopped`)
+    logger.info('All workers stopped', { event: 'worker.shutdown_completed', worker: label })
     // Shipping is fire-and-forget, so without this the last few lines — the ones explaining
     // why the process is going down — die with the process.
     await flushLogs()

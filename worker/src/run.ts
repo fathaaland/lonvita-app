@@ -14,7 +14,7 @@ import { spawnQueueWorker } from './runtime/spawn-worker'
 const CLEANUP_NOTIFICATIONS_CRON = '0 3 * * *'
 const CLEANUP_NOTIFICATIONS_TZ = 'Europe/Prague'
 
-logger.info('[Worker] Starting worker...')
+logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
 
 // Idempotent by scheduler id: restarting the worker (or running several of them) updates the one
@@ -27,7 +27,8 @@ await getQueue().upsertJobScheduler(
     data: { jobType: JOB_NAMES.CLEANUP_NOTIFICATIONS, payload: {} },
   },
 )
-logger.info('[Worker] Registered notification cleanup schedule', {
+logger.info('Notification cleanup schedule registered', {
+  event: 'worker.cleanup_schedule_registered',
   pattern: CLEANUP_NOTIFICATIONS_CRON,
   tz: CLEANUP_NOTIFICATIONS_TZ,
 })

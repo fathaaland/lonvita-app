@@ -90,7 +90,7 @@ export default buildConfig({
         // The last net: anything Payload throws and nobody caught — a failed login, a rejected
         // access rule, a database column that does not exist — lands here instead of only in
         // the platform's own request log.
-        logger.error('payload.unhandled_error', {
+        logger.fatal('Payload unhandled error', {
           event: 'payload.unhandled_error',
           ...serializeError(error),
           collection: collection?.slug ?? null,

@@ -52,7 +52,11 @@ export async function GET(request, context) {
                 send({ approvedCount: result.totalDocs });
             }
             catch (error) {
-                logger.error('capacity-stream: failed initial count', { err: String(error), eventId: id });
+                logger.error('Capacity stream initial count failed', {
+                    event: 'realtime.capacity_stream_count_failed',
+                    err: String(error),
+                    eventId: id,
+                });
             }
             subscriber.on('message', (_channel, message) => {
                 try {
@@ -63,7 +67,11 @@ export async function GET(request, context) {
                 }
             });
             subscriber.subscribe(channel).catch((error) => {
-                logger.error('capacity-stream: subscribe failed', { err: String(error), eventId: id });
+                logger.error('Capacity stream subscribe failed', {
+                    event: 'realtime.capacity_stream_subscribe_failed',
+                    err: String(error),
+                    eventId: id,
+                });
             });
             // Most platforms (and browsers) will otherwise time out an idle streamed connection.
             const heartbeat = setInterval(() => {

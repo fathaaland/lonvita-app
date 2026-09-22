@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   // them and useless for us — so each one says here which of the six ways it failed.
   const correlationId = correlationIdFromHeaders(request.headers)
   const fail = (appUrl: string, error: AuthError, reason: string, context?: Record<string, unknown>) => {
-    logger.warn('auth.google_sign_in_failed', {
+    logger.warn('Google sign-in failed', {
       event: 'auth.google_sign_in_failed',
       reason,
       error,
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
   // an error banner, they just changed their mind.
   const providerError = searchParams.get('error')
   if (providerError) {
-    logger.info('auth.google_sign_in_abandoned', {
+    logger.info('Google sign-in abandoned', {
       event: 'auth.google_sign_in_abandoned',
       providerError,
       correlationId,
@@ -120,7 +120,7 @@ export async function GET(request: Request) {
     response.headers.append('Set-Cookie', await buildPayloadTokenCookie(payload, result.user))
     clearStateCookie(response)
 
-    logger.info('auth.google_sign_in_succeeded', {
+    logger.info('Google sign-in succeeded', {
       event: 'auth.google_sign_in_succeeded',
       userId: result.user.id,
       userEmail: result.user.email,
@@ -132,7 +132,7 @@ export async function GET(request: Request) {
   } catch (error) {
     // Where a redirect_uri_mismatch or a revoked client secret surfaces — the message from
     // Google is the whole diagnosis, and until now it only existed in the platform log.
-    logger.error('auth.google_sign_in_error', {
+    logger.error('Google sign-in error', {
       event: 'auth.google_sign_in_error',
       callbackUrl: getGoogleCallbackUrl(appUrl),
       ...serializeError(error),

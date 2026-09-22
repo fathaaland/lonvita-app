@@ -49,7 +49,7 @@ const changedFieldNames = (doc, previousDoc) => {
 const logCreateOrUpdate = ({ doc, previousDoc, req, operation, collection, }) => {
     const slug = collection.slug;
     const id = doc?.id;
-    logger.info(`${slug}.${operation}`, {
+    logger.info(`${slug}: ${operation}`, {
         event: `crud.${slug}.${operation}`,
         operation,
         id,
@@ -60,7 +60,7 @@ const logCreateOrUpdate = ({ doc, previousDoc, req, operation, collection, }) =>
 };
 const logDelete = ({ doc, id, req, collection }) => {
     const slug = collection.slug;
-    logger.info(`${slug}.delete`, {
+    logger.info(`${slug}: delete`, {
         event: `crud.${slug}.delete`,
         operation: 'delete',
         id,
@@ -82,12 +82,12 @@ const logOperation = ({ operation, req, collection, result }) => {
     const slug = collection.slug;
     const context = { event: `payload.${slug}.${operation}`, operation, ...baseContext(req, slug) };
     if (NOTEWORTHY_READ_OPERATIONS.has(operation)) {
-        logger.info(`${slug}.${operation}`, context);
+        logger.info(`${slug}: ${operation}`, context);
     }
     else if (!operation.startsWith('create') &&
         !operation.startsWith('update') &&
         !operation.startsWith('delete')) {
-        logger.debug(`${slug}.${operation}`, {
+        logger.debug(`${slug}: ${operation}`, {
             ...context,
             resultCount: result?.totalDocs,
         });

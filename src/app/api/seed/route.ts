@@ -15,25 +15,25 @@ export async function POST(request: Request) {
 
   const secret = process.env.SEED_SECRET
   if (!secret) {
-    logger.error('seed.misconfigured', { event: 'seed.misconfigured', reason: 'SEED_SECRET not set', correlationId })
+    logger.error('Seed endpoint misconfigured', { event: 'seed.misconfigured', reason: 'SEED_SECRET not set', correlationId })
     return NextResponse.json({ error: 'SEED_SECRET not configured' }, { status: 500 })
   }
 
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${secret}`) {
     // An unauthorised hit on the endpoint that can rewrite the whole database is worth seeing.
-    logger.warn('seed.unauthorized', { event: 'seed.unauthorized', correlationId })
+    logger.warn('Seed request rejected', { event: 'seed.unauthorized', correlationId })
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
     const payload = await getPayload({ config })
-    logger.info('seed.started', { event: 'seed.started', correlationId })
+    logger.info('Seed started', { event: 'seed.started', correlationId })
     await runSeed(payload)
-    logger.info('seed.finished', { event: 'seed.finished', correlationId })
+    logger.info('Seed finished', { event: 'seed.finished', correlationId })
     return NextResponse.json({ success: true })
   } catch (error) {
-    logger.error('seed.failed', { event: 'seed.failed', ...serializeError(error), correlationId })
+    logger.error('Seed failed', { event: 'seed.failed', ...serializeError(error), correlationId })
     return NextResponse.json({ error: String(error) }, { status: 500 })
   }
 }

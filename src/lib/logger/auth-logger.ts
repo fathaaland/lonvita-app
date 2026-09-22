@@ -22,7 +22,7 @@ const authContext = (req: PayloadRequest) => ({
 
 export const logLoginSuccess: CollectionAfterLoginHook = ({ req, user }) => {
   const account = user as { id?: number | string; email?: string; role?: string }
-  logger.info('auth.login_success', {
+  logger.info('Login success', {
     event: 'auth.login_success',
     userId: account?.id,
     userEmail: account?.email,
@@ -33,7 +33,7 @@ export const logLoginSuccess: CollectionAfterLoginHook = ({ req, user }) => {
 
 export const logLogout: CollectionAfterLogoutHook = ({ req }) => {
   const account = req?.user as { id?: number | string; email?: string } | undefined
-  logger.info('auth.logout', {
+  logger.info('Logout', {
     event: 'auth.logout',
     userId: account?.id,
     userEmail: account?.email,
@@ -43,7 +43,7 @@ export const logLogout: CollectionAfterLogoutHook = ({ req }) => {
 
 export const logForgotPasswordIssued: CollectionAfterForgotPasswordHook = ({ args }) => {
   const email = (args?.data as { email?: string } | undefined)?.email
-  logger.info('auth.forgot_password_token_issued', {
+  logger.info('Password reset token issued', {
     event: 'auth.forgot_password_token_issued',
     userEmail: email,
     correlationId: correlationIdFromHeaders(args?.req?.headers),

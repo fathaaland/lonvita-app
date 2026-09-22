@@ -1,3 +1,5 @@
+import { Logtail } from '@logtail/node'
+
 import { getCorrelationId } from './correlation'
 import { serializeError } from './serialize-error'
 
@@ -63,20 +65,38 @@ const redact = (value: unknown, depth = 0): unknown => {
 }
 
 /**
- * Optional BetterStack Logs shipping. Verified HTTP contract (2026-09):
- *   POST https://<INGESTING_HOST>   (source-specific, not a fixed global endpoint)
- *   header: Authorization: Bearer <SOURCE_TOKEN>
- *   body:   { message, dt, level, ...customFields }
- * Both env vars come from a source's "Data ingestion" tab at betterstack.com. Absent either
- * one, this is a no-op — console logging (below) is always the baseline regardless.
+ * Optional BetterStack Logs shipping, through the vendor's own SDK. Both env vars come from a
+ * source's "Data ingestion" tab at betterstack.com; without a token this is a no-op and the
+ * console mirror below is the only output, which is what local development wants anyway.
  */
 const betterStackToken = process.env.BETTERSTACK_SOURCE_TOKEN?.trim()
-// Normalised rather than taken literally: these are pasted into a dashboard by hand, and a
-// trailing newline or a leading `https://` turns the URL below into one fetch() refuses to
-// parse — which, being a rejected promise, used to vanish without a trace.
+// Normalised rather than taken literally: it is pasted into a dashboard by hand, and a trailing
+// newline or a leading `https://` turns the endpoint into one the SDK cannot reach.
 const betterStackHost = process.env.BETTERSTACK_INGESTING_HOST?.trim()
   .replace(/^https?:\/\//i, '')
   .replace(/\/+$/, '')
+
+const logtail = betterStackToken
+  ? new Logtail(betterStackToken, {
+      // Sources created recently get their own ingesting host. The SDK's built-in default
+      // (in.logs.betterstack.com) accepts our token too, so a missing host is not fatal.
+      ...(betterStackHost ? { endpoint: `https://${betterStackHost}` } : {}),
+      // A Vercel instance can be frozen the moment it replies. Waiting the stock full second
+      // for a batch to fill up means holding the instance open that long on every request.
+      batchInterval: 250,
+      // Never let a logging problem become a request problem — but do not swallow it either:
+      // with both of these false the SDK console.errors what went wrong, which is exactly the
+      // visibility whose absence made this integration look like it was working for weeks.
+      throwExceptions: false,
+      ignoreExceptions: false,
+      // The console mirror below already prints every line, as JSON.
+      sendLogsToConsoleOutput: false,
+    })
+  : null
+
+/** Stamped onto the shipped copy of every line, so one BetterStack source can hold the web app
+ * and the worker, production and preview, and still be filterable. */
+logtail?.use(async (log) => ({ ...log, service, env: environment }))
 
 /** Whether this deployment can ship at all, stated once per cold start. The alternative is
  * what happened the first time: a silent no-op that looks exactly like a working logger. */
@@ -86,7 +106,7 @@ console.info(
     message: 'logger.betterstack_config',
     service,
     env: environment,
-    enabled: Boolean(betterStackToken && betterStackHost),
+    enabled: Boolean(logtail),
     // Shapes only — never the values. Enough to tell "missing" from "pasted with a newline".
     tokenLength: betterStackToken?.length ?? 0,
     hostLength: betterStackHost?.length ?? 0,
@@ -103,7 +123,7 @@ type VercelRequestContext = {
 
 /**
  * A Vercel function instance can be frozen the instant it returns its response, which kills
- * any fetch still in flight — precisely what a fire-and-forget logger is, and the reason logs
+ * any request still in flight — precisely what a fire-and-forget logger is, and the reason logs
  * from short request handlers never arrived. `waitUntil` keeps the instance alive until the
  * shipping request finishes. Reached through the platform's well-known symbol rather than
  * @vercel/functions so that this module stays importable by the worker, which runs on Railway
@@ -135,58 +155,28 @@ const keepAliveUntilSettled = (promise: Promise<unknown>) => {
   waitUntil?.(promise)
 }
 
-function shipToBetterStack(level: LogLevel, message: string, fields: LogContext) {
-  if (!betterStackToken || !betterStackHost) return
-
-  const request = fetch(`https://${betterStackHost}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${betterStackToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ message, level, dt: new Date().toISOString(), ...fields }),
-  })
-    .then(async (response) => {
-      if (response.ok) return
-      // A rejected token or a wrong host answers with a perfectly ordinary 4xx that a bare
-      // fire-and-forget fetch throws away. Reported through console on purpose: routing it
-      // back through `logger` would try to ship the report with the same broken settings.
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: 'logger.betterstack_rejected',
-          status: response.status,
-          body: (await response.text().catch(() => '')).slice(0, 200),
-        }),
-      )
-    })
-    .catch((error: unknown) => {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          message: 'logger.betterstack_unreachable',
-          reason: error instanceof Error ? error.message : String(error),
-        }),
-      )
-    })
-
-  keepAliveUntilSettled(request)
-}
-
 const log = (level: LogLevel, message: string, context?: LogContext) => {
   if (LEVEL_WEIGHT[level] < minLevelWeight) return
 
   const fields: LogContext = {
-    service,
-    env: environment,
     correlationId: (context?.correlationId as string) || getCorrelationId(),
     ...(redact(context) as LogContext),
   }
 
   consoleMethod[level](
-    JSON.stringify({ level, message, timestamp: new Date().toISOString(), ...fields }),
+    JSON.stringify({
+      level,
+      message,
+      timestamp: new Date().toISOString(),
+      service,
+      env: environment,
+      ...fields,
+    }),
   )
-  shipToBetterStack(level, message, fields)
+
+  // The SDK's log() settles only once the line has actually been synced, so this promise is
+  // the one thing that has to outlive the request that produced it.
+  if (logtail) keepAliveUntilSettled(logtail[level](message, fields))
 }
 
 export const logger = {
@@ -194,11 +184,18 @@ export const logger = {
   info: (message: string, context?: LogContext) => log('info', message, context),
   warn: (message: string, context?: LogContext) => log('warn', message, context),
   error: (message: string, context?: LogContext) => log('error', message, context),
+  /**
+   * BetterStack knows four levels, so "the app is broken, not just this request" has to travel
+   * as a field. Kept as its own method because the call sites that deserve it — an unhandled
+   * Payload error, a worker that cannot start — should be greppable.
+   */
+  fatal: (message: string, context?: LogContext) =>
+    log('error', `[FATAL] ${message}`, { ...context, severity: 'fatal' }),
 }
 
 /** Let a long-running process (the worker, on shutdown) drain anything still in flight. */
 export const flushLogs = async (): Promise<void> => {
-  await Promise.allSettled([...pending])
+  await Promise.allSettled([...pending, logtail?.flush() ?? Promise.resolve()])
 }
 
 export {

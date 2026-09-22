@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as RegisterBody
   const validationError = validate(body)
   if (validationError) {
-    logger.info('auth.registration_rejected', {
+    logger.info('Registration rejected', {
       event: 'auth.registration_rejected',
       reason: validationError,
       correlationId: correlationIdFromHeaders(request.headers),
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
       })
     }
 
-    logger.info('auth.registration_succeeded', {
+    logger.info('Registration succeeded', {
       event: 'auth.registration_succeeded',
       userId: payloadUser.id,
       userEmail: payloadUser.email,
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
   } catch (error) {
     // A half-finished registration is the worst outcome here (an account with no roles or
     // consents), so the log has to say whether the rollback below actually ran.
-    logger.error('auth.registration_failed', {
+    logger.error('Registration failed', {
       event: 'auth.registration_failed',
       rollbackUserId: createdPayloadUserId ?? null,
       ...serializeError(error),
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
       await payload
         .delete({ collection: 'users', id: createdPayloadUserId, overrideAccess: true })
         .catch((rollbackError) => {
-          logger.error('auth.registration_rollback_failed', {
+          logger.error('Registration rollback failed', {
             event: 'auth.registration_rollback_failed',
             userId: createdPayloadUserId,
             ...serializeError(rollbackError),

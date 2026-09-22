@@ -10,7 +10,7 @@ import { spawnQueueWorker } from './runtime/spawn-worker';
  * evening when people actually use the app. Prague time, not the container's UTC. */
 const CLEANUP_NOTIFICATIONS_CRON = '0 3 * * *';
 const CLEANUP_NOTIFICATIONS_TZ = 'Europe/Prague';
-logger.info('[Worker] Starting worker...');
+logger.info('Worker starting', { event: 'worker.starting' });
 warnIfArrayPrototypeIsPolluted('lonvita-worker');
 // Idempotent by scheduler id: restarting the worker (or running several of them) updates the one
 // schedule instead of stacking up duplicates, and changing the cron here takes effect on boot.
@@ -18,7 +18,8 @@ await getQueue().upsertJobScheduler(JOB_NAMES.CLEANUP_NOTIFICATIONS, { pattern: 
     name: JOB_NAMES.CLEANUP_NOTIFICATIONS,
     data: { jobType: JOB_NAMES.CLEANUP_NOTIFICATIONS, payload: {} },
 });
-logger.info('[Worker] Registered notification cleanup schedule', {
+logger.info('Notification cleanup schedule registered', {
+    event: 'worker.cleanup_schedule_registered',
     pattern: CLEANUP_NOTIFICATIONS_CRON,
     tz: CLEANUP_NOTIFICATIONS_TZ,
 });

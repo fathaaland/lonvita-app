@@ -44,7 +44,7 @@ export const processEmailJob = async (
   const recipients = normalizeRecipients(to)
   const fromAddress = getFromAddress(from)
 
-  logger.info('email.send_started', {
+  logger.info('E-mail send started', {
     event: 'email.send_started',
     jobId: context?.jobId,
     subject,
@@ -65,7 +65,7 @@ export const processEmailJob = async (
   if (error) {
     // Carries `from` because the rejections that actually happen are about the sender: an
     // unverified domain, or a sandboxed account that may only write to its own owner.
-    logger.error('email.send_rejected', {
+    logger.error('E-mail send rejected', {
       event: 'email.send_rejected',
       jobId: context?.jobId,
       subject,
@@ -78,7 +78,7 @@ export const processEmailJob = async (
   }
 
   if (!data?.id) {
-    logger.error('email.send_without_message_id', {
+    logger.error('E-mail sent without a message ID', {
       event: 'email.send_without_message_id',
       jobId: context?.jobId,
       subject,
@@ -87,7 +87,7 @@ export const processEmailJob = async (
     throw new Error('Resend returned no message ID - treating as failure')
   }
 
-  logger.info('email.send_succeeded', {
+  logger.info('E-mail send succeeded', {
     event: 'email.send_succeeded',
     jobId: context?.jobId,
     subject,

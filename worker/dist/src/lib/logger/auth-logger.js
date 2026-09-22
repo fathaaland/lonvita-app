@@ -13,7 +13,7 @@ const authContext = (req) => ({
 });
 export const logLoginSuccess = ({ req, user }) => {
     const account = user;
-    logger.info('auth.login_success', {
+    logger.info('Login success', {
         event: 'auth.login_success',
         userId: account?.id,
         userEmail: account?.email,
@@ -23,7 +23,7 @@ export const logLoginSuccess = ({ req, user }) => {
 };
 export const logLogout = ({ req }) => {
     const account = req?.user;
-    logger.info('auth.logout', {
+    logger.info('Logout', {
         event: 'auth.logout',
         userId: account?.id,
         userEmail: account?.email,
@@ -32,7 +32,7 @@ export const logLogout = ({ req }) => {
 };
 export const logForgotPasswordIssued = ({ args }) => {
     const email = args?.data?.email;
-    logger.info('auth.forgot_password_token_issued', {
+    logger.info('Password reset token issued', {
         event: 'auth.forgot_password_token_issued',
         userEmail: email,
         correlationId: correlationIdFromHeaders(args?.req?.headers),

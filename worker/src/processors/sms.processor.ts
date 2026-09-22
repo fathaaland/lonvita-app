@@ -27,7 +27,8 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     throw new Error('HTTPSMS_API_KEY / HTTPSMS_FROM_NUMBER is not set - cannot send SMS')
   }
 
-  logger.info('[SmsWorker] Processing job', {
+  logger.info('SMS send started', {
+    event: 'sms.send_started',
     jobId: context?.jobId,
     to: payload.to,
     attempt: (context?.attemptsMade ?? 0) + 1,
@@ -49,7 +50,8 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    logger.error('[SmsWorker] httpSMS rejected the request', {
+    logger.error('SMS send rejected', {
+      event: 'sms.send_rejected',
       jobId: context?.jobId,
       to: payload.to,
       status: res.status,
@@ -58,5 +60,9 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     throw new Error(`httpSMS error ${res.status}: ${body}`)
   }
 
-  logger.info('[SmsWorker] SMS handed off to httpSMS', { jobId: context?.jobId, to: payload.to })
+  logger.info('SMS send succeeded', {
+    event: 'sms.send_succeeded',
+    jobId: context?.jobId,
+    to: payload.to,
+  })
 }

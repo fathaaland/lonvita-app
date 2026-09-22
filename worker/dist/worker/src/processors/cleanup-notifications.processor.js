@@ -49,7 +49,8 @@ export const processCleanupNotificationsJob = async () => {
         if (expired.docs.length < BATCH_SIZE)
             break;
     }
-    logger.info('[CleanupNotifications] Finished', {
+    logger.info('Notification cleanup finished', {
+        event: 'notifications.cleanup_finished',
         deleted,
         readRetentionDays: READ_RETENTION_DAYS,
         retentionDays: RETENTION_DAYS,

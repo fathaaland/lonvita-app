@@ -88,7 +88,7 @@ export const consumeRateLimit = async ({
 
     const ttl = await store.ttl(key)
 
-    logger.warn('security.rate_limit_exceeded', {
+    logger.warn('Rate limit exceeded', {
       event: 'security.rate_limit_exceeded',
       namespace,
       max,
@@ -104,7 +104,7 @@ export const consumeRateLimit = async ({
     // Keep authentication usable when the optional rate-limit backend is unavailable. This
     // fails *open*, so it has to be loud: until it shows up in the log, the app silently has
     // no rate limiting at all.
-    logger.error('security.rate_limit_backend_unavailable', {
+    logger.error('Rate limit backend unavailable', {
       event: 'security.rate_limit_backend_unavailable',
       namespace,
       ...serializeError(error),

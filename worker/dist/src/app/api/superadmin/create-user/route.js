@@ -73,7 +73,7 @@ export async function POST(request) {
         }
         // An account created by staff on somebody else's behalf is exactly the kind of privileged
         // action an audit trail exists for.
-        logger.info('admin.user_created', {
+        logger.info('Superadmin created a user', {
             event: 'admin.user_created',
             userId: newUser.id,
             userEmail: newUser.email,
@@ -82,7 +82,7 @@ export async function POST(request) {
         return NextResponse.json({ id: newUser.id, email: newUser.email }, { status: 201 });
     }
     catch (error) {
-        logger.error('admin.user_creation_failed', {
+        logger.error('Superadmin user creation failed', {
             event: 'admin.user_creation_failed',
             rollbackUserId: createdUserId ?? null,
             ...serializeError(error),

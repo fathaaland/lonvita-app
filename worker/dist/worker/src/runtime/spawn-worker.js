@@ -27,7 +27,7 @@ export const spawnQueueWorker = () => {
         concurrency,
     });
     worker.on('completed', (job, result) => {
-        logger.info('queue.job_completed', {
+        logger.info('Queue job completed', {
             event: 'queue.job_completed',
             jobId: job.id,
             jobType: job.data.jobType,
@@ -36,7 +36,7 @@ export const spawnQueueWorker = () => {
         });
     });
     worker.on('failed', (job, err) => {
-        logger.error('queue.job_failed', {
+        logger.error('Queue job failed', {
             event: 'queue.job_failed',
             jobId: job?.id,
             jobType: job?.data.jobType,
@@ -49,12 +49,12 @@ export const spawnQueueWorker = () => {
         });
     });
     worker.on('stalled', (jobId) => {
-        logger.warn('queue.job_stalled', { event: 'queue.job_stalled', jobId });
+        logger.warn('Queue job stalled', { event: 'queue.job_stalled', jobId });
     });
     worker.on('error', (err) => {
-        logger.error('queue.worker_error', { event: 'queue.worker_error', ...serializeError(err) });
+        logger.error('Queue worker error', { event: 'queue.worker_error', ...serializeError(err) });
     });
-    logger.info('queue.worker_started', { event: 'queue.worker_started', queue: QUEUE_NAME, concurrency });
+    logger.info('Queue worker started', { event: 'queue.worker_started', queue: QUEUE_NAME, concurrency });
     return {
         name: worker.name,
         close: () => worker.close(),

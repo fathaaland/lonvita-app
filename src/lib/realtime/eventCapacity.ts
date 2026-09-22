@@ -22,7 +22,12 @@ let publisher: Redis | undefined
 const getPublisher = (): Redis => {
   if (!publisher) {
     publisher = new Redis({ ...queueConnectionOptions, lazyConnect: false })
-    publisher.on('error', (err) => logger.error('Realtime publisher Redis connection error', { err: String(err) }))
+    publisher.on('error', (err) =>
+      logger.error('Realtime publisher Redis connection error', {
+        event: 'realtime.publisher_connection_error',
+        err: String(err),
+      }),
+    )
   }
   return publisher
 }
@@ -32,7 +37,13 @@ const getPublisher = (): Redis => {
 export function publishCapacityChange(eventId: string | number, approvedCount: number): void {
   getPublisher()
     .publish(channelFor(eventId), JSON.stringify({ approvedCount }))
-    .catch((err) => logger.error('Failed to publish capacity change', { err: String(err), eventId }))
+    .catch((err) =>
+      logger.error('Failed to publish capacity change', {
+        event: 'realtime.capacity_publish_failed',
+        err: String(err),
+        eventId,
+      }),
+    )
 }
 
 export function createCapacitySubscriber(): Redis {
