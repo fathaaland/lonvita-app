@@ -1,11 +1,25 @@
-import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
+import { APIError, type CollectionAfterChangeHook, type CollectionBeforeChangeHook, type CollectionConfig } from 'payload'
 
-import { isLoggedIn } from './access/shared'
+import { canReadVolunteerFields, isLoggedIn } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 import { sendNotification } from './shared/notify'
 
 /** Brief §7 "Přihlášení do poolu dobrovolníků → účastník" — confirms once `isVolunteer`
  * flips false -> true (joining), not on every profile save. */
+/** The volunteer pool is per-municipality, so a profile without one ("bez obce") can't be in
+ * it: joining is refused, and clearing the municipality drops the person out of the pool. */
+const requireMunicipalityForVolunteer: CollectionBeforeChangeHook = ({ data, originalDoc }) => {
+  const municipality = 'municipality' in data ? data.municipality : originalDoc?.municipality
+  const isVolunteer = 'isVolunteer' in data ? data.isVolunteer : originalDoc?.isVolunteer
+  if (!isVolunteer || municipality) return data
+
+  if (data.isVolunteer === true && !originalDoc?.isVolunteer) {
+    throw new APIError('Do poolu dobrovolníků se lze přihlásit jen s vybranou obcí.', 400, undefined, true)
+  }
+  data.isVolunteer = false
+  return data
+}
+
 const notifyOnVolunteerSignup: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   if (operation !== 'update') return doc
   if (!doc.isVolunteer || previousDoc?.isVolunteer) return doc
@@ -134,25 +148,30 @@ export const Profiles: CollectionConfig = {
     },
     {
       name: 'isVolunteer',
+      access: { read: canReadVolunteerFields },
       type: 'checkbox',
       defaultValue: false,
     },
     {
       name: 'volunteerFocus',
+      access: { read: canReadVolunteerFields },
       type: 'text',
       hasMany: true,
     },
     {
       name: 'volunteerNote',
+      access: { read: canReadVolunteerFields },
       type: 'textarea',
     },
     {
       name: 'volunteerSince',
+      access: { read: canReadVolunteerFields },
       type: 'date',
     },
     deletedAtField,
   ],
   hooks: {
+    beforeChange: [requireMunicipalityForVolunteer],
     afterChange: [notifyOnVolunteerSignup],
   },
   timestamps: true,

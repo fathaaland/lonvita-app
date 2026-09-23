@@ -38,6 +38,10 @@ export function VolunteerCard() {
     setPhone(profile?.phone ?? "");
   }, [profile?.id]);
 
+  // The pool is per-obec — someone "bez obce" has no pool to join (an existing volunteer can
+  // still switch it off).
+  const hasMunicipality = Boolean(profile?.municipality_id);
+
   const toggleFocus = (v: string) => {
     setFocus((s) => (s.includes(v) ? s.filter((x) => x !== v) : [...s, v]));
   };
@@ -81,8 +85,19 @@ export function VolunteerCard() {
               </p>
             </div>
           </div>
-          <Switch checked={isVolunteer} onCheckedChange={setIsVolunteer} aria-label="Chci být dobrovolník" />
+          <Switch
+            checked={isVolunteer}
+            onCheckedChange={setIsVolunteer}
+            disabled={!hasMunicipality && !isVolunteer}
+            aria-label="Chci být dobrovolník"
+          />
         </div>
+
+        {!hasMunicipality && (
+          <p className="text-sm text-muted-foreground">
+            Do poolu dobrovolníků se můžete přihlásit, až si v profilu vyberete obec.
+          </p>
+        )}
 
         {isVolunteer && (
           <div className="space-y-4">

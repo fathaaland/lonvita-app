@@ -1,4 +1,4 @@
-import type { Access, Where } from 'payload'
+import type { Access, FieldAccess, Where } from 'payload'
 
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
@@ -100,4 +100,37 @@ export const getOrganizerMunicipalityIds = async (
     overrideAccess: true,
   })
   return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
+}
+
+/**
+ * Field-level read access for a profile's volunteer-pool fields: only the person themselves,
+ * a platform admin, or an admin/organizer of the municipality the profile belongs to may see
+ * them — a volunteer signs up for their own obec's pool, not every obec's.
+ *
+ * Without a `doc` Payload is asking whether the field may be used in a `where` query; only a
+ * platform admin may, so no one can list another obec's volunteers by filtering on `isVolunteer`.
+ * Listing a municipality's pool goes through GET /api/admin/volunteers instead.
+ */
+export const canReadVolunteerFields: FieldAccess = async ({ req, doc }) => {
+  const { user, payload } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+  if (!doc) return false
+
+  const ownerId = typeof doc.user === 'object' && doc.user ? doc.user.id : doc.user
+  if (String(ownerId) === String(user.id)) return true
+
+  const municipality = typeof doc.municipality === 'object' && doc.municipality ? doc.municipality.id : doc.municipality
+  if (municipality == null) return false
+
+  // Field access runs once per profile per field, so resolve the viewer's obce once per request.
+  const cacheKey = 'volunteerFieldsMunicipalityIds'
+  if (!req.context[cacheKey]) {
+    req.context[cacheKey] = Promise.all([
+      getAdministeredMunicipalityIds(payload, user.id),
+      getOrganizerMunicipalityIds(payload, user.id),
+    ]).then(([administered, organizer]) => [...administered, ...organizer])
+  }
+  const municipalityIds = await (req.context[cacheKey] as Promise<string[]>)
+  return municipalityIds.includes(String(municipality))
 }

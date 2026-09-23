@@ -333,3 +333,136 @@ describe('Consents ownership (GDPR foundation, brief §A3)', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
+  let muniA: { id: number }
+  let muniB: { id: number }
+  let volunteerA: { id: number; email: string; role: string }
+  let adminA: { id: number; email: string; role: string }
+  let adminB: { id: number; email: string; role: string }
+  let homeless: { id: number; email: string; role: string }
+  let volunteerProfile: { id: number }
+  let homelessProfile: { id: number }
+
+  beforeAll(async () => {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+
+    muniA = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Test Volunteer Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      overrideAccess: true,
+    })
+    muniB = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Test Volunteer Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      overrideAccess: true,
+    })
+
+    const makeUser = (name: string) =>
+      payload.create({
+        collection: 'users',
+        data: { email: `${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+    volunteerA = await makeUser('volunteer-a')
+    adminA = await makeUser('vol-admin-a')
+    adminB = await makeUser('vol-admin-b')
+    homeless = await makeUser('vol-homeless')
+
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: adminA.id, municipality: muniA.id, role: 'municipality_admin' },
+      overrideAccess: true,
+    })
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: adminB.id, municipality: muniB.id, role: 'municipality_admin' },
+      overrideAccess: true,
+    })
+
+    volunteerProfile = await payload.create({
+      collection: 'profiles',
+      data: {
+        user: volunteerA.id,
+        fullName: 'Volunteer A',
+        municipality: muniA.id,
+        isVolunteer: true,
+        volunteerFocus: ['akce'],
+        volunteerNote: 'Mám auto',
+      },
+      overrideAccess: true,
+    })
+    homelessProfile = await payload.create({
+      collection: 'profiles',
+      data: { user: homeless.id, fullName: 'Bez obce' },
+      overrideAccess: true,
+    })
+  })
+
+  afterAll(async () => {
+    const userIds = [volunteerA.id, adminA.id, adminB.id, homeless.id]
+    await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'municipalities', id: muniA.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'municipalities', id: muniB.id, overrideAccess: true }).catch(() => {})
+  })
+
+  const readProfileAs = (user: { id: number; email: string; role: string }) =>
+    payload.findByID({ collection: 'profiles', id: volunteerProfile.id, user, overrideAccess: false })
+
+  it("an admin of another obec doesn't see that someone is a volunteer", async () => {
+    const profile = await readProfileAs(adminB)
+    expect(profile.fullName).toBe('Volunteer A')
+    expect(profile.isVolunteer).toBeUndefined()
+    expect(profile.volunteerFocus).toBeUndefined()
+    expect(profile.volunteerNote).toBeUndefined()
+  })
+
+  it("an admin of another obec can't list volunteers by filtering on isVolunteer", async () => {
+    await expect(
+      payload.find({
+        collection: 'profiles',
+        where: { and: [{ municipality: { equals: muniA.id } }, { isVolunteer: { equals: true } }] },
+        user: adminB,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it("the obec's own admin sees the volunteer fields", async () => {
+    const profile = await readProfileAs(adminA)
+    expect(profile.isVolunteer).toBe(true)
+    expect(profile.volunteerFocus).toEqual(['akce'])
+  })
+
+  it('the volunteer sees their own volunteer fields', async () => {
+    const profile = await readProfileAs(volunteerA)
+    expect(profile.isVolunteer).toBe(true)
+    expect(profile.volunteerNote).toBe('Mám auto')
+  })
+
+  it('someone without an obec cannot join the volunteer pool', async () => {
+    await expect(
+      payload.update({
+        collection: 'profiles',
+        id: homelessProfile.id,
+        data: { isVolunteer: true },
+        user: homeless,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('clearing the obec drops a volunteer out of the pool', async () => {
+    const updated = await payload.update({
+      collection: 'profiles',
+      id: volunteerProfile.id,
+      data: { municipality: null },
+      user: volunteerA,
+      overrideAccess: false,
+    })
+    expect(updated.isVolunteer).toBe(false)
+  })
+})

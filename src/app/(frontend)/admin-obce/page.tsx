@@ -9,12 +9,13 @@ import {
   getMunicipalityProfilesForAdmin,
   getFeedbackForEventIds,
 } from "@/integrations/payload/admin-queries";
-import { getMunicipality, getMyAdministeredMunicipalityId, RulesForCreation } from "@/integrations/payload/queries";
+import { getMunicipality, listMunicipalities, RulesForCreation } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BarChart3, CalendarRange, HandHeart, ClipboardList, Settings } from "lucide-react";
 import { AnalyticsOverview } from "@/components/admin/AnalyticsOverview";
@@ -30,7 +31,7 @@ import type { ProfileWithDob } from "@/lib/report";
 
 function AdminContent() {
   const router = useRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, administeredMunicipalityIds } = useAuth();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
@@ -38,6 +39,9 @@ function AdminContent() {
   const [profiles, setProfiles] = useState<ProfileWithDob[]>([]);
   const [muniName, setMuniName] = useState<string>("");
   const [muniId, setMuniId] = useState<string>("");
+  // Someone can administer several obce — they pick which one the dashboard shows.
+  const [selectedMuniId, setSelectedMuniId] = useState<string>("");
+  const [muniOptions, setMuniOptions] = useState<{ id: string; name: string }[]>([]);
   const [rulesForCreation, setRulesForCreation] = useState<RulesForCreation>("approved_organizers");
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<string>("overview");
@@ -46,10 +50,10 @@ function AdminContent() {
 
   const load = async () => {
     if (!user) return;
-    // The municipality this account actually administers (a "municipality_admin" user-role)
-    // isn't necessarily their home municipality — a superadmin can grant that role for any
+    // The municipalities this account actually administers ("municipality_admin" user-roles)
+    // aren't necessarily their home municipality — a superadmin can grant that role for any
     // obec. Fall back to the home municipality only if no explicit grant is found.
-    const muniId = (await getMyAdministeredMunicipalityId(String(user.id))) ?? profile?.municipality_id;
+    const muniId = selectedMuniId || administeredMunicipalityIds[0] || profile?.municipality_id;
     if (!muniId) return;
     setLoading(true);
 
@@ -77,7 +81,24 @@ function AdminContent() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.id, profile?.municipality_id]);
+  const administeredKey = administeredMunicipalityIds.join(",");
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.id, profile?.municipality_id, selectedMuniId, administeredKey]);
+
+  useEffect(() => {
+    if (administeredMunicipalityIds.length < 2) {
+      setMuniOptions([]);
+      return;
+    }
+    listMunicipalities().then((all) =>
+      setMuniOptions(
+        all
+          .filter((m) => administeredMunicipalityIds.includes(m.id))
+          .map((m) => ({ id: m.id, name: m.name }))
+          .sort((a, b) => a.name.localeCompare(b.name, "cs")),
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [administeredKey]);
 
   const scopedEvents = useMemo(
     () => (scope === "mine" && user ? events.filter((e) => e.organizer_id === String(user.id)) : events),
@@ -103,6 +124,18 @@ function AdminContent() {
         <AdminSideNav value={tab} onChange={setTab} />
 
         <div className="flex-1 min-w-0">
+          {muniOptions.length > 1 && (
+            <Select value={muniId} onValueChange={setSelectedMuniId}>
+              <SelectTrigger className="h-11 mb-4 max-w-xs" aria-label="Obec">
+                <SelectValue placeholder="Vyberte obec" />
+              </SelectTrigger>
+              <SelectContent>
+                {muniOptions.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="w-full h-12 grid grid-cols-5 md:hidden">
               <TabsTrigger value="overview" className="gap-1">
@@ -176,11 +209,11 @@ function AdminContent() {
             </TabsContent>
 
             <TabsContent value="requests" className="pt-4">
-              <RequestsTable municipalityId={muniId} />
+              <RequestsTable key={muniId} municipalityId={muniId} />
             </TabsContent>
 
             <TabsContent value="settings" className="pt-4">
-              {muniId && <SettingsPanel municipalityId={muniId} initialRules={rulesForCreation} />}
+              {muniId && <SettingsPanel key={muniId} municipalityId={muniId} initialRules={rulesForCreation} />}
             </TabsContent>
           </Tabs>
 

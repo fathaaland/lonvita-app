@@ -37,7 +37,8 @@ export function VolunteersTable({ municipalityId }: { municipalityId?: string })
   const load = async () => {
     if (!muniId) return;
     setLoading(true);
-    const list = await getVolunteers(muniId);
+    // 403 when the viewer holds no admin/organizer role in this obec — show an empty pool.
+    const list = await getVolunteers(muniId).catch(() => [] as VolunteerRow[]);
     setRows(list);
     setLoading(false);
   };

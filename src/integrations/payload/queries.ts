@@ -626,25 +626,11 @@ export type VolunteerRow = {
   volunteer_since: string | null;
 };
 
+/** Goes through the scoped /admin/volunteers endpoint — the volunteer fields on a profile
+ * can't be filtered on over plain REST (see Profiles `canReadVolunteerFields`). */
 export async function getVolunteers(municipalityId: string): Promise<VolunteerRow[]> {
-  const where = buildWhereParams({
-    municipality: { equals: municipalityId },
-    isVolunteer: { equals: true },
-  });
-  const query = buildQuery({ sort: "-volunteerSince", depth: 1, limit: 500 });
-  const result = await get<PayloadListResponse<PayloadProfile & { user: number | { id: number; email: string } }>>(
-    `/profiles?${where}&${query}`,
-  );
-  return result.docs.map((p) => ({
-    id: String(p.id),
-    user_id: String(typeof p.user === "object" ? p.user.id : p.user),
-    full_name: p.fullName,
-    phone: p.phone ?? null,
-    email: typeof p.user === "object" ? p.user.email : null,
-    volunteer_focus: p.volunteerFocus ?? null,
-    volunteer_note: p.volunteerNote ?? null,
-    volunteer_since: p.volunteerSince ?? null,
-  }));
+  const result = await get<{ docs: VolunteerRow[] }>(`/admin/volunteers?municipalityId=${encodeURIComponent(municipalityId)}`);
+  return result.docs;
 }
 
 /** Admin adds someone (by user id) to their municipality's volunteer pool — Profiles.access.update
@@ -716,17 +702,6 @@ export async function getMyRoles(userId: string): Promise<AppRole[]> {
   const where = buildWhereParams({ user: { equals: userId } });
   const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`);
   return result.docs.map((r) => r.role);
-}
-
-/** The municipality this user administers (their "municipality_admin" user-role), if any.
- * Distinct from their home municipality (profile.municipality_id) — a superadmin can grant
- * municipality_admin for an obec the person doesn't personally live in. */
-export async function getMyAdministeredMunicipalityId(userId: string): Promise<string | null> {
-  const where = buildWhereParams({ user: { equals: userId }, role: { equals: "municipality_admin" } });
-  const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=1&depth=0`);
-  const row = result.docs[0];
-  if (!row) return null;
-  return String(typeof row.municipality === "object" ? row.municipality.id : row.municipality);
 }
 
 async function getMyRoleMunicipalityIds(userId: string, role: AppRole): Promise<string[]> {
