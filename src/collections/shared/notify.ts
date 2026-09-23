@@ -21,6 +21,8 @@ export const notify = (
 
 /** IDs of users holding "municipality_admin" for the given municipality — the audience for
  * "new organizer/volunteering request" notifications (brief §7 notification table). */
+export const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
 export const getMunicipalityAdminUserIds = async (payload: Payload, municipalityId: number | string): Promise<number[]> => {
   const result = await payload.find({
     collection: 'user-roles',

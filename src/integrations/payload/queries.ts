@@ -6,6 +6,7 @@
 import { buildQuery, buildWhereParams, get, patch, post, uploadFile } from "./client";
 
 import type { PayloadListResponse } from "./client";
+import type { OrganizationType } from "@/lib/organizations";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -83,6 +84,9 @@ export async function uploadEventImage(file: File, alt: string): Promise<{ id: s
 
 // --- Events ---------------------------------------------------------------------------
 
+/** Who runs an event besides the obec — a café, a club, or one person ("Vycházky pro seniory"). */
+export type OrganizationRef = { id: string; name: string; type: OrganizationType; owner_id: string };
+
 export type EventRow = {
   id: string;
   title: string;
@@ -101,7 +105,10 @@ export type EventRow = {
   image_position: { x: number; y: number };
   category_ids: string[];
   organizer_id?: string;
+  /** The organization the organizer runs it as — null when the obec's own admin founded it. */
+  organization: OrganizationRef | null;
   co_organizer_ids: string[];
+  co_organizations: OrganizationRef[];
   municipality_id?: string;
   status?: "active" | "full" | "finished" | "cancelled";
   is_hidden?: boolean;
@@ -109,9 +116,14 @@ export type EventRow = {
   price_cents?: number | null;
   is_volunteering?: boolean;
   cancellation_policy: "none" | "cancel_24h" | "cancel_48h" | "cancel_7d";
+  /** The viewer organizes an event the obec takes part in — may help with attendees, not edit/cancel. */
+  locked_for_viewer: boolean;
+  /** The viewer runs it with other organizers — deleting needs their consent (requestEventDeletion). */
+  deletion_needs_consent: boolean;
 };
 
 type PayloadMedia = { id: number; url?: string | null };
+type PayloadOrganization = { id: number; name: string; type: OrganizationType; owner: number | { id: number } };
 type PayloadEvent = {
   id: number;
   title: string;
@@ -130,7 +142,9 @@ type PayloadEvent = {
   imagePositionY?: number | null;
   categories?: (number | { id: number })[] | null;
   organizer?: number | { id: number };
+  organization?: number | PayloadOrganization | null;
   coOrganizers?: (number | { id: number })[] | null;
+  coOrganizations?: (number | PayloadOrganization)[] | null;
   municipality?: number | { id: number };
   status?: EventRow["status"];
   isHidden?: boolean;
@@ -138,12 +152,18 @@ type PayloadEvent = {
   priceCents?: number | null;
   isVolunteering?: boolean;
   cancellationPolicy?: EventRow["cancellation_policy"];
+  lockedForViewer?: boolean | null;
+  deletionNeedsConsent?: boolean | null;
 };
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
   if (value == null) return null;
   return String(typeof value === "object" ? value.id : value);
 };
+
+/** Only populated (depth ≥ 1) organizations — a bare id is one that's since been deleted. */
+const mapOrganization = (o: number | PayloadOrganization | null | undefined): OrganizationRef | null =>
+  o && typeof o === "object" ? { id: String(o.id), name: o.name, type: o.type, owner_id: toId(o.owner)! } : null;
 
 const mapEvent = (e: PayloadEvent): EventRow => ({
   id: String(e.id),
@@ -162,7 +182,9 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   image_position: { x: e.imagePositionX ?? 50, y: e.imagePositionY ?? 50 },
   category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
   organizer_id: toId(e.organizer) ?? undefined,
+  organization: mapOrganization(e.organization),
   co_organizer_ids: (e.coOrganizers ?? []).map(toId).filter((v): v is string => Boolean(v)),
+  co_organizations: (e.coOrganizations ?? []).map(mapOrganization).filter((o): o is OrganizationRef => Boolean(o)),
   municipality_id: toId(e.municipality) ?? undefined,
   status: e.status,
   is_hidden: e.isHidden,
@@ -170,6 +192,8 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   price_cents: e.priceCents ?? null,
   is_volunteering: e.isVolunteering,
   cancellation_policy: e.cancellationPolicy ?? "cancel_48h",
+  locked_for_viewer: Boolean(e.lockedForViewer),
+  deletion_needs_consent: Boolean(e.deletionNeedsConsent),
 });
 
 /** Upcoming (not cancelled) events for a municipality — or, with `null`, across every
@@ -220,7 +244,7 @@ type CreateEventInput = {
   registrationApprovalMode?: "auto" | "manual";
   organizerUserId: string;
   municipalityId: string;
-  coOrganizerIds?: string[];
+  coOrganizationIds?: string[];
   categoryIds: string[];
   imageId?: string;
   /** Framing of the photo in the 16:10 crop (object-position percentages); centred when omitted. */
@@ -246,7 +270,7 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     registrationApprovalMode: input.registrationApprovalMode ?? "manual",
     organizer: Number(input.organizerUserId),
     municipality: Number(input.municipalityId),
-    coOrganizers: input.coOrganizerIds?.length ? input.coOrganizerIds.map(Number) : undefined,
+    coOrganizations: input.coOrganizationIds?.length ? input.coOrganizationIds.map(Number) : undefined,
     categories: input.categoryIds.map(Number),
     image: input.imageId ? Number(input.imageId) : undefined,
     imagePositionX: input.imagePositionX ?? 50,
@@ -653,12 +677,12 @@ export async function searchMunicipalityUsers(municipalityId: string, query: str
     }));
 }
 
-/** For CoOrganizerPicker — pořadatelé and admins of this obec (by user-role, not home
- * municipality), matched by name. Only they can be an event's spolupořadatel. */
-export async function searchCoOrganizerCandidates(municipalityId: string, query: string): Promise<MunicipalityUserRow[]> {
+/** For CoOrganizerPicker — the organizations of this obec's pořadatelé (never the obec itself,
+ * never the searcher's own), matched by name. Only they can be an event's spolupořadatel. */
+export async function searchCoOrganizerCandidates(municipalityId: string, query: string): Promise<OrganizationRef[]> {
   if (query.trim().length < 2) return [];
   const params = new URLSearchParams({ municipalityId, q: query.trim() });
-  const result = await get<{ docs: MunicipalityUserRow[] }>(`/events/co-organizer-candidates?${params}`);
+  const result = await get<{ docs: OrganizationRef[] }>(`/events/co-organizer-candidates?${params}`);
   return result.docs;
 }
 
@@ -732,8 +756,75 @@ export async function getMyOrganizerRequests(userId: string): Promise<{ id: stri
   }));
 }
 
-export async function requestOrganizerRole(userId: string, municipalityId: string): Promise<void> {
-  await post("/organizer-requests", { user: Number(userId), municipality: Number(municipalityId) });
+/** `reason` — the applicant's own words on why the obec should let them organize events there;
+ * `organization` — who they'll organize as, created for them once the obec approves. */
+export async function requestOrganizerRole(
+  userId: string,
+  municipalityId: string,
+  reason: string,
+  organization: { name: string; type: OrganizationType },
+): Promise<void> {
+  await post("/organizer-requests", {
+    user: Number(userId),
+    municipality: Number(municipalityId),
+    reason,
+    organizationName: organization.name,
+    organizationType: organization.type,
+  });
+}
+
+// --- Consented deletion of a co-organized event ---------------------------------------------
+
+export type EventDeletionRequestRow = {
+  id: string;
+  requested_by_id: string;
+  approver_ids: string[];
+  approved_by_ids: string[];
+  expires_at: string;
+};
+
+type PayloadEventDeletionRequest = {
+  id: number;
+  requestedBy: number | { id: number };
+  approvers?: (number | { id: number })[] | null;
+  approvedBy?: (number | { id: number })[] | null;
+  expiresAt: string;
+};
+
+/** The open (pending, not yet lapsed) request to delete this event, if any. */
+export async function getOpenEventDeletionRequest(eventId: string): Promise<EventDeletionRequestRow | null> {
+  const where = buildWhereParams({
+    event: { equals: eventId },
+    status: { equals: "pending" },
+    expiresAt: { greater_than: new Date().toISOString() },
+  });
+  const result = await get<PayloadListResponse<PayloadEventDeletionRequest>>(
+    `/event-deletion-requests?${where}&depth=0&limit=1`,
+  );
+  const r = result.docs[0];
+  if (!r) return null;
+  const ids = (v: PayloadEventDeletionRequest["approvers"]) =>
+    (v ?? []).map(toId).filter((x): x is string => Boolean(x));
+  return {
+    id: String(r.id),
+    requested_by_id: toId(r.requestedBy)!,
+    approver_ids: ids(r.approvers),
+    approved_by_ids: ids(r.approvedBy),
+    expires_at: r.expiresAt,
+  };
+}
+
+/** Asks the event's other organizers to consent to deleting it — they get notified. */
+export async function requestEventDeletion(eventId: string): Promise<void> {
+  await post("/event-deletion-requests", { event: Number(eventId) });
+}
+
+/** "approved" = everyone consented and the event is gone; "pending" = others still have to. */
+export async function decideEventDeletion(
+  requestId: string,
+  approve: boolean,
+): Promise<{ status: "pending" | "approved" | "rejected" }> {
+  return post(`/events/deletion-requests/${requestId}/decide`, { approve });
 }
 
 export async function requestVolunteerFlag(eventId: string, userId: string): Promise<void> {

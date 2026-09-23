@@ -78,6 +78,8 @@ const USER_OWNED_COLLECTIONS: { collection: CollectionSlug; field: string }[] = 
   { collection: 'event-media', field: 'uploadedBy' },
   { collection: 'volunteer-flag-requests', field: 'requestedBy' },
   { collection: 'organizer-requests', field: 'user' },
+  { collection: 'event-deletion-requests', field: 'requestedBy' },
+  { collection: 'organizations', field: 'owner' },
   { collection: 'notifications', field: 'user' },
   { collection: 'consents', field: 'user' },
   { collection: 'auth-identities', field: 'user' },

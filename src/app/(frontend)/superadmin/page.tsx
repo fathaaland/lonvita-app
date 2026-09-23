@@ -32,6 +32,7 @@ import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { CancelEventButton } from "@/components/CancelEventButton";
+import { OrganizerRequestReason } from "@/components/admin/RequestsTable";
 import { EventForm, EventFormValues } from "@/components/EventForm";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -406,7 +407,7 @@ function SuperAdminContent() {
         registrationApprovalMode: values.registrationApprovalMode,
         organizerUserId: evOrganizerId,
         municipalityId: evMuniId,
-        coOrganizerIds: values.coOrganizerIds,
+        coOrganizationIds: values.coOrganizationIds,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,
         imagePositionX: values.imagePosition.x,
@@ -1249,31 +1250,38 @@ function SuperAdminContent() {
                     </div>
                     {orgRequests.map((r) => (
                       <Card key={r.id}>
-                        <CardContent className="p-3 flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate">{r.full_name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {r.municipality_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
-                            </p>
+                        <CardContent className="p-3 space-y-2">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-sm truncate">{r.full_name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {r.municipality_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 text-success border-success/40"
+                              disabled={requestBusyId === r.id}
+                              onClick={() => handleOrganizerRequestDecision(r.id, true)}
+                            >
+                              <Check className="h-4 w-4" /> Schválit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 text-destructive border-destructive/40"
+                              disabled={requestBusyId === r.id}
+                              onClick={() => handleOrganizerRequestDecision(r.id, false)}
+                            >
+                              <X className="h-4 w-4" /> Zamítnout
+                            </Button>
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-9 text-success border-success/40"
-                            disabled={requestBusyId === r.id}
-                            onClick={() => handleOrganizerRequestDecision(r.id, true)}
-                          >
-                            <Check className="h-4 w-4" /> Schválit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-9 text-destructive border-destructive/40"
-                            disabled={requestBusyId === r.id}
-                            onClick={() => handleOrganizerRequestDecision(r.id, false)}
-                          >
-                            <X className="h-4 w-4" /> Zamítnout
-                          </Button>
+                          <OrganizerRequestReason
+                            reason={r.reason}
+                            organizationName={r.organization_name}
+                            organizationType={r.organization_type}
+                          />
                         </CardContent>
                       </Card>
                     ))}

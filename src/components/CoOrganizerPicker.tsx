@@ -1,25 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { searchCoOrganizerCandidates, MunicipalityUserRow } from "@/integrations/payload/queries";
+import { searchCoOrganizerCandidates, OrganizationRef } from "@/integrations/payload/queries";
+import { organizationTypeLabel } from "@/lib/organizations";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 
 interface Props {
   municipalityId: string;
-  /** Ids of already-picked co-organizers, plus their names for display without a lookup. */
-  value: { id: string; full_name: string }[];
-  onChange: (value: { id: string; full_name: string }[]) => void;
-  /** The primary organizer and the current user can't also be added as co-organizers. */
-  excludeUserIds: string[];
+  /** Already-picked co-organizing organizations. */
+  value: OrganizationRef[];
+  onChange: (value: OrganizationRef[]) => void;
+  /** Organizations that can't be added — the event's own (its organizer's). */
+  excludeIds: string[];
+  /** Already-saved co-organizations the current user isn't allowed to remove. */
+  fixedIds?: string[];
 }
 
-/** Brief §4 "Spolupořadatelství" — search this obec's pořadatelé and admins by name and add
- * them as additional organizers of the event (Events.coOrganizers). */
-export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUserIds }: Props) {
+/** Brief §4 "Spolupořadatelství" — search this obec's organizations (a café, a club, one person's
+ * "Vycházky pro seniory") by name and add them as co-organizers (Events.coOrganizations). */
+export function CoOrganizerPicker({ municipalityId, value, onChange, excludeIds, fixedIds = [] }: Props) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<MunicipalityUserRow[]>([]);
+  const [results, setResults] = useState<OrganizationRef[]>([]);
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
@@ -43,8 +46,8 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUser
     };
   }, [query, municipalityId]);
 
-  const add = (user: MunicipalityUserRow) => {
-    onChange([...value, { id: user.id, full_name: user.full_name }]);
+  const add = (organization: OrganizationRef) => {
+    onChange([...value, organization]);
     setQuery("");
     setResults([]);
   };
@@ -54,7 +57,7 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUser
   };
 
   const pickedIds = new Set(value.map((v) => v.id));
-  const visibleResults = results.filter((r) => !pickedIds.has(r.id) && !excludeUserIds.includes(r.id));
+  const visibleResults = results.filter((r) => !pickedIds.has(r.id) && !excludeIds.includes(r.id));
 
   return (
     <div className="space-y-2">
@@ -62,10 +65,12 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUser
         <div className="flex flex-wrap gap-1.5">
           {value.map((v) => (
             <Badge key={v.id} variant="secondary" className="gap-1 pr-1 h-8">
-              {v.full_name}
-              <button type="button" onClick={() => remove(v.id)} aria-label="Odebrat" className="ml-0.5 hover:text-destructive">
-                <X className="h-3 w-3" />
-              </button>
+              {v.name}
+              {!fixedIds.includes(v.id) && (
+                <button type="button" onClick={() => remove(v.id)} aria-label="Odebrat" className="ml-0.5 hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </Badge>
           ))}
         </div>
@@ -73,7 +78,7 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUser
       <Input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Hledat podle jména…"
+        placeholder="Hledat podle názvu…"
         className="h-11"
       />
       {searching && <p className="text-xs text-muted-foreground">Hledám…</p>}
@@ -86,8 +91,8 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUser
               onClick={() => add(r)}
               className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
             >
-              <span className="font-semibold">{r.full_name}</span>
-              {r.email && <span className="text-muted-foreground"> · {r.email}</span>}
+              <span className="font-semibold">{r.name}</span>
+              <span className="text-muted-foreground"> · {organizationTypeLabel(r.type)}</span>
             </button>
           ))}
         </div>

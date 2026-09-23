@@ -17,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Check, X, UserPlus, HandHeart, Users } from "lucide-react";
 import { toast } from "sonner";
+import { organizationTypeLabel } from "@/lib/organizations";
 
 /** `municipalityId` = the obec this admin actually administers, which isn't necessarily their
  * home municipality (a superadmin can grant municipality_admin anywhere). */
@@ -105,17 +106,24 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
           </div>
           {organizerRequests.map((r) => (
             <Card key={r.id}>
-              <CardContent className="p-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{r.full_name}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("cs-CZ")}</p>
+              <CardContent className="p-3 space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{r.full_name}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("cs-CZ")}</p>
+                  </div>
+                  <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busyId === r.id} onClick={() => handleOrganizerDecision(r.id, true)}>
+                    <Check className="h-4 w-4" /> Schválit
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busyId === r.id} onClick={() => handleOrganizerDecision(r.id, false)}>
+                    <X className="h-4 w-4" /> Zamítnout
+                  </Button>
                 </div>
-                <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busyId === r.id} onClick={() => handleOrganizerDecision(r.id, true)}>
-                  <Check className="h-4 w-4" /> Schválit
-                </Button>
-                <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busyId === r.id} onClick={() => handleOrganizerDecision(r.id, false)}>
-                  <X className="h-4 w-4" /> Zamítnout
-                </Button>
+                <OrganizerRequestReason
+                  reason={r.reason}
+                  organizationName={r.organization_name}
+                  organizationType={r.organization_type}
+                />
               </CardContent>
             </Card>
           ))}
@@ -174,5 +182,34 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** The applicant's "why me" text — what the admin decides on. Requests filed before the reason
+ * was asked for have none. */
+export function OrganizerRequestReason({
+  reason,
+  organizationName,
+  organizationType,
+}: {
+  reason: string | null;
+  /** Who the applicant will organize as — approving creates this organization. */
+  organizationName?: string | null;
+  organizationType?: string | null;
+}) {
+  return (
+    <>
+      {organizationName && (
+        <p className="text-sm">
+          Za <span className="font-semibold">{organizationName}</span>
+          <span className="text-muted-foreground"> · {organizationTypeLabel(organizationType)}</span>
+        </p>
+      )}
+      {reason ? (
+        <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm whitespace-pre-line break-words">{reason}</p>
+      ) : (
+        <p className="text-xs italic text-muted-foreground">Žádost je bez zdůvodnění.</p>
+      )}
+    </>
   );
 }

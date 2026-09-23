@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getEventCategories, uploadEventImage, getFullNamesByUserIds, EventRow } from "@/integrations/payload/queries";
+import { getEventCategories, uploadEventImage, EventRow, OrganizationRef } from "@/integrations/payload/queries";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
 import { CoOrganizerPicker } from "@/components/CoOrganizerPicker";
@@ -66,7 +66,7 @@ export type EventFormValues = {
   isVolunteering: boolean;
   isPaid: boolean;
   priceCents: number | null;
-  coOrganizerIds: string[];
+  coOrganizationIds: string[];
   isHidden: boolean;
 };
 
@@ -122,7 +122,7 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
   const [isRecurring, setIsRecurring] = useState(initialWeekdays.length > 0);
   const [recurWeekdays, setRecurWeekdays] = useState<string[]>(initialWeekdays);
   const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
-  const [coOrganizers, setCoOrganizers] = useState<{ id: string; full_name: string }[]>([]);
+  const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
   const [isHidden, setIsHidden] = useState(Boolean(initial?.is_hidden));
@@ -141,15 +141,6 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
   useEffect(() => {
     getEventCategories().then(setCategories);
   }, []);
-
-  useEffect(() => {
-    const ids = initial?.co_organizer_ids ?? [];
-    if (ids.length === 0) return;
-    getFullNamesByUserIds(ids).then((names) => {
-      setCoOrganizers(ids.map((id) => ({ id, full_name: names.get(id) ?? id })));
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial?.id]);
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -216,7 +207,7 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
         accessibilityTags,
         capacity: parsed.data.capacity,
         registrationApprovalMode: approvalMode,
-        coOrganizerIds: coOrganizers.map((c) => c.id),
+        coOrganizationIds: coOrganizations.map((c) => c.id),
         categoryIds: parsed.data.category_ids,
         imageId,
         imagePosition,
@@ -423,13 +414,22 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
-          Jen pořadatelé a admini této obce. Akce se jim objeví v jejich přehledu akcí a mohou ji spravovat.
+          Organizace pořadatelů této obce — podnik, spolek nebo jednotlivec. Akce se jim objeví v jejich přehledu
+          akcí a mohou ji spravovat. Akci založenou obcí upravuje a maže už jen obec. Akci s další organizací
+          smažete jen s jejím souhlasem.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
-          value={coOrganizers}
-          onChange={setCoOrganizers}
-          excludeUserIds={[userId, ...(initial?.organizer_id ? [initial.organizer_id] : [])]}
+          value={coOrganizations}
+          onChange={setCoOrganizations}
+          excludeIds={initial?.organization ? [initial.organization.id] : []}
+          // Only the obec admin removes another organization; an organizer can only take their own
+          // off (Events guardCoOrganizedChanges).
+          fixedIds={
+            initial && !canSetVolunteering
+              ? initial.co_organizations.filter((o) => o.owner_id !== userId).map((o) => o.id)
+              : []
+          }
         />
       </div>
 

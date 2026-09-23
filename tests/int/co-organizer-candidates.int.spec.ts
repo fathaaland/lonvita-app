@@ -84,10 +84,17 @@ describe('Co-organizer picker search (GET /api/events/co-organizer-candidates)',
     )
   }
 
-  it("offers only the obec's organizers and admins", async () => {
+  it("offers only the organizations of the obec's organizers — never the obec itself", async () => {
+    const response = await searchAs(adminA.email)
+    const body = (await response.json()) as { docs: { owner_id: string; name: string }[] }
+    expect(body.docs.map((d) => d.owner_id)).toEqual([String(pubOrganizerA.id)])
+    expect(body.docs[0].name).toBe('picker hospoda-a')
+  })
+
+  it("doesn't offer the searcher their own organization", async () => {
     const response = await searchAs(pubOrganizerA.email)
-    const body = (await response.json()) as { docs: { id: string }[] }
-    expect(body.docs.map((d) => d.id).sort()).toEqual([String(adminA.id), String(pubOrganizerA.id)].sort())
+    const body = (await response.json()) as { docs: unknown[] }
+    expect(body.docs).toEqual([])
   })
 
   it("can't be used by someone who doesn't organize in the obec", async () => {

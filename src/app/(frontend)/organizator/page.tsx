@@ -35,6 +35,8 @@ function toAnalyticsEvent(e: QueryEventRow): EventRow {
     is_paid: e.is_paid,
     price_cents: e.price_cents,
     is_volunteering: e.is_volunteering,
+    locked_for_viewer: e.locked_for_viewer,
+    deletion_needs_consent: e.deletion_needs_consent,
   };
 }
 

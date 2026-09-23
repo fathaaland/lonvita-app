@@ -9,6 +9,7 @@ import { buildQuery, buildWhereParams, del, get, patch } from "./client";
 import type { PayloadListResponse } from "./client";
 import type { EventRow, RegistrationRow, CategoryRow, ProfileRow, FeedbackRow } from "@/lib/analytics";
 import type { ProfileWithDob } from "@/lib/report";
+import type { OrganizationType } from "@/lib/organizations";
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
   if (value == null) return null;
@@ -137,10 +138,23 @@ export type OrganizerRequestAdminRow = {
   user_id: string;
   full_name: string;
   status: "pending" | "approved" | "rejected";
+  /** The applicant's reason — null on requests filed before it was asked for. */
+  reason: string | null;
+  /** Who they'll organize as once approved — null on requests filed before it was asked for. */
+  organization_name: string | null;
+  organization_type: OrganizationType | null;
   created_at: string;
 };
 
-type PayloadOrganizerRequestAdmin = { id: number; user: number | { id: number }; status: string; createdAt: string };
+type PayloadOrganizerRequestAdmin = {
+  id: number;
+  user: number | { id: number };
+  status: string;
+  reason?: string | null;
+  organizationName?: string | null;
+  organizationType?: OrganizationType | null;
+  createdAt: string;
+};
 
 export async function getOrganizerRequestsForAdmin(municipalityId: string): Promise<OrganizerRequestAdminRow[]> {
   const where = buildWhereParams({ municipality: { equals: municipalityId }, status: { equals: "pending" } });
@@ -165,6 +179,9 @@ export async function getOrganizerRequestsForAdmin(municipalityId: string): Prom
     user_id: toId(r.user)!,
     full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
     status: r.status as OrganizerRequestAdminRow["status"],
+    reason: r.reason ?? null,
+    organization_name: r.organizationName ?? null,
+    organization_type: r.organizationType ?? null,
     created_at: r.createdAt,
   }));
 }

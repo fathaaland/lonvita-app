@@ -46,7 +46,11 @@ function EditEventContent() {
         const uid = String(user.id);
         const isAdminHere = isSuperAdmin || (!!ev.municipality_id && adminIds.includes(ev.municipality_id));
         setCanSetVolunteering(isAdminHere);
-        setCanEdit(isAdminHere || ev.organizer_id === uid || ev.co_organizer_ids.includes(uid));
+        setCanEdit(
+          isAdminHere ||
+            ev.organizer_id === uid ||
+            (ev.co_organizer_ids.includes(uid) && !ev.locked_for_viewer),
+        );
       }
       setEvent(ev);
       setLoading(false);
@@ -71,7 +75,7 @@ function EditEventContent() {
         accessibilityTags: values.accessibilityTags,
         capacity: values.capacity,
         registrationApprovalMode: values.registrationApprovalMode,
-        coOrganizers: values.coOrganizerIds.map(Number),
+        coOrganizations: values.coOrganizationIds.map(Number),
         categories: values.categoryIds.map(Number),
         ...(values.imageId ? { image: Number(values.imageId) } : {}),
         imagePositionX: values.imagePosition.x,
@@ -109,7 +113,13 @@ function EditEventContent() {
         <PageHeader title="Upravit akci" back />
         <EmptyState
           title={event ? "Tuto akci nemůžete upravit" : "Akce nebyla nalezena"}
-          description={event ? "Upravovat ji může pořadatel nebo admin obce." : undefined}
+          description={
+            event?.locked_for_viewer
+              ? "Tuhle akci pořádá admin obce — upravit nebo zrušit ji může jen on. Jako spolupořadatel můžete spravovat přihlášené."
+              : event
+                ? "Upravovat ji může pořadatel nebo admin obce."
+                : undefined
+          }
         />
       </div>
     );

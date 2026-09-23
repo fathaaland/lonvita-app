@@ -1,8 +1,16 @@
 import type { Access, CollectionAfterChangeHook, CollectionConfig } from 'payload'
+import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared'
-import { getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
+import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
+import { ORGANIZER_REASON_MAX_LENGTH, ORGANIZER_REASON_MIN_LENGTH } from '@/lib/validation'
+import {
+  ORGANIZATION_NAME_MAX_LENGTH,
+  ORGANIZATION_NAME_MIN_LENGTH,
+  ORGANIZATION_TYPES,
+  isOrganizationType,
+} from '@/lib/organizations'
 
 const canCreateOwnRequest: Access = ({ req: { user }, data }) => {
   if (!user) return false
@@ -16,15 +24,28 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
 
   if (operation === 'create') {
     const adminIds = await getMunicipalityAdminUserIds(req.payload, municipalityId)
+    const profile = await req.payload.find({
+      collection: 'profiles',
+      where: { user: { equals: userId } },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      req,
+    })
+    const who = profile.docs[0]?.fullName || 'Někdo v obci'
+    const reason = doc.reason ?? ''
     for (const adminId of adminIds) {
       sendNotification(req.payload, {
         userId: adminId,
         title: 'Nová žádost o roli organizátora',
         link: '/admin-obce',
-        message: 'Někdo v obci požádal o roli organizátora — vyřiďte to v sekci Žádosti.',
+        message: `${who} žádá o roli organizátora za „${doc.organizationName}“: „${reason}“ — vyřiďte to v sekci Žádosti.`,
         email: {
           subject: 'Nová žádost o roli organizátora',
-          body: '<p>Někdo ve vaší obci požádal o roli organizátora — vyřiďte to v sekci Žádosti v adminu obce.</p>',
+          body:
+            `<p><strong>${escapeHtml(who)}</strong> ve vaší obci požádal(a) o roli organizátora za <strong>${escapeHtml(doc.organizationName ?? '')}</strong>.</p>` +
+            `<p><strong>Zdůvodnění:</strong><br/>${escapeHtml(reason).replace(/\n/g, '<br/>')}</p>` +
+            '<p>Schválit nebo zamítnout ji můžete v sekci Žádosti v adminu obce.</p>',
         },
       })
     }
@@ -40,6 +61,8 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
           collection: 'user-roles',
           data: { user: userId, municipality: municipalityId, role: 'organizer' },
           overrideAccess: true,
+          // UserRoles creates the organization the obec just approved along with the role.
+          context: { organization: { name: doc.organizationName, type: doc.organizationType } },
         })
       } catch (error) {
         req.payload.logger.error(`Failed to grant organizer role after request ${doc.id} approval: ${error}`)
@@ -115,6 +138,33 @@ export const OrganizerRequests: CollectionConfig = {
       required: true,
     },
     {
+      // Not `required` at the DB level — requests filed before this field existed have none.
+      // A new request must carry one (checked in beforeValidate below).
+      name: 'reason',
+      type: 'textarea',
+      maxLength: ORGANIZER_REASON_MAX_LENGTH,
+      access: { update: () => false },
+      admin: {
+        description:
+          'Why the applicant wants to organize events here (e.g. they run a business in town) — what the obec admin decides on.',
+      },
+    },
+    {
+      // Who the applicant will organize as — a café, a club, or just themselves ("individual").
+      // Becomes their Organizations row on approval. Not `required` at the DB level for the same
+      // reason as `reason` above; a new request must carry both (beforeValidate below).
+      name: 'organizationName',
+      type: 'text',
+      maxLength: ORGANIZATION_NAME_MAX_LENGTH,
+      access: { update: () => false },
+    },
+    {
+      name: 'organizationType',
+      type: 'select',
+      options: ORGANIZATION_TYPES.map((t) => ({ label: t.label, value: t.value })),
+      access: { update: () => false },
+    },
+    {
       name: 'status',
       type: 'select',
       required: true,
@@ -142,6 +192,27 @@ export const OrganizerRequests: CollectionConfig = {
       async ({ data, req, operation, originalDoc }) => {
         if (!data?.user || !data?.municipality) return data
         if (operation !== 'create') return data
+
+        const reason = typeof data.reason === 'string' ? data.reason.trim() : ''
+        if (reason.length < ORGANIZER_REASON_MIN_LENGTH) {
+          throw new APIError(
+            `Napište prosím obci aspoň pár slov (min. ${ORGANIZER_REASON_MIN_LENGTH} znaků), proč chcete pořádat akce — třeba že ve městě provozujete podnik nebo vedete spolek.`,
+            400,
+          )
+        }
+        data.reason = reason
+
+        const organizationName = typeof data.organizationName === 'string' ? data.organizationName.trim() : ''
+        if (organizationName.length < ORGANIZATION_NAME_MIN_LENGTH) {
+          throw new APIError(
+            'Vyplňte, za koho budete akce pořádat — název podniku nebo spolku, případně vaše jméno či název vaší aktivity.',
+            400,
+          )
+        }
+        if (!isOrganizationType(data.organizationType)) {
+          throw new APIError('Vyberte, jestli jste podnik, spolek, nebo jednotlivec.', 400)
+        }
+        data.organizationName = organizationName
 
         const existing = await req.payload.find({
           collection: 'organizer-requests',

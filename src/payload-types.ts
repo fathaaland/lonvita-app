@@ -84,6 +84,8 @@ export interface Config {
     notifications: Notification;
     'organizer-requests': OrganizerRequest;
     'volunteer-flag-requests': VolunteerFlagRequest;
+    'event-deletion-requests': EventDeletionRequest;
+    organizations: Organization;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -108,6 +110,8 @@ export interface Config {
     notifications: NotificationsSelect<false> | NotificationsSelect<true>;
     'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
     'volunteer-flag-requests': VolunteerFlagRequestsSelect<false> | VolunteerFlagRequestsSelect<true>;
+    'event-deletion-requests': EventDeletionRequestsSelect<false> | EventDeletionRequestsSelect<true>;
+    organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -387,13 +391,23 @@ export interface Event {
    */
   registrationApprovalMode: 'auto' | 'manual';
   /**
-   * The user organizing this event. Additional organizers: see coOrganizers below.
+   * The user organizing this event. Additional organizers: see coOrganizations below.
    */
   organizer: number | User;
   /**
-   * Brief §4 "Spolupořadatelství" — additional organizers (e.g. two people running an event together). The event appears in each co-organizer's own dashboard/"moje akce" alongside the primary organizer.
+   * The organization the organizer runs this event as. Empty = the obec's own event (its admin founded it).
+   */
+  organization?: (number | null) | Organization;
+  /**
+   * Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the obec with the local café). The event appears in each owner's own dashboard/"moje akce".
+   */
+  coOrganizations?: (number | Organization)[] | null;
+  /**
+   * The owners of coOrganizations — what access checks, deletion consent and the co-organizers' dashboards key on.
    */
   coOrganizers?: (number | User)[] | null;
+  lockedForViewer?: boolean | null;
+  deletionNeedsConsent?: boolean | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
   /**
    * Temporarily unpublish the event without cancelling it — registrations and data stay intact, it just drops out of the public feed/map.
@@ -427,6 +441,23 @@ export interface Event {
   cancellationPolicy: 'none' | 'cancel_24h' | 'cancel_48h' | 'cancel_7d';
   /**
    * Soft-delete marker — preserves attendance history when an event is removed.
+   */
+  deletedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizations".
+ */
+export interface Organization {
+  id: number;
+  name: string;
+  type: 'business' | 'association' | 'individual';
+  owner: number | User;
+  municipality: number | Municipality;
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
   deletedAt?: string | null;
   updatedAt: string;
@@ -634,6 +665,12 @@ export interface OrganizerRequest {
   id: number;
   user: number | User;
   municipality: number | Municipality;
+  /**
+   * Why the applicant wants to organize events here (e.g. they run a business in town) — what the obec admin decides on.
+   */
+  reason?: string | null;
+  organizationName?: string | null;
+  organizationType?: ('business' | 'association' | 'individual') | null;
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy?: (number | null) | User;
   reviewedAt?: string | null;
@@ -651,6 +688,28 @@ export interface VolunteerFlagRequest {
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy?: (number | null) | User;
   reviewedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-deletion-requests".
+ */
+export interface EventDeletionRequest {
+  id: number;
+  event?: (number | null) | Event;
+  eventTitle: string;
+  municipality?: (number | null) | Municipality;
+  requestedBy: number | User;
+  /**
+   * Everyone else organizing the event — all of them have to consent.
+   */
+  approvers?: (number | User)[] | null;
+  approvedBy?: (number | User)[] | null;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  expiresAt: string;
+  decidedBy?: (number | null) | User;
+  decidedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -745,6 +804,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'volunteer-flag-requests';
         value: number | VolunteerFlagRequest;
+      } | null)
+    | ({
+        relationTo: 'event-deletion-requests';
+        value: number | EventDeletionRequest;
+      } | null)
+    | ({
+        relationTo: 'organizations';
+        value: number | Organization;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -931,7 +998,11 @@ export interface EventsSelect<T extends boolean = true> {
   capacity?: T;
   registrationApprovalMode?: T;
   organizer?: T;
+  organization?: T;
+  coOrganizations?: T;
   coOrganizers?: T;
+  lockedForViewer?: T;
+  deletionNeedsConsent?: T;
   status?: T;
   isHidden?: T;
   categories?: T;
@@ -1069,6 +1140,9 @@ export interface NotificationsSelect<T extends boolean = true> {
 export interface OrganizerRequestsSelect<T extends boolean = true> {
   user?: T;
   municipality?: T;
+  reason?: T;
+  organizationName?: T;
+  organizationType?: T;
   status?: T;
   reviewedBy?: T;
   reviewedAt?: T;
@@ -1085,6 +1159,37 @@ export interface VolunteerFlagRequestsSelect<T extends boolean = true> {
   status?: T;
   reviewedBy?: T;
   reviewedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-deletion-requests_select".
+ */
+export interface EventDeletionRequestsSelect<T extends boolean = true> {
+  event?: T;
+  eventTitle?: T;
+  municipality?: T;
+  requestedBy?: T;
+  approvers?: T;
+  approvedBy?: T;
+  status?: T;
+  expiresAt?: T;
+  decidedBy?: T;
+  decidedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "organizations_select".
+ */
+export interface OrganizationsSelect<T extends boolean = true> {
+  name?: T;
+  type?: T;
+  owner?: T;
+  municipality?: T;
+  deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

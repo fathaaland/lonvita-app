@@ -7,7 +7,6 @@ import {
   getEvent,
   getEventCategories,
   getOrganizerName,
-  getFullNamesByUserIds,
   getEventRegistrationsWithNames,
   getRegistrationCounts,
   getMyAdministeredMunicipalityIds,
@@ -21,6 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
 import { CancelEventButton } from "@/components/CancelEventButton";
+import { EventDeletionConsent } from "@/components/EventDeletionConsent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -53,7 +53,6 @@ function EventDetailContent() {
   const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
   const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
-  const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
   // Registrations the viewer may read: all of them for the organizer / obec admin, otherwise
   // just their own (Registrations.access.read) — used for "Kdo dále jde" and the viewer's status.
   const [regs, setRegs] = useState<Reg[]>([]);
@@ -85,16 +84,15 @@ function EventDetailContent() {
     }
     setEvent(ev);
 
-    const [cats, orgName, coOrgNames, adminIds] = await Promise.all([
+    const [cats, orgName, adminIds] = await Promise.all([
       ev.category_ids.length > 0 ? getEventCategories() : Promise.resolve([]),
       ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
-      ev.co_organizer_ids.length > 0 ? getFullNamesByUserIds(ev.co_organizer_ids).catch(() => new Map<string, string>()) : Promise.resolve(new Map<string, string>()),
       user ? getMyAdministeredMunicipalityIds(String(user.id)).catch(() => []) : Promise.resolve([]),
       refreshRegistrations(ev.id),
     ]);
     setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
-    setOrganizerName(orgName);
-    setCoOrganizerNames(ev.co_organizer_ids.map((id) => coOrgNames.get(id) ?? id));
+    // Run as an organization ("Kavárna NMNM") — the person's name only for the obec's own events.
+    setOrganizerName(ev.organization?.name ?? orgName);
     setAdministeredMunicipalityIds(adminIds);
     setLoading(false);
   };
@@ -125,6 +123,8 @@ function EventDetailContent() {
     !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
   const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
   const canManage = isEventOrganizer || isAdminOfEventMunicipality;
+  // A co-organizer of the obec admin's own event helps run it (Spravovat) but can't edit or cancel it.
+  const canEdit = canManage && !event?.locked_for_viewer;
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
   const canSeeAttendees = canManage || isSuperAdmin;
 
@@ -199,9 +199,11 @@ function EventDetailContent() {
       <PageHeader title="Detail akce" back right={
         canManage ? (
           <div className="flex gap-2">
-            <Button asChild variant="outline" size="sm" className="h-10">
-              <Link href={`/upravit/${event.id}`}><Pencil className="h-4 w-4" />Upravit</Link>
-            </Button>
+            {canEdit && (
+              <Button asChild variant="outline" size="sm" className="h-10">
+                <Link href={`/upravit/${event.id}`}><Pencil className="h-4 w-4" />Upravit</Link>
+              </Button>
+            )}
             <Button asChild variant="outline" size="sm" className="h-10">
               <Link href={`/spravovat/${event.id}`}><Settings className="h-4 w-4" />Spravovat</Link>
             </Button>
@@ -285,8 +287,8 @@ function EventDetailContent() {
               <UserIcon className="h-5 w-5 mt-0.5 text-primary shrink-0" />
               <p className="font-semibold">
                 Pořadatel: {organizerName}
-                {coOrganizerNames.length > 0 && (
-                  <span className="text-muted-foreground font-normal"> · spolu s {coOrganizerNames.join(", ")}</span>
+                {event.co_organizations.length > 0 && (
+                  <span className="text-muted-foreground font-normal"> · spolu s {event.co_organizations.map((o) => o.name).join(", ")}</span>
                 )}
               </p>
             </div>
@@ -350,15 +352,21 @@ function EventDetailContent() {
             )}
           </div>
         )}
-        {(canManage || isSuperAdmin) && (
+        {(canEdit || isSuperAdmin) && (
           <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">
             <div>
-              <h2 className="text-lg font-bold">Zrušení akce</h2>
+              <h2 className="text-lg font-bold">{event.deletion_needs_consent ? "Smazání akce" : "Zrušení akce"}</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci.
+                {event.deletion_needs_consent
+                  ? "Akci pořádáte se spolupořadateli — smazat ji jde jen s jejich souhlasem."
+                  : "Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci."}
               </p>
             </div>
-            <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
+            {event.deletion_needs_consent && user ? (
+              <EventDeletionConsent eventId={event.id} title={event.title} dateTime={event.date_time} userId={String(user.id)} />
+            ) : (
+              <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
+            )}
           </div>
         )}
       </div>

@@ -27,6 +27,8 @@ import { AuditLog } from './collections/AuditLog'
 import { Notifications } from './collections/Notifications'
 import { OrganizerRequests } from './collections/OrganizerRequests'
 import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests'
+import { EventDeletionRequests } from './collections/EventDeletionRequests'
+import { Organizations } from './collections/Organizations'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError } from './lib/logger'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
@@ -78,6 +80,8 @@ export default buildConfig({
     Notifications,
     OrganizerRequests,
     VolunteerFlagRequests,
+    EventDeletionRequests,
+    Organizations,
   ].map(withCrudLogging),
   hooks: {
     afterError: [

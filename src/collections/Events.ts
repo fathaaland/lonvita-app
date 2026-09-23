@@ -4,6 +4,9 @@ import type {
   CollectionAfterReadHook,
   CollectionBeforeChangeHook,
   CollectionConfig,
+  FieldHook,
+  Payload,
+  PayloadRequest,
   Where,
 } from 'payload'
 import { APIError } from 'payload'
@@ -12,8 +15,9 @@ import {
   getAdministeredMunicipalityIds,
   getOrganizerMunicipalityIds,
 } from './access/shared'
+import { findOrganizationId } from './Organizations'
 import { notDeleted } from './shared/softDelete'
-import { sendNotification } from './shared/notify'
+import { escapeHtml, sendNotification } from './shared/notify'
 import { cancelEventReminders, rescheduleEventReminders, scheduleAttendanceReminder } from './shared/reminders'
 import { guardCancellationWindow } from './shared/eventCancellation'
 import { enqueueSms } from '@/lib/queue/queues'
@@ -56,20 +60,167 @@ const canCreateEvent: Access = async ({ req, data }) => {
   return organizerIds.includes(municipalityId)
 }
 
-/** Brief §4 organizer self-service edit/cancel of their own event (cancelling is a PATCH that
- * sets deletedAt, see admin-queries.ts) — the organizer or a co-organizer, a municipality admin
- * for any event in their obec, and a platform admin everywhere. Moving an event to another obec
- * or handing it to another organizer stays platform-admin-only (field access below). */
+const relationId = (value: unknown): string | null => {
+  if (value == null) return null
+  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
+}
+
+export type EventOwnership = {
+  id: number | string
+  organizer?: unknown
+  coOrganizers?: unknown[] | null
+  municipality?: unknown
+}
+
+/** Everyone organizing the event — the pořadatel plus the spolupořadatelé. */
+export const eventOrganizerIds = (event: Pick<EventOwnership, 'organizer' | 'coOrganizers'>): string[] => [
+  ...new Set(
+    [event.organizer, ...(event.coOrganizers ?? [])].map(relationId).filter((id): id is string => id !== null),
+  ),
+]
+
+/** The user's administered obce, looked up once per request — the event access check and both
+ * viewer fields below all need it. */
+export async function administeredIdsFor(req: PayloadRequest, userId: number | string): Promise<string[]> {
+  const key = `administeredMunicipalityIds:${userId}`
+  const cached = req.context?.[key] as string[] | undefined
+  if (cached) return cached
+  const ids = await getAdministeredMunicipalityIds(req.payload, Number(userId))
+  if (req.context) req.context[key] = ids
+  return ids
+}
+
+/**
+ * An event the obec itself runs belongs to the obec: once a "municipality_admin" of the event's
+ * obec is on it — its pořadatel, with a local café's organization as spolupořadatel, say — only the
+ * obec's admins may edit or delete it. The organizers on it still help run it (see the
+ * attendees, approve registrations, mark attendance — Registrations keeps that). The
+ * reverse isn't true: the obec admin may step into any organizer's event in their obec (a problem,
+ * a fraud).
+ *
+ * Of `events`, returns the ids `userId` organizes or co-organizes but is locked out of. Events
+ * whose obec they administer themselves are never locked.
+ */
+export async function lockedEventIds(
+  req: PayloadRequest,
+  userId: number | string,
+  events: EventOwnership[],
+  administeredIds: string[],
+): Promise<Set<string>> {
+  const uid = String(userId)
+  const candidates = events.filter(
+    (e) => eventOrganizerIds(e).includes(uid) && !administeredIds.includes(relationId(e.municipality) ?? ''),
+  )
+  if (candidates.length === 0) return new Set()
+
+  const adminRoles = await req.payload.find({
+    collection: 'user-roles',
+    where: {
+      and: [
+        { user: { in: [...new Set(candidates.flatMap(eventOrganizerIds))] } },
+        { municipality: { in: [...new Set(candidates.map((e) => relationId(e.municipality)!))] } },
+        { role: { equals: 'municipality_admin' } },
+      ],
+    },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  const adminPairs = new Set(adminRoles.docs.map((r) => `${relationId(r.user)}:${relationId(r.municipality)}`))
+
+  return new Set(
+    candidates
+      .filter((e) => eventOrganizerIds(e).some((id) => adminPairs.has(`${id}:${relationId(e.municipality)}`)))
+      .map((e) => String(e.id)),
+  )
+}
+
+/** Brief §4 organizer self-service edit of their own event — the organizer or a co-organizer, a
+ * municipality admin for any event in their obec, and a platform admin everywhere. Organizers are
+ * shut out of events the obec takes part in (lockedEventIds). Cancelling an event several
+ * organizers run needs the others' consent (guardCoOrganizedCancellation). Moving an event to
+ * another obec or handing it to another organizer stays platform-admin-only (field access below).
+ * Trusted internal writes (overrideAccess) — e.g. flipping status to "full" — bypass this as usual. */
 const canUpdateEvent: Access = async ({ req }) => {
   const { user, payload } = req
   if (!user) return false
   if (user.role === 'admin') return true
 
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
-  const or: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
+  const administeredIds = await administeredIdsFor(req, user.id)
+  const organized = await payload.find({
+    collection: 'events',
+    where: { or: [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }] },
+    select: { organizer: true, coOrganizers: true, municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  const lockedIds = await lockedEventIds(req, user.id, organized.docs, administeredIds)
+
+  const organizerWhere: Where = { or: [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }] }
+  const or: Where[] = [
+    lockedIds.size > 0 ? { and: [organizerWhere, { id: { not_in: [...lockedIds] } }] } : organizerWhere,
+  ]
   if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
   const where: Where = { or }
   return where
+}
+
+/** Whether `user` must go through an EventDeletionRequest (the other organizers' consent) rather
+ * than cancel the event outright: they organize it together with someone else, and aren't an
+ * admin of its obec (who may always cancel — and who, if on the event, locks organizers out
+ * of it entirely anyway). */
+export async function deletionNeedsConsent(
+  req: PayloadRequest,
+  user: { id: number | string; role?: string | null },
+  event: EventOwnership,
+): Promise<boolean> {
+  if (user.role === 'admin') return false
+  const organizerIds = eventOrganizerIds(event)
+  if (!organizerIds.includes(String(user.id)) || organizerIds.length < 2) return false
+  const administeredIds = await administeredIdsFor(req, user.id)
+  return !administeredIds.includes(relationId(event.municipality) ?? '')
+}
+
+/**
+ * Two organizers running an event together can both edit it, but neither can drop it on the
+ * other: cancelling needs the other's consent, via an EventDeletionRequest (its decide route is
+ * the one trusted path, `context.coOrganizerConsent`). For the same reason an organizer can't
+ * remove another spolupořadatel — only themselves (leaving the event). The obec's admins and a
+ * platform admin are exempt from both.
+ */
+const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
+  if (operation !== 'update' || !data || !originalDoc || !req.user) return data
+  if (req.context?.coOrganizerConsent) return data
+
+  const cancelling =
+    (data.deletedAt && !originalDoc.deletedAt) || (data.status === 'cancelled' && originalDoc.status !== 'cancelled')
+  if (cancelling && (await deletionNeedsConsent(req, req.user, originalDoc))) {
+    throw new APIError(
+      'Akci pořádáte společně se spolupořadateli — smazat ji jde jen s jejich souhlasem. Pošlete jim žádost o smazání.',
+      400,
+    )
+  }
+
+  if (data.coOrganizers && req.user.role !== 'admin') {
+    const administeredIds = await administeredIdsFor(req, req.user.id)
+    if (!administeredIds.includes(relationId(originalDoc.municipality) ?? '')) {
+      const kept = new Set((data.coOrganizers as unknown[]).map(relationId))
+      const removedOthers = ((originalDoc.coOrganizers ?? []) as unknown[])
+        .map(relationId)
+        .filter((id) => id !== null && !kept.has(id) && id !== String(req.user!.id))
+      if (removedOthers.length > 0) {
+        throw new APIError(
+          'Jiného spolupořadatele z akce odebrat nemůžete — odebrat se může jen každý sám, případně je odebere admin obce.',
+          400,
+        )
+      }
+    }
+  }
+
+  return data
 }
 
 /** Platform/municipality admin everywhere they administer — a hard DELETE isn't part of the
@@ -114,11 +265,6 @@ const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, orig
   }
 
   return data
-}
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
 }
 
 /**
@@ -171,54 +317,118 @@ const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, ope
 }
 
 /**
- * Spolupořadatelé are other pořadatelé of the same obec — e.g. the obec admin running an event
- * with the local pub's organizer, or two organizers together — never someone from outside it.
- * Everyone added must hold "municipality_admin" or "organizer" in the event's obec. Only newly
- * added people are checked (everyone, if the event moves to another obec), so editing an event
- * whose co-organizer has since lost the role keeps working.
+ * Spolupořadatelé are organizations of the same obec (Organizations.ts) — the obec admin adds
+ * "Kavárna NMNM", not its owner — and never the obec itself: an event belongs to the obec only
+ * when its admin founded it. From the organizations this derives the rest of the event's ownership:
+ * - `organization` — what the pořadatel runs it as: their own organization in the obec, or none
+ *   when they're the obec's admin (it's the obec's event);
+ * - `coOrganizers` — the organizations' owners, the users every ownership check (canUpdateEvent,
+ *   lockedEventIds, deletion consent, Registrations) works with.
+ * Only newly added organizations are checked (all of them, if the event moves to another obec), so
+ * editing an event whose spolupořadatel has since lost the role keeps working.
  */
-const requireCoOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
-  if (!data?.coOrganizers) return data
+const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
+  if (!data) return data
 
+  const organizerId = relationId(data.organizer ?? originalDoc?.organizer)
   const municipalityId = relationId(data.municipality ?? originalDoc?.municipality)
-  if (!municipalityId) return data
+  if (!organizerId || !municipalityId) return data
 
   const municipalityChanged = operation === 'update' && relationId(originalDoc?.municipality) !== municipalityId
-  const previousIds = new Set(
-    operation === 'update' && !municipalityChanged
-      ? ((originalDoc?.coOrganizers ?? []) as unknown[]).map(relationId)
-      : [],
-  )
-  const addedIds = [
-    ...new Set(
-      (data.coOrganizers as unknown[])
-        .map(relationId)
-        .filter((id): id is string => id !== null && !previousIds.has(id)),
-    ),
-  ]
-  if (addedIds.length === 0) return data
-
-  const roles = await req.payload.find({
-    collection: 'user-roles',
-    where: {
-      and: [
-        { user: { in: addedIds } },
-        { municipality: { equals: municipalityId } },
-        { role: { in: ['municipality_admin', 'organizer'] } },
-      ],
-    },
-    depth: 0,
-    limit: 500,
-    overrideAccess: true,
-    req,
-  })
-  const withRole = new Set(roles.docs.map((r) => relationId(r.user)))
-
-  if (addedIds.some((id) => !withRole.has(id))) {
-    throw new APIError('Spolupořadatelem může být jen pořadatel nebo admin téhle obce.', 400)
+  const organizerChanged = operation === 'update' && relationId(originalDoc?.organizer) !== organizerId
+  if (operation === 'create' || municipalityChanged || organizerChanged) {
+    const organizerIsObecAdmin = (await getAdministeredMunicipalityIds(req.payload, Number(organizerId))).includes(
+      municipalityId,
+    )
+    data.organization = organizerIsObecAdmin ? null : await findOrganizationId(req, organizerId, municipalityId)
   }
 
+  if (operation === 'create' && !data.coOrganizations) data.coOrganizations = []
+  if (!data.coOrganizations) return data
+
+  const ids = [
+    ...new Set((data.coOrganizations as unknown[]).map(relationId).filter((id): id is string => id !== null)),
+  ]
+  const previousIds = new Set(
+    operation === 'update' && !municipalityChanged
+      ? ((originalDoc?.coOrganizations ?? []) as unknown[]).map(relationId)
+      : [],
+  )
+  const organizations =
+    ids.length > 0
+      ? (
+          await req.payload.find({
+            collection: 'organizations',
+            where: { id: { in: ids } },
+            depth: 0,
+            pagination: false,
+            overrideAccess: true,
+            req,
+          })
+        ).docs
+      : []
+  const byId = new Map(organizations.map((o) => [String(o.id), o]))
+
+  const addedOwnerIds: string[] = []
+  for (const id of ids) {
+    const organization = byId.get(id)
+    const added = !previousIds.has(id)
+    if (!organization || (added && (organization.deletedAt || relationId(organization.municipality) !== municipalityId))) {
+      throw new APIError('Spolupořadatelem může být jen organizace z téhle obce.', 400)
+    }
+    const ownerId = relationId(organization.owner)!
+    if (ownerId === organizerId) {
+      throw new APIError('Vlastní organizaci nelze přidat jako spolupořadatele — akci už pořádáte.', 400)
+    }
+    if (added) addedOwnerIds.push(ownerId)
+  }
+
+  if (addedOwnerIds.length > 0) {
+    const roles = await req.payload.find({
+      collection: 'user-roles',
+      where: {
+        and: [
+          { user: { in: addedOwnerIds } },
+          { municipality: { equals: municipalityId } },
+          { role: { equals: 'organizer' } },
+        ],
+      },
+      depth: 0,
+      limit: 500,
+      overrideAccess: true,
+      req,
+    })
+    const withRole = new Set(roles.docs.map((r) => relationId(r.user)))
+    if (addedOwnerIds.some((id) => !withRole.has(id))) {
+      throw new APIError('Tahle organizace už v obci nepořádá — její pořadatel nemá roli organizátora.', 400)
+    }
+  }
+
+  data.coOrganizations = ids.map(Number)
+  data.coOrganizers = [...new Set(ids.map((id) => relationId(byId.get(id)!.owner)!))].map(Number)
   return data
+}
+
+/** Only resolved for a viewer who organizes the event — the only one either can be true for — so
+ * a public listing doesn't pay for a user-roles lookup per event. */
+const resolveLockedForViewer: FieldHook = async ({ req, siblingData }) => {
+  const { user } = req
+  if (!user || user.role === 'admin' || !siblingData?.id) return false
+  const event = siblingData as EventOwnership
+  if (!eventOrganizerIds(event).includes(String(user.id))) return false
+
+  const locked = await lockedEventIds(req, user.id, [event], await administeredIdsFor(req, user.id))
+  return locked.has(String(event.id))
+}
+
+const resolveDeletionNeedsConsent: FieldHook = async ({ req, siblingData }) => {
+  const { user } = req
+  if (!user || !siblingData?.id) return false
+  const event = siblingData as EventOwnership
+  if (!(await deletionNeedsConsent(req, user, event))) return false
+  // Locked out entirely — there's nothing for them to delete.
+  const locked = await lockedEventIds(req, user.id, [event], await administeredIdsFor(req, user.id))
+  return !locked.has(String(event.id))
 }
 
 /** A new event can't start in the past, and neither can one that gets rescheduled — but the
@@ -289,12 +499,12 @@ const validateEventLocationRadius: CollectionBeforeChangeHook = async ({ data, r
 
 /** Registered (pending/approved) participants for an event, excluding the organizer
  * themselves — shared by the cancellation and edit-notification hooks below. */
-async function getRegistrantIdsToNotify(
-  req: Parameters<CollectionAfterChangeHook>[0]['req'],
+export async function getRegistrantIdsToNotify(
+  payload: Payload,
   eventId: number | string,
   organizerId: number | string,
 ): Promise<(number | string)[]> {
-  const regs = await req.payload.find({
+  const regs = await payload.find({
     collection: 'registrations',
     where: { and: [{ event: { equals: eventId } }, { status: { in: ['pending', 'approved'] } }] },
     depth: 0,
@@ -310,13 +520,13 @@ async function getRegistrantIdsToNotify(
  * users have a phone on file (onboarding step, still optional until they've filled it in).
  * A no-op (not an error) when httpSMS isn't configured — enqueueSms/the worker log that. */
 async function notifyPhonesForEvent(
-  req: Parameters<CollectionAfterChangeHook>[0]['req'],
+  payload: Payload,
   userIds: (number | string)[],
   eventId: number | string,
   message: string,
 ): Promise<void> {
   if (userIds.length === 0) return
-  const profiles = await req.payload.find({
+  const profiles = await payload.find({
     collection: 'profiles',
     where: { user: { in: userIds } },
     depth: 0,
@@ -344,6 +554,31 @@ function toE164(phone: string): string | null {
   return null
 }
 
+/** Tells `userIds` (the registrants) the event is off — in-app, e-mail and SMS — and drops its
+ * queued reminders. Shared by the cancel below and the co-organizers' consented hard delete
+ * (api/events/deletion-requests), which has to collect the registrants before deleting them. */
+export async function notifyEventCancelled(
+  payload: Payload,
+  event: { id: number | string; title: string },
+  userIds: (number | string)[],
+): Promise<void> {
+  await Promise.all(
+    userIds.map((userId) =>
+      sendNotification(payload, {
+        userId,
+        title: 'Akce byla zrušena',
+        message: `Akce „${event.title}“, na kterou jste byli přihlášeni, byla pořadatelem zrušena.`,
+        email: {
+          subject: `Akce zrušena: ${event.title}`,
+          body: `<p>Akce <strong>${escapeHtml(event.title)}</strong>, na kterou jste byli přihlášeni, byla pořadatelem zrušena.</p>`,
+        },
+      }),
+    ),
+  )
+  await notifyPhonesForEvent(payload, userIds, event.id, `Lonvita: akce „${event.title}“ byla zrušena.`)
+  await cancelEventReminders(payload, event.id)
+}
+
 /** Cancelling an event (soft-delete via `deletedAt`) doesn't hard-delete the row — the FK
  * from existing registrations would block that anyway — so instead we notify everyone who
  * was pending/approved. The event itself already vanishes from their views on its own: it
@@ -360,23 +595,8 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
 
   try {
     const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
-    const userIds = await getRegistrantIdsToNotify(req, doc.id, organizerId)
-
-    await Promise.all(
-      userIds.map((userId) =>
-        sendNotification(req.payload, {
-          userId,
-          title: 'Akce byla zrušena',
-          message: `Akce „${doc.title}“, na kterou jste byli přihlášeni, byla pořadatelem zrušena.`,
-          email: {
-            subject: `Akce zrušena: ${doc.title}`,
-            body: `<p>Akce <strong>${doc.title}</strong>, na kterou jste byli přihlášeni, byla pořadatelem zrušena.</p>`,
-          },
-        }),
-      ),
-    )
-    await notifyPhonesForEvent(req, userIds, doc.id, `Lonvita: akce „${doc.title}“ byla zrušena.`)
-    await cancelEventReminders(req.payload, doc.id)
+    const userIds = await getRegistrantIdsToNotify(req.payload, doc.id, organizerId)
+    await notifyEventCancelled(req.payload, doc, userIds)
   } catch (error) {
     req.payload.logger.error(`Failed to notify registrants of cancelled event ${doc.id}: ${error}`)
   }
@@ -416,8 +636,6 @@ function comparable(field: string, value: unknown): string {
   return JSON.stringify(idOf(value))
 }
 
-const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
 /** Brief §8 / notes "pokud se změní lokalita, čas cokoliv jiného, odešle se automaticky mail na
  * všechny přihlášené a na telefonní čísla SMS, a samozřejmě upozornění do aplikace". */
 const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
@@ -435,7 +653,7 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
     }
 
     const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
-    const userIds = await getRegistrantIdsToNotify(req, doc.id, organizerId)
+    const userIds = await getRegistrantIdsToNotify(req.payload, doc.id, organizerId)
     if (userIds.length === 0) return doc
 
     const changedLabels = Array.from(new Set(changedFields.map((field) => NOTIFIABLE_EDIT_FIELDS[field])))
@@ -463,7 +681,7 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
     )
     const place = doc.locationText.length > 60 ? `${doc.locationText.slice(0, 57)}…` : doc.locationText
     await notifyPhonesForEvent(
-      req,
+      req.payload,
       userIds,
       doc.id,
       `Lonvita: akce „${doc.title}“ byla upravena (${changedLabels.join(', ')}). Nově: ${when}, ${place}.`,
@@ -659,18 +877,63 @@ export const Events: CollectionConfig = {
       required: true,
       access: { update: platformAdminOnly },
       admin: {
-        description: 'The user organizing this event. Additional organizers: see coOrganizers below.',
+        description: 'The user organizing this event. Additional organizers: see coOrganizations below.',
       },
     },
     {
+      // Derived from `organizer` (resolveOrganizations) — never set by the client.
+      name: 'organization',
+      type: 'relationship',
+      relationTo: 'organizations',
+      access: { create: () => false, update: () => false },
+      admin: {
+        readOnly: true,
+        description:
+          "The organization the organizer runs this event as. Empty = the obec's own event (its admin founded it).",
+      },
+    },
+    {
+      name: 'coOrganizations',
+      type: 'relationship',
+      relationTo: 'organizations',
+      hasMany: true,
+      admin: {
+        description:
+          'Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the obec with the local café). The event appears in each owner\'s own dashboard/"moje akce".',
+      },
+    },
+    {
+      // Derived from coOrganizations (resolveOrganizations) — never set by the client.
       name: 'coOrganizers',
       type: 'relationship',
       relationTo: 'users',
       hasMany: true,
+      access: { create: () => false, update: () => false },
       admin: {
+        readOnly: true,
         description:
-          'Brief §4 "Spolupořadatelství" — additional organizers (e.g. two people running an event together). The event appears in each co-organizer\'s own dashboard/"moje akce" alongside the primary organizer.',
+          "The owners of coOrganizations — what access checks, deletion consent and the co-organizers' dashboards key on.",
       },
+    },
+    {
+      // Tells the frontend to hide Upravit/Zrušit for an organizer on an event the obec takes part
+      // in — canUpdateEvent is what actually enforces it.
+      name: 'lockedForViewer',
+      type: 'checkbox',
+      virtual: true,
+      access: { create: () => false, update: () => false },
+      admin: { hidden: true },
+      hooks: { afterRead: [resolveLockedForViewer] },
+    },
+    {
+      // The viewer runs this event with other organizers — deleting it goes through an
+      // EventDeletionRequest (their consent) instead of the plain cancel.
+      name: 'deletionNeedsConsent',
+      type: 'checkbox',
+      virtual: true,
+      access: { create: () => false, update: () => false },
+      admin: { hidden: true },
+      hooks: { afterRead: [resolveDeletionNeedsConsent] },
     },
     {
       name: 'status',
@@ -785,7 +1048,8 @@ export const Events: CollectionConfig = {
       validateEventDates,
       validateEventLocationRadius,
       requireOrganizerRole,
-      requireCoOrganizerRole,
+      resolveOrganizations,
+      guardCoOrganizedChanges,
       guardIsVolunteering,
     ],
     afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],

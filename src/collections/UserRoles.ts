@@ -2,6 +2,8 @@ import type { CollectionConfig, PayloadRequest } from 'payload'
 
 import { canCreateForAdministeredMunicipality, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
+import { ensureOrganization } from './Organizations'
+import type { OrganizationType } from '@/lib/organizations'
 
 const relId = (value: number | { id: number }): number =>
   typeof value === 'object' ? value.id : value
@@ -202,6 +204,20 @@ export const UserRoles: CollectionConfig = {
             req,
           })
         }
+        return doc
+      },
+      // Whoever organizes in an obec does so as an organization (Organizations.ts) — created with
+      // the role, whichever way it's granted. An approved OrganizerRequest passes the name and
+      // type the obec approved via `context.organization`; any other grant gets an "individual".
+      async ({ doc, previousDoc, req }) => {
+        if (doc.role !== 'organizer' || previousDoc?.role === 'organizer') return doc
+        const requested = req.context?.organization as { name?: string; type?: OrganizationType } | undefined
+        await ensureOrganization(req, {
+          owner: relId(doc.user),
+          municipality: relId(doc.municipality),
+          name: requested?.name,
+          type: requested?.type,
+        })
         return doc
       },
       ({ doc, req, operation }) => {

@@ -467,7 +467,7 @@ describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
   })
 })
 
-describe('Spolupořadatelé only from the same obec (Events requireCoOrganizerRole)', () => {
+describe('Spolupořadatelé are organizations from the same obec (Events resolveOrganizations)', () => {
   let muniA: { id: number }
   let muniB: { id: number }
   let cat: { id: number }
@@ -477,15 +477,26 @@ describe('Spolupořadatelé only from the same obec (Events requireCoOrganizerRo
   let organizerB: { id: number; email: string; role: string }
   const eventIds: number[] = []
 
-  const eventData = (coOrganizers: number[]) => ({
+  const organizationOf = async (user: { id: number }, municipality: { id: number }) => {
+    const found = await payload.find({
+      collection: 'organizations',
+      where: { and: [{ owner: { equals: user.id } }, { municipality: { equals: municipality.id } }] },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+    })
+    return found.docs[0]
+  }
+
+  const eventData = (coOrganizations: number[], organizer: { id: number } = adminA) => ({
     title: `Co-organizer Event ${STAMP}`,
     dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     locationText: 'Test location',
     lat: 49.5661,
     lng: 15.9403,
     capacity: 10,
-    organizer: adminA.id,
-    coOrganizers,
+    organizer: organizer.id,
+    coOrganizations,
     categories: [cat.id],
     municipality: muniA.id,
     status: 'active' as const,
@@ -549,6 +560,9 @@ describe('Spolupořadatelé only from the same obec (Events requireCoOrganizerRo
   afterAll(async () => {
     const userIds = [adminA.id, pubOrganizerA.id, residentA.id, organizerB.id]
     await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'organizations', where: { owner: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'organizer-requests', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'event-categories', id: cat.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
@@ -557,26 +571,448 @@ describe('Spolupořadatelé only from the same obec (Events requireCoOrganizerRo
     await payload.delete({ collection: 'municipalities', id: muniB.id, overrideAccess: true }).catch(() => {})
   })
 
-  it("the obec admin can run an event with one of the obec's organizers", async () => {
+  it('granting the organizer role brings an organization along, named after the person', async () => {
+    const pubOrg = await organizationOf(pubOrganizerA, muniA)
+    expect(pubOrg?.name).toBe(`coorg-hospoda-a ${STAMP}`)
+    expect(pubOrg?.type).toBe('individual')
+    expect(await organizationOf(adminA, muniA)).toBeUndefined()
+  })
+
+  it("the obec admin can run an event with one of the obec's organizations", async () => {
+    const pubOrg = await organizationOf(pubOrganizerA, muniA)
     const event = await payload.create({
       collection: 'events',
-      data: eventData([pubOrganizerA.id]),
+      data: eventData([pubOrg.id]),
       user: adminA,
       overrideAccess: false,
     })
     eventIds.push(event.id)
-    expect(event.coOrganizers).toHaveLength(1)
+    expect(event.coOrganizations).toHaveLength(1)
+    // Derived from the organization — access rules keep working off the owner.
+    expect((event.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([pubOrganizerA.id])
+    // Founded by the obec's admin, so it's the obec's own event.
+    expect(event.organization ?? null).toBeNull()
   })
 
-  it('a resident without an organizing role in the obec cannot be a co-organizer', async () => {
+  it("an organizer's event is run as their organization, which can't co-organize it too", async () => {
+    const pubOrg = await organizationOf(pubOrganizerA, muniA)
+    const event = await payload.create({
+      collection: 'events',
+      data: eventData([], pubOrganizerA),
+      user: pubOrganizerA,
+      overrideAccess: false,
+    })
+    eventIds.push(event.id)
+    expect(typeof event.organization === 'object' ? event.organization?.id : event.organization).toBe(pubOrg.id)
+
     await expect(
-      payload.create({ collection: 'events', data: eventData([residentA.id]), user: adminA, overrideAccess: false }),
+      payload.create({ collection: 'events', data: eventData([pubOrg.id], pubOrganizerA), user: pubOrganizerA, overrideAccess: false }),
     ).rejects.toThrow()
   })
 
-  it("another obec's organizer cannot be a co-organizer, even if they live here", async () => {
+  it('a made-up organization cannot be a co-organizer', async () => {
     await expect(
-      payload.create({ collection: 'events', data: eventData([organizerB.id]), user: adminA, overrideAccess: false }),
+      payload.create({ collection: 'events', data: eventData([2_000_000_000]), user: adminA, overrideAccess: false }),
     ).rejects.toThrow()
+  })
+
+  it("another obec's organization cannot be a co-organizer, even if its owner lives here", async () => {
+    const otherOrg = await organizationOf(organizerB, muniB)
+    expect(otherOrg).toBeTruthy()
+    await expect(
+      payload.create({ collection: 'events', data: eventData([otherOrg.id]), user: adminA, overrideAccess: false }),
+    ).rejects.toThrow()
+  })
+
+  it('approving an organizer request creates the organization the applicant asked for', async () => {
+    const request = await payload.create({
+      collection: 'organizer-requests',
+      data: {
+        user: residentA.id,
+        municipality: muniA.id,
+        reason: 'Chodím se seniory na procházky a chci je zvát přes aplikaci.',
+        organizationName: '  Vycházky pro seniory ',
+        organizationType: 'individual',
+      },
+      user: residentA,
+      overrideAccess: false,
+    })
+    await payload.update({
+      collection: 'organizer-requests',
+      id: request.id,
+      data: { status: 'approved' },
+      user: adminA,
+      overrideAccess: false,
+    })
+
+    const org = await organizationOf(residentA, muniA)
+    expect(org?.name).toBe('Vycházky pro seniory')
+    expect(org?.type).toBe('individual')
+  })
+
+  it('an organizer request has to say who the applicant organizes as', async () => {
+    await expect(
+      payload.create({
+        collection: 'organizer-requests',
+        data: { user: organizerB.id, municipality: muniA.id, reason: 'Chci pořádat akce i tady ve vaší obci.' },
+        user: organizerB,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+  })
+})
+
+describe("Obec admin's events are off-limits to organizers (Events canUpdateEvent)", () => {
+  let muni: { id: number }
+  let cat: { id: number }
+  let admin: { id: number; email: string; role: string }
+  let pub: { id: number; email: string; role: string }
+  let club: { id: number; email: string; role: string }
+  let resident: { id: number; email: string; role: string }
+  let adminEvent: { id: number }
+  let pubEvent: { id: number }
+  let registration: { id: number }
+
+  const eventData = (organizer: number, coOrganizations: number[]) => ({
+    title: `Ownership Event ${STAMP}`,
+    dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    locationText: 'Test location',
+    lat: 49.5661,
+    lng: 15.9403,
+    capacity: 10,
+    organizer,
+    coOrganizations,
+    categories: [cat.id],
+    municipality: muni.id,
+    status: 'active' as const,
+    isPaid: false,
+    registrationApprovalMode: 'manual' as const,
+    cancellationPolicy: 'none' as const,
+  })
+
+  beforeAll(async () => {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+
+    muni = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Test Ownership Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      overrideAccess: true,
+    })
+    cat = await payload.create({
+      collection: 'event-categories',
+      data: { name: `Test Category Ownership ${STAMP}` },
+      overrideAccess: true,
+    })
+
+    const makeUser = async (name: string) => {
+      const user = await payload.create({
+        collection: 'users',
+        data: { email: `${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      await payload.create({
+        collection: 'profiles',
+        data: { user: user.id, fullName: `${name} ${STAMP}`, municipality: muni.id, notifyEmail: false },
+        overrideAccess: true,
+      })
+      return user
+    }
+    admin = await makeUser('own-admin')
+    pub = await makeUser('own-hospoda')
+    club = await makeUser('own-spolek')
+    resident = await makeUser('own-resident')
+
+    for (const [user, role] of [
+      [admin, 'municipality_admin'],
+      [pub, 'organizer'],
+      [club, 'organizer'],
+      [resident, 'participant'],
+    ] as const) {
+      await payload.create({
+        collection: 'user-roles',
+        data: { user: user.id, municipality: muni.id, role },
+        overrideAccess: true,
+      })
+    }
+
+    const orgs = await payload.find({
+      collection: 'organizations',
+      where: { municipality: { equals: muni.id } },
+      depth: 0,
+      overrideAccess: true,
+    })
+    const orgOf = (user: { id: number }) =>
+      orgs.docs.find((o) => (typeof o.owner === 'object' ? o.owner.id : o.owner) === user.id)!.id
+
+    adminEvent = await payload.create({
+      collection: 'events',
+      data: eventData(admin.id, [orgOf(pub)]),
+      user: admin,
+      overrideAccess: false,
+    })
+    pubEvent = await payload.create({
+      collection: 'events',
+      data: eventData(pub.id, [orgOf(club)]),
+      user: pub,
+      overrideAccess: false,
+    })
+    registration = await payload.create({
+      collection: 'registrations',
+      data: { event: adminEvent.id, user: resident.id, status: 'pending' },
+      overrideAccess: true,
+    })
+  })
+
+  afterAll(async () => {
+    const userIds = [admin.id, pub.id, club.id, resident.id]
+    const eventIds = [adminEvent?.id, pubEvent?.id].filter(Boolean)
+    await payload.delete({ collection: 'registrations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'organizations', where: { owner: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'event-categories', id: cat.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
+  })
+
+  it("an organizer co-organizing the admin's event cannot edit it", async () => {
+    await expect(
+      payload.update({
+        collection: 'events',
+        id: adminEvent.id,
+        data: { title: 'Přepsáno hospodou' },
+        user: pub,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it("an organizer co-organizing the admin's event cannot cancel it", async () => {
+    await expect(
+      payload.update({
+        collection: 'events',
+        id: adminEvent.id,
+        data: { deletedAt: new Date().toISOString(), status: 'cancelled' },
+        user: pub,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+
+    const fresh = await payload.findByID({ collection: 'events', id: adminEvent.id, overrideAccess: true })
+    expect(fresh.deletedAt).toBeFalsy()
+    expect(fresh.title).toBe(`Ownership Event ${STAMP}`)
+  })
+
+  it("a bulk update by that organizer leaves the admin's event alone but still updates their own", async () => {
+    const result = await payload.update({
+      collection: 'events',
+      where: { id: { in: [adminEvent.id, pubEvent.id] } },
+      data: { description: 'Hromadná úprava' },
+      user: pub,
+      overrideAccess: false,
+    })
+    expect(result.docs.map((d) => d.id)).toEqual([pubEvent.id])
+
+    const fresh = await payload.findByID({ collection: 'events', id: adminEvent.id, overrideAccess: true })
+    expect(fresh.description).toBeFalsy()
+  })
+
+  it("that organizer still helps run the admin's event — approving a registration works", async () => {
+    const updated = await payload.update({
+      collection: 'registrations',
+      id: registration.id,
+      data: { status: 'approved' },
+      user: pub,
+      overrideAccess: false,
+    })
+    expect(updated.status).toBe('approved')
+  })
+
+  it("the obec admin can edit and cancel an organizer's event (a problem, a fraud)", async () => {
+    const edited = await payload.update({
+      collection: 'events',
+      id: pubEvent.id,
+      data: { title: 'Upraveno adminem obce' },
+      user: admin,
+      overrideAccess: false,
+    })
+    expect(edited.title).toBe('Upraveno adminem obce')
+
+    const cancelled = await payload.update({
+      collection: 'events',
+      id: pubEvent.id,
+      data: { deletedAt: new Date().toISOString(), status: 'cancelled' },
+      user: admin,
+      overrideAccess: false,
+    })
+    expect(cancelled.deletedAt).toBeTruthy()
+
+    await payload.update({
+      collection: 'events',
+      id: pubEvent.id,
+      data: { deletedAt: null, status: 'active' },
+      overrideAccess: true,
+    })
+  })
+
+  it("an organizer co-organizing another organizer's event can still edit it", async () => {
+    const edited = await payload.update({
+      collection: 'events',
+      id: pubEvent.id,
+      data: { title: 'Upraveno spolkem' },
+      user: club,
+      overrideAccess: false,
+    })
+    expect(edited.title).toBe('Upraveno spolkem')
+  })
+
+  it("an organizer not on the admin's event cannot touch it at all", async () => {
+    await expect(
+      payload.update({
+        collection: 'events',
+        id: adminEvent.id,
+        data: { title: 'Cizí zásah' },
+        user: club,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+  })
+
+  it('lockedForViewer tells the frontend exactly who may not edit', async () => {
+    const read = (id: number, user: typeof admin) =>
+      payload.findByID({ collection: 'events', id, user, overrideAccess: false })
+
+    expect((await read(adminEvent.id, pub)).lockedForViewer).toBe(true)
+    expect((await read(adminEvent.id, admin)).lockedForViewer).toBe(false)
+    expect((await read(pubEvent.id, club)).lockedForViewer).toBe(false)
+    expect((await read(pubEvent.id, pub)).lockedForViewer).toBe(false)
+  })
+})
+
+describe('Organizer requests carry a reason (OrganizerRequests.reason)', () => {
+  let muni: { id: number }
+  let admin: { id: number; email: string; role: string }
+  let applicant: { id: number; email: string; role: string }
+
+  beforeAll(async () => {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+
+    muni = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Test Reason Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      overrideAccess: true,
+    })
+    const makeUser = async (name: string) => {
+      const user = await payload.create({
+        collection: 'users',
+        data: { email: `${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      await payload.create({
+        collection: 'profiles',
+        data: { user: user.id, fullName: `${name} ${STAMP}`, municipality: muni.id, notifyEmail: false },
+        overrideAccess: true,
+      })
+      return user
+    }
+    admin = await makeUser('reason-admin')
+    applicant = await makeUser('reason-applicant')
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: admin.id, municipality: muni.id, role: 'municipality_admin' },
+      overrideAccess: true,
+    })
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: applicant.id, municipality: muni.id, role: 'participant' },
+      overrideAccess: true,
+    })
+  })
+
+  afterAll(async () => {
+    const userIds = [admin.id, applicant.id]
+    await payload.delete({ collection: 'organizer-requests', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
+  })
+
+  it('a request without a reason (or a too-short one) is rejected', async () => {
+    for (const reason of [undefined, '   ', 'chci']) {
+      await expect(
+        payload.create({
+          collection: 'organizer-requests',
+          data: { user: applicant.id, municipality: muni.id, reason, organizationName: 'Kavárna', organizationType: 'business' },
+          user: applicant,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow()
+    }
+  })
+
+  it('the reason is stored, shown to the obec admin, and in their notification', async () => {
+    const reason = 'Na náměstí provozuji kavárnu a chci tu pořádat komunitní večery.'
+    const created = await payload.create({
+      collection: 'organizer-requests',
+      data: {
+        user: applicant.id,
+        municipality: muni.id,
+        reason: `  ${reason}  `,
+        organizationName: 'Kavárna Na Náměstí',
+        organizationType: 'business',
+      },
+      user: applicant,
+      overrideAccess: false,
+    })
+    expect(created.reason).toBe(reason)
+    expect(created.organizationName).toBe('Kavárna Na Náměstí')
+
+    const seenByAdmin = await payload.findByID({
+      collection: 'organizer-requests',
+      id: created.id,
+      user: admin,
+      overrideAccess: false,
+    })
+    expect(seenByAdmin.reason).toBe(reason)
+
+    // The admin notification is fire-and-forget — give it a moment to land.
+    let message: string | undefined
+    for (let i = 0; i < 20 && !message; i++) {
+      const found = await payload.find({
+        collection: 'notifications',
+        where: { user: { equals: admin.id } },
+        limit: 1,
+        overrideAccess: true,
+      })
+      message = found.docs[0]?.message
+      if (!message) await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(message).toContain(reason)
+    expect(message).toContain('Kavárna Na Náměstí')
+  })
+
+  it('nobody can rewrite the reason afterwards', async () => {
+    const request = (
+      await payload.find({
+        collection: 'organizer-requests',
+        where: { user: { equals: applicant.id } },
+        limit: 1,
+        overrideAccess: true,
+      })
+    ).docs[0]
+    const updated = await payload.update({
+      collection: 'organizer-requests',
+      id: request.id,
+      data: { reason: 'Přepsané zdůvodnění, které tu nemá co dělat.' },
+      user: admin,
+      overrideAccess: false,
+    })
+    expect(updated.reason).toBe(request.reason)
   })
 })

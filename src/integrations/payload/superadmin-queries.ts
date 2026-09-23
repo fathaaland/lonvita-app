@@ -9,6 +9,7 @@ import type { PayloadListResponse } from "./client";
 import type { OrganizerRequestAdminRow, VolunteerFlagRequestAdminRow } from "./admin-queries";
 import type { EventRow, RegistrationRow } from "@/lib/analytics";
 import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from "@/lib/report";
+import type { OrganizationType } from "@/lib/organizations";
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
   if (value == null) return null;
@@ -267,6 +268,9 @@ type PayloadOrganizerRequestSuper = {
   user: number | { id: number };
   municipality: number | { id: number };
   status: string;
+  reason?: string | null;
+  organizationName?: string | null;
+  organizationType?: OrganizationType | null;
   createdAt: string;
 };
 
@@ -299,6 +303,9 @@ export async function getAllOrganizerRequestsForSuperAdmin(): Promise<SuperAdmin
       user_id: toId(r.user)!,
       full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
       status: r.status as OrganizerRequestAdminRow["status"],
+      reason: r.reason ?? null,
+      organization_name: r.organizationName ?? null,
+      organization_type: r.organizationType ?? null,
       created_at: r.createdAt,
       municipality_id: municipalityId,
       municipality_name: muniNameById.get(municipalityId) ?? "Neznámá obec",

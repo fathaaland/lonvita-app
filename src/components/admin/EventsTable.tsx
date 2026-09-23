@@ -144,30 +144,41 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                       {fill} %
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      router.push(`/upravit/${e.id}`);
-                    }}
-                    aria-label="Upravit akci"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  {/* Clicks inside the (portalled) confirmation dialog still bubble through the React
-                      tree — stop them here so they don't also open the event. Fixed width keeps rows
-                      aligned when the event can no longer be cancelled and the icon isn't shown. */}
-                  <div className="w-8 shrink-0" onClick={(ev) => ev.stopPropagation()}>
-                    <CancelEventButton
-                      variant="icon"
-                      eventId={e.id}
-                      title={e.title}
-                      dateTime={e.date_time}
-                      onCancelled={onDeleted ?? (() => {})}
-                    />
-                  </div>
+                  {/* The obec admin's own event, co-organized by this viewer — theirs to help run,
+                      not to edit or cancel. Same fixed widths keep the rows aligned. */}
+                  {e.locked_for_viewer ? (
+                    <div className="w-16 shrink-0" />
+                  ) : (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          router.push(`/upravit/${e.id}`);
+                        }}
+                        aria-label="Upravit akci"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      {/* Clicks inside the (portalled) confirmation dialog still bubble through the React
+                          tree — stop them here so they don't also open the event. Fixed width keeps rows
+                          aligned when the event can no longer be cancelled and the icon isn't shown. */}
+                      <div className="w-8 shrink-0" onClick={(ev) => ev.stopPropagation()}>
+                        {/* Co-organized: deleting needs the others' consent, asked from the detail. */}
+                        {!e.deletion_needs_consent && (
+                          <CancelEventButton
+                            variant="icon"
+                            eventId={e.id}
+                            title={e.title}
+                            dateTime={e.date_time}
+                            onCancelled={onDeleted ?? (() => {})}
+                          />
+                        )}
+                      </div>
+                    </>
+                  )}
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                 </CardContent>
               </Card>

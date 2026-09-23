@@ -10,6 +10,9 @@ import * as migration_20260914_203243_event_image_position from './20260914_2032
 import * as migration_20260917_173648_remove_anyone_rule_for_creation from './20260917_173648_remove_anyone_rule_for_creation';
 import * as migration_20260921_142125_add_event_is_hidden from './20260921_142125_add_event_is_hidden';
 import * as migration_20260923_121410_remove_organizations from './20260923_121410_remove_organizations';
+import * as migration_20260923_130134_add_organizer_request_reason from './20260923_130134_add_organizer_request_reason';
+import * as migration_20260923_133301_add_event_deletion_requests from './20260923_133301_add_event_deletion_requests';
+import * as migration_20260923_141549_add_organizations from './20260923_141549_add_organizations';
 
 export const migrations = [
   {
@@ -70,6 +73,21 @@ export const migrations = [
   {
     up: migration_20260923_121410_remove_organizations.up,
     down: migration_20260923_121410_remove_organizations.down,
-    name: '20260923_121410_remove_organizations'
+    name: '20260923_121410_remove_organizations',
+  },
+  {
+    up: migration_20260923_130134_add_organizer_request_reason.up,
+    down: migration_20260923_130134_add_organizer_request_reason.down,
+    name: '20260923_130134_add_organizer_request_reason',
+  },
+  {
+    up: migration_20260923_133301_add_event_deletion_requests.up,
+    down: migration_20260923_133301_add_event_deletion_requests.down,
+    name: '20260923_133301_add_event_deletion_requests',
+  },
+  {
+    up: migration_20260923_141549_add_organizations.up,
+    down: migration_20260923_141549_add_organizations.down,
+    name: '20260923_141549_add_organizations'
   },
 ];

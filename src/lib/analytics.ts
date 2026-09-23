@@ -17,6 +17,10 @@ export interface EventRow {
   is_paid?: boolean;
   price_cents?: number | null;
   is_volunteering?: boolean;
+  /** Co-organized under the obec admin — the viewer can't edit or cancel it (Events.lockedForViewer). */
+  locked_for_viewer?: boolean;
+  /** Run with other organizers — deleting needs their consent, done from the event detail. */
+  deletion_needs_consent?: boolean;
 }
 
 export interface RegistrationRow {

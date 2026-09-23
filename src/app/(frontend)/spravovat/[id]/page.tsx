@@ -8,7 +8,6 @@ import {
   updateRegistrationStatus,
   updateAttendance,
   getOrganizerName,
-  getFullNamesByUserIds,
   ManageRegistrationRow,
   AttendanceStatus,
 } from "@/integrations/payload/queries";
@@ -45,14 +44,13 @@ function ManageEventContent() {
     setRegs(rows);
     setLoading(false);
     if (ev) {
-      const [orgName, coOrgNames] = await Promise.all([
-        ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
-        ev.co_organizer_ids.length > 0
-          ? getFullNamesByUserIds(ev.co_organizer_ids).catch(() => new Map<string, string>())
-          : Promise.resolve(new Map<string, string>()),
-      ]);
+      const orgName = ev.organization
+        ? ev.organization.name
+        : ev.organizer_id
+          ? await getOrganizerName(ev.organizer_id).catch(() => null)
+          : null;
       setOrganizerName(orgName);
-      setCoOrganizerNames(ev.co_organizer_ids.map((cid) => coOrgNames.get(cid) ?? cid));
+      setCoOrganizerNames(ev.co_organizations.map((o) => o.name));
     }
   };
 
