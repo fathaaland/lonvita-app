@@ -24,6 +24,8 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
   const eventIds: number[] = []
   const orgIdOf = new Map<number, number>()
   const orgOf = (user: TestUser) => orgIdOf.get(user.id)!
+  let obecOrgId: number
+  const relId = (value: number | { id: number }) => (typeof value === 'object' ? value.id : value)
 
   const createEvent = async (organizer: TestUser, coOrganizers: TestUser[]) => {
     const event = await payload.create({
@@ -121,12 +123,16 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
       depth: 0,
       overrideAccess: true,
     })
-    for (const o of orgs.docs) orgIdOf.set(typeof o.owner === 'object' ? o.owner.id : o.owner, o.id)
+    for (const o of orgs.docs) {
+      if (o.type === 'municipality') obecOrgId = o.id
+      else orgIdOf.set(relId(o.owner!), o.id)
+    }
   })
 
   afterAll(async () => {
     const userIds = [admin.id, pub.id, club.id, bakery.id, resident.id]
     await payload.delete({ collection: 'event-deletion-requests', where: { requestedBy: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'co-organizing-requests', where: { requestedBy: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'registrations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'organizations', where: { owner: { in: userIds } }, overrideAccess: true }).catch(() => {})
@@ -141,7 +147,7 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
 
   it('the obec founds an event with the pub as co-organizer — the pub helps, only the obec edits', async () => {
     const event = await createEvent(admin, [pub])
-    expect(event.organization ?? null).toBeNull()
+    expect(relId(event.organization!)).toBe(obecOrgId)
     expect((event.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([pub.id])
 
     await expect(
@@ -277,6 +283,148 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     const cancelled = await payload.update({
       collection: 'events',
       id: shared.id,
+      data: { deletedAt: new Date().toISOString(), status: 'cancelled' },
+      user: admin,
+      overrideAccess: false,
+    })
+    expect(cancelled.deletedAt).toBeTruthy()
+  })
+
+  const withObec = (event: { id: number }, coOrganizations: number[], user: TestUser) =>
+    payload.update({ collection: 'events', id: event.id, data: { coOrganizations }, user, overrideAccess: false })
+
+  const askObec = (eventId: number, user: TestUser) =>
+    payload.create({
+      collection: 'co-organizing-requests',
+      data: { event: eventId } as never,
+      user,
+      overrideAccess: false,
+    })
+
+  const decideObecRequest = (id: number, status: 'approved' | 'rejected', user: TestUser) =>
+    payload.update({ collection: 'co-organizing-requests', id, data: { status }, user, overrideAccess: false })
+
+  it('a pořadatel only asks the obec to co-organize — the obec joins once its admin approves', async () => {
+    const event = await createEvent(pub, [club])
+    await expect(withObec(event, [orgOf(club), obecOrgId], pub)).rejects.toThrow(/požádejte ji/)
+    await expect(askObec(event.id, resident)).rejects.toThrow()
+    await expect(askObec(event.id, admin)).rejects.toThrow()
+
+    const request = await askObec(event.id, club)
+    expect(request.status).toBe('pending')
+    await expect(askObec(event.id, pub)).rejects.toThrow(/už obec žádáte/)
+    // Not the pořadatel's call.
+    await expect(decideObecRequest(request.id, 'approved', pub)).rejects.toThrow()
+
+    const approved = await decideObecRequest(request.id, 'approved', admin)
+    expect(relId(approved.reviewedBy!)).toBe(admin.id)
+    const after = await payload.findByID({ collection: 'events', id: event.id, depth: 0, overrideAccess: true })
+    expect((after.coOrganizations ?? []).map(relId).sort()).toEqual([orgOf(club), obecOrgId].sort())
+    // The obec's organization has no person behind it — the co-organizing users stay the same.
+    expect((after.coOrganizers ?? []).map(relId)).toEqual([club.id])
+    // A decision is final, and the obec is already on.
+    await expect(decideObecRequest(request.id, 'rejected', admin)).rejects.toThrow()
+    await expect(askObec(event.id, pub)).rejects.toThrow(/už akci spolupořádá/)
+
+    // The pořadatelé still run it — the obec co-organizing doesn't lock them out.
+    const read = await payload.findByID({ collection: 'events', id: event.id, user: pub, overrideAccess: false })
+    expect(read.lockedForViewer).toBe(false)
+    const edited = await payload.update({
+      collection: 'events',
+      id: event.id,
+      data: { title: 'Hospoda s obcí' },
+      user: pub,
+      overrideAccess: false,
+    })
+    expect(edited.title).toBe('Hospoda s obcí')
+
+    // Only the obec's admin takes the obec off again.
+    await expect(withObec(event, [orgOf(club)], pub)).rejects.toThrow(/admin obce/)
+    const removed = await withObec(event, [orgOf(club)], admin)
+    expect((removed.coOrganizations ?? []).map(relId)).toEqual([orgOf(club)])
+  })
+
+  it('a rejected request leaves the event as it was', async () => {
+    const event = await createEvent(bakery, [])
+    const request = await askObec(event.id, bakery)
+    const rejected = await decideObecRequest(request.id, 'rejected', admin)
+    expect(rejected.status).toBe('rejected')
+    const after = await payload.findByID({ collection: 'events', id: event.id, depth: 0, overrideAccess: true })
+    expect(after.coOrganizations ?? []).toEqual([])
+    // …and they may ask again.
+    await expect(askObec(event.id, bakery)).resolves.toBeTruthy()
+  })
+
+  it("the obec's admin adds a business to the obec's event directly, and the obec to anyone's", async () => {
+    const own = await createEvent(admin, [bakery])
+    expect((own.coOrganizations ?? []).map(relId)).toEqual([orgOf(bakery)])
+    // The obec already runs it — it can't co-organize it too.
+    await expect(withObec(own, [orgOf(bakery), obecOrgId], admin)).rejects.toThrow(/pořádá obec/)
+
+    const theirs = await createEvent(pub, [])
+    const joined = await withObec(theirs, [obecOrgId], admin)
+    expect((joined.coOrganizations ?? []).map(relId)).toEqual([obecOrgId])
+  })
+
+  it("an event the obec co-organizes is only deleted with the obec's consent", async () => {
+    const event = await createEvent(bakery, [])
+    await withObec(event, [obecOrgId], admin)
+
+    const read = await payload.findByID({ collection: 'events', id: event.id, user: bakery, overrideAccess: false })
+    expect(read.deletionNeedsConsent).toBe(true)
+    await expect(
+      payload.update({
+        collection: 'events',
+        id: event.id,
+        data: { deletedAt: new Date().toISOString(), status: 'cancelled' },
+        user: bakery,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+
+    const first = await requestDeletion(event.id, bakery)
+    expect(first.municipalityConsent).toBe(true)
+    expect(first.approvers ?? []).toEqual([])
+    expect((await decideAs(resident, first.id, true)).status).toBe(403)
+    expect((await decideAs(bakery, first.id, true)).status).toBe(403)
+
+    expect(await (await decideAs(admin, first.id, false)).json()).toEqual({ status: 'rejected' })
+    expect(await eventExists(event.id)).toBe(true)
+
+    const second = await requestDeletion(event.id, bakery)
+    expect(await (await decideAs(admin, second.id, true)).json()).toEqual({ status: 'approved' })
+    expect(await eventExists(event.id)).toBe(false)
+    const history = await payload.findByID({ collection: 'event-deletion-requests', id: second.id, overrideAccess: true })
+    expect(relId(history.municipalityApprovedBy!)).toBe(admin.id)
+  })
+
+  it('with a spolupořadatel and the obec both have to consent', async () => {
+    const event = await createEvent(pub, [club])
+    await withObec(event, [orgOf(club), obecOrgId], admin)
+    const request = await requestDeletion(event.id, club)
+
+    expect(await (await decideAs(admin, request.id, true)).json()).toEqual({ status: 'pending' })
+    expect(await eventExists(event.id)).toBe(true)
+    expect(await (await decideAs(pub, request.id, true)).json()).toEqual({ status: 'approved' })
+    expect(await eventExists(event.id)).toBe(false)
+  })
+
+  it("once the obec's admin takes the obec off, its consent is no longer needed", async () => {
+    const event = await createEvent(pub, [club])
+    await withObec(event, [orgOf(club), obecOrgId], admin)
+    const request = await requestDeletion(event.id, club)
+    await withObec(event, [orgOf(club)], admin)
+
+    expect(await (await decideAs(pub, request.id, true)).json()).toEqual({ status: 'approved' })
+    expect(await eventExists(event.id)).toBe(false)
+  })
+
+  it("the obec's admin cancels an event the obec co-organizes outright", async () => {
+    const event = await createEvent(pub, [])
+    await withObec(event, [obecOrgId], admin)
+    const cancelled = await payload.update({
+      collection: 'events',
+      id: event.id,
       data: { deletedAt: new Date().toISOString(), status: 'cancelled' },
       user: admin,
       overrideAccess: false,

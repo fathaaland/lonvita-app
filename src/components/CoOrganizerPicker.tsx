@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { searchCoOrganizerCandidates, OrganizationRef } from "@/integrations/payload/queries";
-import { organizationTypeLabel } from "@/lib/organizations";
+import { MUNICIPALITY_ORGANIZATION_TYPE, organizationTypeLabel } from "@/lib/organizations";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
@@ -16,11 +16,13 @@ interface Props {
   excludeIds: string[];
   /** Already-saved co-organizations the current user isn't allowed to remove. */
   fixedIds?: string[];
+  /** The event is the obec's own — it can't co-organize it as well. */
+  excludeObec?: boolean;
 }
 
 /** Brief §4 "Spolupořadatelství" — search this obec's organizations (a café, a club, one person's
  * "Vycházky pro seniory") by name and add them as co-organizers (Events.coOrganizations). */
-export function CoOrganizerPicker({ municipalityId, value, onChange, excludeIds, fixedIds = [] }: Props) {
+export function CoOrganizerPicker({ municipalityId, value, onChange, excludeIds, fixedIds = [], excludeObec = false }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OrganizationRef[]>([]);
   const [searching, setSearching] = useState(false);
@@ -57,7 +59,10 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeIds,
   };
 
   const pickedIds = new Set(value.map((v) => v.id));
-  const visibleResults = results.filter((r) => !pickedIds.has(r.id) && !excludeIds.includes(r.id));
+  const visibleResults = results.filter(
+    (r) =>
+      !pickedIds.has(r.id) && !excludeIds.includes(r.id) && !(excludeObec && r.type === MUNICIPALITY_ORGANIZATION_TYPE),
+  );
 
   return (
     <div className="space-y-2">

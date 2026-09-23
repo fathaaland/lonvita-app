@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server'
-import { getPayload } from 'payload'
+import { getPayload, type Where } from 'payload'
 
 import config from '@payload-config'
 import { notDeleted } from '@/collections/shared/softDelete'
+import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 const ORGANIZING_ROLES = ['municipality_admin', 'organizer'] as const
 
 /**
  * Which organizations can be picked as a spolupořadatel of an event in this obec — its
  * organizers' organizations (the café, the club, a single person's "Vycházky pro seniory"), matched
- * by name. Never the obec itself, and never the searcher's own. An organization whose owner has
- * since lost the organizer role isn't offered. Only someone who organizes in the obec (or a
- * platform admin) may search it. Mirrors Events `resolveOrganizations`.
+ * by name, never the searcher's own. The obec itself only for its admins and a platform admin — a
+ * pořadatel asks the obec instead (CoOrganizingRequests). An organization whose owner has since
+ * lost the organizer role isn't offered. Only someone who organizes in the obec (or a platform
+ * admin) may search it. Mirrors Events `resolveOrganizations`.
  *
  * GET /api/events/co-organizer-candidates?municipalityId=1&q=kav
  */
@@ -47,14 +49,21 @@ export async function GET(request: Request) {
   const organizerIds = [
     ...new Set(roles.docs.filter((r) => r.role === 'organizer').map(userIdOf)),
   ].filter((id) => id !== actor.id)
-  if (organizerIds.length === 0) return NextResponse.json({ docs: [] })
+  const mayAddObec =
+    actor.role === 'admin' ||
+    roles.docs.some((r) => r.role === 'municipality_admin' && userIdOf(r) === actor.id)
+
+  const offered: Where[] = []
+  if (organizerIds.length > 0) offered.push({ owner: { in: organizerIds } })
+  if (mayAddObec) offered.push({ type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } })
+  if (offered.length === 0) return NextResponse.json({ docs: [] })
 
   const organizations = await payload.find({
     collection: 'organizations',
     where: {
       and: [
         { municipality: { equals: municipalityId } },
-        { owner: { in: organizerIds } },
+        { or: offered },
         { name: { like: query } },
         notDeleted,
       ],
@@ -70,7 +79,7 @@ export async function GET(request: Request) {
       id: String(o.id),
       name: o.name,
       type: o.type,
-      owner_id: String(typeof o.owner === 'object' ? o.owner.id : o.owner),
+      owner_id: o.owner ? String(typeof o.owner === 'object' ? o.owner.id : o.owner) : null,
     })),
   })
 }

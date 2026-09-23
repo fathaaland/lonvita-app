@@ -21,6 +21,7 @@ import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
 import { CancelEventButton } from "@/components/CancelEventButton";
 import { EventDeletionConsent } from "@/components/EventDeletionConsent";
+import { isMunicipalityOrganization } from "@/lib/organizations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -91,7 +92,7 @@ function EventDetailContent() {
       refreshRegistrations(ev.id),
     ]);
     setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
-    // Run as an organization ("Kavárna NMNM") — the person's name only for the obec's own events.
+    // Run as an organization ("Kavárna NMNM", or the obec itself) — the person's name only as a fallback.
     setOrganizerName(ev.organization?.name ?? orgName);
     setAdministeredMunicipalityIds(adminIds);
     setLoading(false);
@@ -125,6 +126,7 @@ function EventDetailContent() {
   const canManage = isEventOrganizer || isAdminOfEventMunicipality;
   // A co-organizer of the obec admin's own event helps run it (Spravovat) but can't edit or cancel it.
   const canEdit = canManage && !event?.locked_for_viewer;
+  const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
   const canSeeAttendees = canManage || isSuperAdmin;
 
@@ -358,14 +360,32 @@ function EventDetailContent() {
               <h2 className="text-lg font-bold">{event.deletion_needs_consent ? "Smazání akce" : "Zrušení akce"}</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {event.deletion_needs_consent
-                  ? "Akci pořádáte se spolupořadateli — smazat ji jde jen s jejich souhlasem."
+                  ? `Akci pořádáte ${obecCoOrganizes ? "s obcí" : "se spolupořadateli"} — smazat ji jde jen s jejich souhlasem.`
                   : "Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci."}
               </p>
             </div>
             {event.deletion_needs_consent && user ? (
-              <EventDeletionConsent eventId={event.id} title={event.title} dateTime={event.date_time} userId={String(user.id)} />
+              <EventDeletionConsent
+                eventId={event.id}
+                title={event.title}
+                dateTime={event.date_time}
+                userId={String(user.id)}
+                obecCoOrganizes={obecCoOrganizes}
+              />
             ) : (
-              <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
+              <>
+                {/* A pořadatel may be asking the obec's consent to delete it — its admin answers here. */}
+                {obecCoOrganizes && isAdminOfEventMunicipality && user && (
+                  <EventDeletionConsent
+                    eventId={event.id}
+                    title={event.title}
+                    dateTime={event.date_time}
+                    userId={String(user.id)}
+                    forObec
+                  />
+                )}
+                <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
+              </>
             )}
           </div>
         )}

@@ -9,8 +9,8 @@ import type {
 import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
-import { deletionNeedsConsent, eventOrganizerIds, lockedEventIds, administeredIdsFor } from './Events'
-import { escapeHtml, sendNotification } from './shared/notify'
+import { deletionNeedsConsent, eventOrganizerIds, lockedEventIds, administeredIdsFor, obecRole } from './Events'
+import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { canCancelEvent, eventCancellationDeadline, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { formatPragueDateTime } from '@/lib/date'
 
@@ -36,7 +36,8 @@ const canReadDeletionRequest: Access = async ({ req: { user, payload } }) => {
 /**
  * Everything about a new request is derived here from the event and the signed-in user — the
  * client only names the event. Only an organizer who runs it together with someone else may ask
- * (a sole organizer or the obec admin simply cancels it); everyone else on it has to consent.
+ * (a sole organizer or the obec admin simply cancels it); everyone else on it has to consent — and
+ * the obec, when it co-organizes the event (any one of its admins answers for it).
  */
 const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (operation !== 'create' || !data) return data
@@ -95,6 +96,8 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
     requestedBy: user.id,
     approvers: organizerIds.filter((id) => id !== String(user.id)).map(Number),
     approvedBy: [],
+    municipalityConsent: (await obecRole(req, event)).coOrganizes,
+    municipalityApprovedBy: null,
     status: 'pending',
     expiresAt: new Date(expiresAt).toISOString(),
   }
@@ -116,6 +119,24 @@ const notifyApprovers: CollectionAfterChangeHook = async ({ doc, operation, req 
   const until = formatPragueDateTime(doc.expiresAt)
   const eventId = relationId(doc.event)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+
+  if (doc.municipalityConsent && relationId(doc.municipality)) {
+    for (const adminId of await getMunicipalityAdminUserIds(req.payload, relationId(doc.municipality)!)) {
+      sendNotification(req.payload, {
+        userId: adminId,
+        title: 'Žádost o smazání akce',
+        link: `/akce/${eventId}`,
+        message: `${who} chce smazat akci „${doc.eventTitle}“, kterou obec spolupořádá. Bez souhlasu obce se nesmaže — odpovězte do ${until}.`,
+        email: {
+          subject: `Žádost o smazání akce: ${doc.eventTitle}`,
+          body:
+            `<p><strong>${escapeHtml(who)}</strong> chce smazat akci <strong>${escapeHtml(doc.eventTitle)}</strong>, kterou obec spolupořádá.</p>` +
+            `<p>Bez souhlasu obce se akce nesmaže — za obec stačí odpověď jednoho z jejích adminů. Odpovědět můžete do ${until} — když nikdo neodpoví, akce zůstane.</p>` +
+            `<p><a href="${appUrl}/akce/${eventId}">Otevřít akci a rozhodnout</a></p>`,
+        },
+      })
+    }
+  }
 
   for (const approverId of (doc.approvers ?? []).map(relationId)) {
     sendNotification(req.payload, {
@@ -152,7 +173,7 @@ const deriveExpiredStatus: CollectionAfterReadHook = ({ doc, req }) => {
 
 /**
  * Two organizers running an event together must both agree before it's deleted: one asks, the
- * others get notified and have DELETION_CONSENT_HOURS to confirm. All confirm → the event is
+ * others (and the obec, if it co-organizes) get notified and have DELETION_CONSENT_HOURS to confirm. All confirm → the event is
  * hard-deleted (api/events/deletion-requests/[id]/decide); anyone refuses, or time runs out → the
  * event stays. Created over REST; decided only through that route (update is closed here).
  */
@@ -202,6 +223,18 @@ export const EventDeletionRequests: CollectionConfig = {
       relationTo: 'users',
       hasMany: true,
       admin: { description: 'Everyone else organizing the event — all of them have to consent.' },
+    },
+    {
+      // The obec co-organizes the event — one of its admins has to consent on its behalf too.
+      name: 'municipalityConsent',
+      type: 'checkbox',
+      defaultValue: false,
+    },
+    {
+      name: 'municipalityApprovedBy',
+      type: 'relationship',
+      relationTo: 'users',
+      admin: { description: 'The obec admin who consented for the obec.' },
     },
     {
       name: 'approvedBy',

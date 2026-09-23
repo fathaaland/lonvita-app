@@ -7,10 +7,23 @@ export const ORGANIZATION_TYPES = [
   { value: 'individual', label: 'Jednotlivec' },
 ] as const
 
+/** What an organizer picks for their organization. */
 export type OrganizationType = (typeof ORGANIZATION_TYPES)[number]['value']
 
+/** The obec's own organization — exactly one per obec, without an owner (any of its admins acts
+ * for it). Created with the obec, never picked or requested: whatever the obec's admin founds is run
+ * by it, and a pořadatel asks the obec to co-organize (CoOrganizingRequests). */
+export const MUNICIPALITY_ORGANIZATION_TYPE = 'municipality'
+
+export type AnyOrganizationType = OrganizationType | typeof MUNICIPALITY_ORGANIZATION_TYPE
+
 export const organizationTypeLabel = (type: string | null | undefined): string =>
-  ORGANIZATION_TYPES.find((t) => t.value === type)?.label ?? 'Jednotlivec'
+  type === MUNICIPALITY_ORGANIZATION_TYPE
+    ? 'Obec'
+    : (ORGANIZATION_TYPES.find((t) => t.value === type)?.label ?? 'Jednotlivec')
+
+export const isMunicipalityOrganization = (organization: { type?: string | null } | null | undefined): boolean =>
+  organization?.type === MUNICIPALITY_ORGANIZATION_TYPE
 
 export const isOrganizationType = (value: unknown): value is OrganizationType =>
   ORGANIZATION_TYPES.some((t) => t.value === value)

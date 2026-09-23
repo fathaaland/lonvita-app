@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createEvent,
-  requestVolunteerFlag,
   getMunicipality,
   getMyAdministeredMunicipalityIds,
   getMyOrganizerMunicipalityIds,
@@ -16,17 +15,20 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { EventForm, EventFormValues } from "@/components/EventForm";
+import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
 import { toast } from "sonner";
 
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 function CreateEventContent() {
   const router = useRouter();
-  const { user, profile, isAdmin } = useAuth();
+  const { user, profile, isAdmin, isSuperAdmin } = useAuth();
   // The obec the event is filed under: one where this user actually holds the admin/organizer
   // role (their home obec when they hold it there). Their home municipality alone isn't enough —
   // a "bez obce" admin has none, and a superadmin can grant a role for a town they don't live in.
   const [municipalityId, setMunicipalityId] = useState<string | null | undefined>(undefined);
+  // Its admin creates the event as the obec itself.
+  const [adminHere, setAdminHere] = useState(false);
   const [center, setCenter] = useState<[number, number]>(CZECHIA_CENTER);
 
   useEffect(() => {
@@ -43,6 +45,7 @@ function CreateEventContent() {
       const chosen = home && candidates.includes(home) ? home : (candidates[0] ?? home);
       if (!active) return;
       setMunicipalityId(chosen);
+      setAdminHere(Boolean(chosen && adminIds.includes(chosen)));
       if (chosen) {
         const muni = await getMunicipality(chosen);
         if (active && muni) setCenter([muni.lat, muni.lng]);
@@ -84,17 +87,11 @@ function CreateEventContent() {
         priceCents: values.priceCents ?? undefined,
       });
 
-      if (values.isVolunteering && !isAdmin) {
-        try {
-          await requestVolunteerFlag(created.id, String(user.id));
-          toast.success("Akce vytvořena, žádost o příznak Dobrovolnictví odeslána.");
-        } catch {
-          toast.success("Akce vytvořena.");
-          toast.error("Žádost o příznak Dobrovolnictví se nepodařilo odeslat.");
-        }
-      } else {
-        toast.success("Akce vytvořena!");
-      }
+      const sent = await sendFollowUpRequests(created.id, {
+        volunteerFlag: values.isVolunteering && !isAdmin ? String(user.id) : null,
+        obecCoOrganizing: values.requestObecCoOrganizing,
+      });
+      toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena!");
       router.push(`/akce/${created.id}`);
     } catch (error) {
       // e.g. the location-radius or past-date checks in Events.ts — their messages are user-facing.
@@ -127,6 +124,8 @@ function CreateEventContent() {
         municipalityId={municipalityId}
         municipalityCenter={center}
         canSetVolunteering={isAdmin}
+        canAddObec={adminHere || isSuperAdmin}
+        runsAsObec={adminHere}
         submitLabel="Vytvořit akci"
         onSubmit={handleSubmit}
       />

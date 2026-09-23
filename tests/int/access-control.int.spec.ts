@@ -590,8 +590,15 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
     expect(event.coOrganizations).toHaveLength(1)
     // Derived from the organization — access rules keep working off the owner.
     expect((event.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([pubOrganizerA.id])
-    // Founded by the obec's admin, so it's the obec's own event.
-    expect(event.organization ?? null).toBeNull()
+    // Founded by the obec's admin, so it's run as the obec.
+    const organization = await payload.findByID({
+      collection: 'organizations',
+      id: typeof event.organization === 'object' ? event.organization!.id : event.organization!,
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(organization.type).toBe('municipality')
+    expect(typeof organization.municipality === 'object' ? organization.municipality.id : organization.municipality).toBe(muniA.id)
   })
 
   it("an organizer's event is run as their organization, which can't co-organize it too", async () => {

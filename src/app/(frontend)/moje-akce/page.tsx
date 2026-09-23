@@ -16,15 +16,25 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { CalendarHeart, Clock, Megaphone } from "lucide-react";
 import { isPast } from "@/lib/date";
+import { isMunicipalityOrganization } from "@/lib/organizations";
 
 interface Item {
   event: EventCardData;
   isOrganizer: boolean;
+  /** Not the viewer's own — they're here as the admin of the obec that runs or co-organizes it. */
+  obecRole: "runs" | "coOrganizes" | null;
   isPending: boolean;
 }
 
+const organizerLabel = (item: Item, past: boolean) => {
+  if (item.obecRole === "runs") return past ? "Pořádala obec" : "Pořádá obec";
+  if (item.obecRole === "coOrganizes") return past ? "Spolupořádala obec" : "Spolupořádá obec";
+  return past ? "Pořádali jste" : "Pořádáte";
+};
+
 function MyEventsContent() {
-  const { user } = useAuth();
+  const { user, administeredMunicipalityIds } = useAuth();
+  const administeredKey = administeredMunicipalityIds.join(",");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,7 +43,7 @@ function MyEventsContent() {
     (async () => {
       const [regs, organized, categories] = await Promise.all([
         getMyRegistrationsWithEvents(String(user.id)),
-        getMyOrganizedEvents(String(user.id)),
+        getMyOrganizedEvents(String(user.id), administeredMunicipalityIds),
         getEventCategories(),
       ]);
       const catMap = new Map(categories.map((c) => [c.id, c]));
@@ -43,7 +53,9 @@ function MyEventsContent() {
       // (auto-approved, see Registrations.ts) should only show up once, as organizer.
       const byId = new Map<string, Item>();
 
+      const uid = String(user.id);
       for (const ev of organized) {
+        const own = ev.organizer_id === uid || ev.co_organizer_ids.includes(uid);
         byId.set(ev.id, {
           event: {
             id: ev.id,
@@ -56,8 +68,15 @@ function MyEventsContent() {
             is_paid: ev.is_paid,
             price_cents: ev.price_cents,
             categories: catsFor(ev.category_ids),
+            organization: ev.organization,
+            co_organizations: ev.co_organizations,
           },
           isOrganizer: true,
+          obecRole: own
+            ? null
+            : isMunicipalityOrganization(ev.organization)
+              ? "runs"
+              : "coOrganizes",
           isPending: false,
         });
       }
@@ -76,8 +95,11 @@ function MyEventsContent() {
             is_paid: r.events.is_paid,
             price_cents: r.events.price_cents,
             categories: r.events.categories,
+            organization: r.events.organization,
+            co_organizations: r.events.co_organizations,
           },
           isOrganizer: false,
+          obecRole: null,
           isPending: r.status === "pending",
         });
       }
@@ -85,7 +107,8 @@ function MyEventsContent() {
       setItems(Array.from(byId.values()));
       setLoading(false);
     })();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, administeredKey]);
 
   const upcoming = items.filter((i) => !isPast(i.event.date_time));
   const past = items.filter((i) => isPast(i.event.date_time));
@@ -109,7 +132,7 @@ function MyEventsContent() {
                     <EventCard event={i.event} />
                     {i.isOrganizer ? (
                       <Badge className="absolute top-3 left-3 bg-primary text-primary-foreground gap-1">
-                        <Megaphone className="h-3 w-3" /> Pořádáte
+                        <Megaphone className="h-3 w-3" /> {organizerLabel(i, false)}
                       </Badge>
                     ) : i.isPending ? (
                       <Badge className="absolute top-3 left-3 bg-warning text-warning-foreground gap-1">
@@ -131,7 +154,7 @@ function MyEventsContent() {
                     <EventCard event={i.event} />
                     {i.isOrganizer && (
                       <Badge className="absolute top-3 left-3 bg-primary text-primary-foreground gap-1">
-                        <Megaphone className="h-3 w-3" /> Pořádali jste
+                        <Megaphone className="h-3 w-3" /> {organizerLabel(i, true)}
                       </Badge>
                     )}
                   </div>

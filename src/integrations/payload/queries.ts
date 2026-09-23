@@ -6,7 +6,8 @@
 import { buildQuery, buildWhereParams, get, patch, post, uploadFile } from "./client";
 
 import type { PayloadListResponse } from "./client";
-import type { OrganizationType } from "@/lib/organizations";
+import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
+import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -85,7 +86,8 @@ export async function uploadEventImage(file: File, alt: string): Promise<{ id: s
 // --- Events ---------------------------------------------------------------------------
 
 /** Who runs an event besides the obec — a café, a club, or one person ("Vycházky pro seniory"). */
-export type OrganizationRef = { id: string; name: string; type: OrganizationType; owner_id: string };
+/** `owner_id` is null for the obec's own organization (type "municipality"). */
+export type OrganizationRef = { id: string; name: string; type: AnyOrganizationType; owner_id: string | null };
 
 export type EventRow = {
   id: string;
@@ -105,7 +107,7 @@ export type EventRow = {
   image_position: { x: number; y: number };
   category_ids: string[];
   organizer_id?: string;
-  /** The organization the organizer runs it as — null when the obec's own admin founded it. */
+  /** The organization the organizer runs it as — the obec's own one when its admin founded it. */
   organization: OrganizationRef | null;
   co_organizer_ids: string[];
   co_organizations: OrganizationRef[];
@@ -123,7 +125,12 @@ export type EventRow = {
 };
 
 type PayloadMedia = { id: number; url?: string | null };
-type PayloadOrganization = { id: number; name: string; type: OrganizationType; owner: number | { id: number } };
+type PayloadOrganization = {
+  id: number;
+  name: string;
+  type: AnyOrganizationType;
+  owner?: number | { id: number } | null;
+};
 type PayloadEvent = {
   id: number;
   title: string;
@@ -163,7 +170,7 @@ const toId = (value: number | { id: number } | null | undefined): string | null 
 
 /** Only populated (depth ≥ 1) organizations — a bare id is one that's since been deleted. */
 const mapOrganization = (o: number | PayloadOrganization | null | undefined): OrganizationRef | null =>
-  o && typeof o === "object" ? { id: String(o.id), name: o.name, type: o.type, owner_id: toId(o.owner)! } : null;
+  o && typeof o === "object" ? { id: String(o.id), name: o.name, type: o.type, owner_id: toId(o.owner) } : null;
 
 const mapEvent = (e: PayloadEvent): EventRow => ({
   id: String(e.id),
@@ -212,10 +219,22 @@ export async function getUpcomingEvents(municipalityId: string | null): Promise<
 
 /** Events this user organizes (any status/date) — "Moje akce" needs these alongside their
  * registrations, since creating an event doesn't register the organizer as an attendee. */
-/** Events this user organizes OR co-organizes (brief §4 "Spolupořadatelství" — the event
- * appears in every co-organizer's own dashboard, not just the primary organizer's). */
-export async function getMyOrganizedEvents(userId: string): Promise<EventRow[]> {
-  const where = `where[or][0][organizer][equals]=${userId}&where[or][1][coOrganizers][contains]=${userId}`;
+/** Events the user runs or co-organizes — and, for an obec's admin, every event the obec runs or
+ * co-organizes: once the obec agrees to co-organize, the event is the obec's as much as the pořadatel's. */
+export async function getMyOrganizedEvents(userId: string, administeredMunicipalityIds: string[] = []): Promise<EventRow[]> {
+  const params = new URLSearchParams({ "where[or][0][organizer][equals]": userId, "where[or][1][coOrganizers][contains]": userId });
+  if (administeredMunicipalityIds.length > 0) {
+    const obecWhere = buildWhereParams({
+      type: { equals: MUNICIPALITY_ORGANIZATION_TYPE },
+      municipality: { in: administeredMunicipalityIds },
+    });
+    const obecOrganizations = await get<PayloadListResponse<{ id: number }>>(`/organizations?${obecWhere}&depth=0&limit=100`);
+    for (const o of obecOrganizations.docs) {
+      params.append("where[or][2][organization][in][]", String(o.id));
+      params.append("where[or][3][coOrganizations][in][]", String(o.id));
+    }
+  }
+  const where = params.toString();
   const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 200 });
   const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
   return result.docs.map(mapEvent);
@@ -780,6 +799,9 @@ export type EventDeletionRequestRow = {
   requested_by_id: string;
   approver_ids: string[];
   approved_by_ids: string[];
+  /** The obec co-organizes the event — one of its admins has to consent for it too. */
+  municipality_consent: boolean;
+  municipality_approved: boolean;
   expires_at: string;
 };
 
@@ -788,6 +810,8 @@ type PayloadEventDeletionRequest = {
   requestedBy: number | { id: number };
   approvers?: (number | { id: number })[] | null;
   approvedBy?: (number | { id: number })[] | null;
+  municipalityConsent?: boolean | null;
+  municipalityApprovedBy?: number | { id: number } | null;
   expiresAt: string;
 };
 
@@ -810,6 +834,8 @@ export async function getOpenEventDeletionRequest(eventId: string): Promise<Even
     requested_by_id: toId(r.requestedBy)!,
     approver_ids: ids(r.approvers),
     approved_by_ids: ids(r.approvedBy),
+    municipality_consent: Boolean(r.municipalityConsent),
+    municipality_approved: Boolean(r.municipalityApprovedBy),
     expires_at: r.expiresAt,
   };
 }
@@ -829,6 +855,87 @@ export async function decideEventDeletion(
 
 export async function requestVolunteerFlag(eventId: string, userId: string): Promise<void> {
   await post("/volunteer-flag-requests", { event: Number(eventId), requestedBy: Number(userId) });
+}
+
+// --- The viewer's organizations ("Organizace") ----------------------------------------------
+
+export type MyOrganizationRow = {
+  id: string;
+  name: string;
+  type: AnyOrganizationType;
+  municipality_id: string;
+  municipality_name: string;
+  /** The viewer owns it and may rename it — the obec's own one carries the obec's name. */
+  is_own: boolean;
+};
+
+type PayloadOrganizationWithMunicipality = PayloadOrganization & {
+  municipality: number | { id: number; name: string };
+};
+
+/** What the viewer organizes as: their own organization in each obec they organize in, and the
+ * organization of every obec they administer. The obec ones first — for its admin, that's the main one. */
+export async function getMyOrganizations(userId: string, administeredMunicipalityIds: string[] = []): Promise<MyOrganizationRow[]> {
+  const params = new URLSearchParams({ "where[or][0][owner][equals]": userId });
+  if (administeredMunicipalityIds.length > 0) {
+    params.set("where[or][1][and][0][type][equals]", MUNICIPALITY_ORGANIZATION_TYPE);
+    administeredMunicipalityIds.forEach((id) => params.append("where[or][1][and][1][municipality][in][]", id));
+  }
+  const query = buildQuery({ sort: "name", depth: 1, limit: 100 });
+  const result = await get<PayloadListResponse<PayloadOrganizationWithMunicipality>>(`/organizations?${params}&${query}`);
+  return result.docs
+    .map((o) => ({
+      id: String(o.id),
+      name: o.name,
+      type: o.type,
+      municipality_id: toId(o.municipality) ?? "",
+      municipality_name: typeof o.municipality === "object" ? o.municipality.name : "",
+      is_own: toId(o.owner) === userId,
+    }))
+    .sort((a, b) => Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) - Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE));
+}
+
+/** Every event the organization runs or co-organizes — any status or date, newest first. */
+export async function getOrganizationEvents(organizationId: string): Promise<EventRow[]> {
+  const params = new URLSearchParams({
+    "where[or][0][organization][equals]": organizationId,
+    "where[or][1][coOrganizations][in][]": organizationId,
+  });
+  const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 500 });
+  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${params}&${query}`);
+  return result.docs.map(mapEvent);
+}
+
+export async function updateMyOrganization(id: string, input: { name: string; type: OrganizationType }): Promise<void> {
+  await patch(`/organizations/${id}`, input);
+}
+
+/** What the participants said about the organization's events, in aggregate — shares are 0..1,
+ * `null` while nobody has answered that question. */
+export type OrganizationFeedbackSummary = {
+  count: number;
+  avg_satisfaction: number | null;
+  avg_felt_welcome: number | null;
+  met_someone_new_share: number | null;
+  came_alone_share: number | null;
+};
+
+export async function getOrganizationFeedbackSummary(organizationId: string): Promise<OrganizationFeedbackSummary> {
+  return get<OrganizationFeedbackSummary>(`/organizations/${organizationId}/feedback-summary`);
+}
+
+// --- Asking the obec to co-organize -----------------------------------------------------------
+
+/** Asks the obec's admins to co-organize the event — the obec joins only once one of them approves. */
+export async function requestObecCoOrganizing(eventId: string): Promise<void> {
+  await post("/co-organizing-requests", { event: Number(eventId) });
+}
+
+/** Whether a request for the obec to co-organize this event is waiting for the obec's answer. */
+export async function hasPendingObecCoOrganizingRequest(eventId: string): Promise<boolean> {
+  const where = buildWhereParams({ event: { equals: eventId }, status: { equals: "pending" } });
+  const result = await get<PayloadListResponse<{ id: number }>>(`/co-organizing-requests?${where}&depth=0&limit=1`);
+  return result.docs.length > 0;
 }
 
 // --- Consents / notification preferences ------------------------------------------------

@@ -178,6 +178,8 @@ function IndexContent() {
           price_cents: e.price_cents,
           municipality_id: e.municipality_id,
           registrations_count: counts.get(e.id) ?? 0,
+          organization: e.organization,
+          co_organizations: e.co_organizations,
           categories: e.category_ids.map((id) => catMap.get(id)).filter((c): c is Category => Boolean(c)),
         }));
       setEvents(mapped);

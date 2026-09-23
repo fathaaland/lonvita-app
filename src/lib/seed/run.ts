@@ -1,8 +1,9 @@
-import type { Payload } from 'payload'
+import { createLocalReq, type Payload } from 'payload'
 
 import type { User } from '@/payload-types'
 
 import { ensureProfile } from '@/lib/auth/users'
+import { ensureMunicipalityOrganization } from '@/collections/Organizations'
 
 const CATEGORIES = [
   { name: 'Sport', icon: 'Dumbbell', color: '#F97316' },
@@ -372,7 +373,12 @@ async function ensureMunicipality(
     depth: 0,
     overrideAccess: true,
   })
-  if (existing.docs[0]) return existing.docs[0].id
+  if (existing.docs[0]) {
+    // A new obec gets its organization from the Municipalities hook; one seeded before obce were
+    // organizations gets it here, so its admin's events can be run as the obec.
+    await ensureMunicipalityOrganization(await createLocalReq({}, payload), existing.docs[0].id)
+    return existing.docs[0].id
+  }
 
   const created = await payload.create({
     collection: 'municipalities',

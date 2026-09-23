@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   getEvent,
   getMyAdministeredMunicipalityIds,
-  requestVolunteerFlag,
+  hasPendingObecCoOrganizingRequest,
   updateEvent,
   EventRow,
 } from "@/integrations/payload/queries";
@@ -16,6 +16,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { EventForm, EventFormValues } from "@/components/EventForm";
+import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
+import { isMunicipalityOrganization } from "@/lib/organizations";
 import { toast } from "sonner";
 
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
@@ -31,16 +33,19 @@ function EditEventContent() {
   const [event, setEvent] = useState<EventRow | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [canSetVolunteering, setCanSetVolunteering] = useState(false);
+  const [obecCoOrganizingPending, setObecCoOrganizingPending] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !id) return;
     let active = true;
     (async () => {
-      const [ev, adminIds] = await Promise.all([
+      const [ev, adminIds, obecPending] = await Promise.all([
         getEvent(id),
         getMyAdministeredMunicipalityIds(String(user.id)).catch(() => [] as string[]),
+        hasPendingObecCoOrganizingRequest(id).catch(() => false),
       ]);
+      setObecCoOrganizingPending(obecPending);
       if (!active) return;
       if (ev) {
         const uid = String(user.id);
@@ -86,17 +91,11 @@ function EditEventContent() {
         isHidden: values.isHidden,
       });
 
-      if (values.isVolunteering && !event.is_volunteering && !canSetVolunteering) {
-        try {
-          await requestVolunteerFlag(event.id, String(user.id));
-          toast.success("Akce upravena, žádost o příznak Dobrovolnictví odeslána.");
-        } catch {
-          toast.success("Akce upravena.");
-          toast.error("Žádost o příznak Dobrovolnictví se nepodařilo odeslat.");
-        }
-      } else {
-        toast.success("Akce upravena. Přihlášení účastníci dostanou upozornění o změně.");
-      }
+      const sent = await sendFollowUpRequests(event.id, {
+        volunteerFlag: values.isVolunteering && !event.is_volunteering && !canSetVolunteering ? String(user.id) : null,
+        obecCoOrganizing: values.requestObecCoOrganizing,
+      });
+      toast.success(sent ? `Akce upravena, ${sent}.` : "Akce upravena. Přihlášení účastníci dostanou upozornění o změně.");
       router.push(`/akce/${event.id}`);
     } catch (error) {
       toast.error(
@@ -115,7 +114,7 @@ function EditEventContent() {
           title={event ? "Tuto akci nemůžete upravit" : "Akce nebyla nalezena"}
           description={
             event?.locked_for_viewer
-              ? "Tuhle akci pořádá admin obce — upravit nebo zrušit ji může jen on. Jako spolupořadatel můžete spravovat přihlášené."
+              ? "Tuhle akci pořádá obec — upravit nebo zrušit ji může jen admin obce. Jako spolupořadatel můžete spravovat přihlášené."
               : event
                 ? "Upravovat ji může pořadatel nebo admin obce."
                 : undefined
@@ -134,6 +133,9 @@ function EditEventContent() {
         municipalityId={event.municipality_id ?? ""}
         municipalityCenter={event.lat != null && event.lng != null ? [event.lat, event.lng] : CZECHIA_CENTER}
         canSetVolunteering={canSetVolunteering}
+        canAddObec={canSetVolunteering}
+        runsAsObec={isMunicipalityOrganization(event.organization)}
+        obecCoOrganizingPending={obecCoOrganizingPending}
         submitLabel="Uložit změny"
         onSubmit={handleSubmit}
       />

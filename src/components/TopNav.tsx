@@ -48,6 +48,8 @@ export function TopNav() {
     { to: "/moje-akce", label: "Moje akce" },
     ...(isOrganizer && canCreateHere ? [{ to: "/vytvorit", label: "Vytvořit" }] : []),
     ...(isAdmin && canManageObecHere ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
+    // The organization they run events as — the obec's own one for its admin.
+    ...(isOrganizer ? [{ to: "/organizace", label: "Organizace" }] : []),
     { to: "/profil", label: "Profil" },
   ];
 

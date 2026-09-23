@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AccessibilityControls } from "@/components/AccessibilityControls";
-import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Megaphone } from "lucide-react";
+import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
@@ -138,9 +138,9 @@ function ProfileContent() {
         {!isAdmin && <OrganizerRequestCard />}
         {!isAdmin && <VolunteerCard />}
 
-        {isOrganizer && !isAdmin && (
+        {isOrganizer && (
           <Button asChild variant="outline" className="w-full h-14 text-base">
-            <Link href="/organizator"><Megaphone className="h-5 w-5" /> Moje organizace</Link>
+            <Link href="/organizace"><Building2 className="h-5 w-5" /> Organizace</Link>
           </Button>
         )}
 

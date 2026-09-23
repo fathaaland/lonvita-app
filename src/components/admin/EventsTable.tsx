@@ -18,11 +18,13 @@ interface Props {
   categories: CategoryRow[];
   profiles: ProfileRow[];
   onDeleted?: () => void;
+  /** A short note on the row, e.g. which events the organization only co-organizes. */
+  tagFor?: (event: EventRow) => string | null;
 }
 
 type Filter = "upcoming" | "past" | "all";
 
-export function EventsTable({ events, registrations, categories, profiles, onDeleted }: Props) {
+export function EventsTable({ events, registrations, categories, profiles, onDeleted, tagFor }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [busyVolunteerId, setBusyVolunteerId] = useState<string | null>(null);
@@ -112,7 +114,12 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                           {cat.name}
                         </Badge>
                       ))}
-                      <span className="truncate">· {profs.get(e.organizer_id) ?? ""}</span>
+                      {profs.get(e.organizer_id) && <span className="truncate">· {profs.get(e.organizer_id)}</span>}
+                      {tagFor?.(e) && (
+                        <Badge variant="outline" className="h-5 text-[10px] px-1.5 font-semibold">
+                          {tagFor(e)}
+                        </Badge>
+                      )}
                     </div>
                     {e.is_volunteering && (
                       <div onClick={(ev) => ev.stopPropagation()}>

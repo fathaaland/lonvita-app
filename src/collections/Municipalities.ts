@@ -1,6 +1,13 @@
-import type { Access, CollectionAfterChangeHook, CollectionBeforeValidateHook, CollectionConfig } from 'payload'
+import type {
+  Access,
+  CollectionAfterChangeHook,
+  CollectionBeforeDeleteHook,
+  CollectionBeforeValidateHook,
+  CollectionConfig,
+} from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
+import { ensureMunicipalityOrganization, findMunicipalityOrganizationId } from './Organizations'
 
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
  * so "Blansko" and "blansko " are treated as the same obec (brief item 1: superadmin shouldn't
@@ -61,6 +68,51 @@ const grantRoleForAdminUser: CollectionAfterChangeHook = async ({ doc, previousD
     })
   }
   return doc
+}
+
+/** Every obec runs its own events as its organization (Organizations, type "municipality") —
+ * founded with it, and renamed along with it unless its admins gave it a name of its own. */
+const syncMunicipalityOrganization: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
+  if (operation === 'create') {
+    await ensureMunicipalityOrganization(req, doc.id)
+    return doc
+  }
+  if (!previousDoc?.name || previousDoc.name === doc.name) return doc
+  const organizationId = await findMunicipalityOrganizationId(req, doc.id)
+  if (organizationId === null) {
+    await ensureMunicipalityOrganization(req, doc.id)
+    return doc
+  }
+  const organization = await req.payload.findByID({
+    collection: 'organizations',
+    id: organizationId,
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  if (organization.name === previousDoc.name) {
+    await req.payload.update({
+      collection: 'organizations',
+      id: organizationId,
+      data: { name: doc.name },
+      overrideAccess: true,
+      req,
+    })
+  }
+  return doc
+}
+
+/** The obec's organization goes with it — the one way it can be deleted. */
+const deleteMunicipalityOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
+  const organizationId = await findMunicipalityOrganizationId(req, id)
+  if (organizationId === null) return
+  await req.payload.delete({
+    collection: 'organizations',
+    id: organizationId,
+    overrideAccess: true,
+    context: { deletingMunicipality: true },
+    req,
+  })
 }
 
 /** A municipality admin may update their own municipality's settings (e.g. rulesForCreation,
@@ -158,7 +210,8 @@ export const Municipalities: CollectionConfig = {
   ],
   hooks: {
     beforeValidate: [preventDuplicateName],
-    afterChange: [grantRoleForAdminUser],
+    afterChange: [grantRoleForAdminUser, syncMunicipalityOrganization],
+    beforeDelete: [deleteMunicipalityOrganization],
   },
   timestamps: true,
 }

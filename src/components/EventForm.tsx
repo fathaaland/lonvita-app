@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
 import { toDateInputValue } from "@/lib/date";
 import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
+import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 
 const ACCESSIBILITY_OPTIONS = [
   { value: "wheelchair_access", label: "Bezbariérový přístup" },
@@ -67,6 +68,8 @@ export type EventFormValues = {
   isPaid: boolean;
   priceCents: number | null;
   coOrganizationIds: string[];
+  /** A pořadatel asks the obec to co-organize — sent after saving (CoOrganizingRequests). */
+  requestObecCoOrganizing: boolean;
   isHidden: boolean;
 };
 
@@ -88,13 +91,31 @@ interface Props {
   municipalityCenter: [number, number];
   /** A platform/municipality admin sets the volunteering flag directly; others request it. */
   canSetVolunteering: boolean;
+  /** The obec's admin (or a platform admin) adds the obec as spolupořadatel directly; anyone else
+   * asks it (CoOrganizingRequests). */
+  canAddObec?: boolean;
+  /** The event is (or, created by the obec's admin, will be) the obec's own. */
+  runsAsObec?: boolean;
+  /** A request for the obec to co-organize this event is waiting for its answer. */
+  obecCoOrganizingPending?: boolean;
   submitLabel: string;
   /** Handles its own success/error toasts; the form only tracks the submitting state. */
   onSubmit: (values: EventFormValues) => Promise<void>;
 }
 
 /** The event create/edit form (brief §4 "Vytvoření akce" + organizer self-service edit). */
-export function EventForm({ userId, initial, municipalityId, municipalityCenter, canSetVolunteering, submitLabel, onSubmit }: Props) {
+export function EventForm({
+  userId,
+  initial,
+  municipalityId,
+  municipalityCenter,
+  canSetVolunteering,
+  canAddObec = false,
+  runsAsObec = false,
+  obecCoOrganizingPending = false,
+  submitLabel,
+  onSubmit,
+}: Props) {
   const initialWeekdays = initial?.recurrence_rule?.startsWith("weekly:")
     ? initial.recurrence_rule.slice("weekly:".length).split(",").filter(Boolean)
     : [];
@@ -123,6 +144,7 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
   const [recurWeekdays, setRecurWeekdays] = useState<string[]>(initialWeekdays);
   const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
+  const [requestObec, setRequestObec] = useState(false);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
   const [isHidden, setIsHidden] = useState(Boolean(initial?.is_hidden));
@@ -133,6 +155,9 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
   const [submitting, setSubmitting] = useState(false);
 
   const volunteeringLocked = !canSetVolunteering && Boolean(initial?.is_volunteering);
+  // Admins add the obec in the picker; a pořadatel asks it — unless it's already on the event.
+  const canAskObec =
+    !canAddObec && !runsAsObec && !coOrganizations.some((o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE);
 
   const toggleInArray = (arr: string[], setArr: (v: string[]) => void, value: string) => {
     setArr(arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value]);
@@ -208,6 +233,7 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
         capacity: parsed.data.capacity,
         registrationApprovalMode: approvalMode,
         coOrganizationIds: coOrganizations.map((c) => c.id),
+        requestObecCoOrganizing: canAskObec && !obecCoOrganizingPending && requestObec,
         categoryIds: parsed.data.category_ids,
         imageId,
         imagePosition,
@@ -414,15 +440,16 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
-          Organizace pořadatelů této obce — podnik, spolek nebo jednotlivec. Akce se jim objeví v jejich přehledu
-          akcí a mohou ji spravovat. Akci založenou obcí upravuje a maže už jen obec. Akci s další organizací
-          smažete jen s jejím souhlasem.
+          Organizace pořadatelů této obce — podnik, spolek nebo jednotlivec{canAddObec && !runsAsObec ? ", případně obec sama" : ""}. Akce
+          se jim objeví v jejich přehledu akcí a mohou ji spravovat. Akci založenou obcí upravuje a maže už jen obec.
+          Akci s další organizací nebo s obcí smažete jen s jejich souhlasem.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
           value={coOrganizations}
           onChange={setCoOrganizations}
           excludeIds={initial?.organization ? [initial.organization.id] : []}
+          excludeObec={runsAsObec}
           // Only the obec admin removes another organization; an organizer can only take their own
           // off (Events guardCoOrganizedChanges).
           fixedIds={
@@ -431,6 +458,26 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
               : []
           }
         />
+        {canAskObec && (
+          <label
+            className={cn(
+              "flex items-start gap-2.5 text-sm mt-3",
+              obecCoOrganizingPending ? "opacity-70" : "cursor-pointer",
+            )}
+          >
+            <Checkbox
+              checked={obecCoOrganizingPending || requestObec}
+              disabled={obecCoOrganizingPending}
+              onCheckedChange={(v) => setRequestObec(v === true)}
+              className="mt-0.5"
+            />
+            <span>
+              {obecCoOrganizingPending
+                ? "Obec o spolupořádání žádáte — čeká se na její souhlas."
+                : `Požádat obec o spolupořádání — po ${initial ? "uložení" : "vytvoření"} jí pošlu žádost. Spolupořadatelem se stane, až ji obec schválí.`}
+            </span>
+          </label>
+        )}
       </div>
 
       <label className={cn("flex items-start gap-2.5 text-sm", volunteeringLocked ? "opacity-70" : "cursor-pointer")}>

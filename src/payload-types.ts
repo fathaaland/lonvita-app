@@ -84,6 +84,7 @@ export interface Config {
     notifications: Notification;
     'organizer-requests': OrganizerRequest;
     'volunteer-flag-requests': VolunteerFlagRequest;
+    'co-organizing-requests': CoOrganizingRequest;
     'event-deletion-requests': EventDeletionRequest;
     organizations: Organization;
     'payload-kv': PayloadKv;
@@ -110,6 +111,7 @@ export interface Config {
     notifications: NotificationsSelect<false> | NotificationsSelect<true>;
     'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
     'volunteer-flag-requests': VolunteerFlagRequestsSelect<false> | VolunteerFlagRequestsSelect<true>;
+    'co-organizing-requests': CoOrganizingRequestsSelect<false> | CoOrganizingRequestsSelect<true>;
     'event-deletion-requests': EventDeletionRequestsSelect<false> | EventDeletionRequestsSelect<true>;
     organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -395,11 +397,11 @@ export interface Event {
    */
   organizer: number | User;
   /**
-   * The organization the organizer runs this event as. Empty = the obec's own event (its admin founded it).
+   * The organization the organizer runs this event as — the obec's own one when its admin founded it.
    */
   organization?: (number | null) | Organization;
   /**
-   * Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the obec with the local café). The event appears in each owner's own dashboard/"moje akce".
+   * Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the local café, or the obec itself — only with its consent). The event appears in each owner's own dashboard/"moje akce".
    */
   coOrganizations?: (number | Organization)[] | null;
   /**
@@ -453,8 +455,8 @@ export interface Event {
 export interface Organization {
   id: number;
   name: string;
-  type: 'business' | 'association' | 'individual';
-  owner: number | User;
+  type: 'business' | 'association' | 'individual' | 'municipality';
+  owner?: (number | null) | User;
   municipality: number | Municipality;
   /**
    * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
@@ -693,6 +695,22 @@ export interface VolunteerFlagRequest {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "co-organizing-requests".
+ */
+export interface CoOrganizingRequest {
+  id: number;
+  event: number | Event;
+  eventTitle: string;
+  municipality: number | Municipality;
+  requestedBy: number | User;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: (number | null) | User;
+  reviewedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "event-deletion-requests".
  */
 export interface EventDeletionRequest {
@@ -705,6 +723,11 @@ export interface EventDeletionRequest {
    * Everyone else organizing the event — all of them have to consent.
    */
   approvers?: (number | User)[] | null;
+  municipalityConsent?: boolean | null;
+  /**
+   * The obec admin who consented for the obec.
+   */
+  municipalityApprovedBy?: (number | null) | User;
   approvedBy?: (number | User)[] | null;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
   expiresAt: string;
@@ -804,6 +827,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'volunteer-flag-requests';
         value: number | VolunteerFlagRequest;
+      } | null)
+    | ({
+        relationTo: 'co-organizing-requests';
+        value: number | CoOrganizingRequest;
       } | null)
     | ({
         relationTo: 'event-deletion-requests';
@@ -1164,6 +1191,21 @@ export interface VolunteerFlagRequestsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "co-organizing-requests_select".
+ */
+export interface CoOrganizingRequestsSelect<T extends boolean = true> {
+  event?: T;
+  eventTitle?: T;
+  municipality?: T;
+  requestedBy?: T;
+  status?: T;
+  reviewedBy?: T;
+  reviewedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "event-deletion-requests_select".
  */
 export interface EventDeletionRequestsSelect<T extends boolean = true> {
@@ -1172,6 +1214,8 @@ export interface EventDeletionRequestsSelect<T extends boolean = true> {
   municipality?: T;
   requestedBy?: T;
   approvers?: T;
+  municipalityConsent?: T;
+  municipalityApprovedBy?: T;
   approvedBy?: T;
   status?: T;
   expiresAt?: T;

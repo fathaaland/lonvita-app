@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { commitTransaction, createLocalReq, getPayload, initTransaction, killTransaction } from 'payload'
 
 import config from '@payload-config'
-import { eventOrganizerIds, getRegistrantIdsToNotify, notifyEventCancelled } from '@/collections/Events'
+import { eventOrganizerIds, getRegistrantIdsToNotify, notifyEventCancelled, obecRole } from '@/collections/Events'
+import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { sendNotification } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
@@ -15,7 +16,8 @@ const relationId = (value: unknown): string | null => {
 
 /**
  * A spolupořadatel answers a request to delete the event they run together
- * (EventDeletionRequests). A refusal keeps the event; once everyone asked has consented the event
+ * (EventDeletionRequests) — or an obec admin, for the obec co-organizing it. A refusal keeps the
+ * event; once everyone asked (the obec included) has consented the event
  * is hard-deleted — with its registrations, their feedback, photos and volunteering-flag requests,
  * in one transaction — and the registrants are told it's off.
  *
@@ -40,7 +42,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const uid = String(user.id)
   const approverIds = (deletionRequest.approvers ?? []).map(relationId)
-  if (!approverIds.includes(uid)) {
+  const municipalityId = relationId(deletionRequest.municipality)
+  const forObec =
+    Boolean(deletionRequest.municipalityConsent) &&
+    municipalityId !== null &&
+    (await getAdministeredMunicipalityIds(payload, user.id)).includes(municipalityId)
+  if (!approverIds.includes(uid) && !forObec) {
     return NextResponse.json({ error: 'O téhle žádosti nerozhodujete.' }, { status: 403 })
   }
   // afterRead already reports a lapsed request as "expired".
@@ -65,9 +72,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   // Someone who has since left the event no longer has a say (and nor does their consent count).
   const onEvent = new Set(eventOrganizerIds(event))
-  if (!onEvent.has(uid)) {
+  const asApprover = approverIds.includes(uid) && onEvent.has(uid)
+  if (!asApprover && !forObec) {
     return NextResponse.json({ error: 'Tuhle akci už nepořádáte.' }, { status: 403 })
   }
+  // Once the obec's admins take it off the event, its consent is no longer needed.
+  const obecStillCoOrganizes =
+    Boolean(deletionRequest.municipalityConsent) &&
+    (await obecRole(await createLocalReq({ user }, payload), event)).coOrganizes
 
   const requesterId = relationId(deletionRequest.requestedBy)!
   const decidedAt = new Date().toISOString()
@@ -83,18 +95,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       userId: requesterId,
       title: 'Smazání akce zamítnuto',
       link: `/akce/${event.id}`,
-      message: `Spolupořadatel nesouhlasil se smazáním akce „${event.title}“ — akce zůstává.`,
+      message: `${asApprover ? 'Spolupořadatel nesouhlasil' : 'Obec nesouhlasila'} se smazáním akce „${event.title}“ — akce zůstává.`,
     })
     return NextResponse.json({ status: 'rejected' })
   }
 
-  const approvedBy = [...new Set([...(deletionRequest.approvedBy ?? []).map(relationId), uid])]
+  const approvedBy = [
+    ...new Set([...(deletionRequest.approvedBy ?? []).map(relationId), ...(asApprover ? [uid] : [])]),
+  ].filter((a): a is string => a !== null)
+  const municipalityApprovedBy = forObec ? uid : relationId(deletionRequest.municipalityApprovedBy)
   const stillWaiting = approverIds.filter((a) => a && onEvent.has(a) && !approvedBy.includes(a))
-  if (stillWaiting.length > 0) {
+  if (stillWaiting.length > 0 || (obecStillCoOrganizes && !municipalityApprovedBy)) {
     await payload.update({
       collection: 'event-deletion-requests',
       id: deletionRequest.id,
-      data: { approvedBy: approvedBy.map(Number) },
+      data: {
+        approvedBy: approvedBy.map(Number),
+        municipalityApprovedBy: municipalityApprovedBy ? Number(municipalityApprovedBy) : null,
+      },
       overrideAccess: true,
     })
     return NextResponse.json({ status: 'pending' })
@@ -129,13 +147,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         req,
       })
     }
-    for (const collection of ['registrations', 'event-media', 'volunteer-flag-requests'] as const) {
+    for (const collection of [
+      'registrations',
+      'event-media',
+      'volunteer-flag-requests',
+      'co-organizing-requests',
+    ] as const) {
       await payload.delete({ collection, where: { event: { equals: event.id } }, overrideAccess: true, req })
     }
     await payload.update({
       collection: 'event-deletion-requests',
       id: deletionRequest.id,
-      data: { status: 'approved', approvedBy: approvedBy.map(Number), decidedBy: user.id, decidedAt },
+      data: {
+        status: 'approved',
+        approvedBy: approvedBy.map(Number),
+        municipalityApprovedBy: municipalityApprovedBy ? Number(municipalityApprovedBy) : null,
+        decidedBy: user.id,
+        decidedAt,
+      },
       overrideAccess: true,
       req,
     })
@@ -162,7 +191,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     sendNotification(payload, {
       userId: organizerId,
       title: 'Akce smazána',
-      message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů smazána.`,
+      message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillCoOrganizes ? ' i obce' : ''} smazána.`,
     })
   }
   writeAuditLog(payload, {
@@ -171,7 +200,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     targetCollection: 'events',
     targetId: event.id,
     municipality: Number(relationId(event.municipality)) || null,
-    metadata: { title: event.title, requestedBy: requesterId, approvedBy },
+    metadata: { title: event.title, requestedBy: requesterId, approvedBy, municipalityApprovedBy },
   })
 
   return NextResponse.json({ status: 'approved' })

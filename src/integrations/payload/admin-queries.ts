@@ -244,6 +244,62 @@ export async function decideVolunteerFlagRequest(requestId: string, approve: boo
   await patch(`/volunteer-flag-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
 }
 
+export type CoOrganizingRequestAdminRow = {
+  id: string;
+  event_id: string;
+  event_title: string;
+  requested_by_name: string;
+  municipality_id: string;
+  created_at: string;
+};
+
+type PayloadCoOrganizingRequest = {
+  id: number;
+  event: number | { id: number } | null;
+  eventTitle: string;
+  municipality: number | { id: number };
+  requestedBy: number | { id: number };
+  createdAt: string;
+};
+
+/** Pending requests for the obec to co-organize an event — for one obec, or (a superadmin,
+ * no `municipalityId`) every obec. */
+export async function getCoOrganizingRequestsForAdmin(municipalityId?: string): Promise<CoOrganizingRequestAdminRow[]> {
+  const query = buildQuery({ depth: 0, sort: "createdAt", limit: 1000 });
+  const where = buildWhereParams({
+    status: { equals: "pending" },
+    ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
+  });
+  const result = await get<PayloadListResponse<PayloadCoOrganizingRequest>>(`/co-organizing-requests?${where}&${query}`);
+
+  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
+  const nameById = new Map<string, string>();
+  if (userIds.length) {
+    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${profileWhere}&depth=0&limit=500`,
+    );
+    for (const p of profiles.docs) {
+      const uid = toId(p.user);
+      if (uid) nameById.set(uid, p.fullName);
+    }
+  }
+
+  return result.docs.map((r) => ({
+    id: String(r.id),
+    event_id: toId(r.event) ?? "",
+    event_title: r.eventTitle,
+    requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
+    municipality_id: toId(r.municipality)!,
+    created_at: r.createdAt,
+  }));
+}
+
+/** Approving puts the obec among the event's spolupořadatelé (CoOrganizingRequests applyDecision). */
+export async function decideCoOrganizingRequest(requestId: string, approve: boolean): Promise<void> {
+  await patch(`/co-organizing-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
+}
+
 // --- Aktivní organizátoři (revoke role, US-A-09) ------------------------------------------
 
 export type OrganizerRoleRow = {

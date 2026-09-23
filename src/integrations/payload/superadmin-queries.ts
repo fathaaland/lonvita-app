@@ -9,7 +9,7 @@ import type { PayloadListResponse } from "./client";
 import type { OrganizerRequestAdminRow, VolunteerFlagRequestAdminRow } from "./admin-queries";
 import type { EventRow, RegistrationRow } from "@/lib/analytics";
 import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from "@/lib/report";
-import type { OrganizationType } from "@/lib/organizations";
+import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
   if (value == null) return null;
@@ -251,6 +251,66 @@ export async function grantCommunityRole(
 
 export async function revokeCommunityRole(userRoleId: string): Promise<void> {
   await del(`/user-roles/${userRoleId}`);
+}
+
+// --- Organizations ----------------------------------------------------------------------
+// What organizers run and co-organize events as (Organizations.ts). Owner and obec are fixed once
+// created; creating one grants its owner the organizer role, deleting it takes the role away.
+
+export type SuperAdminOrganizationRow = {
+  id: string;
+  name: string;
+  type: AnyOrganizationType;
+  /** Null for the obec's own organization — it belongs to the obec, not to a person. */
+  ownerId: string | null;
+  municipalityId: string;
+};
+
+type PayloadOrganizationRaw = {
+  id: number;
+  name: string;
+  type: AnyOrganizationType;
+  owner?: number | { id: number } | null;
+  municipality: number | { id: number };
+};
+
+const toOrganizationRow = (o: PayloadOrganizationRaw): SuperAdminOrganizationRow => ({
+  id: String(o.id),
+  name: o.name,
+  type: o.type,
+  ownerId: toId(o.owner),
+  municipalityId: toId(o.municipality)!,
+});
+
+export async function listOrganizationsForSuperAdmin(): Promise<SuperAdminOrganizationRow[]> {
+  const result = await get<PayloadListResponse<PayloadOrganizationRaw>>("/organizations?sort=name&depth=0&limit=2000");
+  return result.docs.map(toOrganizationRow);
+}
+
+export async function createOrganizationAsSuperAdmin(input: {
+  name: string;
+  type: OrganizationType;
+  ownerId: string;
+  municipalityId: string;
+}): Promise<void> {
+  await post("/organizations", {
+    name: input.name,
+    type: input.type,
+    owner: Number(input.ownerId),
+    municipality: Number(input.municipalityId),
+  });
+}
+
+export async function updateOrganizationAsSuperAdmin(
+  organizationId: string,
+  input: { name: string; type?: OrganizationType },
+): Promise<void> {
+  // The obec's own organization only gets renamed — its type is fixed.
+  await patch(`/organizations/${organizationId}`, input);
+}
+
+export async function deleteOrganizationAsSuperAdmin(organizationId: string): Promise<void> {
+  await del(`/organizations/${organizationId}`);
 }
 
 // --- Cross-municipality request hub (US-S-04) -------------------------------------------

@@ -16,14 +16,22 @@ import {
   getAllOrganizerRequestsForSuperAdmin,
   getAllVolunteerFlagRequestsForSuperAdmin,
   getMunicipalityComparison,
+  listOrganizationsForSuperAdmin,
   MunicipalityRow,
   PlatformUserRow,
   SuperAdminEventRow,
   SuperAdminOrganizerRequestRow,
   SuperAdminVolunteerFlagRequestRow,
   MunicipalityComparisonRow,
+  SuperAdminOrganizationRow,
 } from "@/integrations/payload/superadmin-queries";
-import { decideOrganizerRequest, decideVolunteerFlagRequest } from "@/integrations/payload/admin-queries";
+import {
+  decideCoOrganizingRequest,
+  decideOrganizerRequest,
+  decideVolunteerFlagRequest,
+  getCoOrganizingRequestsForAdmin,
+  type CoOrganizingRequestAdminRow,
+} from "@/integrations/payload/admin-queries";
 import { getEventCategories, createEvent, listMunicipalities } from "@/integrations/payload/queries";
 import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { PayloadApiError } from "@/integrations/payload/client";
@@ -32,7 +40,8 @@ import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { CancelEventButton } from "@/components/CancelEventButton";
-import { OrganizerRequestReason } from "@/components/admin/RequestsTable";
+import { CoOrganizingRequestCard, OrganizerRequestReason } from "@/components/admin/RequestsTable";
+import { OrganizationsTab } from "@/components/admin/OrganizationsTab";
 import { EventForm, EventFormValues } from "@/components/EventForm";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +72,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, HandHeart, BarChart3 } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, HandHeart, Handshake, BarChart3, Store } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
@@ -118,8 +127,10 @@ function SuperAdminContent() {
   const [users, setUsers] = useState<PlatformUserRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [events, setEvents] = useState<SuperAdminEventRow[]>([]);
+  const [organizations, setOrganizations] = useState<SuperAdminOrganizationRow[]>([]);
   const [orgRequests, setOrgRequests] = useState<SuperAdminOrganizerRequestRow[]>([]);
   const [volRequests, setVolRequests] = useState<SuperAdminVolunteerFlagRequestRow[]>([]);
+  const [coOrgRequests, setCoOrgRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
   const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -194,14 +205,16 @@ function SuperAdminContent() {
     // below already calls, so folding the comparison refetch in here — whenever that view is the
     // one on screen — keeps it live without threading a refetch through each handler individually.
     const wantsComparison = muniView === "comparison";
-    const [munis, points, us, cats, evs, orgReqs, volReqs, comp] = await Promise.all([
+    const [munis, points, us, cats, evs, orgs, orgReqs, volReqs, coOrgReqs, comp] = await Promise.all([
       listMunicipalitiesForSuperAdmin(),
       listMunicipalities(),
       listAllUsersForSuperAdmin(),
       getEventCategories(),
       listAllEventsForSuperAdmin(),
+      listOrganizationsForSuperAdmin(),
       getAllOrganizerRequestsForSuperAdmin(),
       getAllVolunteerFlagRequestsForSuperAdmin(),
+      getCoOrganizingRequestsForAdmin(),
       wantsComparison ? getMunicipalityComparison() : Promise.resolve(null),
     ]);
     setMunicipalities(munis);
@@ -209,8 +222,10 @@ function SuperAdminContent() {
     setUsers(us);
     setCategories(cats);
     setEvents(evs);
+    setOrganizations(orgs);
     setOrgRequests(orgReqs);
     setVolRequests(volReqs);
+    setCoOrgRequests(coOrgReqs);
     if (wantsComparison) setComparison(comp);
     setLoading(false);
   };
@@ -516,6 +531,21 @@ function SuperAdminContent() {
     }
   };
 
+  const handleCoOrganizingRequestDecision = async (id: string, approve: boolean) => {
+    setRequestBusyId(id);
+    try {
+      await decideCoOrganizingRequest(id, approve);
+      toast.success(approve ? "Obec teď akci spolupořádá." : "Žádost zamítnuta.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se vyřídit žádost.");
+    } finally {
+      setRequestBusyId(null);
+      await load();
+    }
+  };
+
+  const pendingRequestCount = orgRequests.length + volRequests.length + coOrgRequests.length;
+
   const logoutAction = (
     <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
       <LogOut className="h-4 w-4" />
@@ -538,6 +568,12 @@ function SuperAdminContent() {
         ),
       )
     : [];
+  // The obec's admin founds the event as the obec itself — then it can't co-organize it too.
+  const evRunsAsObec = Boolean(
+    users
+      .find((u) => u.id === evOrganizerId)
+      ?.communityRoles.some((r) => r.role === "municipality_admin" && r.municipalityId === evMuniId),
+  );
 
   return (
     <div className="animate-fade-in">
@@ -545,7 +581,7 @@ function SuperAdminContent() {
       {/* Wider on large screens so the municipality/location maps in these forms get room too. */}
       <div className="px-4 py-5 max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4">
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="w-full h-14 grid grid-cols-5">
+          <TabsList className="w-full h-14 grid grid-cols-6">
             <TabsTrigger value="municipalities" className="flex-col gap-0.5 text-[11px]">
               <Building2 className="h-4 w-4" /> Obce
             </TabsTrigger>
@@ -558,11 +594,14 @@ function SuperAdminContent() {
             <TabsTrigger value="roles" className="flex-col gap-0.5 text-[11px]">
               <Shield className="h-4 w-4" /> Role
             </TabsTrigger>
+            <TabsTrigger value="organizations" className="flex-col gap-0.5 text-[11px]">
+              <Store className="h-4 w-4" /> Organizace
+            </TabsTrigger>
             <TabsTrigger value="requests" className="relative flex-col gap-0.5 text-[11px]">
               <ClipboardList className="h-4 w-4" /> Žádosti
-              {orgRequests.length + volRequests.length > 0 && (
+              {pendingRequestCount > 0 && (
                 <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px] absolute -top-1 -right-1">
-                  {orgRequests.length + volRequests.length}
+                  {pendingRequestCount}
                 </Badge>
               )}
             </TabsTrigger>
@@ -1096,6 +1135,8 @@ function SuperAdminContent() {
                     municipalityId={evMuniId}
                     municipalityCenter={evMuniCenter}
                     canSetVolunteering
+                    canAddObec
+                    runsAsObec={evRunsAsObec}
                     submitLabel="Vytvořit akci"
                     onSubmit={handleCreateEvent}
                   />
@@ -1236,9 +1277,19 @@ function SuperAdminContent() {
             </AlertDialog>
           </TabsContent>
 
+          {/* --- Organizace ------------------------------------------------------------- */}
+          <TabsContent value="organizations" className="pt-4 space-y-4">
+            <OrganizationsTab
+              organizations={organizations}
+              municipalities={municipalities}
+              users={users}
+              onChanged={load}
+            />
+          </TabsContent>
+
           {/* --- Žádosti (napříč obcemi) ------------------------------------------------ */}
           <TabsContent value="requests" className="pt-4 space-y-5">
-            {orgRequests.length === 0 && volRequests.length === 0 ? (
+            {pendingRequestCount === 0 ? (
               <p className="text-center text-muted-foreground py-8">Žádné čekající žádosti.</p>
             ) : (
               <>
@@ -1323,6 +1374,24 @@ function SuperAdminContent() {
                           </Button>
                         </CardContent>
                       </Card>
+                    ))}
+                  </div>
+                )}
+
+                {coOrgRequests.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <Handshake className="h-4 w-4 text-primary" />
+                      <p className="font-bold text-sm">Žádosti o spolupořádání obcí</p>
+                    </div>
+                    {coOrgRequests.map((r) => (
+                      <CoOrganizingRequestCard
+                        key={r.id}
+                        request={r}
+                        busy={requestBusyId === r.id}
+                        subtitle={municipalities.find((m) => m.id === r.municipality_id)?.name ?? "Neznámá obec"}
+                        onDecide={(approve) => handleCoOrganizingRequestDecision(r.id, approve)}
+                      />
                     ))}
                   </div>
                 )}

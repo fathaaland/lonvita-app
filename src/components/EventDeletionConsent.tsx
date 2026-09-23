@@ -32,14 +32,20 @@ interface Props {
   title: string;
   dateTime: string;
   userId: string;
+  /** The obec co-organizes the event, so it has to consent as well. */
+  obecCoOrganizes?: boolean;
+  /** The viewer is an admin of the obec co-organizing the event — they only answer requests for it
+   * (they cancel the event outright otherwise, with CancelEventButton). */
+  forObec?: boolean;
 }
 
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof PayloadApiError && error.status < 500 ? error.message : fallback;
 
-/** Deleting an event run by several organizers (Events.deletionNeedsConsent) — one asks, the others
- * get 24 hours to consent (EventDeletionRequests). Takes the place of CancelEventButton for them. */
-export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props) {
+/** Deleting an event run by several organizers, or together with the obec
+ * (Events.deletionNeedsConsent) — one asks, the others (and the obec) get 24 hours to consent
+ * (EventDeletionRequests). Takes the place of CancelEventButton for them. */
+export function EventDeletionConsent({ eventId, title, dateTime, userId, obecCoOrganizes = false, forObec = false }: Props) {
   const router = useRouter();
   const [request, setRequest] = useState<EventDeletionRequestRow | null>(null);
   const [requesterName, setRequesterName] = useState<string | null>(null);
@@ -63,6 +69,7 @@ export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props
   }, [eventId]);
 
   if (loading) return null;
+  if (forObec && (!request?.municipality_consent || !canCancelEvent(dateTime))) return null;
 
   if (!canCancelEvent(dateTime)) {
     return (
@@ -82,7 +89,7 @@ export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props
     setBusy(true);
     try {
       await requestEventDeletion(eventId);
-      toast.success("Žádost odeslána. Spolupořadatelé mají 24 hodin na odpověď.");
+      toast.success(`Žádost odeslána. ${obecCoOrganizes ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} 24 hodin na odpověď.`);
       setOpen(false);
       await load();
     } catch (error) {
@@ -99,10 +106,10 @@ export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props
       const { status } = await decideEventDeletion(request.id, approve);
       if (status === "approved") {
         toast.success("Akce smazána. Přihlášení účastníci dostanou upozornění.");
-        router.push("/organizator");
+        router.push("/organizace");
         return;
       }
-      toast.success(status === "rejected" ? "Akce zůstává." : "Souhlas uložen, čeká se na ostatní spolupořadatele.");
+      toast.success(status === "rejected" ? "Akce zůstává." : "Souhlas uložen, čeká se na ostatní.");
       setOpen(false);
       await load();
     } catch (error) {
@@ -128,8 +135,9 @@ export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props
           <AlertDialogHeader>
             <AlertDialogTitle>Požádat o smazání „{title}“?</AlertDialogTitle>
             <AlertDialogDescription>
-              Akci pořádáte se spolupořadateli, takže se smaže jen s jejich souhlasem. Dostanou upozornění a mají 24
-              hodin na odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou upozornění. Když
+              Akci pořádáte {obecCoOrganizes ? "s obcí" : "se spolupořadateli"}, takže se smaže jen s{" "}
+              {obecCoOrganizes ? "souhlasem obce (a případných dalších spolupořadatelů)" : "jejich souhlasem"}. Dostanou
+              upozornění a mají 24 hodin na odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou upozornění. Když
               nesouhlasí nebo neodpoví, akce zůstane.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -145,15 +153,20 @@ export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props
   }
 
   const until = formatEventDateTime(request.expires_at);
-  const mustDecide = request.approver_ids.includes(userId) && !request.approved_by_ids.includes(userId);
+  const mustDecide = forObec
+    ? !request.municipality_approved
+    : request.approver_ids.includes(userId) && !request.approved_by_ids.includes(userId);
+  const waitingFor = request.municipality_consent ? "spolupořadatelů a obce" : "spolupořadatelů";
 
   if (!mustDecide) {
     return (
       <p className="text-sm text-muted-foreground flex items-start gap-1.5">
         <Clock className="h-4 w-4 mt-0.5 shrink-0" />
-        {request.requested_by_id === userId
-          ? `Žádost o smazání čeká na souhlas spolupořadatelů — nejpozději do ${until}. Když neodpoví, akce zůstane.`
-          : `Se smazáním jste souhlasili, čeká se na ostatní spolupořadatele (do ${until}).`}
+        {forObec
+          ? `Za obec jste se smazáním souhlasili, čeká se na spolupořadatele (do ${until}).`
+          : request.requested_by_id === userId
+            ? `Žádost o smazání čeká na souhlas ${waitingFor} — nejpozději do ${until}. Když neodpoví, akce zůstane.`
+            : `Se smazáním jste souhlasili, čeká se na ostatní (do ${until}).`}
       </p>
     );
   }
@@ -161,7 +174,8 @@ export function EventDeletionConsent({ eventId, title, dateTime, userId }: Props
   return (
     <div className="space-y-3">
       <p className="text-sm">
-        <strong>{requesterName ?? "Spolupořadatel"}</strong> žádá o smazání akce. Bez vašeho souhlasu se nesmaže —
+        <strong>{requesterName ?? "Spolupořadatel"}</strong> žádá o smazání akce.{" "}
+        {forObec ? "Obec ji spolupořádá, bez jejího souhlasu se nesmaže" : "Bez vašeho souhlasu se nesmaže"} —
         odpovězte do {until}.
       </p>
       <div className="flex gap-2">
