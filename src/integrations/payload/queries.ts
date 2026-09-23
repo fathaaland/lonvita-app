@@ -631,8 +631,8 @@ export async function getFullNamesByUserIds(userIds: string[]): Promise<Map<stri
 
 export type MunicipalityUserRow = { id: string; full_name: string; email: string | null };
 
-/** For CoOrganizerPicker — people with a profile in this municipality, matched by name, so an
- * organizer can pick a co-organizer without knowing their exact email. */
+/** For VolunteersTable — people with a profile in this municipality, matched by name, so an
+ * admin can add someone to the volunteer pool without knowing their exact email. */
 export async function searchMunicipalityUsers(municipalityId: string, query: string): Promise<MunicipalityUserRow[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
@@ -651,6 +651,27 @@ export async function searchMunicipalityUsers(municipalityId: string, query: str
       full_name: p.fullName,
       email: (p.user as { email: string }).email ?? null,
     }));
+}
+
+/** For CoOrganizerPicker — pořadatelé and admins of this obec (by user-role, not home
+ * municipality), matched by name. Only they can be an event's spolupořadatel. */
+export async function searchCoOrganizerCandidates(municipalityId: string, query: string): Promise<MunicipalityUserRow[]> {
+  if (query.trim().length < 2) return [];
+  const params = new URLSearchParams({ municipalityId, q: query.trim() });
+  const result = await get<{ docs: MunicipalityUserRow[] }>(`/events/co-organizer-candidates?${params}`);
+  return result.docs;
+}
+
+/** Whether onboarding has to ask for the obec — only for a Google sign-up, which skips the
+ * registration form's map, and only while the profile has none. */
+export async function needsOnboardingMunicipality(): Promise<boolean> {
+  const result = await get<{ needed: boolean }>("/auth/onboarding-municipality");
+  return result.needed;
+}
+
+/** Files a Google sign-up under the obec picked in onboarding (profile + "participant" role). */
+export async function setOnboardingMunicipality(municipalityId: string): Promise<void> {
+  await post("/auth/onboarding-municipality", { municipality: municipalityId });
 }
 
 export async function getMyProfile(userId: string): Promise<ProfileRow | null> {

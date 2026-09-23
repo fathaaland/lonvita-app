@@ -466,3 +466,117 @@ describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
     expect(updated.isVolunteer).toBe(false)
   })
 })
+
+describe('Spolupořadatelé only from the same obec (Events requireCoOrganizerRole)', () => {
+  let muniA: { id: number }
+  let muniB: { id: number }
+  let cat: { id: number }
+  let adminA: { id: number; email: string; role: string }
+  let pubOrganizerA: { id: number; email: string; role: string }
+  let residentA: { id: number; email: string; role: string }
+  let organizerB: { id: number; email: string; role: string }
+  const eventIds: number[] = []
+
+  const eventData = (coOrganizers: number[]) => ({
+    title: `Co-organizer Event ${STAMP}`,
+    dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    locationText: 'Test location',
+    lat: 49.5661,
+    lng: 15.9403,
+    capacity: 10,
+    organizer: adminA.id,
+    coOrganizers,
+    categories: [cat.id],
+    municipality: muniA.id,
+    status: 'active' as const,
+    isPaid: false,
+    registrationApprovalMode: 'manual' as const,
+    cancellationPolicy: 'none' as const,
+  })
+
+  beforeAll(async () => {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+
+    muniA = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Test CoOrg Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      overrideAccess: true,
+    })
+    muniB = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Test CoOrg Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      overrideAccess: true,
+    })
+    cat = await payload.create({
+      collection: 'event-categories',
+      data: { name: `Test Category CoOrg ${STAMP}` },
+      overrideAccess: true,
+    })
+
+    const makeUser = async (name: string, municipality: number) => {
+      const user = await payload.create({
+        collection: 'users',
+        data: { email: `${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      await payload.create({
+        collection: 'profiles',
+        data: { user: user.id, fullName: `${name} ${STAMP}`, municipality },
+        overrideAccess: true,
+      })
+      return user
+    }
+    adminA = await makeUser('coorg-admin-a', muniA.id)
+    pubOrganizerA = await makeUser('coorg-hospoda-a', muniA.id)
+    residentA = await makeUser('coorg-resident-a', muniA.id)
+    // Lives in A, but organizes only in B.
+    organizerB = await makeUser('coorg-organizer-b', muniA.id)
+
+    for (const [user, municipality, role] of [
+      [adminA, muniA, 'municipality_admin'],
+      [pubOrganizerA, muniA, 'organizer'],
+      [organizerB, muniB, 'organizer'],
+    ] as const) {
+      await payload.create({
+        collection: 'user-roles',
+        data: { user: user.id, municipality: municipality.id, role },
+        overrideAccess: true,
+      })
+    }
+  })
+
+  afterAll(async () => {
+    const userIds = [adminA.id, pubOrganizerA.id, residentA.id, organizerB.id]
+    await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'event-categories', id: cat.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'municipalities', id: muniA.id, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'municipalities', id: muniB.id, overrideAccess: true }).catch(() => {})
+  })
+
+  it("the obec admin can run an event with one of the obec's organizers", async () => {
+    const event = await payload.create({
+      collection: 'events',
+      data: eventData([pubOrganizerA.id]),
+      user: adminA,
+      overrideAccess: false,
+    })
+    eventIds.push(event.id)
+    expect(event.coOrganizers).toHaveLength(1)
+  })
+
+  it('a resident without an organizing role in the obec cannot be a co-organizer', async () => {
+    await expect(
+      payload.create({ collection: 'events', data: eventData([residentA.id]), user: adminA, overrideAccess: false }),
+    ).rejects.toThrow()
+  })
+
+  it("another obec's organizer cannot be a co-organizer, even if they live here", async () => {
+    await expect(
+      payload.create({ collection: 'events', data: eventData([organizerB.id]), user: adminA, overrideAccess: false }),
+    ).rejects.toThrow()
+  })
+})

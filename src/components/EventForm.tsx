@@ -423,7 +423,7 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
-          Akce se jim objeví v jejich přehledu akcí a mohou ji spravovat.
+          Jen pořadatelé a admini této obce. Akce se jim objeví v jejich přehledu akcí a mohou ji spravovat.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { searchMunicipalityUsers, MunicipalityUserRow } from "@/integrations/payload/queries";
+import { searchCoOrganizerCandidates, MunicipalityUserRow } from "@/integrations/payload/queries";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
@@ -15,7 +15,7 @@ interface Props {
   excludeUserIds: string[];
 }
 
-/** Brief §4 "Spolupořadatelství" — search people with a profile in this obec by name and add
+/** Brief §4 "Spolupořadatelství" — search this obec's pořadatelé and admins by name and add
  * them as additional organizers of the event (Events.coOrganizers). */
 export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUserIds }: Props) {
   const [query, setQuery] = useState("");
@@ -30,10 +30,11 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeUser
     let active = true;
     setSearching(true);
     const timeout = setTimeout(() => {
-      searchMunicipalityUsers(municipalityId, query)
+      searchCoOrganizerCandidates(municipalityId, query)
         .then((rows) => {
           if (active) setResults(rows);
         })
+        .catch(() => active && setResults([]))
         .finally(() => active && setSearching(false));
     }, 300);
     return () => {

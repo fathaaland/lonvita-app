@@ -170,6 +170,57 @@ const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, ope
   return data
 }
 
+/**
+ * Spolupořadatelé are other pořadatelé of the same obec — e.g. the obec admin running an event
+ * with the local pub's organizer, or two organizers together — never someone from outside it.
+ * Everyone added must hold "municipality_admin" or "organizer" in the event's obec. Only newly
+ * added people are checked (everyone, if the event moves to another obec), so editing an event
+ * whose co-organizer has since lost the role keeps working.
+ */
+const requireCoOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
+  if (!data?.coOrganizers) return data
+
+  const municipalityId = relationId(data.municipality ?? originalDoc?.municipality)
+  if (!municipalityId) return data
+
+  const municipalityChanged = operation === 'update' && relationId(originalDoc?.municipality) !== municipalityId
+  const previousIds = new Set(
+    operation === 'update' && !municipalityChanged
+      ? ((originalDoc?.coOrganizers ?? []) as unknown[]).map(relationId)
+      : [],
+  )
+  const addedIds = [
+    ...new Set(
+      (data.coOrganizers as unknown[])
+        .map(relationId)
+        .filter((id): id is string => id !== null && !previousIds.has(id)),
+    ),
+  ]
+  if (addedIds.length === 0) return data
+
+  const roles = await req.payload.find({
+    collection: 'user-roles',
+    where: {
+      and: [
+        { user: { in: addedIds } },
+        { municipality: { equals: municipalityId } },
+        { role: { in: ['municipality_admin', 'organizer'] } },
+      ],
+    },
+    depth: 0,
+    limit: 500,
+    overrideAccess: true,
+    req,
+  })
+  const withRole = new Set(roles.docs.map((r) => relationId(r.user)))
+
+  if (addedIds.some((id) => !withRole.has(id))) {
+    throw new APIError('Spolupořadatelem může být jen pořadatel nebo admin téhle obce.', 400)
+  }
+
+  return data
+}
+
 /** A new event can't start in the past, and neither can one that gets rescheduled — but the
  * start is only checked when it actually changes, so editing e.g. the title of an event that is
  * already running (or over) keeps working. A multi-day event can't end before it starts. */
@@ -734,6 +785,7 @@ export const Events: CollectionConfig = {
       validateEventDates,
       validateEventLocationRadius,
       requireOrganizerRole,
+      requireCoOrganizerRole,
       guardIsVolunteering,
     ],
     afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],

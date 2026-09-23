@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getEventCategories, updateProfile } from "@/integrations/payload/queries";
+import {
+  getEventCategories,
+  listMunicipalities,
+  MunicipalityRow,
+  needsOnboardingMunicipality,
+  setOnboardingMunicipality,
+  updateProfile,
+} from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,12 +19,14 @@ import { Label } from "@/components/ui/label";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { toast } from "sonner";
 import { Loading } from "@/components/Loading";
+import { MunicipalityPicker } from "@/components/map/MunicipalityPicker";
 import { getCategoryIcon } from "@/lib/icons";
 import { ArrowRight, ArrowLeft, Check, Phone } from "lucide-react";
 
-/** The obec isn't asked here — it's picked on the map during registration. */
+/** The obec is picked on the map during registration — except for a Google sign-up, which
+ * skips that form, so onboarding asks for it first (see /api/auth/onboarding-municipality). */
 const STEPS = ["dob", "gender", "interests", "phone"] as const;
-type StepKey = (typeof STEPS)[number];
+type StepKey = "municipality" | (typeof STEPS)[number];
 // Lenient Czech mobile format: optional +420/00420 prefix, then 9 digits (spaces allowed).
 const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
@@ -33,11 +42,26 @@ function OnboardingContent() {
   const [interests, setInterests] = useState<string[]>([]);
   const [phone, setPhone] = useState("");
   const [cats, setCats] = useState<Category[]>([]);
+  // null until we know whether this account still has to pick its obec.
+  const [needsMunicipality, setNeedsMunicipality] = useState<boolean | null>(null);
+  const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
+  const [municipality, setMunicipality] = useState("");
+  const [noMunicipality, setNoMunicipality] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     getEventCategories().then(setCats);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    needsOnboardingMunicipality()
+      .catch(() => false)
+      .then((needed) => {
+        setNeedsMunicipality(needed);
+        if (needed) listMunicipalities().then(setMunicipalities);
+      });
+  }, [user?.id]);
 
   // Prefill from the profile — an account created by a superadmin may already carry some of this.
   useEffect(() => {
@@ -55,7 +79,7 @@ function OnboardingContent() {
     }
   }, [authLoading, profile, router]);
 
-  const steps: readonly StepKey[] = STEPS;
+  const steps: readonly StepKey[] = needsMunicipality ? ["municipality", ...STEPS] : STEPS;
 
   const toggleInterest = (id: string) => {
     setInterests((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
@@ -65,6 +89,9 @@ function OnboardingContent() {
     if (!user || !profile) return;
     setSaving(true);
     try {
+      if (needsMunicipality && municipality && !noMunicipality) {
+        await setOnboardingMunicipality(municipality);
+      }
       await updateProfile(profile.id, {
         dateOfBirth: dob || null,
         gender: gender ?? "neuvedeno",
@@ -82,10 +109,11 @@ function OnboardingContent() {
     }
   };
 
-  if (authLoading) return <Loading />;
+  if (authLoading || needsMunicipality === null) return <Loading />;
 
   const current: StepKey = steps[step];
   const canNext =
+    (current === "municipality" && (noMunicipality || !!municipality)) ||
     (current === "dob" && !!dob) ||
     // "Raději neuvedu" is a valid answer too — only an untouched step blocks.
     (current === "gender" && gender !== null) ||
@@ -114,6 +142,34 @@ function OnboardingContent() {
       <div className="flex-1 px-4 py-4">
         <Card>
           <CardContent className="p-5 space-y-4">
+            {current === "municipality" && (
+              <>
+                <div>
+                  <h2 className="text-xl font-extrabold">Ve které obci bydlíte?</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Určuje, čí akce uvidíte. Změnit ji jde kdykoliv později v profilu.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="municipality">Vaše obec</Label>
+                  <MunicipalityPicker
+                    id="municipality"
+                    points={municipalities}
+                    value={{ id: municipality, noMunicipality }}
+                    onChange={({ id, noMunicipality: none }) => {
+                      setMunicipality(id);
+                      setNoMunicipality(none);
+                    }}
+                  />
+                  {noMunicipality && (
+                    <p className="text-[13px] leading-relaxed text-muted-foreground">
+                      Uvidíte akce ze všech obcí. Svoji obec si můžete vybrat později v profilu.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
             {current === "dob" && (
               <>
                 <div>
