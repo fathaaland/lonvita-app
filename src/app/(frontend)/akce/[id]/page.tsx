@@ -280,14 +280,11 @@ function EventDetailContent() {
               )}
             </p>
           </div>
-          {(event.organization_name || organizerName) && (
+          {organizerName && (
             <div className="flex items-start gap-3">
               <UserIcon className="h-5 w-5 mt-0.5 text-primary shrink-0" />
               <p className="font-semibold">
-                Pořadatel: {event.organization_name ?? organizerName}
-                {event.organization_name && organizerName && (
-                  <span className="text-muted-foreground font-normal"> · {organizerName}</span>
-                )}
+                Pořadatel: {organizerName}
                 {coOrganizerNames.length > 0 && (
                   <span className="text-muted-foreground font-normal"> · spolu s {coOrganizerNames.join(", ")}</span>
                 )}

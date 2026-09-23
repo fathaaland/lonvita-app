@@ -72,25 +72,6 @@ export async function getEventCategories(): Promise<CategoryRow[]> {
   }));
 }
 
-// --- Organizations ------------------------------------------------------------------------
-
-export type OrganizationRow = { id: string; name: string };
-
-type PayloadOrganization = { id: number; name: string };
-
-/** The organizations this organizer manages (brief §4 "Organizace" — free text, no obec approval). */
-export async function getMyOrganizations(userId: string): Promise<OrganizationRow[]> {
-  const where = buildWhereParams({ owner: { equals: userId } });
-  const query = buildQuery({ sort: "name", limit: 200 });
-  const result = await get<PayloadListResponse<PayloadOrganization>>(`/organizations?${where}&${query}`);
-  return result.docs.map((o) => ({ id: String(o.id), name: o.name }));
-}
-
-export async function createOrganization(name: string, ownerId: string): Promise<OrganizationRow> {
-  const doc = await post<PayloadOrganization>("/organizations", { name, owner: Number(ownerId) });
-  return { id: String(doc.id), name: doc.name };
-}
-
 // --- Media (event cover image) -------------------------------------------------------------
 
 /** Uploads the event cover image (brief §4 — crop to a fixed aspect ratio happens server-side
@@ -120,9 +101,6 @@ export type EventRow = {
   image_position: { x: number; y: number };
   category_ids: string[];
   organizer_id?: string;
-  organization_id: string | null;
-  /** Only when fetched with depth >= 1 (the relationship is populated). */
-  organization_name: string | null;
   co_organizer_ids: string[];
   municipality_id?: string;
   status?: "active" | "full" | "finished" | "cancelled";
@@ -152,7 +130,6 @@ type PayloadEvent = {
   imagePositionY?: number | null;
   categories?: (number | { id: number })[] | null;
   organizer?: number | { id: number };
-  organization?: number | { id: number } | null;
   coOrganizers?: (number | { id: number })[] | null;
   municipality?: number | { id: number };
   status?: EventRow["status"];
@@ -185,9 +162,6 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   image_position: { x: e.imagePositionX ?? 50, y: e.imagePositionY ?? 50 },
   category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
   organizer_id: toId(e.organizer) ?? undefined,
-  organization_id: toId(e.organization),
-  organization_name:
-    typeof e.organization === "object" && e.organization ? ((e.organization as { name?: string }).name ?? null) : null,
   co_organizer_ids: (e.coOrganizers ?? []).map(toId).filter((v): v is string => Boolean(v)),
   municipality_id: toId(e.municipality) ?? undefined,
   status: e.status,
@@ -246,7 +220,6 @@ type CreateEventInput = {
   registrationApprovalMode?: "auto" | "manual";
   organizerUserId: string;
   municipalityId: string;
-  organizationId?: string;
   coOrganizerIds?: string[];
   categoryIds: string[];
   imageId?: string;
@@ -273,7 +246,6 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     registrationApprovalMode: input.registrationApprovalMode ?? "manual",
     organizer: Number(input.organizerUserId),
     municipality: Number(input.municipalityId),
-    organization: input.organizationId ? Number(input.organizationId) : undefined,
     coOrganizers: input.coOrganizerIds?.length ? input.coOrganizerIds.map(Number) : undefined,
     categories: input.categoryIds.map(Number),
     image: input.imageId ? Number(input.imageId) : undefined,

@@ -71,7 +71,6 @@ function EditEventContent() {
         accessibilityTags: values.accessibilityTags,
         capacity: values.capacity,
         registrationApprovalMode: values.registrationApprovalMode,
-        organization: values.organizationId ? Number(values.organizationId) : null,
         coOrganizers: values.coOrganizerIds.map(Number),
         categories: values.categoryIds.map(Number),
         ...(values.imageId ? { image: Number(values.imageId) } : {}),

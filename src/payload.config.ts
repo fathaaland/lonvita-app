@@ -25,7 +25,6 @@ import { MunicipalityAreas } from './collections/MunicipalityAreas'
 import { Consents } from './collections/Consents'
 import { AuditLog } from './collections/AuditLog'
 import { Notifications } from './collections/Notifications'
-import { Organizations } from './collections/Organizations'
 import { OrganizerRequests } from './collections/OrganizerRequests'
 import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests'
 import { s3ClientConfig } from './lib/s3/client'
@@ -77,7 +76,6 @@ export default buildConfig({
     Consents,
     AuditLog,
     Notifications,
-    Organizations,
     OrganizerRequests,
     VolunteerFlagRequests,
   ].map(withCrudLogging),

@@ -72,7 +72,6 @@ function CreateEventContent() {
         registrationApprovalMode: values.registrationApprovalMode,
         organizerUserId: String(user.id),
         municipalityId,
-        organizationId: values.organizationId ?? undefined,
         coOrganizerIds: values.coOrganizerIds,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,

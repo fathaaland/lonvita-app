@@ -406,7 +406,6 @@ function SuperAdminContent() {
         registrationApprovalMode: values.registrationApprovalMode,
         organizerUserId: evOrganizerId,
         municipalityId: evMuniId,
-        organizationId: values.organizationId ?? undefined,
         coOrganizerIds: values.coOrganizerIds,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,

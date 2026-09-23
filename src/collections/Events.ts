@@ -348,7 +348,6 @@ const NOTIFIABLE_EDIT_FIELDS: Record<string, string> = {
   capacity: 'kapacita',
   registrationApprovalMode: 'způsob přihlašování',
   accessibilityTags: 'přístupnost',
-  organization: 'pořadatel',
   categories: 'kategorie',
   isPaid: 'cena',
   priceCents: 'cena',
@@ -613,22 +612,13 @@ export const Events: CollectionConfig = {
       },
     },
     {
-      name: 'organization',
-      type: 'relationship',
-      relationTo: 'organizations',
-      admin: {
-        description:
-          'Brief §4 "Organizace" — which of the organizer\'s organizations this event is published under. Empty = published under their personal name.',
-      },
-    },
-    {
       name: 'coOrganizers',
       type: 'relationship',
       relationTo: 'users',
       hasMany: true,
       admin: {
         description:
-          'Brief §4 "Spolupořadatelství" — additional organizers (e.g. two organizations running an event together). The event appears in each co-organizer\'s own dashboard/"moje akce" alongside the primary organizer.',
+          'Brief §4 "Spolupořadatelství" — additional organizers (e.g. two people running an event together). The event appears in each co-organizer\'s own dashboard/"moje akce" alongside the primary organizer.',
       },
     },
     {

@@ -82,7 +82,6 @@ export interface Config {
     consents: Consent;
     'audit-log': AuditLog;
     notifications: Notification;
-    organizations: Organization;
     'organizer-requests': OrganizerRequest;
     'volunteer-flag-requests': VolunteerFlagRequest;
     'payload-kv': PayloadKv;
@@ -107,7 +106,6 @@ export interface Config {
     consents: ConsentsSelect<false> | ConsentsSelect<true>;
     'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
     notifications: NotificationsSelect<false> | NotificationsSelect<true>;
-    organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
     'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
     'volunteer-flag-requests': VolunteerFlagRequestsSelect<false> | VolunteerFlagRequestsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -393,11 +391,7 @@ export interface Event {
    */
   organizer: number | User;
   /**
-   * Brief §4 "Organizace" — which of the organizer's organizations this event is published under. Empty = published under their personal name.
-   */
-  organization?: (number | null) | Organization;
-  /**
-   * Brief §4 "Spolupořadatelství" — additional organizers (e.g. two organizations running an event together). The event appears in each co-organizer's own dashboard/"moje akce" alongside the primary organizer.
+   * Brief §4 "Spolupořadatelství" — additional organizers (e.g. two people running an event together). The event appears in each co-organizer's own dashboard/"moje akce" alongside the primary organizer.
    */
   coOrganizers?: (number | User)[] | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
@@ -433,27 +427,6 @@ export interface Event {
   cancellationPolicy: 'none' | 'cancel_24h' | 'cancel_48h' | 'cancel_7d';
   /**
    * Soft-delete marker — preserves attendance history when an event is removed.
-   */
-  deletedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "organizations".
- */
-export interface Organization {
-  id: number;
-  /**
-   * Free text, no obec approval needed — the organizer manages their own list in their profile.
-   */
-  name: string;
-  /**
-   * The organizer who added this organization.
-   */
-  owner: number | User;
-  /**
-   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
   deletedAt?: string | null;
   updatedAt: string;
@@ -766,10 +739,6 @@ export interface PayloadLockedDocument {
         value: number | Notification;
       } | null)
     | ({
-        relationTo: 'organizations';
-        value: number | Organization;
-      } | null)
-    | ({
         relationTo: 'organizer-requests';
         value: number | OrganizerRequest;
       } | null)
@@ -962,7 +931,6 @@ export interface EventsSelect<T extends boolean = true> {
   capacity?: T;
   registrationApprovalMode?: T;
   organizer?: T;
-  organization?: T;
   coOrganizers?: T;
   status?: T;
   isHidden?: T;
@@ -1091,17 +1059,6 @@ export interface NotificationsSelect<T extends boolean = true> {
   message?: T;
   link?: T;
   readAt?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "organizations_select".
- */
-export interface OrganizationsSelect<T extends boolean = true> {
-  name?: T;
-  owner?: T;
-  deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

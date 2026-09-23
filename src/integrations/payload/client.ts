@@ -17,7 +17,7 @@ export class PayloadApiError extends Error {
 
 /** Payload's REST create/update-by-id responses wrap the document as `{ doc, message }`, while
  * every caller here wants the document itself. Reading `id` off the wrapper silently gave
- * `undefined` — a freshly created organization or uploaded photo then never got attached to the
+ * `undefined` — a freshly uploaded photo then never got attached to the
  * event. Custom routes (register, login, …) don't use that shape and pass through untouched. */
 function unwrapDoc<T>(body: unknown): T {
   if (body && typeof body === "object" && "doc" in body && "message" in body) {

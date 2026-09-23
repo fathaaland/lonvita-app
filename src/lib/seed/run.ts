@@ -208,14 +208,11 @@ const DEMO_PEOPLE: DemoPerson[] = [
   },
 ]
 
-const DEMO_ORGANIZATIONS = [{ name: 'TJ Sokol Nové Veselí', owner: 'tomas.cerny@example.com' }]
-
 type DemoEvent = {
   title: string
   description: string
   municipality: MunicipalityName
   organizer: string
-  organization?: string
   categories: CategoryName[]
   /** Days from the first seed run, at a local [hours, minutes]. */
   inDays: number
@@ -299,7 +296,6 @@ const DEMO_EVENTS: DemoEvent[] = [
       'Přátelský turnaj pro začátečníky i zkušené hráče. Koule zapůjčíme, hraje se ve dvojicích, které losujeme na místě.',
     municipality: 'Nové Veselí',
     organizer: 'tomas.cerny@example.com',
-    organization: 'TJ Sokol Nové Veselí',
     categories: ['Sport', 'Setkání'],
     inDays: 10,
     at: [14, 0],
@@ -477,29 +473,6 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
     }
   }
 
-  const organizationIds = new Map<string, number>()
-  for (const organization of DEMO_ORGANIZATIONS) {
-    const ownerId = userIds.get(organization.owner)
-    if (!ownerId) continue
-    const existing = await payload.find({
-      collection: 'organizations',
-      where: { and: [{ name: { equals: organization.name } }, { owner: { equals: ownerId } }] },
-      limit: 1,
-      depth: 0,
-      overrideAccess: true,
-    })
-    const id =
-      existing.docs[0]?.id ??
-      (
-        await payload.create({
-          collection: 'organizations',
-          data: { name: organization.name, owner: ownerId },
-          overrideAccess: true,
-        })
-      ).id
-    organizationIds.set(organization.name, id)
-  }
-
   for (const event of DEMO_EVENTS) {
     const municipalityId = municipalityIds.get(event.municipality)!
     const organizerId = userIds.get(event.organizer)
@@ -530,7 +503,6 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
           capacity: event.capacity,
           registrationApprovalMode: event.approval,
           organizer: organizerId,
-          organization: event.organization ? organizationIds.get(event.organization) : undefined,
           categories: event.categories
             .map((name) => categoryIds.get(name))
             .filter((id): id is number => id !== undefined),

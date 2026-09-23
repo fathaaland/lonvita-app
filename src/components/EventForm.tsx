@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { getEventCategories, uploadEventImage, getFullNamesByUserIds, EventRow } from "@/integrations/payload/queries";
 import { LocationPicker } from "@/components/map/LocationPickerClient";
 import type { PickedLocation } from "@/components/map/LocationPicker";
-import { OrganizationPicker } from "@/components/OrganizationPicker";
 import { CoOrganizerPicker } from "@/components/CoOrganizerPicker";
 import { ImagePositionEditor, CENTERED_IMAGE_POSITION, ImagePosition } from "@/components/ImagePositionEditor";
 import { Button } from "@/components/ui/button";
@@ -59,7 +58,6 @@ export type EventFormValues = {
   accessibilityTags: string[];
   capacity: number;
   registrationApprovalMode: "auto" | "manual";
-  organizationId: string | null;
   categoryIds: string[];
   /** Only set when a new photo was uploaded in this form — otherwise the event keeps its photo. */
   imageId: string | null;
@@ -124,7 +122,6 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
   const [isRecurring, setIsRecurring] = useState(initialWeekdays.length > 0);
   const [recurWeekdays, setRecurWeekdays] = useState<string[]>(initialWeekdays);
   const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
-  const [organizationId, setOrganizationId] = useState<string>(initial?.organization_id ?? "");
   const [coOrganizers, setCoOrganizers] = useState<{ id: string; full_name: string }[]>([]);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
@@ -219,7 +216,6 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
         accessibilityTags,
         capacity: parsed.data.capacity,
         registrationApprovalMode: approvalMode,
-        organizationId: organizationId || null,
         coOrganizerIds: coOrganizers.map((c) => c.id),
         categoryIds: parsed.data.category_ids,
         imageId,
@@ -425,16 +421,9 @@ export function EventForm({ userId, initial, municipalityId, municipalityCenter,
       </div>
 
       <div>
-        <Label className="text-base">Organizace <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
-        <div className="mt-1.5">
-          <OrganizationPicker userId={userId} value={organizationId} onChange={setOrganizationId} />
-        </div>
-      </div>
-
-      <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
-          Akce se jim objeví v jejich vlastní organizaci a mohou ji spravovat.
+          Akce se jim objeví v jejich přehledu akcí a mohou ji spravovat.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
