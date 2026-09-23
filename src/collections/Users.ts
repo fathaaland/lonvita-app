@@ -159,6 +159,8 @@ export const Users: CollectionConfig = {
     verify: false, // The provider verifies the address (auth-identities.emailVerified).
     maxLoginAttempts: 5,
     lockTime: 600 * 1000, // 10 minutes
+    // The reset e-mail promises one hour; spelled out so it can't drift with Payload's default.
+    forgotPassword: { expiration: 60 * 60 * 1000 },
     strategies: [payloadTokenJwtStrategy],
   },
   fields: [

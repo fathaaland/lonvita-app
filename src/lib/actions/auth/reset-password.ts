@@ -39,6 +39,23 @@ async function invalidateResetToken(payload: Payload, userId: number | string): 
   }
 }
 
+/** Whether the link can still be redeemed — the same test Payload's resetPassword applies, so the
+ * page can say "expired" up front instead of after the user has typed a new password twice. */
+export async function isResetTokenValid(token: string): Promise<boolean> {
+  const parsed = resetPasswordInputSchema.shape.token.safeParse(token)
+  if (!parsed.success) return false
+
+  const payload = await getPayload({ config })
+  const user = await payload.db.findOne({
+    collection: 'users',
+    where: {
+      resetPasswordToken: { equals: parsed.data },
+      resetPasswordExpiration: { greater_than: new Date().toISOString() },
+    },
+  })
+  return Boolean(user)
+}
+
 /** Resets the password. Payload owns both the token and the hash, so there is nothing to keep
  * in step anywhere else — an account linked to Google simply keeps signing in with Google. */
 export async function resetPasswordAction({ token, password, requestHeaders }: ResetPasswordInput): Promise<ResetPasswordResult> {

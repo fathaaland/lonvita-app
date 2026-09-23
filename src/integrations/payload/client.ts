@@ -171,6 +171,12 @@ export async function requestPasswordReset(email: string): Promise<void> {
   await post("/auth/forgot-password", { email });
 }
 
+/** GET /api/auth/reset-password — whether the emailed link is still unused and unexpired. */
+export async function checkResetToken(token: string): Promise<boolean> {
+  const { valid } = await get<{ valid: boolean }>(`/auth/reset-password?token=${encodeURIComponent(token)}`);
+  return valid;
+}
+
 /** POST /api/auth/reset-password — sets a new password from the token in the emailed link. */
 export async function resetPasswordWithToken(token: string, password: string): Promise<void> {
   await post("/auth/reset-password", { token, password });

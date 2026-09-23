@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getEventCategories, listMunicipalities, updateProfile } from "@/integrations/payload/queries";
-import { MunicipalityPicker } from "@/components/map/MunicipalityPicker";
-import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
+import { getEventCategories, updateProfile } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,10 +15,9 @@ import { Loading } from "@/components/Loading";
 import { getCategoryIcon } from "@/lib/icons";
 import { ArrowRight, ArrowLeft, Check, Phone } from "lucide-react";
 
-/** The obec is normally picked on the map during registration, so this step only appears for
- * accounts that arrived without one — a Google sign-in never passes through that form. */
+/** The obec isn't asked here — it's picked on the map during registration. */
 const STEPS = ["dob", "gender", "interests", "phone"] as const;
-type StepKey = (typeof STEPS)[number] | "municipality";
+type StepKey = (typeof STEPS)[number];
 // Lenient Czech mobile format: optional +420/00420 prefix, then 9 digits (spaces allowed).
 const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
@@ -36,19 +33,11 @@ function OnboardingContent() {
   const [interests, setInterests] = useState<string[]>([]);
   const [phone, setPhone] = useState("");
   const [cats, setCats] = useState<Category[]>([]);
-  const [municipalities, setMunicipalities] = useState<MunicipalityMapPoint[]>([]);
-  const [municipalityId, setMunicipalityId] = useState("");
-  const [noMunicipality, setNoMunicipality] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     getEventCategories().then(setCats);
   }, []);
-
-  // Only fetched when the step is actually going to show.
-  useEffect(() => {
-    if (profile && !profile.municipality_id) listMunicipalities().then(setMunicipalities);
-  }, [profile?.id, profile?.municipality_id]);
 
   // Prefill from the profile — an account created by a superadmin may already carry some of this.
   useEffect(() => {
@@ -66,8 +55,7 @@ function OnboardingContent() {
     }
   }, [authLoading, profile, router]);
 
-  const needsMunicipality = Boolean(profile) && !profile?.municipality_id;
-  const steps: StepKey[] = needsMunicipality ? ["municipality", ...STEPS] : [...STEPS];
+  const steps: readonly StepKey[] = STEPS;
 
   const toggleInterest = (id: string) => {
     setInterests((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
@@ -78,7 +66,6 @@ function OnboardingContent() {
     setSaving(true);
     try {
       await updateProfile(profile.id, {
-        ...(needsMunicipality ? { municipality: municipalityId ? Number(municipalityId) : null } : {}),
         dateOfBirth: dob || null,
         gender: gender ?? "neuvedeno",
         interests: interests.map(Number),
@@ -99,7 +86,6 @@ function OnboardingContent() {
 
   const current: StepKey = steps[step];
   const canNext =
-    (current === "municipality" && (Boolean(municipalityId) || noMunicipality)) ||
     (current === "dob" && !!dob) ||
     // "Raději neuvedu" is a valid answer too — only an untouched step blocks.
     (current === "gender" && gender !== null) ||
@@ -128,24 +114,6 @@ function OnboardingContent() {
       <div className="flex-1 px-4 py-4">
         <Card>
           <CardContent className="p-5 space-y-4">
-            {current === "municipality" && (
-              <>
-                <div>
-                  <h2 className="text-xl font-extrabold">Ve které obci bydlíte?</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Podle ní uvidíte akce, které se konají u vás.
-                  </p>
-                </div>
-                <MunicipalityPicker
-                  points={municipalities}
-                  value={{ id: municipalityId, noMunicipality }}
-                  onChange={({ id, noMunicipality: none }) => {
-                    setMunicipalityId(id);
-                    setNoMunicipality(none);
-                  }}
-                />
-              </>
-            )}
             {current === "dob" && (
               <>
                 <div>

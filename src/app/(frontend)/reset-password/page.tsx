@@ -1,16 +1,17 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { z } from "zod";
 import { toast } from "sonner";
-import { resetPasswordWithToken, PayloadApiError } from "@/integrations/payload/client";
+import { checkResetToken, resetPasswordWithToken, PayloadApiError } from "@/integrations/payload/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lock } from "lucide-react";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
+import { Loading } from "@/components/Loading";
 
 const formSchema = z
   .object({
@@ -30,6 +31,15 @@ function ResetPasswordContent() {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  // null while checking — a link that's already been used or is past its hour never gets a form.
+  const [tokenValid, setTokenValid] = useState<boolean | null>(token ? null : false);
+
+  useEffect(() => {
+    if (!token) return;
+    checkResetToken(token)
+      .then(setTokenValid)
+      .catch(() => setTokenValid(true)); // Can't tell — let the submit give the real answer.
+  }, [token]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +57,9 @@ function ResetPasswordContent() {
       setDone(true);
       toast.success("Heslo bylo změněno.");
     } catch (error) {
+      // The route answers "expired" and "rate limited" alike, so ask again rather than guess —
+      // a link that ran out while the form was open should land on the invalid screen.
+      checkResetToken(token).then(setTokenValid).catch(() => {});
       toast.error(
         error instanceof PayloadApiError ? error.message : "Nepodařilo se změnit heslo.",
       );
@@ -55,13 +68,15 @@ function ResetPasswordContent() {
     }
   };
 
-  if (!token) {
+  if (tokenValid === null) return <Loading />;
+
+  if (!tokenValid && !done) {
     return (
       <div className="min-h-screen bg-background flex items-center">
         <div className="mx-auto max-w-[420px] w-full px-4 py-8 space-y-5 text-center">
           <h1 className="text-2xl font-extrabold">Odkaz je neplatný</h1>
           <p className="text-muted-foreground">
-            Tento odkaz pro obnovu hesla chybí nebo už není platný. Vyžádejte si prosím nový.
+            Tento odkaz pro obnovu hesla chybí, už byl použit, nebo vypršel (platí 1 hodinu). Vyžádejte si prosím nový.
           </p>
           <Button asChild className="w-full h-12">
             <Link href="/auth">Zpět na přihlášení</Link>
