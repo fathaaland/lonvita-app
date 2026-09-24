@@ -16,8 +16,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
-import { MapBreakout } from "@/components/map/MapBreakout";
-import { BrandWave } from "@/components/LonvitaLogo";
+import { LonvitaIntro } from "@/components/LonvitaIntro";
 import { Sparkles, MapPin, ChevronDown, Globe2 } from "lucide-react";
 import { isToday, isThisWeek, isPast } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
@@ -261,31 +260,14 @@ function IndexContent() {
     </Dialog>
   );
 
-  // Signed-out visitor who hasn't picked a municipality to browse yet (brief §2 read-only browsing).
+  // Signed-out visitor who hasn't picked a municipality to browse yet (brief §2 read-only browsing):
+  // a short introduction to Lonvita first, with the map one click away in the switcher dialog.
   if (!viewing) {
     return (
-      <div className="animate-fade-in px-4 pt-6 space-y-4">
-        {/* Echoes the graphite→purple gradient + BrandWave from /auth, so browsing and signing
-            up read as one visual thread. Kept short on purpose — the map, not this banner, is
-            the actual draw, and it should still land inside the first mobile viewport. */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[hsl(var(--brand-graphite))] via-[hsl(var(--brand-graphite-mid))] to-[hsl(var(--brand-purple-dark))] px-5 py-6 sm:px-9 sm:py-8">
-          <BrandWave className="absolute -bottom-10 -right-14 h-32 w-[65%] opacity-25" color="hsl(var(--brand-sand))" />
-          <h1 className="relative font-display text-2xl sm:text-4xl text-[hsl(var(--brand-ivory))] leading-[1.1] max-w-md">
-            Objevujte, co se děje ve vašem městě.
-          </h1>
-          <p className="relative mt-2 text-[hsl(var(--brand-sand))] text-sm sm:text-base max-w-sm">
-            Vyberte obec na mapě a prohlédněte si její akce.
-          </p>
-        </div>
-        <MapBreakout>
-          <MunicipalitiesMap
-            points={allMunicipalities}
-            onSelect={switchMunicipality}
-            className={cn("h-[26rem] sm:h-[38rem] lg:h-[42rem]", MAP_POINTS_CLASS)}
-          />
-        </MapBreakout>
-        {allMunicipalitiesButton}
-      </div>
+      <>
+        {switcherDialog}
+        <LonvitaIntro onBrowse={() => setSwitcherOpen(true)} />
+      </>
     );
   }
 
