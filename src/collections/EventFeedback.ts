@@ -1,4 +1,5 @@
 import type { Access, CollectionConfig, Where } from 'payload'
+import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
@@ -102,8 +103,9 @@ export const EventFeedback: CollectionConfig = {
           id: data.registration,
         })
 
-        if (registration?.attendanceStatus !== 'attended') {
-          throw new Error('Feedback can only be submitted for a registration marked as attended.')
+        // Shown to the participant as-is, so it says what to wait for rather than just "forbidden".
+        if (!registration || registration.deletedAt || registration.attendanceStatus !== 'attended') {
+          throw new APIError('Akci můžete ohodnotit, až pořadatel potvrdí, že jste se jí zúčastnili.', 403)
         }
 
         return data

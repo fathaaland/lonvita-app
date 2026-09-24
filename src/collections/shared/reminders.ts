@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 
-import { enqueueEmail, getQueue } from '@/lib/queue/queues'
+import { enqueueEmail, enqueueFeedbackRequest, getQueue } from '@/lib/queue/queues'
 
 type RelId = number | { id: number }
 
@@ -17,6 +17,9 @@ const relId = (value: RelId): number => (typeof value === 'object' ? value.id : 
 
 const attendanceJobId = (eventId: number | string) => `attendance-reminder-${eventId}`
 const participantJobId = (registrationId: number | string) => `reminder-${registrationId}`
+/** Keyed by the end time too: a rescheduled event gets a fresh job at the new time, and the old
+ * one — which BullMQ would otherwise keep in place of it — finds the event not over yet and skips. */
+const feedbackJobId = (registrationId: number | string, endsAt: number) => `feedback-request-${registrationId}-${endsAt}`
 
 /** Delayed reminders are keyed by fixed job ids — BullMQ ignores an add whose id already exists,
  * so a rescheduled event must drop the old job first or it'd still fire at the old time. */
@@ -81,8 +84,23 @@ export async function scheduleParticipantReminder(
   )
 }
 
-/** The event's start/end moved — re-plan the organizer's attendance nudge and every approved
- * participant's 24h reminder for the new time. */
+/** US-U-03 — ask a participant the organizer confirmed as attended to rate the event. Goes out as
+ * soon as attendance is confirmed, or when the event ends if that's confirmed while it's still on.
+ * The worker re-checks everything when it fires. */
+export async function scheduleFeedbackRequest(
+  registrationId: number | string,
+  event: Pick<EventForReminders, 'dateTime' | 'endDateTime'>,
+): Promise<void> {
+  const endsAt = new Date(event.endDateTime ?? event.dateTime).getTime()
+  if (Number.isNaN(endsAt)) return
+  const delay = Math.max(0, endsAt - Date.now())
+  // A job still waiting under this id would swallow the new one — re-plan it from now instead.
+  await removeJob(feedbackJobId(registrationId, endsAt))
+  await enqueueFeedbackRequest({ registrationId }, { jobId: feedbackJobId(registrationId, endsAt), delay })
+}
+
+/** The event's start/end moved — re-plan the organizer's attendance nudge, every approved
+ * participant's 24h reminder and any pending feedback prompt for the new time. */
 export async function rescheduleEventReminders(payload: Payload, event: EventForReminders): Promise<void> {
   await removeJob(attendanceJobId(event.id))
   await scheduleAttendanceReminder(payload, event)
@@ -97,6 +115,7 @@ export async function rescheduleEventReminders(payload: Payload, event: EventFor
   for (const reg of approved.docs) {
     await removeJob(participantJobId(reg.id))
     await scheduleParticipantReminder(payload, reg.id, relId(reg.user), event)
+    if (reg.attendanceStatus === 'attended') await scheduleFeedbackRequest(reg.id, event)
   }
 }
 

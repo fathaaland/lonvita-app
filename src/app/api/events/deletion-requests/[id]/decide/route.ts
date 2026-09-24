@@ -168,7 +168,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       overrideAccess: true,
       req,
     })
-    await payload.delete({ collection: 'events', id: event.id, overrideAccess: true, req })
+    // The organizers asked for this themselves — Events' "obec deleted your event" stays quiet.
+    await payload.delete({ collection: 'events', id: event.id, overrideAccess: true, req, context: { coOrganizerConsent: true } })
     if (shouldCommit) await commitTransaction(req)
   } catch (error) {
     if (shouldCommit) await killTransaction(req)

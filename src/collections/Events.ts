@@ -1,6 +1,7 @@
 import type {
   Access,
   CollectionAfterChangeHook,
+  CollectionAfterDeleteHook,
   CollectionAfterReadHook,
   CollectionBeforeChangeHook,
   CollectionConfig,
@@ -17,7 +18,7 @@ import {
 } from './access/shared'
 import { ensureMunicipalityOrganization, findOrganizationId, municipalityOrganizationIds } from './Organizations'
 import { notDeleted } from './shared/softDelete'
-import { escapeHtml, sendNotification } from './shared/notify'
+import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { cancelEventReminders, rescheduleEventReminders, scheduleAttendanceReminder } from './shared/reminders'
 import { guardCancellationWindow } from './shared/eventCancellation'
 import { enqueueSms } from '@/lib/queue/queues'
@@ -610,10 +611,10 @@ export async function notifyEventCancelled(
       sendNotification(payload, {
         userId,
         title: 'Akce byla zrušena',
-        message: `Akce „${event.title}“, na kterou jste byli přihlášeni, byla pořadatelem zrušena.`,
+        message: `Akce „${event.title}“, na kterou jste byli přihlášeni, byla zrušena.`,
         email: {
           subject: `Akce zrušena: ${event.title}`,
-          body: `<p>Akce <strong>${escapeHtml(event.title)}</strong>, na kterou jste byli přihlášeni, byla pořadatelem zrušena.</p>`,
+          body: `<p>Akce <strong>${escapeHtml(event.title)}</strong>, na kterou jste byli přihlášeni, byla zrušena.</p>`,
         },
       }),
     ),
@@ -733,6 +734,124 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
     req.payload.logger.error(`Failed to notify registrants of edited event ${doc.id}: ${error}`)
   }
 
+  return doc
+}
+
+/** What an organizer is told the obec changed — everything participants hear about, plus the
+ * parts of the event only its organizers look after. */
+const ORGANIZER_EDIT_FIELDS: Record<string, string> = {
+  ...NOTIFIABLE_EDIT_FIELDS,
+  coOrganizations: 'spolupořadatelé',
+  isHidden: 'zveřejnění',
+  image: 'fotka',
+  imagePositionX: 'fotka',
+  imagePositionY: 'fotka',
+  isVolunteering: 'dobrovolnictví',
+  cancellationPolicy: 'storno podmínky',
+}
+
+type ObecAction = 'edited' | 'cancelled' | 'deleted'
+
+/**
+ * The obec's admin (or a platform admin) may edit, cancel or delete any organizer's event in the
+ * obec — and the organizers must hear about it, in-app and by e-mail. Changes made by one of the
+ * event's own organizers, or ones they asked for themselves (an approved volunteer-flag or
+ * obec co-organizing request, a consented deletion), don't notify from here. Organizers who
+ * administer the obec themselves are the obec — an event it runs doesn't notify its own admins.
+ */
+async function notifyOrganizersOfObecAction(
+  req: PayloadRequest,
+  event: EventOwnership & { title: string },
+  action: ObecAction,
+  { formerOrganizerIds = [], changedLabels = [] }: { formerOrganizerIds?: string[]; changedLabels?: string[] } = {},
+): Promise<void> {
+  const { user, payload } = req
+  if (!user) return
+  const organizerIds = [...new Set([...eventOrganizerIds(event), ...formerOrganizerIds])]
+  if (organizerIds.includes(String(user.id))) return
+
+  const municipalityId = relationId(event.municipality)
+  if (!municipalityId) return
+  const byObecAdmin = (await administeredIdsFor(req, user.id)).includes(municipalityId)
+  if (!byObecAdmin && user.role !== 'admin') return
+
+  const obecAdminIds = new Set((await getMunicipalityAdminUserIds(payload, municipalityId)).map(String))
+  const recipients = organizerIds.filter((id) => !obecAdminIds.has(id))
+  if (recipients.length === 0) return
+
+  let actor = 'správce Lonvity'
+  if (byObecAdmin) {
+    const municipality = await payload
+      .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true })
+      .catch(() => null)
+    actor = municipality ? `obec ${municipality.name}` : 'obec'
+  }
+  const did = byObecAdmin
+    ? { edited: 'upravila', cancelled: 'zrušila', deleted: 'smazala' }[action]
+    : { edited: 'upravil', cancelled: 'zrušil', deleted: 'smazal' }[action]
+  const who = byObecAdmin ? 'Obec' : 'Správce Lonvity'
+  const change = changedLabels.length > 0 ? ` (změna: ${changedLabels.join(', ')})` : ''
+  const link = action === 'edited' ? `/akce/${event.id}` : undefined
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const title = escapeHtml(event.title)
+
+  await Promise.all(
+    recipients.map((userId) =>
+      sendNotification(payload, {
+        userId,
+        title: `${who} ${did} vaši akci`,
+        message: `Vaši akci „${event.title}“ ${did} ${actor}${change}.`,
+        link,
+        email: {
+          subject: `${who} ${did} vaši akci: ${event.title}`,
+          body:
+            `<p>Vaši akci <strong>${title}</strong> ${did} ${escapeHtml(actor)}${escapeHtml(change)}.</p>` +
+            (link ? `<p><a href="${appUrl}${link}">Zobrazit akci</a></p>` : ''),
+        },
+      }),
+    ),
+  )
+}
+
+const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'obecCoOrganizingApproved', 'skipVolunteeringGuard']
+const isOwnRequest = (context: Record<string, unknown> | undefined) =>
+  OWN_REQUEST_CONTEXTS.some((key) => context?.[key])
+
+const notifyOrganizersOnObecChange: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req, context }) => {
+  if (operation !== 'update' || !previousDoc || isOwnRequest(context)) return doc
+
+  const cancelled =
+    (doc.deletedAt && !previousDoc.deletedAt) || (doc.status === 'cancelled' && previousDoc.status !== 'cancelled')
+  const changedLabels = cancelled
+    ? []
+    : [
+        ...new Set(
+          Object.keys(ORGANIZER_EDIT_FIELDS)
+            .filter((field) => comparable(field, doc[field]) !== comparable(field, previousDoc[field]))
+            .map((field) => ORGANIZER_EDIT_FIELDS[field]),
+        ),
+      ]
+  if (!cancelled && changedLabels.length === 0) return doc
+
+  try {
+    await notifyOrganizersOfObecAction(req, doc, cancelled ? 'cancelled' : 'edited', {
+      // Someone the obec took off the event should still hear it was the obec.
+      formerOrganizerIds: eventOrganizerIds(previousDoc),
+      changedLabels,
+    })
+  } catch (error) {
+    req.payload.logger.error(`Failed to notify organizers of obec change to event ${doc.id}: ${error}`)
+  }
+  return doc
+}
+
+const notifyOrganizersOnObecDelete: CollectionAfterDeleteHook = async ({ doc, req, context }) => {
+  if (isOwnRequest(context)) return doc
+  try {
+    await notifyOrganizersOfObecAction(req, doc, 'deleted')
+  } catch (error) {
+    req.payload.logger.error(`Failed to notify organizers of obec deleting event ${doc.id}: ${error}`)
+  }
   return doc
 }
 
@@ -1095,7 +1214,13 @@ export const Events: CollectionConfig = {
       guardCoOrganizedChanges,
       guardIsVolunteering,
     ],
-    afterChange: [notifyRegistrantsOnCancellation, notifyRegistrantsOnEdit, scheduleAttendanceReminderOnCreate],
+    afterChange: [
+      notifyRegistrantsOnCancellation,
+      notifyRegistrantsOnEdit,
+      notifyOrganizersOnObecChange,
+      scheduleAttendanceReminderOnCreate,
+    ],
+    afterDelete: [notifyOrganizersOnObecDelete],
     afterRead: [deriveFinishedStatus],
   },
   timestamps: true,

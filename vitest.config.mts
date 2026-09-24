@@ -7,6 +7,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    globalSetup: ['./tests/global-setup.ts'],
     include: ['tests/int/**/*.int.spec.ts'],
+    // Every file boots its own Payload, which pushes the schema (ALTER TABLE) against the one shared
+    // database — run in parallel, those ALTERs deadlock with the other files' open transactions.
+    fileParallelism: false,
   },
 })

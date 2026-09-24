@@ -262,7 +262,7 @@ describe('Registrations & EventFeedback', () => {
           data: { registration: notAttendedReg.id, satisfactionRating: 5 },
           overrideAccess: true,
         }),
-      ).rejects.toThrow(/attended/)
+      ).rejects.toThrow(/zúčastnili/)
     })
 
     it('accepts feedback once the registration is marked attended', async () => {
@@ -282,6 +282,29 @@ describe('Registrations & EventFeedback', () => {
           overrideAccess: true,
         }),
       ).rejects.toThrow()
+    })
+
+    it('a participant cannot mark their own attendance (it would unlock feedback)', async () => {
+      await payload.update({
+        collection: 'registrations',
+        id: notAttendedReg.id,
+        data: { attendanceStatus: 'attended' },
+        user: participant,
+        overrideAccess: false,
+      })
+      const reg = await payload.findByID({ collection: 'registrations', id: notAttendedReg.id, overrideAccess: true })
+      expect(reg.attendanceStatus).toBe('not_marked')
+    })
+
+    it("the event's organizer can mark attendance", async () => {
+      const reg = await payload.update({
+        collection: 'registrations',
+        id: notAttendedReg.id,
+        data: { attendanceStatus: 'attended' },
+        user: organizer,
+        overrideAccess: false,
+      })
+      expect(reg.attendanceStatus).toBe('attended')
     })
   })
 })

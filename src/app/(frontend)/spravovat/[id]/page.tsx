@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Clock, UserCheck, UserX, CalendarOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isPast } from "@/lib/date";
 import { toast } from "sonner";
 
 const ATTENDANCE_OPTIONS: { value: AttendanceStatus; label: string; icon: typeof UserCheck }[] = [
@@ -37,6 +38,11 @@ function ManageEventContent() {
   const [loading, setLoading] = useState(true);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
   const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
+  const [startsAt, setStartsAt] = useState<string | null>(null);
+  // Attendance picked on the page but not yet confirmed — nothing reaches the participant
+  // (and nobody can rate the event) until "Potvrdit docházku" saves it.
+  const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({});
+  const [confirming, setConfirming] = useState(false);
 
   const load = async () => {
     if (!id) return;
@@ -44,6 +50,7 @@ function ManageEventContent() {
     setRegs(rows);
     setLoading(false);
     if (ev) {
+      setStartsAt(ev.date_time);
       const orgName = ev.organization
         ? ev.organization.name
         : ev.organizer_id
@@ -66,15 +73,41 @@ function ManageEventContent() {
     }
   };
 
-  const markAttendance = async (regId: string, status: AttendanceStatus) => {
+  const pickAttendance = (reg: ManageRegistrationRow, status: AttendanceStatus) => {
+    setDraft((prev) => {
+      const next = { ...prev };
+      // Clicking the picked option again (or the one already saved) drops the unsaved change.
+      if (prev[reg.id] === status || reg.attendance_status === status) delete next[reg.id];
+      else next[reg.id] = status;
+      return next;
+    });
+  };
+
+  const confirmAttendance = async () => {
     if (!user) return;
-    try {
-      await updateAttendance(regId, status, String(user.id));
-      load();
-    } catch {
-      toast.error("Nepodařilo se uložit docházku.");
+    const changes = Object.entries(draft);
+    setConfirming(true);
+    const results = await Promise.allSettled(
+      changes.map(([regId, status]) => updateAttendance(regId, status, String(user.id))),
+    );
+    setConfirming(false);
+    const failed = changes.filter((_, i) => results[i].status === "rejected");
+    setDraft(Object.fromEntries(failed));
+    await load();
+    if (failed.length) {
+      toast.error(`Docházku se nepodařilo uložit u ${failed.length} ${failed.length === 1 ? "účastníka" : "účastníků"}. Zkuste to znovu.`);
+    } else {
+      toast.success(
+        changes.some(([, status]) => status === "attended")
+          ? "Docházka potvrzena. Kdo přišel, dostane žádost o ohodnocení akce."
+          : "Docházka potvrzena.",
+      );
     }
   };
+
+  const started = startsAt !== null && isPast(startsAt);
+  const hasApproved = regs.some((r) => r.status === "approved");
+  const changeCount = Object.keys(draft).length;
 
   if (loading) return <><PageHeader title="Přihlášení" back /><Loading /></>;
 
@@ -115,17 +148,18 @@ function ManageEventContent() {
               </div>
             )}
 
-            {r.status === "approved" && (
+            {r.status === "approved" && started && (
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">Docházka</p>
                 <div className="grid grid-cols-3 gap-2">
                   {ATTENDANCE_OPTIONS.map(({ value, label, icon: Icon }) => {
-                    const active = r.attendance_status === value;
+                    const active = (draft[r.id] ?? r.attendance_status) === value;
                     return (
                       <Button
                         key={value}
-                        onClick={() => markAttendance(r.id, value)}
+                        onClick={() => pickAttendance(r, value)}
                         variant={active ? "default" : "outline"}
+                        aria-pressed={active}
                         className={cn("h-11 text-xs px-1", active && value === "no_show" && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
                       >
                         <Icon className="h-4 w-4" />{label}
@@ -133,10 +167,32 @@ function ManageEventContent() {
                     );
                   })}
                 </div>
+                {draft[r.id] ? (
+                  <p className="text-xs text-warning-foreground">Neuloženo</p>
+                ) : r.attendance_status === "attended" ? (
+                  <p className="text-xs text-muted-foreground">Potvrzeno. Účastník může akci ohodnotit.</p>
+                ) : r.attendance_status !== "not_marked" ? (
+                  <p className="text-xs text-muted-foreground">Potvrzeno.</p>
+                ) : null}
               </div>
             )}
           </CardContent></Card>
         ))}
+
+        {hasApproved && !started && (
+          <p className="text-sm text-muted-foreground">Docházku vyplníte, až akce začne.</p>
+        )}
+        {hasApproved && started && (
+          <div className="space-y-2 pt-2">
+            <Button onClick={confirmAttendance} disabled={changeCount === 0 || confirming} size="lg" className="h-12 w-full">
+              <Check className="h-4 w-4" />
+              {confirming ? "Ukládám…" : changeCount > 0 ? `Potvrdit docházku (${changeCount})` : "Potvrdit docházku"}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Kdo je označený jako Přišel/a, dostane po potvrzení žádost o ohodnocení akce.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

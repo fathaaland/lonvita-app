@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getMyNotifications, markNotificationRead, NotificationRow } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
+import { notifyUnreadCountChanged } from "@/hooks/useUnreadNotificationCount";
 import { RequireAuth } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
@@ -33,9 +34,11 @@ function NotificationsContent() {
   const handleOpen = (n: NotificationRow) => {
     if (!n.read) {
       setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: true } : r)));
-      markNotificationRead(n.id).catch(() => {
-        setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: false } : r)));
-      });
+      markNotificationRead(n.id)
+        .then(notifyUnreadCountChanged)
+        .catch(() => {
+          setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: false } : r)));
+        });
     }
     // e.g. "Nová přihláška na akci" -> that event's detail.
     if (n.link) router.push(n.link);

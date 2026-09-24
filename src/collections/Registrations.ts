@@ -1,9 +1,9 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig, Where } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig, FieldAccess, Where } from 'payload'
 import { APIError } from 'payload'
 
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
 import { sendNotification } from './shared/notify'
-import { scheduleParticipantReminder } from './shared/reminders'
+import { scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
 import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { deletedAtField, notDeleted } from './shared/softDelete'
@@ -165,6 +165,64 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
   return doc
 }
 
+/** US-U-03 — once the organizer marks someone as attended, they're asked to rate the event
+ * (delayed until after it ends; see scheduleFeedbackRequest). Only on the transition into
+ * "attended", so re-saving an already-marked row doesn't queue anything new. */
+const scheduleFeedbackOnAttendance: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req, context }) => {
+  if (context?.skipNotifications) return doc
+  if (operation !== 'update' || doc.attendanceStatus !== 'attended' || previousDoc?.attendanceStatus === 'attended') {
+    return doc
+  }
+  const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
+  try {
+    const event = await req.payload.findByID({
+      collection: 'events',
+      id: eventId,
+      depth: 0,
+      overrideAccess: true,
+      context: { skipFinishedAutoUpdate: true },
+    })
+    await scheduleFeedbackRequest(doc.id, event)
+  } catch (error) {
+    req.payload.logger.error(`Failed to schedule feedback request for registration ${doc.id}: ${error}`)
+  }
+  return doc
+}
+
+/** Attendance is the organizer's record of who actually came — it gates who may rate the event
+ * (EventFeedback) and feeds the obec's analytics. Collection-level update access also lets a
+ * participant update their own registration (to cancel it), so without this they could PATCH
+ * themselves to "attended". Limited to the event's organizer/co-organizers, an admin of its
+ * municipality and a platform admin; looked up once per request, not once per attendance field. */
+const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
+  if (!req.user) return false
+  if (req.user.role === 'admin') return true
+  if (!doc?.event) return false
+  const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
+  const cacheKey = `canMarkAttendance:${eventId}`
+  if (typeof req.context[cacheKey] === 'boolean') return req.context[cacheKey]
+
+  const event = await req.payload
+    .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req, context: { skipFinishedAutoUpdate: true } })
+    .catch(() => null)
+  let allowed = false
+  if (event) {
+    const managerIds = [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(typeof u === 'object' ? u.id : u))
+    const municipalityId = typeof event.municipality === 'object' ? event.municipality?.id : event.municipality
+    allowed =
+      managerIds.includes(String(req.user.id)) ||
+      (municipalityId != null &&
+        (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(municipalityId)))
+  }
+  req.context[cacheKey] = allowed
+  return allowed
+}
+
+/** Nobody registers someone as already attended — only a platform admin may set these on create. */
+const isPlatformAdminField: FieldAccess = ({ req }) => req.user?.role === 'admin'
+
+const attendanceAccess = { create: isPlatformAdminField, update: canMarkAttendance }
+
 /** Registrations a user may act on: their own (to register/cancel), or any belonging to an
  * event they organize/co-organize or whose municipality they administer (to approve/reject
  * and mark attendance). Shared by read and update access — resolved to plain event ids up
@@ -261,6 +319,7 @@ export const Registrations: CollectionConfig = {
       name: 'attendanceStatus',
       type: 'select',
       defaultValue: 'not_marked',
+      access: attendanceAccess,
       options: [
         { label: 'Not marked', value: 'not_marked' },
         { label: 'Attended', value: 'attended' },
@@ -274,11 +333,13 @@ export const Registrations: CollectionConfig = {
     {
       name: 'attendanceMarkedAt',
       type: 'date',
+      access: attendanceAccess,
       admin: { position: 'sidebar' },
     },
     {
       name: 'attendanceMarkedBy',
       type: 'relationship',
+      access: attendanceAccess,
       relationTo: 'users',
       admin: {
         description: 'The organizer who marked attendance.',
@@ -288,6 +349,7 @@ export const Registrations: CollectionConfig = {
     {
       name: 'attendanceNote',
       type: 'text',
+      access: attendanceAccess,
       admin: { position: 'sidebar' },
     },
     deletedAtField,
@@ -362,7 +424,7 @@ export const Registrations: CollectionConfig = {
         return data
       },
     ],
-    afterChange: [notifyOnRegistrationChange, broadcastCapacityChange],
+    afterChange: [notifyOnRegistrationChange, broadcastCapacityChange, scheduleFeedbackOnAttendance],
   },
   timestamps: true,
 }
