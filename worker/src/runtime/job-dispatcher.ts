@@ -8,6 +8,7 @@ import { processEventUpdatedJob } from '../processors/event-updated.processor'
 import { processExportReadyJob } from '../processors/export-ready.processor'
 import { processFeedbackRequestJob } from '../processors/feedback-request.processor'
 import { processGenerateExportJob } from '../processors/generate-export.processor'
+import { processPasswordResetJob } from '../processors/password-reset.processor'
 import { processSmsJob } from '../processors/sms.processor'
 
 import type {
@@ -19,6 +20,7 @@ import type {
   ExportReadyJobResult,
   FeedbackRequestJobResult,
   GenerateExportJobResult,
+  PasswordResetJobResult,
   QueueJobEnvelope,
 } from '@/lib/queue/contracts'
 
@@ -36,6 +38,7 @@ type JobResult =
   | CleanupExportsJobResult
   | EventUpdatedJobResult
   | EventCancelledJobResult
+  | PasswordResetJobResult
   | void
 
 export const dispatchJobByType = async (
@@ -69,6 +72,9 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.EVENT_CANCELLED:
       return processEventCancelledJob(job.payload, context)
+
+    case JOB_NAMES.PASSWORD_RESET:
+      return processPasswordResetJob(job.payload, context)
 
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)

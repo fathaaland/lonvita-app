@@ -14,6 +14,7 @@ import type {
   FeedbackRequestJobData,
   GenerateExportJobData,
   JobName,
+  PasswordResetJobData,
   QueueJobEnvelope,
   SmsJobData,
 } from './contracts'
@@ -86,4 +87,8 @@ export async function enqueueEventUpdated(data: EventUpdatedJobData, options?: E
 
 export async function enqueueEventCancelled(data: EventCancelledJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.EVENT_CANCELLED, payload: data }, options)
+}
+
+export async function enqueuePasswordReset(data: PasswordResetJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.PASSWORD_RESET, payload: data }, options)
 }

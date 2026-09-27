@@ -10,6 +10,7 @@ export const JOB_NAMES = {
   CLEANUP_EXPORTS: 'cleanup-exports',
   EVENT_UPDATED: 'event-updated',
   EVENT_CANCELLED: 'event-cancelled',
+  PASSWORD_RESET: 'password-reset',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -137,6 +138,25 @@ export type EventCancelledJobResult = {
 }
 
 /**
+ * "Zapomenuté heslo" — the whole of it: finding the account, minting the token and sending the
+ * link. The request only validates, rate-limits and enqueues this, the same for an address with
+ * an account as for one without, so neither its response nor its timing says which it was. The
+ * token never enters the queue: the worker mints it and hands the e-mail straight to Resend.
+ */
+export type PasswordResetJobData = {
+  /** Already validated and lower-cased by forgotPasswordInputSchema. */
+  email: string
+  /** Base URL the reset link points at (the app the request came through). */
+  appUrl: string
+}
+
+export type PasswordResetJobResult = {
+  sent: boolean
+  skipped?: string
+  messageId?: string
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -154,3 +174,4 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.CLEANUP_EXPORTS; payload: CleanupExportsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.EVENT_UPDATED; payload: EventUpdatedJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.EVENT_CANCELLED; payload: EventCancelledJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.PASSWORD_RESET; payload: PasswordResetJobData } & Traced)
