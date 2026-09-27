@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 
-import { enqueueEmail } from '@/lib/queue/queues'
+import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
@@ -34,8 +34,7 @@ export const getMunicipalityAdminUserIds = async (payload: Payload, municipality
   return result.docs.map((doc) => (typeof doc.user === 'object' ? doc.user.id : doc.user))
 }
 
-type SendNotificationInput = {
-  userId: number | string
+type NotificationContent = {
   title: string
   message: string
   /** In-app route the notification opens when clicked (e.g. the event detail). */
@@ -44,6 +43,8 @@ type SendNotificationInput = {
   email?: { subject: string; body: string }
 }
 
+type SendNotificationInput = NotificationContent & { userId: number | string }
+
 /**
  * Brief §7 "Preferovaný kanál notifikací (e-mail vs. v aplikaci), nastavitelný uživatelem" —
  * the one place that should send a user-facing notification, so every trigger respects the
@@ -51,35 +52,144 @@ type SendNotificationInput = {
  * Fire-and-forget throughout: a failed send must never block the write that triggered it.
  */
 export async function sendNotification(payload: Payload, input: SendNotificationInput): Promise<void> {
+  const { userId, ...content } = input
+  await sendNotificationToMany(payload, [userId], content)
+}
+
+/** In-app writes in flight at once — enough to be quick, few enough not to hog the DB pool. */
+const NOTIFICATION_WRITE_CONCURRENCY = 10
+
+/**
+ * `sendNotification` for a whole audience (e.g. an event's registrants) — the same message and
+ * preferences, but two lookups for everyone instead of two per user. Never throws; a failure for
+ * one user is logged and the rest still get theirs. `jobIdPrefix` makes the e-mail jobs
+ * idempotent, for callers that may run twice (a worker job retried after a crash).
+ */
+export async function sendNotificationToMany(
+  payload: Payload,
+  userIds: (number | string)[],
+  content: NotificationContent,
+  options?: { jobIdPrefix?: string },
+): Promise<{ inApp: number; emails: number }> {
+  const sent = { inApp: 0, emails: 0 }
+  const ids = [...new Set(userIds.map(String))]
+  if (ids.length === 0) return sent
+
   try {
-    const [profiles, user] = await Promise.all([
+    const [profiles, users] = await Promise.all([
       payload.find({
         collection: 'profiles',
-        where: { user: { equals: input.userId } },
-        limit: 1,
+        where: { user: { in: ids } },
         depth: 0,
+        pagination: false,
         overrideAccess: true,
       }),
-      payload.findByID({ collection: 'users', id: input.userId, depth: 0, overrideAccess: true }).catch(() => null),
+      payload.find({
+        collection: 'users',
+        where: { id: { in: ids } },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      }),
     ])
-    const profile = profiles.docs[0]
+    const profileByUser = new Map(
+      profiles.docs.map((p) => [String(typeof p.user === 'object' ? p.user.id : p.user), p]),
+    )
+    const emailByUser = new Map(users.docs.map((u) => [String(u.id), u.email]))
+
     // No profile yet (mid-onboarding) — fall back to both channels' defaults (true) rather
     // than silently dropping the notification.
-    const wantsInApp = profile?.notifyInApp ?? true
-    const wantsEmail = profile?.notifyEmail ?? true
-
-    if (wantsInApp) {
-      await payload.create({
-        collection: 'notifications',
-        data: { user: Number(input.userId), title: input.title, message: input.message, link: input.link },
-        overrideAccess: true,
-      })
+    const inAppIds = ids.filter((id) => profileByUser.get(id)?.notifyInApp ?? true)
+    for (let i = 0; i < inAppIds.length; i += NOTIFICATION_WRITE_CONCURRENCY) {
+      await Promise.all(
+        inAppIds.slice(i, i + NOTIFICATION_WRITE_CONCURRENCY).map(async (id) => {
+          try {
+            await payload.create({
+              collection: 'notifications',
+              data: { user: Number(id), title: content.title, message: content.message, link: content.link },
+              overrideAccess: true,
+            })
+            sent.inApp++
+          } catch (error) {
+            payload.logger.error({ err: error, user: id }, 'Failed to write notification')
+          }
+        }),
+      )
     }
 
-    if (wantsEmail && input.email && user?.email) {
-      await enqueueEmail({ to: user.email, subject: input.email.subject, body: input.email.body })
+    if (content.email) {
+      const { subject, body } = content.email
+      await Promise.all(
+        ids.map(async (id) => {
+          const to = emailByUser.get(id)
+          if (!to || !(profileByUser.get(id)?.notifyEmail ?? true)) return
+          try {
+            await enqueueEmail(
+              { to, subject, body },
+              options?.jobIdPrefix ? { jobId: `${options.jobIdPrefix}-email-${id}` } : undefined,
+            )
+            sent.emails++
+          } catch (error) {
+            payload.logger.error({ err: error, user: id }, 'Failed to enqueue notification e-mail')
+          }
+        }),
+      )
     }
   } catch (error) {
-    payload.logger.error({ err: error, user: input.userId }, 'Failed to send notification')
+    payload.logger.error({ err: error, users: ids }, 'Failed to send notification')
+  }
+  return sent
+}
+
+/** httpSMS expects E.164, but onboarding accepts Czech numbers as typed ("735 929 442",
+ * "+420 735…", "00420…"). A bare 9-digit number is Czech; anything unrecognisable is skipped. */
+export function toE164(phone: string): string | null {
+  const compact = phone.replace(/[^\d+]/g, '').replace(/^00/, '+')
+  if (/^\+\d{9,15}$/.test(compact)) return compact
+  if (/^\d{9}$/.test(compact)) return `+420${compact}`
+  return null
+}
+
+/**
+ * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — SMS to whichever of these users
+ * have a phone on file (onboarding step, still optional until they've filled it in). A no-op (not
+ * an error) when httpSMS isn't configured — the worker logs that. httpSMS dedupes on the request
+ * id, so `requestIdPrefix` must be unique per announcement but stable across retries of it.
+ * Never throws; returns how many were queued.
+ */
+export async function sendSmsToMany(
+  payload: Payload,
+  userIds: (number | string)[],
+  message: string,
+  requestIdPrefix: string,
+): Promise<number> {
+  const ids = [...new Set(userIds.map(String))]
+  if (ids.length === 0) return 0
+  try {
+    const profiles = await payload.find({
+      collection: 'profiles',
+      where: { user: { in: ids } },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    const queued = await Promise.all(
+      profiles.docs.map(async (p) => {
+        const to = p.phone ? toE164(p.phone) : null
+        if (!to) return false
+        const requestId = `${requestIdPrefix}-${typeof p.user === 'object' ? p.user.id : p.user}`
+        try {
+          await enqueueSms({ to, message, requestId }, { jobId: `sms-${requestId}` })
+          return true
+        } catch (error) {
+          payload.logger.error({ err: error, requestId }, 'Failed to enqueue SMS')
+          return false
+        }
+      }),
+    )
+    return queued.filter(Boolean).length
+  } catch (error) {
+    payload.logger.error({ err: error, users: ids }, 'Failed to send SMS')
+    return 0
   }
 }

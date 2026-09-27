@@ -119,17 +119,14 @@ export async function rescheduleEventReminders(payload: Payload, event: EventFor
   }
 }
 
-/** The event was cancelled — nobody should get a reminder for it anymore. */
-export async function cancelEventReminders(payload: Payload, eventId: number | string): Promise<void> {
+/** The event was cancelled — nobody should get a reminder for it anymore. Takes the registration
+ * ids rather than looking them up: after a consented hard delete the registrations are gone. */
+export async function cancelEventReminders(
+  eventId: number | string,
+  registrationIds: (number | string)[],
+): Promise<void> {
   await removeJob(attendanceJobId(eventId))
-  const registrations = await payload.find({
-    collection: 'registrations',
-    where: { event: { equals: eventId } },
-    depth: 0,
-    pagination: false,
-    overrideAccess: true,
-  })
-  for (const reg of registrations.docs) {
-    await removeJob(participantJobId(reg.id))
+  for (const registrationId of registrationIds) {
+    await removeJob(participantJobId(registrationId))
   }
 }

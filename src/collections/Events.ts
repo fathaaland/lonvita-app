@@ -6,7 +6,6 @@ import type {
   CollectionBeforeChangeHook,
   CollectionConfig,
   FieldHook,
-  Payload,
   PayloadRequest,
   Where,
 } from 'payload'
@@ -19,11 +18,17 @@ import {
 import { ensureMunicipalityOrganization, findOrganizationId, municipalityOrganizationIds } from './Organizations'
 import { notDeleted } from './shared/softDelete'
 import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
-import { cancelEventReminders, rescheduleEventReminders, scheduleAttendanceReminder } from './shared/reminders'
+import { scheduleAttendanceReminder } from './shared/reminders'
 import { guardCancellationWindow } from './shared/eventCancellation'
-import { enqueueSms } from '@/lib/queue/queues'
+import {
+  NOTIFIABLE_EDIT_FIELDS,
+  changedNotifiableFields,
+  comparable,
+  notifyEventCancelled,
+  queueEventUpdatedNotification,
+  snapshotNotifiableFields,
+} from './shared/eventNotifications'
 import { haversineDistanceKm } from '@/lib/geo/distance'
-import { formatPragueDateTime } from '@/lib/date'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 /**
@@ -541,87 +546,7 @@ const validateEventLocationRadius: CollectionBeforeChangeHook = async ({ data, r
   return data
 }
 
-/** Registered (pending/approved) participants for an event, excluding the organizer
- * themselves — shared by the cancellation and edit-notification hooks below. */
-export async function getRegistrantIdsToNotify(
-  payload: Payload,
-  eventId: number | string,
-  organizerId: number | string,
-): Promise<(number | string)[]> {
-  const regs = await payload.find({
-    collection: 'registrations',
-    where: { and: [{ event: { equals: eventId } }, { status: { in: ['pending', 'approved'] } }] },
-    depth: 0,
-    limit: 1000,
-    overrideAccess: true,
-  })
-  return regs.docs
-    .map((reg) => (typeof reg.user === 'object' ? reg.user.id : reg.user))
-    .filter((userId) => String(userId) !== String(organizerId))
-}
-
-/** Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — SMS to whichever of these
- * users have a phone on file (onboarding step, still optional until they've filled it in).
- * A no-op (not an error) when httpSMS isn't configured — enqueueSms/the worker log that. */
-async function notifyPhonesForEvent(
-  payload: Payload,
-  userIds: (number | string)[],
-  eventId: number | string,
-  message: string,
-): Promise<void> {
-  if (userIds.length === 0) return
-  const profiles = await payload.find({
-    collection: 'profiles',
-    where: { user: { in: userIds } },
-    depth: 0,
-    limit: userIds.length,
-    overrideAccess: true,
-  })
-  await Promise.all(
-    profiles.docs.map((p) => {
-      const to = p.phone ? toE164(p.phone) : null
-      if (!to) return undefined
-      const userId = typeof p.user === 'object' ? p.user.id : p.user
-      // Timestamped, not just event+user — httpSMS dedupes on request_id, and an event can
-      // be edited (and so SMS'd about) more than once.
-      return enqueueSms({ to, message, requestId: `event-${eventId}-${userId}-${Date.now()}` })
-    }),
-  )
-}
-
-/** httpSMS expects E.164, but onboarding accepts Czech numbers as typed ("735 929 442",
- * "+420 735…", "00420…"). A bare 9-digit number is Czech; anything unrecognisable is skipped. */
-function toE164(phone: string): string | null {
-  const compact = phone.replace(/[^\d+]/g, '').replace(/^00/, '+')
-  if (/^\+\d{9,15}$/.test(compact)) return compact
-  if (/^\d{9}$/.test(compact)) return `+420${compact}`
-  return null
-}
-
-/** Tells `userIds` (the registrants) the event is off — in-app, e-mail and SMS — and drops its
- * queued reminders. Shared by the cancel below and the co-organizers' consented hard delete
- * (api/events/deletion-requests), which has to collect the registrants before deleting them. */
-export async function notifyEventCancelled(
-  payload: Payload,
-  event: { id: number | string; title: string },
-  userIds: (number | string)[],
-): Promise<void> {
-  await Promise.all(
-    userIds.map((userId) =>
-      sendNotification(payload, {
-        userId,
-        title: 'Akce byla zrušena',
-        message: `Akce „${event.title}“, na kterou jste byli přihlášeni, byla zrušena.`,
-        email: {
-          subject: `Akce zrušena: ${event.title}`,
-          body: `<p>Akce <strong>${escapeHtml(event.title)}</strong>, na kterou jste byli přihlášeni, byla zrušena.</p>`,
-        },
-      }),
-    ),
-  )
-  await notifyPhonesForEvent(payload, userIds, event.id, `Lonvita: akce „${event.title}“ byla zrušena.`)
-  await cancelEventReminders(payload, event.id)
-}
+const CANCELLATION_NOTICE_DELAY_MS = 5_000
 
 /** Cancelling an event (soft-delete via `deletedAt`) doesn't hard-delete the row — the FK
  * from existing registrations would block that anyway — so instead we notify everyone who
@@ -638,9 +563,8 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
   if (previousDoc?.deletedAt || !doc.deletedAt) return doc
 
   try {
-    const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
-    const userIds = await getRegistrantIdsToNotify(req.payload, doc.id, organizerId)
-    await notifyEventCancelled(req.payload, doc, userIds)
+    // Still inside the cancel's transaction — the worker waits a moment and checks it committed.
+    await notifyEventCancelled(req.payload, doc, { delay: CANCELLATION_NOTICE_DELAY_MS })
   } catch (error) {
     req.payload.logger.error(`Failed to notify registrants of cancelled event ${doc.id}: ${error}`)
   }
@@ -648,90 +572,19 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
   return doc
 }
 
-/** Brief §7 "Úprava existující akce → všichni přihlášení účastníci" — every field a participant
- * can see on the event, with the (Czech) label used to tell them what changed. Routine internal
- * writes (e.g. the isVolunteering guard, a photo swap) don't notify anyone. */
-const NOTIFIABLE_EDIT_FIELDS: Record<string, string> = {
-  title: 'název',
-  dateTime: 'začátek',
-  endDateTime: 'konec',
-  recurrenceRule: 'opakování',
-  locationText: 'místo konání',
-  lat: 'místo konání',
-  lng: 'místo konání',
-  description: 'popis',
-  capacity: 'kapacita',
-  registrationApprovalMode: 'způsob přihlašování',
-  accessibilityTags: 'přístupnost',
-  categories: 'kategorie',
-  isPaid: 'cena',
-  priceCents: 'cena',
-}
-
-const DATE_FIELDS = new Set(['dateTime', 'endDateTime'])
-
-/** Comparable form of a field value — relationship ids instead of populated docs, sorted
- * arrays, and timestamps for dates (the same instant can come back formatted differently). */
-function comparable(field: string, value: unknown): string {
-  const idOf = (v: unknown) => (v && typeof v === 'object' && 'id' in v ? (v as { id: unknown }).id : v)
-  if (value === undefined || value === null || value === '') return 'null'
-  if (DATE_FIELDS.has(field)) return String(new Date(value as string).getTime())
-  if (Array.isArray(value)) return JSON.stringify(value.map(idOf).map(String).sort())
-  return JSON.stringify(idOf(value))
-}
-
 /** Brief §8 / notes "pokud se změní lokalita, čas cokoliv jiného, odešle se automaticky mail na
- * všechny přihlášené a na telefonní čísla SMS, a samozřejmě upozornění do aplikace". */
+ * všechny přihlášené a na telefonní čísla SMS, a samozřejmě upozornění do aplikace". Only decides
+ * *whether* — the worker re-diffs once the edit has committed, then moves the reminders and
+ * tells everyone (the event-updated job). */
 const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   if (operation !== 'update' || !previousDoc) return doc
   if (doc.deletedAt) return doc // the cancellation hook already covers this transition
-
-  const changedFields = Object.keys(NOTIFIABLE_EDIT_FIELDS).filter(
-    (field) => comparable(field, doc[field]) !== comparable(field, previousDoc[field]),
-  )
-  if (changedFields.length === 0) return doc
+  if (changedNotifiableFields(snapshotNotifiableFields(previousDoc), doc).length === 0) return doc
 
   try {
-    if (changedFields.includes('dateTime') || changedFields.includes('endDateTime')) {
-      await rescheduleEventReminders(req.payload, doc as Parameters<typeof rescheduleEventReminders>[1])
-    }
-
-    const organizerId = typeof doc.organizer === 'object' ? doc.organizer.id : doc.organizer
-    const userIds = await getRegistrantIdsToNotify(req.payload, doc.id, organizerId)
-    if (userIds.length === 0) return doc
-
-    const changedLabels = Array.from(new Set(changedFields.map((field) => NOTIFIABLE_EDIT_FIELDS[field])))
-    const when = formatPragueDateTime(doc.dateTime)
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-    const title = escapeHtml(doc.title)
-
-    await Promise.all(
-      userIds.map((userId) =>
-        sendNotification(req.payload, {
-          userId,
-          title: 'Akce byla upravena',
-          message: `Akce „${doc.title}“, na kterou jste přihlášeni, byla upravena (změna: ${changedLabels.join(', ')}). Nově: ${when}, ${doc.locationText}.`,
-          link: `/akce/${doc.id}`,
-          email: {
-            subject: `Akce upravena: ${doc.title}`,
-            body:
-              `<p>Akce <strong>${title}</strong>, na kterou jste přihlášeni, byla upravena.</p>` +
-              `<p>Změna: ${changedLabels.join(', ')}</p>` +
-              `<p><strong>Kdy:</strong> ${when}<br/><strong>Kde:</strong> ${escapeHtml(doc.locationText)}</p>` +
-              `<p><a href="${appUrl}/akce/${doc.id}">Zobrazit detail akce</a></p>`,
-          },
-        }),
-      ),
-    )
-    const place = doc.locationText.length > 60 ? `${doc.locationText.slice(0, 57)}…` : doc.locationText
-    await notifyPhonesForEvent(
-      req.payload,
-      userIds,
-      doc.id,
-      `Lonvita: akce „${doc.title}“ byla upravena (${changedLabels.join(', ')}). Nově: ${when}, ${place}.`,
-    )
+    await queueEventUpdatedNotification(doc.id, previousDoc)
   } catch (error) {
-    req.payload.logger.error(`Failed to notify registrants of edited event ${doc.id}: ${error}`)
+    req.payload.logger.error(`Failed to queue edit notification for event ${doc.id}: ${error}`)
   }
 
   return doc

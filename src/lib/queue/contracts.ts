@@ -8,6 +8,8 @@ export const JOB_NAMES = {
   GENERATE_EXPORT: 'generate-export',
   EXPORT_READY: 'export-ready',
   CLEANUP_EXPORTS: 'cleanup-exports',
+  EVENT_UPDATED: 'event-updated',
+  EVENT_CANCELLED: 'event-cancelled',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -99,6 +101,42 @@ export type CleanupExportsJobResult = {
 }
 
 /**
+ * Tells an event's registrants it was edited — in-app, e-mail and SMS. Enqueued from Events'
+ * afterChange hook, i.e. before the edit commits, so it's delayed and carries only what the
+ * notifiable fields looked like *before* the edit: the worker re-reads the event and diffs.
+ * Debounced per event (see enqueueEventUpdated), so a burst of saves makes one notification
+ * against the first save's baseline.
+ */
+export type EventUpdatedJobData = {
+  eventId: number | string
+  /** `comparable()` form of every notifiable field before the first edit of the burst. */
+  before: Record<string, string>
+}
+
+export type EventUpdatedJobResult = {
+  notified: number
+  skipped?: string
+}
+
+/**
+ * Tells an event's registrants it's off and drops their queued reminders. A snapshot rather than
+ * an id: after a consented hard delete the event and its registrations no longer exist.
+ */
+export type EventCancelledJobData = {
+  eventId: number | string
+  title: string
+  /** Pending/approved registrants to tell (the organizer excluded). */
+  userIds: (number | string)[]
+  /** Every registration of the event, whose reminder jobs have to go. */
+  registrationIds: (number | string)[]
+}
+
+export type EventCancelledJobResult = {
+  notified: number
+  skipped?: string
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -114,3 +152,5 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.GENERATE_EXPORT; payload: GenerateExportJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.EXPORT_READY; payload: ExportReadyJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.CLEANUP_EXPORTS; payload: CleanupExportsJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.EVENT_UPDATED; payload: EventUpdatedJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.EVENT_CANCELLED; payload: EventCancelledJobData } & Traced)

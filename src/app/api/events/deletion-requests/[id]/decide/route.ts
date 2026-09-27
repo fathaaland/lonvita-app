@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { commitTransaction, createLocalReq, getPayload, initTransaction, killTransaction } from 'payload'
 
 import config from '@payload-config'
-import { eventOrganizerIds, getRegistrantIdsToNotify, notifyEventCancelled, obecRole } from '@/collections/Events'
+import { eventOrganizerIds, obecRole } from '@/collections/Events'
+import { getEventRegistrants, notifyEventCancelled } from '@/collections/shared/eventNotifications'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { sendNotification } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
@@ -125,8 +126,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     )
   }
 
-  // Collected up front — the registrations go with the event.
-  const registrantIds = await getRegistrantIdsToNotify(payload, event.id, relationId(event.organizer)!)
+  // Collected up front — the registrations go with the event, and so would the ids of their
+  // reminder jobs.
+  const registrants = await getEventRegistrants(payload, event.id, relationId(event.organizer)!)
 
   const req = await createLocalReq({ user }, payload)
   const shouldCommit = await initTransaction(req)
@@ -183,7 +185,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
-    await notifyEventCancelled(payload, event, registrantIds)
+    await notifyEventCancelled(payload, event, { registrants })
   } catch (error) {
     payload.logger.error(`Failed to notify registrants of deleted event ${event.id}: ${error}`)
   }

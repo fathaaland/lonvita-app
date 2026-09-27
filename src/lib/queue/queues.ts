@@ -5,8 +5,11 @@ import { getCorrelationId } from '@/lib/logger/correlation'
 import { JOB_NAMES, QUEUE_NAME } from './contracts'
 import { queueOptions } from './options'
 
+import type { DeduplicationOptions } from 'bullmq'
 import type {
   EmailJobData,
+  EventCancelledJobData,
+  EventUpdatedJobData,
   ExportReadyJobData,
   FeedbackRequestJobData,
   GenerateExportJobData,
@@ -24,7 +27,12 @@ export const getQueue = (): Queue<QueueJobEnvelope, unknown, JobName> => {
   return queueInstance
 }
 
-type EnqueueOptions = { jobId?: string; delay?: number; correlationId?: string }
+type EnqueueOptions = {
+  jobId?: string
+  delay?: number
+  correlationId?: string
+  deduplication?: DeduplicationOptions
+}
 
 const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions) => {
   const traced = { ...job, correlationId: options?.correlationId ?? getCorrelationId() }
@@ -32,6 +40,7 @@ const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions) => {
   return getQueue().add(job.jobType, traced, {
     ...(options?.jobId ? { jobId: options.jobId } : {}),
     ...(options?.delay ? { delay: options.delay } : {}),
+    ...(options?.deduplication ? { deduplication: options.deduplication } : {}),
   })
 }
 
@@ -53,4 +62,28 @@ export async function enqueueGenerateExport(data: GenerateExportJobData, options
 
 export async function enqueueExportReady(data: ExportReadyJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.EXPORT_READY, payload: data }, options)
+}
+
+/** Edits within this window after the first one ride along in its job instead of adding their own. */
+export const EVENT_UPDATED_DEBOUNCE_MS = 60_000
+/** Past the debounce window, so the last edit it swallowed has long committed when the job reads. */
+const EVENT_UPDATED_DELAY_MS = EVENT_UPDATED_DEBOUNCE_MS + 5_000
+
+/**
+ * Debounced per event: while the first edit's job is inside its window, later adds are dropped —
+ * data included — so the job keeps the pre-burst baseline and notifies once about all of it.
+ */
+export async function enqueueEventUpdated(data: EventUpdatedJobData, options?: EnqueueOptions) {
+  return enqueueJob(
+    { jobType: JOB_NAMES.EVENT_UPDATED, payload: data },
+    {
+      delay: EVENT_UPDATED_DELAY_MS,
+      deduplication: { id: `event-updated-${data.eventId}`, ttl: EVENT_UPDATED_DEBOUNCE_MS },
+      ...options,
+    },
+  )
+}
+
+export async function enqueueEventCancelled(data: EventCancelledJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.EVENT_CANCELLED, payload: data }, options)
 }
