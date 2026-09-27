@@ -12,6 +12,7 @@ export const JOB_NAMES = {
   EVENT_CANCELLED: 'event-cancelled',
   PASSWORD_RESET: 'password-reset',
   SYNC_STATUSES: 'sync-statuses',
+  ATTENDANCE_REMINDER: 'attendance-reminder',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -171,6 +172,22 @@ export type SyncStatusesJobResult = {
 }
 
 /**
+ * Brief §4/§7 "Po skončení akce organizátorovi přijde upozornění, že má vyplnit docházku." —
+ * delayed until a few hours after the event ends. Carries only the id: the worker re-reads the
+ * event and its registrations when it fires, and skips the nudge if there's nothing left to fill
+ * in (event cancelled or deleted, nobody approved, attendance already marked).
+ */
+export type AttendanceReminderJobData = {
+  eventId: number | string
+}
+
+export type AttendanceReminderJobResult = {
+  sent: boolean
+  skipped?: string
+  messageId?: string
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -190,3 +207,4 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.EVENT_CANCELLED; payload: EventCancelledJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.PASSWORD_RESET; payload: PasswordResetJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SYNC_STATUSES; payload: SyncStatusesJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.ATTENDANCE_REMINDER; payload: AttendanceReminderJobData } & Traced)

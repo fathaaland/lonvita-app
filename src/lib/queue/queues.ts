@@ -7,6 +7,7 @@ import { queueOptions } from './options'
 
 import type { DeduplicationOptions } from 'bullmq'
 import type {
+  AttendanceReminderJobData,
   EmailJobData,
   EventCancelledJobData,
   EventUpdatedJobData,
@@ -91,4 +92,8 @@ export async function enqueueEventCancelled(data: EventCancelledJobData, options
 
 export async function enqueuePasswordReset(data: PasswordResetJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.PASSWORD_RESET, payload: data }, options)
+}
+
+export async function enqueueAttendanceReminder(data: AttendanceReminderJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.ATTENDANCE_REMINDER, payload: data }, options)
 }

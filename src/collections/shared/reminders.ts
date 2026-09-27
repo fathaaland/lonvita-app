@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 
-import { enqueueEmail, enqueueFeedbackRequest, getQueue } from '@/lib/queue/queues'
+import { enqueueAttendanceReminder, enqueueEmail, enqueueFeedbackRequest, getQueue } from '@/lib/queue/queues'
 
 type RelId = number | { id: number }
 
@@ -29,31 +29,18 @@ async function removeJob(jobId: string): Promise<void> {
 }
 
 /** Brief §4/§7 "Po skončení akce organizátorovi přijde upozornění, že má vyplnit docházku." —
- * a delayed, email-only job (no in-app/preference check: it's a "did you remember to do X"
- * nudge, so it goes out as-is without re-checking whether attendance was already filled in). */
-export async function scheduleAttendanceReminder(payload: Payload, event: EventForReminders): Promise<void> {
-  const organizer = await payload.findByID({
-    collection: 'users',
-    id: relId(event.organizer),
-    depth: 0,
-    overrideAccess: true,
-  })
-  if (!organizer?.email) return
-
+ * only the event id is queued; the worker looks up the organizer when it fires and skips the
+ * nudge if attendance no longer needs filling in (see attendance-reminder.processor). */
+export async function scheduleAttendanceReminder(
+  event: Pick<EventForReminders, 'id' | 'dateTime' | 'endDateTime'>,
+): Promise<void> {
   // A few hours' buffer after the event's own end time, so this doesn't land while it's
   // plausibly still running.
   const remindAt = new Date(event.endDateTime ?? event.dateTime).getTime() + 3 * 60 * 60 * 1000
   const delay = remindAt - Date.now()
   if (delay <= 0) return
 
-  await enqueueEmail(
-    {
-      to: organizer.email,
-      subject: `Nezapomeňte vyplnit docházku: ${event.title}`,
-      body: `<p>Akce <strong>${event.title}</strong> proběhla — nezapomeňte prosím ve správě akce vyplnit docházku přihlášených.</p>`,
-    },
-    { jobId: attendanceJobId(event.id), delay },
-  )
+  await enqueueAttendanceReminder({ eventId: event.id }, { jobId: attendanceJobId(event.id), delay })
 }
 
 /** 24h-before reminder for an approved participant (brief §A5: "levné a užitečné"). Sent via the
@@ -103,7 +90,7 @@ export async function scheduleFeedbackRequest(
  * participant's 24h reminder and any pending feedback prompt for the new time. */
 export async function rescheduleEventReminders(payload: Payload, event: EventForReminders): Promise<void> {
   await removeJob(attendanceJobId(event.id))
-  await scheduleAttendanceReminder(payload, event)
+  await scheduleAttendanceReminder(event)
 
   const approved = await payload.find({
     collection: 'registrations',

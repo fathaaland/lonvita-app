@@ -1,5 +1,6 @@
 import { JOB_NAMES } from '@/lib/queue/contracts'
 
+import { processAttendanceReminderJob } from '../processors/attendance-reminder.processor'
 import { processCleanupExportsJob } from '../processors/cleanup-exports.processor'
 import { processCleanupNotificationsJob } from '../processors/cleanup-notifications.processor'
 import { processEmailJob } from '../processors/email.processor'
@@ -13,6 +14,7 @@ import { processSmsJob } from '../processors/sms.processor'
 import { processSyncStatusesJob } from '../processors/sync-statuses.processor'
 
 import type {
+  AttendanceReminderJobResult,
   CleanupExportsJobResult,
   CleanupNotificationsJobResult,
   EmailJobResult,
@@ -42,6 +44,7 @@ type JobResult =
   | EventCancelledJobResult
   | PasswordResetJobResult
   | SyncStatusesJobResult
+  | AttendanceReminderJobResult
   | void
 
 export const dispatchJobByType = async (
@@ -81,6 +84,9 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.SYNC_STATUSES:
       return processSyncStatusesJob()
+
+    case JOB_NAMES.ATTENDANCE_REMINDER:
+      return processAttendanceReminderJob(job.payload, context)
 
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)

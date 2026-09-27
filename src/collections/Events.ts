@@ -714,7 +714,7 @@ const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ d
   if (operation !== 'create' || context?.skipNotifications) return doc
 
   try {
-    await scheduleAttendanceReminder(req.payload, doc as Parameters<typeof scheduleAttendanceReminder>[1])
+    await scheduleAttendanceReminder(doc as Parameters<typeof scheduleAttendanceReminder>[0])
   } catch (error) {
     req.payload.logger.error(`Failed to schedule attendance reminder for event ${doc.id}: ${error}`)
   }
