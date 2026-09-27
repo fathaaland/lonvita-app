@@ -93,7 +93,7 @@ const applyDecision: CollectionBeforeChangeHook = async ({ data, req, operation,
       coOrganizations: [...(event.coOrganizations ?? []).map((o) => Number(relationId(o))), obecOrganizationId],
     },
     overrideAccess: true,
-    context: { obecCoOrganizingApproved: true, skipFinishedAutoUpdate: true },
+    context: { obecCoOrganizingApproved: true },
     req,
   })
   return data

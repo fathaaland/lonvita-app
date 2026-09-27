@@ -11,6 +11,7 @@ export const JOB_NAMES = {
   EVENT_UPDATED: 'event-updated',
   EVENT_CANCELLED: 'event-cancelled',
   PASSWORD_RESET: 'password-reset',
+  SYNC_STATUSES: 'sync-statuses',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -157,6 +158,19 @@ export type PasswordResetJobResult = {
 }
 
 /**
+ * Every quarter of an hour: writes down the statuses that change with the clock alone — events
+ * past their end become 'finished', deletion requests past their 24 h 'expired'. Reads already
+ * derive both (the collections' afterRead hooks); this makes the stored value, which filters,
+ * counts and the admin see, catch up. Enqueued only by the worker's own scheduler.
+ */
+export type SyncStatusesJobData = Record<string, never>
+
+export type SyncStatusesJobResult = {
+  eventsFinished: number
+  deletionRequestsExpired: number
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -175,3 +189,4 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.EVENT_UPDATED; payload: EventUpdatedJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.EVENT_CANCELLED; payload: EventCancelledJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.PASSWORD_RESET; payload: PasswordResetJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.SYNC_STATUSES; payload: SyncStatusesJobData } & Traced)

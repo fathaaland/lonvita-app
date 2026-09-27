@@ -15,6 +15,9 @@ const CLEANUP_NOTIFICATIONS_CRON = '0 3 * * *'
 const CLEANUP_NOTIFICATIONS_TZ = 'Europe/Prague'
 /** Expired exports (7 days) — half an hour after the notification cleanup, same quiet window. */
 const CLEANUP_EXPORTS_CRON = '30 3 * * *'
+/** Time-driven statuses (finished events, expired deletion requests). Often, not nightly: the
+ * stored status is what filters and counts see, and each run only touches what just lapsed. */
+const SYNC_STATUSES_CRON = '*/15 * * * *'
 
 logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
@@ -46,6 +49,20 @@ await getQueue().upsertJobScheduler(
 logger.info('Export cleanup schedule registered', {
   event: 'worker.cleanup_schedule_registered',
   pattern: CLEANUP_EXPORTS_CRON,
+  tz: CLEANUP_NOTIFICATIONS_TZ,
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.SYNC_STATUSES,
+  { pattern: SYNC_STATUSES_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  {
+    name: JOB_NAMES.SYNC_STATUSES,
+    data: { jobType: JOB_NAMES.SYNC_STATUSES, payload: {} },
+  },
+)
+logger.info('Status sync schedule registered', {
+  event: 'worker.status_sync_schedule_registered',
+  pattern: SYNC_STATUSES_CRON,
   tz: CLEANUP_NOTIFICATIONS_TZ,
 })
 

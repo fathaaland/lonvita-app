@@ -37,8 +37,6 @@ export const processFeedbackRequestJob = async (data: FeedbackRequestJobData): P
       id: relId(registration.event),
       depth: 0,
       overrideAccess: true,
-      // Only reading — no reason to also persist the derived 'finished' status from here.
-      context: { skipFinishedAutoUpdate: true },
     })
     .catch(() => null)
   if (!event || event.deletedAt || event.status === 'cancelled') return skip('event_gone')

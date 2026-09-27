@@ -30,7 +30,7 @@ async function removeJob(jobId: string): Promise<void> {
 
 /** Brief §4/§7 "Po skončení akce organizátorovi přijde upozornění, že má vyplnit docházku." —
  * a delayed, email-only job (no in-app/preference check: it's a "did you remember to do X"
- * nudge, and the worker deliberately doesn't have Payload access to re-check attendance). */
+ * nudge, so it goes out as-is without re-checking whether attendance was already filled in). */
 export async function scheduleAttendanceReminder(payload: Payload, event: EventForReminders): Promise<void> {
   const organizer = await payload.findByID({
     collection: 'users',

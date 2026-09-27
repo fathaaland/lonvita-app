@@ -180,7 +180,6 @@ const scheduleFeedbackOnAttendance: CollectionAfterChangeHook = async ({ doc, pr
       id: eventId,
       depth: 0,
       overrideAccess: true,
-      context: { skipFinishedAutoUpdate: true },
     })
     await scheduleFeedbackRequest(doc.id, event)
   } catch (error) {
@@ -203,7 +202,7 @@ const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
   if (typeof req.context[cacheKey] === 'boolean') return req.context[cacheKey]
 
   const event = await req.payload
-    .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req, context: { skipFinishedAutoUpdate: true } })
+    .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     .catch(() => null)
   let allowed = false
   if (event) {

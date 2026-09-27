@@ -156,18 +156,10 @@ const notifyApprovers: CollectionAfterChangeHook = async ({ doc, operation, req 
   return doc
 }
 
-/** A pending request past its 24 h reads back as "expired" — no cron needed, like Events'
- * deriveFinishedStatus; best-effort persisted so listings converge. The event is left as it was. */
-const deriveExpiredStatus: CollectionAfterReadHook = ({ doc, req }) => {
+/** A pending request past its 24 h reads back as "expired" straight away, like Events'
+ * deriveFinishedStatus; the worker's sync-statuses job writes it down. The event is left as it was. */
+const deriveExpiredStatus: CollectionAfterReadHook = ({ doc }) => {
   if (doc.status !== 'pending' || new Date(doc.expiresAt).getTime() > Date.now()) return doc
-  req.payload
-    .update({
-      collection: 'event-deletion-requests',
-      id: doc.id,
-      data: { status: 'expired' },
-      overrideAccess: true,
-    })
-    .catch((error) => req.payload.logger.error(`Failed to persist expired deletion request ${doc.id}: ${error}`))
   return { ...doc, status: 'expired' }
 }
 

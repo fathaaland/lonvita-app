@@ -21,10 +21,6 @@ const toId = (value: unknown): string | null => {
   return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
 }
 
-/** Status reads back 'finished' for past events (Events deriveFinishedStatus) — but a bulk export
- * shouldn't also fire one write per past event to persist it. */
-const readEventsContext = { skipFinishedAutoUpdate: true }
-
 const toEventRow = (e: Event): EventRow => ({
   id: String(e.id),
   title: e.title,
@@ -85,7 +81,6 @@ export async function loadMunicipalityExportData(
       depth: 0,
       pagination: false,
       overrideAccess: true,
-      context: readEventsContext,
     }),
     payload.find({
       collection: 'profiles',
@@ -141,7 +136,6 @@ export async function loadOrganizationExportData(payload: Payload, organizationI
       depth: 0,
       pagination: false,
       overrideAccess: true,
-      context: readEventsContext,
     }),
     loadCategories(payload),
     summarizeOrganizationFeedback(payload, organizationId),

@@ -25,8 +25,6 @@ export async function summarizeOrganizationFeedback(
     depth: 0,
     pagination: false,
     overrideAccess: true,
-    // Only the ids are needed — no reason to also write finished events' status (Events deriveFinishedStatus).
-    context: { skipFinishedAutoUpdate: true },
   })
   const eventIds = events.docs.map((e) => e.id)
 

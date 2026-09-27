@@ -170,9 +170,6 @@ const cleanupOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
     depth: 0,
     pagination: false,
     overrideAccess: true,
-    // A finished event's read-time status write (Events deriveFinishedStatus) would rewrite its
-    // relations — this organization included — from outside this transaction.
-    context: { skipFinishedAutoUpdate: true },
     req,
   })
   for (const event of coOrganized.docs) {

@@ -724,33 +724,13 @@ const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ d
 
 /**
  * US-P-08: an 'active'/'full' event whose end (or, single-day, start) time has passed reads back
- * as 'finished' — computed lazily on read rather than via a scheduled worker job, since the
- * delayed-job worker (worker/src) has no Payload/DB access, only email/SMS/push senders (see
- * reminders.ts). The read-time value is also best-effort persisted here (fire-and-forget, guarded
- * by `skipFinishedAutoUpdate` so the resulting update doesn't recurse into this same hook), so
- * admin listings/exports converge on the same status without needing a cron process.
+ * as 'finished' straight away. Only derived here — the worker's sync-statuses job writes it down
+ * every quarter of an hour, in bulk and without running the change hooks, so a read never writes.
  */
-const deriveFinishedStatus: CollectionAfterReadHook = ({ doc, req }) => {
+const deriveFinishedStatus: CollectionAfterReadHook = ({ doc }) => {
   if (doc.status !== 'active' && doc.status !== 'full') return doc
   const endsAt = new Date(doc.endDateTime ?? doc.dateTime)
   if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() >= Date.now()) return doc
-
-  if (!req.context?.skipFinishedAutoUpdate) {
-    // Deliberately not passed `req` — this fire-and-forget write must run in its own
-    // transaction, not the read's, since it isn't awaited before the read's request finishes.
-    req.payload
-      .update({
-        collection: 'events',
-        id: doc.id,
-        data: { status: 'finished' },
-        overrideAccess: true,
-        context: { skipFinishedAutoUpdate: true },
-      })
-      .catch((error) => {
-        req.payload.logger.error(`Failed to persist finished status for event ${doc.id}: ${error}`)
-      })
-  }
-
   return { ...doc, status: 'finished' }
 }
 
