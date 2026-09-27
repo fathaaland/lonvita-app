@@ -40,8 +40,10 @@ function NotificationsContent() {
           setRows((prev) => prev.map((r) => (r.id === n.id ? { ...r, read: false } : r)));
         });
     }
-    // e.g. "Nová přihláška na akci" -> that event's detail.
-    if (n.link) router.push(n.link);
+    // e.g. "Nová přihláška na akci" -> that event's detail. An API link (a finished export's
+    // download) isn't a page the client router can render — it needs a real navigation.
+    if (n.link?.startsWith("/api/")) window.location.assign(n.link);
+    else if (n.link) router.push(n.link);
   };
 
   return (

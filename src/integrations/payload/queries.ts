@@ -8,6 +8,7 @@ import { buildQuery, buildWhereParams, get, patch, post, uploadFile } from "./cl
 import type { PayloadListResponse } from "./client";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
+import type { OrganizationFeedbackSummary } from "@/lib/organization-stats";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -910,15 +911,7 @@ export async function updateMyOrganization(id: string, input: { name: string; ty
   await patch(`/organizations/${id}`, input);
 }
 
-/** What the participants said about the organization's events, in aggregate — shares are 0..1,
- * `null` while nobody has answered that question. */
-export type OrganizationFeedbackSummary = {
-  count: number;
-  avg_satisfaction: number | null;
-  avg_felt_welcome: number | null;
-  met_someone_new_share: number | null;
-  came_alone_share: number | null;
-};
+export type { OrganizationFeedbackSummary };
 
 export async function getOrganizationFeedbackSummary(organizationId: string): Promise<OrganizationFeedbackSummary> {
   return get<OrganizationFeedbackSummary>(`/organizations/${organizationId}/feedback-summary`);

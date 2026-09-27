@@ -5,6 +5,9 @@ export const JOB_NAMES = {
   SEND_SMS: 'send-sms',
   CLEANUP_NOTIFICATIONS: 'cleanup-notifications',
   FEEDBACK_REQUEST: 'feedback-request',
+  GENERATE_EXPORT: 'generate-export',
+  EXPORT_READY: 'export-ready',
+  CLEANUP_EXPORTS: 'cleanup-exports',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -60,6 +63,42 @@ export type FeedbackRequestJobResult = {
 }
 
 /**
+ * Renders one row of the `exports` collection (a DOCX/PDF report or a CSV) and uploads it to S3.
+ * Carries only the id: what to render, for whom and with which parameters lives on the row, which
+ * the POST /api/exports route validated and access-checked before enqueueing.
+ */
+export type GenerateExportJobData = {
+  exportId: number | string
+}
+
+export type GenerateExportJobResult = {
+  generated: boolean
+  skipped?: string
+  bytes?: number
+}
+
+/**
+ * Fired a little after an export finishes: if its owner still hasn't downloaded it (they closed
+ * the dialog before it was ready), they get an in-app notification — and an e-mail, if they want
+ * those — with the download link. Whoever downloaded it straight away hears nothing.
+ */
+export type ExportReadyJobData = {
+  exportId: number | string
+}
+
+export type ExportReadyJobResult = {
+  notified: boolean
+  skipped?: string
+}
+
+/** Nightly: drops exports past their `expiresAt`, the S3 file together with the row. */
+export type CleanupExportsJobData = Record<string, never>
+
+export type CleanupExportsJobResult = {
+  deleted: number
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -72,3 +111,6 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.SEND_SMS; payload: SmsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.CLEANUP_NOTIFICATIONS; payload: CleanupNotificationsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.FEEDBACK_REQUEST; payload: FeedbackRequestJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.GENERATE_EXPORT; payload: GenerateExportJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.EXPORT_READY; payload: ExportReadyJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.CLEANUP_EXPORTS; payload: CleanupExportsJobData } & Traced)

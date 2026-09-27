@@ -319,3 +319,68 @@ export function buildReportRows(m: ReportMetrics): ReportRow[] {
     },
   ];
 }
+
+/* ===== Texty reportu ===== */
+// Shared by the dialog (preview, Markdown) and the worker's DOCX/PDF, so the downloaded file says
+// exactly what the admin just read on screen.
+
+export interface Narrative { summary: string; whatChanged: string }
+
+/** "62/100 a roste" or "nedostatek dat" when below the §6.7 sample-size threshold. */
+function formatDatavitaScore(metrics: ReportMetrics): string {
+  if (metrics.datavita.current === null) return "nedostatek dat";
+  return `${metrics.datavita.current}/100 a ${metrics.datavita.trend}`;
+}
+
+function formatDatavitaDelta(metrics: ReportMetrics): string {
+  if (metrics.datavita.current === null) return "Nedostatek dat pro výpočet indexu za toto období.";
+  const d = metrics.datavita.delta90d;
+  return `Datavita se za 90 dní změnila o ${d >= 0 ? "+" : ""}${d} bodů.`;
+}
+
+/** Deterministic, no-AI narrative built straight from the computed metrics. */
+export function buildNarrative(metrics: ReportMetrics, municipalityName: string): Narrative {
+  const c = metrics.current;
+  const p = metrics.previous;
+  const eventsDelta = c.eventsCount - p.eventsCount;
+  const participantsDelta = c.participantsUnique - p.participantsUnique;
+
+  const summary =
+    `V období ${metrics.periodFrom} – ${metrics.periodTo} proběhlo v obci ${municipalityName} ` +
+    `${c.eventsCount} akcí s ${c.participantsUnique} unikátními účastníky a ${c.approvedRegistrations} ` +
+    `schválenými přihláškami. Komunitní index (Datavita) je ${formatDatavitaScore(metrics)}.`;
+
+  const whatChanged =
+    `Počet akcí se oproti ${metrics.previousLabel} ${eventsDelta >= 0 ? "zvýšil" : "snížil"} o ${Math.abs(eventsDelta)}, ` +
+    `počet unikátních účastníků se ${participantsDelta >= 0 ? "zvýšil" : "snížil"} o ${Math.abs(participantsDelta)}. ` +
+    `Aktivních organizátorů: ${c.activeOrganizers} (${c.newOrganizers} nových). ` +
+    formatDatavitaDelta(metrics);
+
+  return { summary, whatChanged };
+}
+
+export function reportTitle(metrics: ReportMetrics, municipalityName: string): string {
+  return `Přehled komunitního života — ${metrics.periodLabel} · ${municipalityName}`;
+}
+
+export function datavitaParagraph(metrics: ReportMetrics): string {
+  const dv = metrics.datavita;
+  if (dv.current === null) {
+    return "Nedostatek dat za toto období (potřeba alespoň 30 aktivních účastníků a 5 akcí).";
+  }
+  return (
+    `${dv.current}/100, ${dv.trend} (${dv.delta90d >= 0 ? "+" : ""}${dv.delta90d} bodů za 90 dní). ` +
+    `Participace ${dv.participation}, organizace ${dv.organization} — rozpad ukazuje, zda růst ` +
+    `komunity stojí především na účasti lidí, nebo na aktivitě organizátorů.`
+  );
+}
+
+/** `generatedAt` in Prague time — the worker runs in a UTC container. */
+export function methodologyParagraph(metrics: ReportMetrics, generatedAt: Date = new Date()): string {
+  return (
+    `Data z klouzavého 90denního okna (${metrics.periodFrom} – ${metrics.periodTo}), srovnání ` +
+    `s předchozím 90denním oknem (${metrics.previousLabel}). Zdroj: platforma Lonvita, výpočet proběhl ` +
+    `${generatedAt.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" })}. Nezahrnuje adresy bydliště účastníků ani údaje ze ` +
+    `sociálně-preskripční vrstvy. Kompletní metodika Datavity dostupná na vyžádání.`
+  );
+}

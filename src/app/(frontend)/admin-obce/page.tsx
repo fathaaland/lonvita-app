@@ -182,6 +182,8 @@ function AdminContent() {
                   registrations={scopedRegistrations}
                   profiles={profiles}
                   municipalityName={muniName}
+                  municipalityId={muniId}
+                  scope={scope}
                 />
               </div>
               <AnalyticsOverview
@@ -191,6 +193,8 @@ function AdminContent() {
                 categories={categories}
                 profiles={profiles}
                 municipalityName={muniName}
+                municipalityId={muniId}
+                scope={scope}
               />
             </TabsContent>
 

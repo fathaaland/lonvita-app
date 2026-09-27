@@ -87,6 +87,7 @@ export interface Config {
     'co-organizing-requests': CoOrganizingRequest;
     'event-deletion-requests': EventDeletionRequest;
     organizations: Organization;
+    exports: Export;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -114,6 +115,7 @@ export interface Config {
     'co-organizing-requests': CoOrganizingRequestsSelect<false> | CoOrganizingRequestsSelect<true>;
     'event-deletion-requests': EventDeletionRequestsSelect<false> | EventDeletionRequestsSelect<true>;
     organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
+    exports: ExportsSelect<false> | ExportsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -737,6 +739,41 @@ export interface EventDeletionRequest {
   createdAt: string;
 }
 /**
+ * Generated reports/CSV exports. Written by /api/exports and the worker, not user-edited.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "exports".
+ */
+export interface Export {
+  id: number;
+  owner: number | User;
+  kind: 'community-report' | 'organization-report' | 'municipality-events';
+  format: 'docx' | 'pdf' | 'csv';
+  params:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  status: 'queued' | 'processing' | 'done' | 'failed';
+  /**
+   * S3 object key of the rendered file — set once the worker is done.
+   */
+  fileKey?: string | null;
+  fileName?: string | null;
+  /**
+   * Why the last attempt failed — only once the job has run out of retries.
+   */
+  error?: string | null;
+  downloadedAt?: string | null;
+  expiresAt: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -839,6 +876,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'organizations';
         value: number | Organization;
+      } | null)
+    | ({
+        relationTo: 'exports';
+        value: number | Export;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1234,6 +1275,24 @@ export interface OrganizationsSelect<T extends boolean = true> {
   owner?: T;
   municipality?: T;
   deletedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "exports_select".
+ */
+export interface ExportsSelect<T extends boolean = true> {
+  owner?: T;
+  kind?: T;
+  format?: T;
+  params?: T;
+  status?: T;
+  fileKey?: T;
+  fileName?: T;
+  error?: T;
+  downloadedAt?: T;
+  expiresAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

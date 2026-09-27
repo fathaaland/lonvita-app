@@ -1,9 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { jsPDF } from "jspdf";
 import { toast } from "sonner";
-import { Building2, Download, FileText, HandHeart, Hourglass, Pencil } from "lucide-react";
+import { Building2, Download, FileText, HandHeart, Hourglass, Loader2, Pencil } from "lucide-react";
 import {
   getEventCategories,
   getMyOrganizations,
@@ -38,8 +37,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { EventRow, RegistrationRow, buildEventsCsv } from "@/lib/analytics";
-import { isUnlimitedCapacity } from "@/lib/capacity";
+import { EventRow, RegistrationRow } from "@/lib/analytics";
+import { computeOrganizationStats, formatDecimal, formatPercent } from "@/lib/organization-stats";
+import { useExport } from "@/hooks/useExport";
 import {
   ORGANIZATION_NAME_MAX_LENGTH,
   isMunicipalityOrganization,
@@ -66,9 +66,6 @@ function toAnalyticsEvent(e: QueryEventRow): EventRow {
     deletion_needs_consent: e.deletion_needs_consent,
   };
 }
-
-const formatDecimal = (value: number) => value.toLocaleString("cs-CZ", { maximumFractionDigits: 1 });
-const formatPercent = (share: number) => `${Math.round(share * 100)} %`;
 
 function pendingLabel(count: number): string {
   if (count === 1) return "Na schválení čeká 1 přihláška";
@@ -119,6 +116,7 @@ function OrganizationContent() {
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState<OrganizationType>("individual");
   const [saving, setSaving] = useState(false);
+  const exporter = useExport();
 
   const loadOrganizations = async () => {
     if (!user) return;
@@ -160,32 +158,10 @@ function OrganizationContent() {
     [rawEvents, selectedId],
   );
 
-  const stats = useMemo(() => {
-    const live = events.filter((e) => e.status !== "cancelled");
-    const liveIds = new Set(live.map((e) => e.id));
-    const approved = registrations.filter((r) => r.status === "approved" && liveIds.has(r.event_id));
-    // Only where it still matters — a pending registration on a past event won't be approved anymore.
-    const upcomingIds = new Set(live.filter((e) => new Date(e.date_time).getTime() >= Date.now()).map((e) => e.id));
-    const pending = registrations.filter((r) => r.status === "pending" && upcomingIds.has(r.event_id));
-
-    const perPerson = new Map<string, number>();
-    for (const r of approved) perPerson.set(r.user_id, (perPerson.get(r.user_id) ?? 0) + 1);
-    const returning = [...perPerson.values()].filter((n) => n >= 2).length;
-
-    // "Bez omezení kapacity" would read as an empty event and drag the average down.
-    const rates = live
-      .filter((e) => e.capacity > 0 && !isUnlimitedCapacity(e.capacity))
-      .map((e) => Math.min(1, approved.filter((r) => r.event_id === e.id).length / e.capacity));
-
-    return {
-      eventCount: live.length,
-      coOrganizedCount: live.filter((e) => coOrganizedIds.has(e.id)).length,
-      people: perPerson.size,
-      returning,
-      pending: pending.length,
-      fillRate: rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null,
-    };
-  }, [events, registrations, coOrganizedIds]);
+  const stats = useMemo(
+    () => computeOrganizationStats(events, registrations, coOrganizedIds),
+    [events, registrations, coOrganizedIds],
+  );
 
   if (!organizations) return <><PageHeader title="Organizace" /><Loading /></>;
 
@@ -203,7 +179,6 @@ function OrganizationContent() {
   }
 
   const obec = isMunicipalityOrganization(organization);
-  const fileSlug = organization.name.replace(/\s+/g, "-");
 
   const openEdit = () => {
     setEditName(organization.name);
@@ -228,85 +203,8 @@ function OrganizationContent() {
     }
   };
 
-  const handleExport = () => {
-    const csv = buildEventsCsv(events, registrations, categories, []);
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `organizace-${fileSlug}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportPdf = () => {
-    const cats = new Map(categories.map((c) => [c.id, c.name]));
-    const approved = registrations.filter((r) => r.status === "approved");
-    const pdf = new jsPDF({ unit: "pt", format: "a4" });
-    const marginX = 48;
-    let y = 56;
-
-    const ensureSpace = (needed: number) => {
-      if (y + needed > pdf.internal.pageSize.getHeight() - 48) {
-        pdf.addPage();
-        y = 56;
-      }
-    };
-
-    pdf.setFont("helvetica", "bold").setFontSize(18);
-    pdf.text(`Statistiky organizace — ${organization.name}`, marginX, y);
-    y += 22;
-    pdf.setFont("helvetica", "italic").setFontSize(10).setTextColor(102);
-    pdf.text(`Vygenerováno ${new Date().toLocaleString("cs-CZ")}`, marginX, y);
-    pdf.setTextColor(0);
-    y += 26;
-
-    pdf.setFont("helvetica", "bold").setFontSize(14);
-    pdf.text("Klíčová čísla", marginX, y);
-    y += 20;
-    pdf.setFont("helvetica", "normal").setFontSize(10);
-    [
-      `Počet akcí: ${stats.eventCount} (spolupořádané: ${stats.coOrganizedCount})`,
-      `Lidí na akcích: ${stats.people} (opakovaně: ${stats.returning})`,
-      `Průměrná naplněnost: ${stats.fillRate === null ? "—" : formatPercent(stats.fillRate)}`,
-      `Spokojenost: ${feedback?.avg_satisfaction == null ? "—" : `${formatDecimal(feedback.avg_satisfaction)} / 5 (${feedback.count} hodnocení)`}`,
-    ].forEach((line) => {
-      ensureSpace(16);
-      pdf.text(line, marginX, y);
-      y += 16;
-    });
-    y += 10;
-
-    ensureSpace(20);
-    pdf.setFont("helvetica", "bold").setFontSize(14);
-    pdf.text("Přehled akcí", marginX, y);
-    y += 18;
-
-    const colWidths = [220, 110, 60, 60, 50];
-    const colX = colWidths.map((_, i) => marginX + colWidths.slice(0, i).reduce((a, b) => a + b, 0));
-    const drawRow = (cells: string[], bold: boolean) => {
-      ensureSpace(16);
-      pdf.setFont("helvetica", bold ? "bold" : "normal").setFontSize(9);
-      cells.forEach((c, i) => pdf.text(c, colX[i], y, { maxWidth: colWidths[i] - 6 }));
-      y += 16;
-    };
-    drawRow(["Název", "Kategorie", "Kapacita", "Schváleno", "Stav"], true);
-    events.forEach((e) => {
-      drawRow(
-        [
-          e.title,
-          e.category_ids.map((id) => cats.get(id)).filter(Boolean).join(", "),
-          String(e.capacity),
-          String(approved.filter((r) => r.event_id === e.id).length),
-          e.status,
-        ],
-        false,
-      );
-    });
-
-    pdf.save(`organizace-${fileSlug}.pdf`);
-    toast.success("PDF staženo.");
-  };
+  const handleExport = (format: "csv" | "pdf") =>
+    exporter.start({ kind: "organization-report", format, params: { organizationId: organization.id } });
 
   return (
     <div className="animate-fade-in sm:mx-auto sm:max-w-4xl">
@@ -419,11 +317,27 @@ function OrganizationContent() {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-bold">Akce organizace</h3>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5">
-                    <Download className="h-4 w-4" /> CSV
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleExport("csv")}
+                    disabled={exporter.pending !== null}
+                    className="gap-1.5"
+                  >
+                    {exporter.pending === "organization-report:csv"
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Download className="h-4 w-4" />} CSV
                   </Button>
-                  <Button variant="outline" size="sm" onClick={handleExportPdf} className="gap-1.5">
-                    <FileText className="h-4 w-4" /> PDF
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleExport("pdf")}
+                    disabled={exporter.pending !== null}
+                    className="gap-1.5"
+                  >
+                    {exporter.pending === "organization-report:pdf"
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <FileText className="h-4 w-4" />} PDF
                   </Button>
                 </div>
               </div>

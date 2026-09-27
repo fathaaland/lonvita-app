@@ -5,7 +5,15 @@ import { getCorrelationId } from '@/lib/logger/correlation'
 import { JOB_NAMES, QUEUE_NAME } from './contracts'
 import { queueOptions } from './options'
 
-import type { EmailJobData, FeedbackRequestJobData, JobName, QueueJobEnvelope, SmsJobData } from './contracts'
+import type {
+  EmailJobData,
+  ExportReadyJobData,
+  FeedbackRequestJobData,
+  GenerateExportJobData,
+  JobName,
+  QueueJobEnvelope,
+  SmsJobData,
+} from './contracts'
 
 let queueInstance: Queue<QueueJobEnvelope, unknown, JobName> | undefined
 
@@ -37,4 +45,12 @@ export async function enqueueSms(data: SmsJobData, options?: EnqueueOptions) {
 
 export async function enqueueFeedbackRequest(data: FeedbackRequestJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.FEEDBACK_REQUEST, payload: data }, options)
+}
+
+export async function enqueueGenerateExport(data: GenerateExportJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.GENERATE_EXPORT, payload: data }, options)
+}
+
+export async function enqueueExportReady(data: ExportReadyJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.EXPORT_READY, payload: data }, options)
 }

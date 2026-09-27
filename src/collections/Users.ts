@@ -82,6 +82,7 @@ const USER_OWNED_COLLECTIONS: { collection: CollectionSlug; field: string }[] = 
   { collection: 'event-deletion-requests', field: 'requestedBy' },
   { collection: 'organizations', field: 'owner' },
   { collection: 'notifications', field: 'user' },
+  { collection: 'exports', field: 'owner' },
   { collection: 'consents', field: 'user' },
   { collection: 'auth-identities', field: 'user' },
   { collection: 'user-roles', field: 'user' },

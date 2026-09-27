@@ -34,9 +34,11 @@ import {
   UserCheck,
   Star,
   Smile,
+  Loader2,
 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatEventDate } from "@/lib/date";
+import { useExport } from "@/hooks/useExport";
 import {
   Period,
   EventRow,
@@ -58,7 +60,6 @@ import {
   attendanceBreakdown,
   averageRatings,
   fillBuckets,
-  buildEventsCsv,
   datavitaSeries,
   datavitaTrend,
   DATAVITA_MIN_PARTICIPANTS,
@@ -72,6 +73,9 @@ interface Props {
   categories: CategoryRow[];
   profiles: ProfileRow[];
   municipalityName: string;
+  /** For the CSV, which the worker builds from the database rather than from these props. */
+  municipalityId: string;
+  scope: "all" | "mine";
 }
 
 const PERIODS: { v: Period; label: string }[] = [
@@ -88,8 +92,11 @@ export function AnalyticsOverview({
   categories,
   profiles,
   municipalityName,
+  municipalityId,
+  scope,
 }: Props) {
   const [period, setPeriod] = useState<Period>("30");
+  const exporter = useExport();
 
   const start = useMemo(() => periodStart(period), [period]);
   const evF = useMemo(() => filterEvents(events, start), [events, start]);
@@ -108,16 +115,8 @@ export function AnalyticsOverview({
   const attendance = useMemo(() => attendanceBreakdown(regF), [regF]);
   const ratings = useMemo(() => averageRatings(feedback), [feedback]);
 
-  const handleExport = () => {
-    const csv = buildEventsCsv(evF, regF, categories, profiles);
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `prehled-${municipalityName}-${period}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const handleExport = () =>
+    exporter.start({ kind: "municipality-events", format: "csv", params: { municipalityId, scope, period } });
 
   const pieStatus = [
     { name: "Schváleno", value: rs.approved, color: "hsl(var(--success))" },
@@ -150,8 +149,8 @@ export function AnalyticsOverview({
             </button>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={handleExport} className="h-11">
-          <Download className="h-4 w-4" /> CSV
+        <Button variant="outline" size="sm" onClick={handleExport} disabled={exporter.pending !== null} className="h-11">
+          {exporter.pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
         </Button>
       </div>
 

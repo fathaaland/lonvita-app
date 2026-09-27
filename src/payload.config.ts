@@ -30,6 +30,7 @@ import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests'
 import { CoOrganizingRequests } from './collections/CoOrganizingRequests'
 import { EventDeletionRequests } from './collections/EventDeletionRequests'
 import { Organizations } from './collections/Organizations'
+import { Exports } from './collections/Exports'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError } from './lib/logger'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
@@ -84,6 +85,7 @@ export default buildConfig({
     CoOrganizingRequests,
     EventDeletionRequests,
     Organizations,
+    Exports,
   ].map(withCrudLogging),
   hooks: {
     afterError: [

@@ -13,6 +13,8 @@ import { spawnQueueWorker } from './runtime/spawn-worker'
  * evening when people actually use the app. Prague time, not the container's UTC. */
 const CLEANUP_NOTIFICATIONS_CRON = '0 3 * * *'
 const CLEANUP_NOTIFICATIONS_TZ = 'Europe/Prague'
+/** Expired exports (7 days) — half an hour after the notification cleanup, same quiet window. */
+const CLEANUP_EXPORTS_CRON = '30 3 * * *'
 
 logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
@@ -30,6 +32,20 @@ await getQueue().upsertJobScheduler(
 logger.info('Notification cleanup schedule registered', {
   event: 'worker.cleanup_schedule_registered',
   pattern: CLEANUP_NOTIFICATIONS_CRON,
+  tz: CLEANUP_NOTIFICATIONS_TZ,
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.CLEANUP_EXPORTS,
+  { pattern: CLEANUP_EXPORTS_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  {
+    name: JOB_NAMES.CLEANUP_EXPORTS,
+    data: { jobType: JOB_NAMES.CLEANUP_EXPORTS, payload: {} },
+  },
+)
+logger.info('Export cleanup schedule registered', {
+  event: 'worker.cleanup_schedule_registered',
+  pattern: CLEANUP_EXPORTS_CRON,
   tz: CLEANUP_NOTIFICATIONS_TZ,
 })
 
