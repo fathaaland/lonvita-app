@@ -17,7 +17,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Clock, UserCheck, UserX, CalendarOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -126,9 +126,12 @@ function ManageEventContent() {
         ) : regs.map((r) => (
           <Card key={r.id}><CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10"><AvatarFallback className="bg-primary text-primary-foreground">
-                {r.full_name.split(" ").map(p => p[0]).join("").slice(0, 2)}
-              </AvatarFallback></Avatar>
+              <UserAvatar
+                name={r.full_name}
+                src={r.avatar_url}
+                className="h-10 w-10"
+                fallbackClassName="bg-primary text-primary-foreground"
+              />
               <div className="flex-1 min-w-0">
                 <p className="font-bold truncate">{r.full_name}</p>
                 {r.phone && <p className="text-sm text-muted-foreground">{r.phone}</p>}

@@ -3,8 +3,12 @@
 import { getPayload, Payload } from 'payload'
 import config from '@/payload.config'
 
-import { describe, it, beforeAll, afterAll, expect } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 
+import { describe, it, beforeAll, afterAll, afterEach, expect, vi } from 'vitest'
+
+import { googlePhotoUrl } from '@/lib/auth/google/avatar'
 import { resolveGoogleUser } from '@/lib/auth/google/link-account'
 import { normalizeGoogleProfile } from '@/lib/auth/google/provider'
 import { createOAuthState, verifyOAuthState } from '@/lib/auth/google/state'
@@ -20,6 +24,7 @@ const googleProfile = (overrides: Partial<GoogleProfile> = {}): GoogleProfile =>
   email: `google-${STAMP}@test.local`,
   emailVerified: true,
   fullName: 'Google Uživatel',
+  pictureUrl: null,
   ...overrides,
 })
 
@@ -84,6 +89,114 @@ describe('Signing in with Google', () => {
       expect(normalizeGoogleProfile({ sub: '1', given_name: 'Jana', family_name: 'Nováková' }).fullName).toBe(
         'Jana Nováková',
       )
+    })
+
+    it('carries the picture URL, and null when there is none', () => {
+      expect(normalizeGoogleProfile({ sub: '1', picture: 'https://lh3.googleusercontent.com/a/x=s96-c' }).pictureUrl).toBe(
+        'https://lh3.googleusercontent.com/a/x=s96-c',
+      )
+      expect(normalizeGoogleProfile({ sub: '1' }).pictureUrl).toBeNull()
+    })
+  })
+
+  describe('the Google photo URL', () => {
+    it('asks Google for a larger square instead of the default 96px', () => {
+      expect(googlePhotoUrl('https://lh3.googleusercontent.com/a/abc=s96-c')).toBe(
+        'https://lh3.googleusercontent.com/a/abc=s640-c',
+      )
+      expect(googlePhotoUrl('https://lh3.googleusercontent.com/a/abc')).toBe(
+        'https://lh3.googleusercontent.com/a/abc=s640-c',
+      )
+    })
+
+    it('never fetches from anywhere but googleusercontent.com over https', () => {
+      for (const hostile of [
+        'http://lh3.googleusercontent.com/a/abc',
+        'https://googleusercontent.com.evil.example/a',
+        'https://169.254.169.254/latest/meta-data',
+        'not a url',
+      ]) {
+        expect(googlePhotoUrl(hostile)).toBeNull()
+      }
+    })
+  })
+
+  describe('the profile photo', () => {
+    const PICTURE = 'https://lh3.googleusercontent.com/a/test-photo=s96-c'
+
+    const stubGooglePhoto = async () => {
+      const image = await readFile(path.resolve(process.cwd(), 'src/assets/event-walk.jpg'))
+      const fetchMock = vi.fn(async () => new Response(image, { headers: { 'content-type': 'image/jpeg' } }))
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+
+    const profileOf = async (userId: number) =>
+      (
+        await payload.find({
+          collection: 'profiles',
+          where: { user: { equals: userId } },
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+        })
+      ).docs[0]
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('becomes the avatar on the first sign-in', async () => {
+      const fetchMock = await stubGooglePhoto()
+      const profile = googleProfile({ email: `photo-${STAMP}@test.local`, pictureUrl: PICTURE })
+
+      const result = await resolveGoogleUser(payload, profile)
+      if (!result.ok) throw new Error(`expected success, got ${result.reason}`)
+      createdUserIds.push(result.user.id)
+
+      expect(fetchMock).toHaveBeenCalledWith('https://lh3.googleusercontent.com/a/test-photo=s640-c', expect.anything())
+      expect((await profileOf(result.user.id))?.avatar).toBeTruthy()
+    })
+
+    it('stays removed once the person removes it', async () => {
+      await stubGooglePhoto()
+      const profile = googleProfile({ email: `photo-removed-${STAMP}@test.local`, pictureUrl: PICTURE })
+
+      const first = await resolveGoogleUser(payload, profile)
+      if (!first.ok) throw new Error('setup failed')
+      createdUserIds.push(first.user.id)
+      const own = await profileOf(first.user.id)
+      await payload.update({ collection: 'profiles', id: own!.id, data: { avatar: null }, overrideAccess: true })
+
+      await resolveGoogleUser(payload, profile)
+
+      expect((await profileOf(first.user.id))?.avatar).toBeFalsy()
+    })
+
+    it('never replaces a photo the account already has', async () => {
+      await stubGooglePhoto()
+      const email = `photo-existing-${STAMP}@test.local`
+      const first = await resolveGoogleUser(payload, googleProfile({ email, pictureUrl: PICTURE }))
+      if (!first.ok) throw new Error('setup failed')
+      createdUserIds.push(first.user.id)
+      const before = (await profileOf(first.user.id))?.avatar
+
+      // A second Google identity reaching the same account by address.
+      await resolveGoogleUser(payload, googleProfile({ email, pictureUrl: PICTURE }))
+
+      expect((await profileOf(first.user.id))?.avatar).toBe(before)
+    })
+
+    it('lets the sign-in through when the photo cannot be downloaded', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })))
+      const profile = googleProfile({ email: `photo-broken-${STAMP}@test.local`, pictureUrl: PICTURE })
+
+      const result = await resolveGoogleUser(payload, profile)
+      if (!result.ok) throw new Error(`expected success, got ${result.reason}`)
+      createdUserIds.push(result.user.id)
+
+      expect((await profileOf(result.user.id))?.avatar).toBeFalsy()
+      expect((await identitiesFor(profile.providerSubject)).docs[0]?.avatarImportedAt).toBeTruthy()
     })
   })
 

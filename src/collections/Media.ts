@@ -26,6 +26,14 @@ export const Media: CollectionConfig = {
         height: 500,
         position: 'centre',
       },
+      // Profile photos — a square crop so a portrait phone photo fills the round avatar
+      // instead of being squashed, and lists of participants don't pull full-size originals.
+      {
+        name: 'avatar',
+        width: 320,
+        height: 320,
+        position: 'centre',
+      },
     ],
     adminThumbnail: 'card',
   },

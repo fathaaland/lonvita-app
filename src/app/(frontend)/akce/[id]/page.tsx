@@ -24,7 +24,7 @@ import { EventDeletionConsent } from "@/components/EventDeletionConsent";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil } from "lucide-react";
@@ -33,7 +33,7 @@ import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 
-interface Reg { id: string; user_id: string; status: string; full_name: string }
+interface Reg { id: string; user_id: string; status: string; full_name: string; avatar_url: string | null }
 
 const ACCESSIBILITY_LABELS: Record<string, string> = {
   wheelchair_access: "Bezbariérový přístup",
@@ -41,10 +41,6 @@ const ACCESSIBILITY_LABELS: Record<string, string> = {
   seating: "Možnost sezení",
   accessible_wc: "WC pro invalidy",
 };
-
-function initials(name: string) {
-  return name.split(" ").map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-}
 
 function EventDetailContent() {
   const params = useParams<{ id: string }>();
@@ -342,11 +338,12 @@ function EventDetailContent() {
               <div className="flex flex-wrap gap-2">
                 {approvedAttendees.map((r) => (
                   <div key={r.id} className="flex items-center gap-2 bg-secondary rounded-full pl-1 pr-3 py-1">
-                    <Avatar className="h-7 w-7">
-                      <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                        {initials(r.full_name)}
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      name={r.full_name}
+                      src={r.avatar_url}
+                      className="h-7 w-7"
+                      fallbackClassName="text-xs bg-primary text-primary-foreground"
+                    />
                     <span className="text-sm font-medium">{r.full_name}</span>
                   </div>
                 ))}

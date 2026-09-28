@@ -21,6 +21,7 @@ import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
+import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
 
 function ProfileContent() {
   const router = useRouter();
@@ -61,7 +62,6 @@ function ProfileContent() {
   }, [user]);
 
   const roleLabel = isSuperAdmin ? "Superadmin" : isAdmin ? "Admin obce" : isOrganizer ? "Organizátor" : "Účastník";
-  const initials = (profile?.full_name ?? "?").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 
   const handleSignOut = () => {
     signOut();
@@ -70,20 +70,23 @@ function ProfileContent() {
 
   return (
     <div className="animate-fade-in md:mx-auto md:max-w-2xl">
-      <div className="bg-brand-graphite text-[hsl(var(--brand-ivory))] px-6 pt-6 pb-5 relative md:rounded-b-2xl md:mt-6">
+      <div className="bg-brand-purple-pale text-foreground px-6 pt-8 pb-6 relative overflow-hidden md:rounded-b-2xl md:mt-6">
+        {/* The halo the photo sits in — the header's only ornament. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-20 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[hsl(var(--brand-purple-light)/0.35)] ring-[24px] ring-[hsl(var(--brand-purple-light)/0.15)]"
+        />
         <button
           onClick={() => router.back()}
-          className="absolute top-4 left-4 h-9 w-9 rounded-full inline-flex items-center justify-center bg-white/10 hover:bg-white/20 transition-colors"
+          className="absolute top-4 left-4 z-10 h-9 w-9 rounded-full inline-flex items-center justify-center bg-card/70 hover:bg-card transition-colors"
           aria-label="Zpět"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <div className="flex flex-col items-center text-center">
-          <div className="h-[72px] w-[72px] rounded-full bg-brand-purple-pale border-[3px] border-brand-purple flex items-center justify-center text-brand-purple-dark text-2xl font-extrabold">
-            {initials}
-          </div>
-          <h1 className="mt-3 text-2xl font-extrabold tracking-tight">{profile?.full_name}</h1>
-          <span className="eyebrow eyebrow-sage mt-1">{roleLabel}</span>
+        <div className="relative flex flex-col items-center text-center">
+          <ProfileAvatarEditor />
+          <h1 className="mt-4 text-2xl font-extrabold tracking-tight">{profile?.full_name}</h1>
+          <span className="eyebrow mt-1">{roleLabel}</span>
         </div>
       </div>
 

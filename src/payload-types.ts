@@ -246,6 +246,14 @@ export interface Media {
       filesize?: number | null;
       filename?: string | null;
     };
+    avatar?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
   };
 }
 /**
@@ -280,6 +288,10 @@ export interface Profile {
    */
   user: number | User;
   fullName: string;
+  /**
+   * Profile photo shown instead of initials. Pre-filled from Google on the first Google sign-in.
+   */
+  avatar?: (number | null) | Media;
   /**
    * The user's home municipality. Empty = "bez obce" (their town doesn't use Lonvita yet) — they browse and can register for events across every municipality.
    */
@@ -565,6 +577,10 @@ export interface AuthIdentity {
   emailVerified?: boolean | null;
   lastLoginAt?: string | null;
   lastSyncedAt?: string | null;
+  /**
+   * When the provider's profile photo was offered to the profile. Set once — a person who removes the photo afterwards doesn't get it back on the next sign-in.
+   */
+  avatarImportedAt?: string | null;
   /**
    * Raw profile payload from the provider, cached for reference.
    */
@@ -983,6 +999,16 @@ export interface MediaSelect<T extends boolean = true> {
               filesize?: T;
               filename?: T;
             };
+        avatar?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
       };
 }
 /**
@@ -1018,6 +1044,7 @@ export interface EventCategoriesSelect<T extends boolean = true> {
 export interface ProfilesSelect<T extends boolean = true> {
   user?: T;
   fullName?: T;
+  avatar?: T;
   municipality?: T;
   phone?: T;
   phoneVerified?: T;
@@ -1143,6 +1170,7 @@ export interface AuthIdentitiesSelect<T extends boolean = true> {
   emailVerified?: T;
   lastLoginAt?: T;
   lastSyncedAt?: T;
+  avatarImportedAt?: T;
   profile?: T;
   updatedAt?: T;
   createdAt?: T;

@@ -76,6 +76,14 @@ export const Profiles: CollectionConfig = {
       required: true,
     },
     {
+      name: 'avatar',
+      type: 'upload',
+      relationTo: 'media',
+      admin: {
+        description: 'Profile photo shown instead of initials. Pre-filled from Google on the first Google sign-in.',
+      },
+    },
+    {
       name: 'municipality',
       type: 'relationship',
       relationTo: 'municipalities',

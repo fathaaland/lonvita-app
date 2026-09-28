@@ -22,6 +22,8 @@ export type GoogleProfile = {
    * hangs off this being true. */
   emailVerified: boolean
   fullName: string | null
+  /** Google's `picture` claim — a googleusercontent.com URL, or null when there is none. */
+  pictureUrl: string | null
 }
 
 export const isGoogleAuthConfigured = (): boolean =>
@@ -90,5 +92,6 @@ export function normalizeGoogleProfile(raw: Record<string, unknown>): GoogleProf
     // "false" must not read as verified.
     emailVerified: raw.email_verified === true,
     fullName: name ?? [given, family].filter(Boolean).join(' ') ?? null,
+    pictureUrl: typeof raw.picture === 'string' && raw.picture ? raw.picture : null,
   }
 }

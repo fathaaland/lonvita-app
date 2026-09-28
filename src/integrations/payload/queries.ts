@@ -125,7 +125,7 @@ export type EventRow = {
   deletion_needs_consent: boolean;
 };
 
-type PayloadMedia = { id: number; url?: string | null };
+type PayloadMedia = { id: number; url?: string | null; sizes?: { avatar?: { url?: string | null } } };
 type PayloadOrganization = {
   id: number;
   name: string;
@@ -479,7 +479,7 @@ export async function submitEventFeedback(input: {
 /** For EventDetail.tsx — pending+approved registrations for one event, with each participant's name. */
 export async function getEventRegistrationsWithNames(
   eventId: string,
-): Promise<{ id: string; user_id: string; status: string; full_name: string }[]> {
+): Promise<{ id: string; user_id: string; status: string; full_name: string; avatar_url: string | null }[]> {
   const where = buildWhereParams({
     event: { equals: eventId },
     status: { in: ["pending", "approved"] },
@@ -490,6 +490,7 @@ export async function getEventRegistrationsWithNames(
 
   const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
   const nameById = new Map<string, string>();
+  let avatarByUser = new Map<string, string>();
   if (userIds.length) {
     const profileWhere = buildWhereParams({ user: { in: userIds } });
     const profiles = await get<PayloadListResponse<PayloadProfile>>(
@@ -499,6 +500,7 @@ export async function getEventRegistrationsWithNames(
       const uid = toId(p.user);
       if (uid) nameById.set(uid, p.fullName);
     }
+    avatarByUser = await getAvatarUrlsByUser(profiles.docs);
   }
 
   return result.docs.map((r) => ({
@@ -506,6 +508,7 @@ export async function getEventRegistrationsWithNames(
     user_id: toId(r.user)!,
     status: r.status,
     full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
+    avatar_url: avatarByUser.get(toId(r.user) ?? "") ?? null,
   }));
 }
 
@@ -522,6 +525,7 @@ export type ManageRegistrationRow = {
   user_id: string;
   full_name: string;
   phone: string | null;
+  avatar_url: string | null;
 };
 
 /** For ManageEvent.tsx — every registration for one event (any status), with name+phone. */
@@ -533,6 +537,7 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
 
   const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
   const infoById = new Map<string, { fullName: string; phone: string | null }>();
+  let avatarByUser = new Map<string, string>();
   if (userIds.length) {
     const profileWhere = buildWhereParams({ user: { in: userIds } });
     const profiles = await get<PayloadListResponse<PayloadProfile>>(
@@ -542,6 +547,7 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
       const uid = toId(p.user);
       if (uid) infoById.set(uid, { fullName: p.fullName, phone: p.phone ?? null });
     }
+    avatarByUser = await getAvatarUrlsByUser(profiles.docs);
   }
 
   return result.docs.map((r) => {
@@ -554,6 +560,7 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
       user_id: uid,
       full_name: info?.fullName ?? "Účastník",
       phone: info?.phone ?? null,
+      avatar_url: avatarByUser.get(uid) ?? null,
     };
   });
 }
@@ -576,6 +583,7 @@ export async function updateAttendance(
 export type ProfileRow = {
   id: string;
   full_name: string;
+  avatar_url: string | null;
   phone: string | null;
   phone_verified: boolean;
   notify_email: boolean;
@@ -596,6 +604,7 @@ type PayloadProfile = {
   id: number;
   user: number | { id: number };
   fullName: string;
+  avatar?: number | PayloadMedia | null;
   phone?: string | null;
   phoneVerified?: boolean;
   notifyEmail?: boolean;
@@ -612,9 +621,31 @@ type PayloadProfile = {
   volunteerSince?: string | null;
 };
 
+/** The square avatar crop, else the original — a photo smaller than the crop gets no crop. */
+const avatarUrlOf = (media: number | PayloadMedia | null | undefined): string | null =>
+  media && typeof media === "object" ? (media.sizes?.avatar?.url ?? media.url ?? null) : null;
+
+/** Avatar URL per user id for a batch of depth-0 profiles — one media query instead of
+ * populating each profile's relations (which would also drag their user docs along). */
+async function getAvatarUrlsByUser(profiles: PayloadProfile[]): Promise<Map<string, string>> {
+  const urls = new Map<string, string>();
+  const mediaIds = profiles.map((p) => toId(p.avatar as number | null)).filter((v): v is string => Boolean(v));
+  if (mediaIds.length === 0) return urls;
+  const where = buildWhereParams({ id: { in: mediaIds } });
+  const media = await get<PayloadListResponse<PayloadMedia>>(`/media?${where}&depth=0&limit=500`);
+  const urlByMedia = new Map(media.docs.map((m) => [String(m.id), avatarUrlOf(m)]));
+  for (const p of profiles) {
+    const uid = toId(p.user);
+    const url = urlByMedia.get(toId(p.avatar as number | null) ?? "");
+    if (uid && url) urls.set(uid, url);
+  }
+  return urls;
+}
+
 const mapProfile = (p: PayloadProfile): ProfileRow => ({
   id: String(p.id),
   full_name: p.fullName,
+  avatar_url: avatarUrlOf(p.avatar),
   phone: p.phone ?? null,
   phone_verified: Boolean(p.phoneVerified),
   notify_email: p.notifyEmail ?? true,
@@ -720,13 +751,24 @@ export async function setOnboardingMunicipality(municipalityId: string): Promise
 
 export async function getMyProfile(userId: string): Promise<ProfileRow | null> {
   const where = buildWhereParams({ user: { equals: userId } });
-  const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&limit=1&depth=0`);
+  // depth=1 for the avatar's URL; every other relation is read through toId, object or not.
+  const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&limit=1&depth=1`);
   return result.docs[0] ? mapProfile(result.docs[0]) : null;
 }
 
 export async function updateProfile(profileId: string, data: Record<string, unknown>): Promise<ProfileRow> {
   const doc = await patch<PayloadProfile>(`/profiles/${profileId}`, data);
   return mapProfile(doc);
+}
+
+/** Uploads a new profile photo and puts it on the profile. */
+export async function setProfileAvatar(profileId: string, file: File, alt: string): Promise<void> {
+  const uploaded = await uploadFile<{ id: number }>("media", file, { alt });
+  await patch(`/profiles/${profileId}`, { avatar: uploaded.id });
+}
+
+export async function removeProfileAvatar(profileId: string): Promise<void> {
+  await patch(`/profiles/${profileId}`, { avatar: null });
 }
 
 // --- User roles -----------------------------------------------------------------------

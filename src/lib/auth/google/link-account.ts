@@ -1,5 +1,7 @@
 import { upsertUser } from '@/lib/auth/users'
 
+import { importGoogleAvatar } from './avatar'
+
 import type { GoogleProfile } from './provider'
 import type { Payload } from 'payload'
 import type { User } from '@/payload-types'
@@ -45,6 +47,8 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
       },
       overrideAccess: true,
     })
+    // Identities from before photos existed get theirs on the next sign-in.
+    if (!identity.avatarImportedAt) await importGoogleAvatar(payload, identity.id, user.id, profile)
 
     return { ok: true, user, linked: false }
   }
@@ -66,7 +70,7 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
   // Find-or-create by address, profile row included — the same path every other sign-up uses.
   const user = await upsertUser({ payload, email: profile.email, fullName: profile.fullName ?? undefined })
 
-  await payload.create({
+  const created = await payload.create({
     collection: 'auth-identities',
     data: {
       user: user.id,
@@ -80,6 +84,7 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
     },
     overrideAccess: true,
   })
+  await importGoogleAvatar(payload, created.id, user.id, profile)
 
   return { ok: true, user, linked: linkedToExistingAccount }
 }

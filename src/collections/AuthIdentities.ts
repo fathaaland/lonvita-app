@@ -70,6 +70,14 @@ export const AuthIdentities: CollectionConfig = {
       type: 'date',
     },
     {
+      name: 'avatarImportedAt',
+      type: 'date',
+      admin: {
+        description:
+          "When the provider's profile photo was offered to the profile. Set once — a person who removes the photo afterwards doesn't get it back on the next sign-in.",
+      },
+    },
+    {
       name: 'profile',
       type: 'json',
       admin: {
