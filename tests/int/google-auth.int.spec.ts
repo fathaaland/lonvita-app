@@ -9,7 +9,7 @@ import path from 'node:path'
 import { describe, it, beforeAll, afterAll, afterEach, expect, vi } from 'vitest'
 
 import { googlePhotoUrl } from '@/lib/auth/google/avatar'
-import { resolveGoogleUser } from '@/lib/auth/google/link-account'
+import { linkGoogleToUser, resolveGoogleUser } from '@/lib/auth/google/link-account'
 import { normalizeGoogleProfile } from '@/lib/auth/google/provider'
 import { createOAuthState, verifyOAuthState } from '@/lib/auth/google/state'
 
@@ -51,7 +51,13 @@ describe('Signing in with Google', () => {
     it('accepts the nonce it issued, and carries returnTo with it', () => {
       const { state, cookieValue } = createOAuthState('/moje-akce')
 
-      expect(verifyOAuthState(state, cookieValue)).toEqual({ valid: true, returnTo: '/moje-akce' })
+      expect(verifyOAuthState(state, cookieValue)).toEqual({ valid: true, returnTo: '/moje-akce', linkUserId: null })
+    })
+
+    it('carries the account a link was started from', () => {
+      const { state, cookieValue } = createOAuthState('/profil', { linkUserId: 42 })
+
+      expect(verifyOAuthState(state, cookieValue)).toEqual({ valid: true, returnTo: '/profil', linkUserId: '42' })
     })
 
     it('refuses a nonce that does not match the cookie', () => {
@@ -73,7 +79,7 @@ describe('Signing in with Google', () => {
         const { state, cookieValue } = createOAuthState(hostile)
         const result = verifyOAuthState(state, cookieValue)
 
-        expect(result).toEqual({ valid: true, returnTo: '/' })
+        expect(result).toEqual({ valid: true, returnTo: '/', linkUserId: null })
       }
     })
   })
@@ -270,6 +276,120 @@ describe('Signing in with Google', () => {
       const result = await resolveGoogleUser(payload, googleProfile({ email: null }))
 
       expect(result).toEqual({ ok: false, reason: 'no-email' })
+    })
+  })
+  describe('linking from the profile', () => {
+    const passwordUser = async (label: string) => {
+      const user = await payload.create({
+        collection: 'users',
+        data: { email: `${label}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      createdUserIds.push(user.id)
+      return user
+    }
+
+    it('attaches Google under a different, even unverified, address', async () => {
+      const user = await passwordUser('link-own')
+      const profile = googleProfile({ email: `other-address-${STAMP}@test.local`, emailVerified: false })
+
+      const result = await linkGoogleToUser(payload, user.id, profile)
+
+      expect(result).toEqual({ ok: true, alreadyLinked: false })
+      const identity = (await identitiesFor(profile.providerSubject)).docs[0]
+      expect(identity?.user).toBe(user.id)
+
+      // Later sign-ins with that Google account reach this account, not a new one.
+      const signIn = await resolveGoogleUser(payload, profile)
+      if (!signIn.ok) throw new Error(`expected success, got ${signIn.reason}`)
+      expect(signIn.user.id).toBe(user.id)
+    })
+
+    it('tells the owner a new way into the account was added', async () => {
+      const user = await passwordUser('link-notice')
+
+      await linkGoogleToUser(payload, user.id, googleProfile({ email: `notice-${STAMP}@test.local` }))
+
+      const notices = await payload.find({
+        collection: 'notifications',
+        where: { and: [{ user: { equals: user.id } }, { title: { equals: 'Google účet připojen' } }] },
+        overrideAccess: true,
+      })
+      expect(notices.totalDocs).toBe(1)
+    })
+
+    it('is a no-op for a Google account already linked to the same account', async () => {
+      const user = await passwordUser('link-twice')
+      const profile = googleProfile()
+      await linkGoogleToUser(payload, user.id, profile)
+
+      const again = await linkGoogleToUser(payload, user.id, profile)
+
+      expect(again).toEqual({ ok: true, alreadyLinked: true })
+      expect((await identitiesFor(profile.providerSubject)).totalDocs).toBe(1)
+    })
+
+    it('never moves a Google account away from the account it belongs to', async () => {
+      const owner = await passwordUser('link-owner')
+      const other = await passwordUser('link-intruder')
+      const profile = googleProfile()
+      await linkGoogleToUser(payload, owner.id, profile)
+
+      const result = await linkGoogleToUser(payload, other.id, profile)
+
+      expect(result).toEqual({ ok: false, reason: 'linked-to-another-account' })
+      expect((await identitiesFor(profile.providerSubject)).docs[0]?.user).toBe(owner.id)
+    })
+
+    it('refuses a second Google account until the first is unlinked', async () => {
+      const user = await passwordUser('link-second')
+      await linkGoogleToUser(payload, user.id, googleProfile())
+      const second = googleProfile()
+
+      expect(await linkGoogleToUser(payload, user.id, second)).toEqual({ ok: false, reason: 'already-has-google' })
+      expect((await identitiesFor(second.providerSubject)).totalDocs).toBe(0)
+    })
+  })
+
+  describe('the linked accounts on the profile', () => {
+    it('are visible and removable by their owner only, and never creatable over the API', async () => {
+      const owner = await payload.create({
+        collection: 'users',
+        data: { email: `acc-owner-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      const stranger = await payload.create({
+        collection: 'users',
+        data: { email: `acc-stranger-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      createdUserIds.push(owner.id, stranger.id)
+      await linkGoogleToUser(payload, owner.id, googleProfile())
+      const identity = (
+        await payload.find({ collection: 'auth-identities', where: { user: { equals: owner.id } }, overrideAccess: true })
+      ).docs[0]!
+
+      const asStranger = await payload.find({ collection: 'auth-identities', user: stranger, overrideAccess: false })
+      expect(asStranger.docs.map((d) => d.id)).not.toContain(identity.id)
+      await expect(
+        payload.delete({ collection: 'auth-identities', id: identity.id, user: stranger, overrideAccess: false }),
+      ).rejects.toThrow()
+      await expect(
+        payload.create({
+          collection: 'auth-identities',
+          data: { user: stranger.id, provider: 'google', providerSubject: `forged-${STAMP}` },
+          user: stranger,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow()
+
+      const asOwner = await payload.find({ collection: 'auth-identities', user: owner, overrideAccess: false })
+      expect(asOwner.docs.map((d) => d.id)).toEqual([identity.id])
+      await payload.delete({ collection: 'auth-identities', id: identity.id, user: owner, overrideAccess: false })
+      expect(
+        (await payload.find({ collection: 'auth-identities', where: { user: { equals: owner.id } }, overrideAccess: true }))
+          .totalDocs,
+      ).toBe(0)
     })
   })
 })

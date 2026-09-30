@@ -152,6 +152,12 @@ export function redirectToGoogle(returnTo = "/") {
   window.location.href = `/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
+/** Same round trip, but to attach Google to the account that is signed in — the callback comes
+ * back to /profil with `?linked=google` or `?link-error=…` instead of signing anyone in. */
+export function linkGoogleRedirect() {
+  window.location.href = "/api/auth/google/start?intent=link";
+}
+
 type RegisterInput = {
   email: string;
   password: string;

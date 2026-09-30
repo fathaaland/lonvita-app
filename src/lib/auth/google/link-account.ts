@@ -1,3 +1,4 @@
+import { escapeHtml, sendNotification } from '@/collections/shared/notify'
 import { upsertUser } from '@/lib/auth/users'
 
 import { importGoogleAvatar } from './avatar'
@@ -87,4 +88,79 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
   await importGoogleAvatar(payload, created.id, user.id, profile)
 
   return { ok: true, user, linked: linkedToExistingAccount }
+}
+
+export type GoogleLinkResult =
+  | { ok: true; alreadyLinked: boolean }
+  | { ok: false; reason: 'linked-to-another-account' | 'already-has-google' }
+
+/**
+ * Attaches a Google identity to an account that is already signed in — the "Připojit Google"
+ * button on the profile. Different rules from sign-in, on purpose:
+ *
+ * - The address doesn't have to match the account's, nor be verified: the person is already in
+ *   the account and proved they hold the Google account by signing in to it. The `sub` is what
+ *   later sign-ins key on, not the address.
+ * - A `sub` that already belongs to another account stays there. Moving it would let whoever holds
+ *   a session here take over that account's Google sign-in.
+ * - One Google account per Lonvita account from here; changing it means unlinking first.
+ *
+ * The owner hears about it, since a new way into the account is exactly what someone holding a
+ * stolen session would add.
+ */
+export async function linkGoogleToUser(
+  payload: Payload,
+  userId: number,
+  profile: GoogleProfile,
+): Promise<GoogleLinkResult> {
+  const bySubject = await payload.find({
+    collection: 'auth-identities',
+    where: { and: [{ provider: { equals: 'google' } }, { providerSubject: { equals: profile.providerSubject } }] },
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+  })
+  const existing = bySubject.docs[0]
+  if (existing) {
+    const ownerId = typeof existing.user === 'object' ? existing.user.id : existing.user
+    return ownerId === userId ? { ok: true, alreadyLinked: true } : { ok: false, reason: 'linked-to-another-account' }
+  }
+
+  const own = await payload.count({
+    collection: 'auth-identities',
+    where: { and: [{ provider: { equals: 'google' } }, { user: { equals: userId } }] },
+    overrideAccess: true,
+  })
+  if (own.totalDocs > 0) return { ok: false, reason: 'already-has-google' }
+
+  const created = await payload.create({
+    collection: 'auth-identities',
+    data: {
+      user: userId,
+      provider: 'google',
+      providerSubject: profile.providerSubject,
+      providerType: 'social',
+      email: profile.email,
+      emailVerified: profile.emailVerified,
+      lastSyncedAt: new Date().toISOString(),
+    },
+    overrideAccess: true,
+  })
+  await importGoogleAvatar(payload, created.id, userId, profile)
+
+  const which = profile.email ? ` ${profile.email}` : ''
+  await sendNotification(payload, {
+    userId,
+    title: 'Google účet připojen',
+    message: `K vašemu účtu byl připojen Google účet${which}. Pokud jste to nebyli vy, odpojte ho v profilu a změňte si heslo.`,
+    link: '/profil',
+    email: {
+      subject: 'K vašemu účtu Lonvita byl připojen Google účet',
+      body:
+        `<p>K vašemu účtu na Lonvitě byl připojen Google účet${escapeHtml(which)} — přihlásit se teď můžete i přes Google.</p>` +
+        `<p>Pokud jste to nebyli vy, odpojte ho prosím v profilu a změňte si heslo.</p>`,
+    },
+  })
+
+  return { ok: true, alreadyLinked: false }
 }

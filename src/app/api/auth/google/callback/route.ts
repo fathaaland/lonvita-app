@@ -3,13 +3,14 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { getAppUrl } from '@/lib/auth/app-url'
-import { resolveGoogleUser } from '@/lib/auth/google/link-account'
+import { linkGoogleToUser, resolveGoogleUser } from '@/lib/auth/google/link-account'
 import {
   exchangeCodeForAccessToken,
   fetchGoogleProfile,
   getGoogleCallbackUrl,
   isGoogleAuthConfigured,
 } from '@/lib/auth/google/provider'
+import type { GoogleProfile } from '@/lib/auth/google/provider'
 import { OAUTH_STATE_COOKIE, OAUTH_STATE_COOKIE_PATH, verifyOAuthState } from '@/lib/auth/google/state'
 import { buildPayloadTokenCookie } from '@/lib/auth/session-cookie'
 import { logger, serializeError } from '@/lib/logger'
@@ -18,6 +19,11 @@ import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 /** Error codes the /auth page turns into Czech copy — never the raw provider message, which
  * can echo back request details. */
 type AuthError = 'google-failed' | 'google-unavailable' | 'google-email-unverified' | 'google-no-email'
+
+/** The same for linking from the profile, which is where those failures land. */
+type LinkError = 'google-failed' | 'session-mismatch' | 'linked-to-another-account' | 'already-has-google'
+
+const PROFILE_PATH = '/profil'
 
 const failTo = (appUrl: string, error: AuthError) => {
   const response = NextResponse.redirect(new URL(`/auth?error=${error}`, appUrl))
@@ -60,20 +66,6 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url)
 
-  // Google reports a user who cancelled with ?error=access_denied — that's not a failure worth
-  // an error banner, they just changed their mind.
-  const providerError = searchParams.get('error')
-  if (providerError) {
-    logger.info('Google sign-in abandoned', {
-      event: 'auth.google_sign_in_abandoned',
-      providerError,
-      correlationId,
-    })
-    const response = NextResponse.redirect(new URL('/auth', appUrl))
-    clearStateCookie(response)
-    return response
-  }
-
   const stateCookie = request.headers
     .get('cookie')
     ?.split(';')
@@ -82,6 +74,22 @@ export async function GET(request: Request) {
     ?.slice(OAUTH_STATE_COOKIE.length + 1)
 
   const verified = verifyOAuthState(searchParams.get('state'), stateCookie)
+
+  // Google reports a user who cancelled with ?error=access_denied — that's not a failure worth
+  // an error banner, they just changed their mind. Back to wherever the flow started.
+  const providerError = searchParams.get('error')
+  if (providerError) {
+    logger.info('Google sign-in abandoned', {
+      event: 'auth.google_sign_in_abandoned',
+      providerError,
+      correlationId,
+    })
+    const startedFromProfile = verified.valid && verified.linkUserId !== null
+    const response = NextResponse.redirect(new URL(startedFromProfile ? PROFILE_PATH : '/auth', appUrl))
+    clearStateCookie(response)
+    return response
+  }
+
   if (!verified.valid) {
     return fail(appUrl, 'google-failed', 'state_mismatch', { hadStateCookie: Boolean(stateCookie) })
   }
@@ -95,6 +103,10 @@ export async function GET(request: Request) {
     const accessToken = await exchangeCodeForAccessToken(code, getGoogleCallbackUrl(appUrl))
     const profile = await fetchGoogleProfile(accessToken)
     if (!profile.providerSubject) return fail(appUrl, 'google-failed', 'profile_without_subject')
+
+    if (verified.linkUserId !== null) {
+      return await linkToSignedInUser(request, appUrl, verified.linkUserId, profile, correlationId)
+    }
 
     const result = await resolveGoogleUser(payload, profile)
     if (!result.ok) {
@@ -135,9 +147,62 @@ export async function GET(request: Request) {
     logger.error('Google sign-in error', {
       event: 'auth.google_sign_in_error',
       callbackUrl: getGoogleCallbackUrl(appUrl),
+      linking: verified.linkUserId !== null,
       ...serializeError(error),
       correlationId,
     })
+    if (verified.linkUserId !== null) {
+      const response = NextResponse.redirect(new URL(`${PROFILE_PATH}?link-error=google-failed`, appUrl))
+      clearStateCookie(response)
+      return response
+    }
     return failTo(appUrl, 'google-failed')
   }
+}
+
+/**
+ * The profile's "Připojit Google": attaches the identity to the account that started the flow and
+ * goes back to the profile. No new session — the person is signed in already, and this must never
+ * sign anyone in. The session has to still be the one that started it: the state cookie isn't
+ * signed, and someone who signed out and in as somebody else meanwhile must not link into either.
+ */
+async function linkToSignedInUser(
+  request: Request,
+  appUrl: string,
+  linkUserId: string,
+  profile: GoogleProfile,
+  correlationId: string,
+): Promise<NextResponse> {
+  const back = (query: string) => {
+    const response = NextResponse.redirect(new URL(`${PROFILE_PATH}?${query}`, appUrl))
+    clearStateCookie(response)
+    return response
+  }
+  const fail = (error: LinkError, reason: string, context?: Record<string, unknown>) => {
+    logger.warn('Google account link failed', {
+      event: 'auth.google_link_failed',
+      reason,
+      error,
+      ...context,
+      correlationId,
+    })
+    return back(`link-error=${error}`)
+  }
+
+  const payload = await getPayload({ config })
+  const { user } = await payload.auth({ headers: request.headers })
+  if (!user || String(user.id) !== linkUserId) {
+    return fail('session-mismatch', user ? 'session_changed' : 'no_session', { linkUserId })
+  }
+
+  const result = await linkGoogleToUser(payload, user.id, profile)
+  if (!result.ok) return fail(result.reason, result.reason, { userId: user.id })
+
+  logger.info('Google account linked', {
+    event: 'auth.google_linked',
+    userId: user.id,
+    alreadyLinked: result.alreadyLinked,
+    correlationId,
+  })
+  return back('linked=google')
 }

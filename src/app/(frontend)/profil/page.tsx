@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -22,6 +22,8 @@ import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
+import { ConnectedAccountsCard } from "@/components/ConnectedAccountsCard";
+import { Loading } from "@/components/Loading";
 
 function ProfileContent() {
   const router = useRouter();
@@ -112,6 +114,8 @@ function ProfileContent() {
 
         <NotificationPreferencesCard />
 
+        <ConnectedAccountsCard />
+
         <EventFeedbackCard />
 
         <Card>
@@ -170,7 +174,10 @@ function ProfileContent() {
 export default function ProfilePage() {
   return (
     <RequireAuth>
-      <ProfileContent />
+      {/* The Google link callback lands here with ?linked / ?link-error, read via useSearchParams. */}
+      <Suspense fallback={<Loading />}>
+        <ProfileContent />
+      </Suspense>
     </RequireAuth>
   );
 }

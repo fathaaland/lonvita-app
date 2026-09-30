@@ -29,43 +29,53 @@ const decode = (value: string) => Buffer.from(value, 'base64url').toString('utf8
 export type CreatedOAuthState = {
   /** Goes to Google as the `state` parameter. */
   state: string
-  /** Goes into the cookie: the same nonce plus where to land afterwards. */
+  /** Goes into the cookie: the same nonce plus where to land afterwards and, for linking, whose
+   * account the Google identity goes to. */
   cookieValue: string
 }
 
-export const createOAuthState = (returnTo: string | null | undefined): CreatedOAuthState => {
+type StatePayload = { returnTo: string; linkUserId: string | null }
+
+export const createOAuthState = (
+  returnTo: string | null | undefined,
+  options: { linkUserId?: number | string } = {},
+): CreatedOAuthState => {
   const state = randomBytes(NONCE_BYTES).toString('base64url')
   // Validated on the way in as well as on the way out — a path that could never be redirected
   // to has no business being carried around in a cookie in the first place.
-  const safeReturnTo = getSafeRedirectPath(returnTo, '/')
-  return { state, cookieValue: `${state}.${encode(safeReturnTo)}` }
+  const carried: StatePayload = {
+    returnTo: getSafeRedirectPath(returnTo, '/'),
+    linkUserId: options.linkUserId === undefined ? null : String(options.linkUserId),
+  }
+  return { state, cookieValue: `${state}.${encode(JSON.stringify(carried))}` }
 }
 
-export type VerifiedOAuthState = { valid: true; returnTo: string } | { valid: false }
+/** `linkUserId` is set when the flow was started from the profile to attach Google to an account
+ * that is already signed in, rather than to sign in. It only binds the flow to that account — the
+ * cookie isn't signed, so the callback still checks it against the live session. */
+export type VerifiedOAuthState = { valid: true; returnTo: string; linkUserId: string | null } | { valid: false }
 
 export const verifyOAuthState = (
   stateFromQuery: string | null | undefined,
   cookieValue: string | null | undefined,
 ): VerifiedOAuthState => {
   if (!stateFromQuery || !cookieValue) return { valid: false }
-
   const separator = cookieValue.indexOf('.')
   if (separator < 1) return { valid: false }
-
   const expected = cookieValue.slice(0, separator)
-  const encodedReturnTo = cookieValue.slice(separator + 1)
-
+  const encodedPayload = cookieValue.slice(separator + 1)
   const a = Buffer.from(stateFromQuery)
   const b = Buffer.from(expected)
   // timingSafeEqual throws on a length mismatch, which would itself leak length — check first.
   if (a.length !== b.length || !timingSafeEqual(a, b)) return { valid: false }
-
   let returnTo = '/'
+  let linkUserId: string | null = null
   try {
-    returnTo = getSafeRedirectPath(decode(encodedReturnTo), '/')
+    const carried = JSON.parse(decode(encodedPayload)) as Partial<StatePayload>
+    returnTo = getSafeRedirectPath(typeof carried.returnTo === 'string' ? carried.returnTo : null, '/')
+    linkUserId = typeof carried.linkUserId === 'string' ? carried.linkUserId : null
   } catch {
     returnTo = '/'
   }
-
-  return { valid: true, returnTo }
+  return { valid: true, returnTo, linkUserId }
 }

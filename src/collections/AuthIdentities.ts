@@ -1,4 +1,12 @@
-import type { CollectionConfig } from 'payload'
+import type { Access, CollectionConfig } from 'payload'
+
+/** A person sees and can remove their own linked sign-ins (the profile's "Propojené účty");
+ * creating one only ever happens through the Google callback, which vouches for the account. */
+const adminOrOwn: Access = ({ req }) => {
+  if (!req.user) return false
+  if (req.user.role === 'admin') return true
+  return { user: { equals: req.user.id } }
+}
 
 export const AuthIdentities: CollectionConfig = {
   slug: 'auth-identities',
@@ -10,10 +18,10 @@ export const AuthIdentities: CollectionConfig = {
     useAsTitle: 'providerSubject',
   },
   access: {
-    read: ({ req }) => req.user?.role === 'admin',
+    read: adminOrOwn,
     create: ({ req }) => req.user?.role === 'admin',
     update: ({ req }) => req.user?.role === 'admin',
-    delete: ({ req }) => req.user?.role === 'admin',
+    delete: adminOrOwn,
   },
   fields: [
     {

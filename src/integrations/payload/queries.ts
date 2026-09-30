@@ -3,7 +3,7 @@
  * already expect — snake_case field names, same nesting — so pages mostly only need their
  * data-fetching `useEffect` rewritten, not their JSX.
  */
-import { buildQuery, buildWhereParams, get, patch, post, uploadFile } from "./client";
+import { buildQuery, buildWhereParams, del, get, patch, post, uploadFile } from "./client";
 
 import type { PayloadListResponse } from "./client";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
@@ -769,6 +769,23 @@ export async function setProfileAvatar(profileId: string, file: File, alt: strin
 
 export async function removeProfileAvatar(profileId: string): Promise<void> {
   await patch(`/profiles/${profileId}`, { avatar: null });
+}
+
+// --- Linked sign-in accounts ---------------------------------------------------------
+
+export type LinkedAccountRow = { id: string; provider: string; email: string | null; linked_at: string };
+
+type PayloadAuthIdentity = { id: number; provider: string; email?: string | null; createdAt: string };
+
+/** The Google accounts this user can sign in with (auth-identities is readable only by its owner). */
+export async function getMyLinkedAccounts(userId: string): Promise<LinkedAccountRow[]> {
+  const where = buildWhereParams({ user: { equals: userId } });
+  const result = await get<PayloadListResponse<PayloadAuthIdentity>>(`/auth-identities?${where}&limit=10&depth=0&sort=createdAt`);
+  return result.docs.map((d) => ({ id: String(d.id), provider: d.provider, email: d.email ?? null, linked_at: d.createdAt }));
+}
+
+export async function unlinkAccount(identityId: string): Promise<void> {
+  await del(`/auth-identities/${identityId}`);
 }
 
 // --- User roles -----------------------------------------------------------------------
