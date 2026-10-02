@@ -441,17 +441,15 @@ export function EventForm({
 
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
-        <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
-          Organizace pořadatelů této obce — podnik, spolek nebo jednotlivec{runsAsObec ? "" : ", případně obec sama"}. Po{" "}
-          {initial ? "uložení" : "vytvoření"} jim pošlu pozvánku a spolupořadatelem se stanou, až ji přijmou. Pak se jim akce
-          objeví v přehledu akcí a mají k ní stejná práva jako vy. Akci, u které je obec, ale upravuje a maže už jen obec.
-          Akci s další organizací smažete jen s jejím souhlasem.
+        <p className="text-sm text-muted-foreground mt-0.5 mb-2">
+          Pozvaná organizace se stane spolupořadatelem, až pozvánku přijme. Pak má k akci stejná práva jako vy.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
           value={[...pendingCoOrganizations, ...coOrganizations]}
           onChange={(value) => setCoOrganizations(value.filter((o) => !pendingIds.includes(o.id)))}
           excludeIds={initial?.organization ? [initial.organization.id] : []}
+          excludeOwnerId={initial ? undefined : userId}
           excludeObec={runsAsObec}
           pendingIds={pendingIds}
           // Only the obec admin removes another organization; an organizer can only take their own

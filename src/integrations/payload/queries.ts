@@ -88,7 +88,14 @@ export async function uploadEventImage(file: File, alt: string): Promise<{ id: s
 
 /** Who runs an event besides the obec — a café, a club, or one person ("Vycházky pro seniory"). */
 /** `owner_id` is null for the obec's own organization (type "municipality"). */
-export type OrganizationRef = { id: string; name: string; type: AnyOrganizationType; owner_id: string | null };
+export type OrganizationRef = {
+  id: string;
+  name: string;
+  type: AnyOrganizationType;
+  owner_id: string | null;
+  /** The organization's own photo or logo — set on its "Organizace" page. */
+  avatar_url?: string | null;
+};
 
 export type EventRow = {
   id: string;
@@ -131,6 +138,7 @@ type PayloadOrganization = {
   name: string;
   type: AnyOrganizationType;
   owner?: number | { id: number } | null;
+  avatarUrl?: string | null;
 };
 type PayloadEvent = {
   id: number;
@@ -171,7 +179,9 @@ const toId = (value: number | { id: number } | null | undefined): string | null 
 
 /** Only populated (depth ≥ 1) organizations — a bare id is one that's since been deleted. */
 const mapOrganization = (o: number | PayloadOrganization | null | undefined): OrganizationRef | null =>
-  o && typeof o === "object" ? { id: String(o.id), name: o.name, type: o.type, owner_id: toId(o.owner) } : null;
+  o && typeof o === "object"
+    ? { id: String(o.id), name: o.name, type: o.type, owner_id: toId(o.owner), avatar_url: o.avatarUrl ?? null }
+    : null;
 
 const mapEvent = (e: PayloadEvent): EventRow => ({
   id: String(e.id),
@@ -728,12 +738,14 @@ export async function searchMunicipalityUsers(municipalityId: string, query: str
     }));
 }
 
-/** For CoOrganizerPicker — the organizations of this obec's pořadatelé (never the obec itself,
- * never the searcher's own), matched by name. Only they can be an event's spolupořadatel. */
-export async function searchCoOrganizerCandidates(municipalityId: string, query: string): Promise<OrganizationRef[]> {
-  if (query.trim().length < 2) return [];
-  const params = new URLSearchParams({ municipalityId, q: query.trim() });
-  const result = await get<{ docs: OrganizationRef[] }>(`/events/co-organizer-candidates?${params}`);
+/** An organization that can be invited to co-organize — with its own photo/logo, if it has one. */
+export type CoOrganizerCandidate = OrganizationRef & { avatar_url: string | null };
+
+/** For CoOrganizerPicker — every organization of this obec that can be invited to co-organize: the
+ * obec's own first, then its pořadatelé's (never the requester's own). */
+export async function listCoOrganizerCandidates(municipalityId: string): Promise<CoOrganizerCandidate[]> {
+  const params = new URLSearchParams({ municipalityId });
+  const result = await get<{ docs: CoOrganizerCandidate[] }>(`/events/co-organizer-candidates?${params}`);
   return result.docs;
 }
 
@@ -927,6 +939,7 @@ export type MyOrganizationRow = {
   municipality_name: string;
   /** The viewer owns it and may rename it — the obec's own one carries the obec's name. */
   is_own: boolean;
+  avatar_url: string | null;
 };
 
 type PayloadOrganizationWithMunicipality = PayloadOrganization & {
@@ -951,6 +964,7 @@ export async function getMyOrganizations(userId: string, administeredMunicipalit
       municipality_id: toId(o.municipality) ?? "",
       municipality_name: typeof o.municipality === "object" ? o.municipality.name : "",
       is_own: toId(o.owner) === userId,
+      avatar_url: o.avatarUrl ?? null,
     }))
     .sort((a, b) => Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) - Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE));
 }
@@ -968,6 +982,17 @@ export async function getOrganizationEvents(organizationId: string): Promise<Eve
 
 export async function updateMyOrganization(id: string, input: { name: string; type: OrganizationType }): Promise<void> {
   await patch(`/organizations/${id}`, input);
+}
+
+/** Uploads a new photo/logo for the organization and puts it on it — every event it runs or
+ * co-organizes shows it from then on. */
+export async function setOrganizationAvatar(id: string, file: File, alt: string): Promise<void> {
+  const uploaded = await uploadFile<{ id: number }>("media", file, { alt });
+  await patch(`/organizations/${id}`, { avatar: uploaded.id });
+}
+
+export async function removeOrganizationAvatar(id: string): Promise<void> {
+  await patch(`/organizations/${id}`, { avatar: null });
 }
 
 export type { OrganizationFeedbackSummary };

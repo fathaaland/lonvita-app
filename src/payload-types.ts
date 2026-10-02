@@ -473,6 +473,11 @@ export interface Organization {
   owner?: (number | null) | User;
   municipality: number | Municipality;
   /**
+   * The organization's photo or logo — shown with it on events instead of its initials.
+   */
+  avatar?: (number | null) | Media;
+  avatarUrl?: string | null;
+  /**
    * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
   deletedAt?: string | null;
@@ -1314,6 +1319,8 @@ export interface OrganizationsSelect<T extends boolean = true> {
   type?: T;
   owner?: T;
   municipality?: T;
+  avatar?: T;
+  avatarUrl?: T;
   deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;

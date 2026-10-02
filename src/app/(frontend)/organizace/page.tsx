@@ -8,6 +8,8 @@ import {
   getMyOrganizations,
   getOrganizationEvents,
   getOrganizationFeedbackSummary,
+  removeOrganizationAvatar,
+  setOrganizationAvatar,
   updateMyOrganization,
   type CategoryRow,
   type EventRow as QueryEventRow,
@@ -23,6 +25,7 @@ import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { OrganizationMark } from "@/components/EventCard";
 import { CoOrganizingInvitations } from "@/components/CoOrganizingInvitations";
+import { AvatarEditor } from "@/components/AvatarEditor";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { TypeChips } from "@/components/admin/OrganizationsTab";
@@ -238,7 +241,26 @@ function OrganizationContent() {
         )}
 
         <section className="flex items-center gap-4">
-          <OrganizationMark organization={organization} className="h-16 w-16 text-lg ring-0" />
+          {/* The owner — or, for the obec's own, its admins — sets the photo every event shows with it. */}
+          {organization.is_own || obec ? (
+            <AvatarEditor
+              current={organization.avatar_url}
+              renderAvatar={(src, size) => (
+                <OrganizationMark
+                  organization={{ ...organization, avatar_url: src }}
+                  className={size === "header" ? "h-16 w-16 text-lg ring-0" : "h-40 w-40 text-4xl ring-0"}
+                />
+              )}
+              title="Fotka organizace"
+              description="Logo nebo fotka — ukáže se u všech akcí, které organizace pořádá nebo spolupořádá."
+              editLabel="Změnit fotku organizace"
+              onSave={(file) => setOrganizationAvatar(organization.id, file, organization.name)}
+              onRemove={() => removeOrganizationAvatar(organization.id)}
+              onChanged={loadOrganizations}
+            />
+          ) : (
+            <OrganizationMark organization={organization} className="h-16 w-16 text-lg ring-0" />
+          )}
           <div className="flex-1 min-w-0">
             <h2 className="text-2xl sm:text-3xl font-extrabold leading-tight break-words">{organization.name}</h2>
             <p className="text-sm text-muted-foreground mt-0.5">

@@ -8,14 +8,14 @@ import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 const ORGANIZING_ROLES = ['municipality_admin', 'organizer'] as const
 
 /**
- * Which organizations can be invited to co-organize an event in this obec — its organizers'
- * organizations (the café, the club, a single person's "Vycházky pro seniory") and the obec's own,
- * matched by name, never the searcher's own. Each joins only once it accepts (CoOrganizingRequests).
- * An organization whose owner has since lost the organizer role isn't offered. Only someone who
- * organizes in the obec (or a platform admin) may search it. Mirrors CoOrganizingRequests
- * `prepareRequest`.
+ * Which organizations can be invited to co-organize an event in this obec — the obec's own one
+ * first, then its organizers' organizations (the café, the club, a single person's "Vycházky pro
+ * seniory") by name, never the requester's own — each with its own photo/logo, set on its
+ * "Organizace" page. Each joins only once it accepts (CoOrganizingRequests). An organization
+ * whose owner has since lost the organizer role isn't offered. Only someone who organizes in the obec
+ * (or a platform admin) may list it. Mirrors CoOrganizingRequests `prepareRequest`.
  *
- * GET /api/events/co-organizer-candidates?municipalityId=1&q=kav
+ * GET /api/events/co-organizer-candidates?municipalityId=1
  */
 export async function GET(request: Request) {
   const payload = await getPayload({ config })
@@ -24,13 +24,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const params = new URL(request.url).searchParams
-  const municipalityId = Number(params.get('municipalityId'))
-  const query = (params.get('q') ?? '').trim()
+  const municipalityId = Number(new URL(request.url).searchParams.get('municipalityId'))
   if (!municipalityId) {
     return NextResponse.json({ error: 'Chybí obec.' }, { status: 400 })
   }
-  if (query.length < 2) return NextResponse.json({ docs: [] })
 
   const roles = await payload.find({
     collection: 'user-roles',
@@ -55,26 +52,24 @@ export async function GET(request: Request) {
 
   const organizations = await payload.find({
     collection: 'organizations',
-    where: {
-      and: [
-        { municipality: { equals: municipalityId } },
-        { or: offered },
-        { name: { like: query } },
-        notDeleted,
-      ],
-    },
+    where: { and: [{ municipality: { equals: municipalityId } }, { or: offered }, notDeleted] },
     sort: 'name',
     depth: 0,
-    limit: 10,
+    pagination: false,
     overrideAccess: true,
   })
 
-  return NextResponse.json({
-    docs: organizations.docs.map((o) => ({
-      id: String(o.id),
-      name: o.name,
-      type: o.type,
-      owner_id: o.owner ? String(typeof o.owner === 'object' ? o.owner.id : o.owner) : null,
-    })),
-  })
+  const docs = organizations.docs.map((o) => ({
+    id: String(o.id),
+    name: o.name,
+    type: o.type,
+    owner_id: o.owner ? String(typeof o.owner === 'object' ? o.owner.id : o.owner) : null,
+    avatar_url: o.avatarUrl ?? null,
+  }))
+  // The obec first — it's the one every pořadatel can ask, whoever else organizes here.
+  docs.sort(
+    (a, b) => Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) - Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE),
+  )
+
+  return NextResponse.json({ docs })
 }

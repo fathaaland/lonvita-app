@@ -1,6 +1,7 @@
 import type {
   Access,
   CollectionAfterChangeHook,
+  CollectionBeforeChangeHook,
   CollectionBeforeDeleteHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
@@ -95,6 +96,26 @@ const validateOrganization: CollectionBeforeValidateHook = async ({ data, req, o
     }
   }
 
+  return data
+}
+
+type AvatarMedia = { url?: string | null; sizes?: { avatar?: { url?: string | null } } | null }
+
+/** `avatarUrl` follows `avatar` — kept on the organization itself so every event listing that shows
+ * its pořadatelé (depth 1) gets the photo without populating media a level deeper. */
+const syncAvatarUrl: CollectionBeforeChangeHook = async ({ data, req }) => {
+  if (!data || data.avatar === undefined) return data
+  const mediaId = data.avatar && typeof data.avatar === 'object' ? data.avatar.id : data.avatar
+  if (!mediaId) {
+    data.avatarUrl = null
+    return data
+  }
+  const media = (await req.payload
+    .findByID({ collection: 'media', id: mediaId, depth: 0, overrideAccess: true, req })
+    .catch(() => null)) as AvatarMedia | null
+  if (!media) throw new APIError('Fotka nebyla nalezena.', 400)
+  // The square crop, else the original — a photo smaller than the crop gets no crop.
+  data.avatarUrl = media.sizes?.avatar?.url ?? media.url ?? null
   return data
 }
 
@@ -421,11 +442,27 @@ export const Organizations: CollectionConfig = {
       access: { update: () => false },
       admin: { position: 'sidebar' },
     },
+    {
+      name: 'avatar',
+      type: 'upload',
+      relationTo: 'media',
+      admin: {
+        description: "The organization's photo or logo — shown with it on events instead of its initials.",
+      },
+    },
+    {
+      // Derived from `avatar` (syncAvatarUrl) — never set by the client.
+      name: 'avatarUrl',
+      type: 'text',
+      access: { create: () => false, update: () => false },
+      admin: { readOnly: true, position: 'sidebar' },
+    },
     // The owner may rename theirs, not withdraw it — that's deleting, which the superadmin does.
     { ...(deletedAtField as DateField), access: { update: platformAdminOnly } },
   ],
   hooks: {
     beforeValidate: [validateOrganization],
+    beforeChange: [syncAvatarUrl],
     afterChange: [grantOrganizerRole],
     beforeDelete: [cleanupOrganization],
   },

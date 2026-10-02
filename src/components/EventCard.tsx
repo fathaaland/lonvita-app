@@ -9,7 +9,7 @@ import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { cn } from "@/lib/utils";
 
-type CardOrganization = { id: string; name: string; type: string };
+type CardOrganization = { id: string; name: string; type: string; avatar_url?: string | null };
 
 export interface EventCardData {
   id: string;
@@ -58,15 +58,27 @@ const initials = (name: string) =>
     .map((w) => w[0]!.toLocaleUpperCase("cs"))
     .join("") || "?";
 
-/** The organization's mark — the obec's town hall, everyone else's initials. Sized by `className`. */
+/** The organization's mark — its own photo/logo if it set one, otherwise the obec's town hall or
+ * everyone else's initials. Sized by `className`. */
 export function OrganizationMark({
   organization,
   className,
 }: {
-  organization: { name: string; type: string };
+  organization: { name: string; type: string; avatar_url?: string | null };
   className?: string;
 }) {
   const obec = isMunicipalityOrganization(organization);
+  if (organization.avatar_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- a tiny square crop from the media bucket
+      <img
+        src={organization.avatar_url}
+        alt=""
+        aria-hidden
+        className={cn("h-7 w-7 shrink-0 rounded-full object-cover bg-brand-sand-pale ring-2 ring-card", className)}
+      />
+    );
+  }
   return (
     <span
       aria-hidden
