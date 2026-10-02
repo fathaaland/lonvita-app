@@ -1,7 +1,9 @@
 import { getPayload, Payload } from 'payload'
 import config from '@/payload.config'
 
-import { describe, it, beforeAll, afterAll, expect } from 'vitest'
+import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest'
+
+import { getQueue } from '@/lib/queue/queues'
 
 let payload: Payload
 
@@ -320,6 +322,173 @@ describe('Registrations & EventFeedback', () => {
           overrideAccess: false,
         }),
       ).rejects.toThrow(/nejde/)
+    })
+  })
+
+  describe('taking an approved participant off the event', () => {
+    let coOrganizer: { id: number; email: string; role: string }
+
+    beforeAll(async () => {
+      coOrganizer = await payload.create({
+        collection: 'users',
+        data: { email: `co-organizer-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+        overrideAccess: true,
+      })
+      // The role brings its organization (UserRoles → ensureOrganization), which then co-organizes.
+      await payload.create({
+        collection: 'user-roles',
+        data: { user: coOrganizer.id, municipality: municipality.id, role: 'organizer' },
+        overrideAccess: true,
+      })
+      const organization = await payload.find({
+        collection: 'organizations',
+        where: { owner: { equals: coOrganizer.id } },
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+      })
+      await payload.update({
+        collection: 'events',
+        id: event.id,
+        data: { coOrganizations: [organization.docs[0].id] },
+        overrideAccess: true,
+        context: { coOrganizingApproved: true },
+      })
+    })
+
+    afterEach(async () => {
+      await payload.delete({ collection: 'registrations', where: { event: { equals: event.id } }, overrideAccess: true })
+      await payload.delete({ collection: 'notifications', where: { user: { equals: participant.id } }, overrideAccess: true })
+    })
+
+    afterAll(async () => {
+      await payload.delete({ collection: 'users', id: coOrganizer.id, overrideAccess: true }).catch(() => {})
+    })
+
+    /** Registered, then approved by the organizer — the way it happens on the manage page. */
+    const approvedRegistration = async () => {
+      const reg = await payload.create({
+        collection: 'registrations',
+        data: { event: event.id, user: participant.id, status: 'pending' },
+        context: { skipNotifications: true },
+        overrideAccess: true,
+      })
+      return payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'approved' },
+        user: organizer,
+        overrideAccess: false,
+      })
+    }
+
+    it('the organizer can take them off', async () => {
+      const reg = await approvedRegistration()
+      const removed = await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'rejected' },
+        user: organizer,
+        overrideAccess: false,
+      })
+      expect(removed.status).toBe('rejected')
+    })
+
+    it('a co-organizer can take them off too', async () => {
+      const reg = await approvedRegistration()
+      const removed = await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'rejected' },
+        user: coOrganizer,
+        overrideAccess: false,
+      })
+      expect(removed.status).toBe('rejected')
+    })
+
+    it('tells the participant they were taken off — not that their application was turned down', async () => {
+      const reg = await approvedRegistration()
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'rejected' },
+        user: coOrganizer,
+        overrideAccess: false,
+      })
+
+      const notifications = await payload.find({
+        collection: 'notifications',
+        where: { user: { equals: participant.id } },
+        sort: '-createdAt',
+        overrideAccess: true,
+      })
+      expect(notifications.docs[0]?.title).toBe('Pořadatel vás z akce odhlásil')
+    })
+
+    it('drops their 24h reminder', async () => {
+      const reg = await approvedRegistration()
+      expect(await getQueue().getJob(`reminder-${reg.id}`)).toBeDefined()
+
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'rejected' },
+        user: organizer,
+        overrideAccess: false,
+      })
+      expect(await getQueue().getJob(`reminder-${reg.id}`)).toBeUndefined()
+    })
+
+    it('drops the reminder when the participant cancels themselves, too', async () => {
+      const reg = await approvedRegistration()
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'cancelled' },
+        user: participant,
+        overrideAccess: false,
+      })
+      expect(await getQueue().getJob(`reminder-${reg.id}`)).toBeUndefined()
+    })
+
+    it('not once their attendance is confirmed', async () => {
+      const reg = await approvedRegistration()
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { attendanceStatus: 'attended' },
+        overrideAccess: true,
+        context: { skipNotifications: true },
+      })
+      await expect(
+        payload.update({
+          collection: 'registrations',
+          id: reg.id,
+          data: { status: 'rejected' },
+          user: coOrganizer,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow(/docházk/i)
+    })
+
+    it('a participant cannot approve their own registration', async () => {
+      const reg = await payload.create({
+        collection: 'registrations',
+        data: { event: event.id, user: participant.id, status: 'pending' },
+        context: { skipNotifications: true },
+        overrideAccess: true,
+      })
+      await expect(
+        payload.update({
+          collection: 'registrations',
+          id: reg.id,
+          data: { status: 'approved' },
+          user: participant,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow()
+      const current = await payload.findByID({ collection: 'registrations', id: reg.id, overrideAccess: true })
+      expect(current.status).toBe('pending')
     })
   })
 })

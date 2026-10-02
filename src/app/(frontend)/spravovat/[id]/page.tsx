@@ -22,7 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Clock, UserCheck, UserX, CalendarOff, HandHeart } from "lucide-react";
+import { Check, X, Clock, UserCheck, UserX, UserMinus, CalendarOff, HandHeart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -61,6 +61,9 @@ function ManageEventContent() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [volunteerRatings, setVolunteerRatings] = useState<Map<string, VolunteerRatingRow>>(new Map());
+  // An approved participant the pořadatel (or any spolupořadatel) is about to take off the event.
+  const [removing, setRemoving] = useState<ManageRegistrationRow | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
 
   const load = async () => {
     if (!id) return;
@@ -94,6 +97,21 @@ function ManageEventContent() {
       load();
     } catch {
       toast.error("Nepodařilo se uložit změnu.");
+    }
+  };
+
+  const removeFromEvent = async () => {
+    if (!removing) return;
+    setRemoveBusy(true);
+    try {
+      await updateRegistrationStatus(removing.id, "rejected");
+      toast.success(`${removing.full_name} už na akci není.`);
+      setRemoving(null);
+      load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Nepodařilo se uložit změnu.");
+    } finally {
+      setRemoveBusy(false);
     }
   };
 
@@ -179,6 +197,16 @@ function ManageEventContent() {
               </div>
             )}
 
+            {r.status === "approved" && !started && (
+              <Button
+                onClick={() => setRemoving(r)}
+                variant="outline"
+                className="h-11 w-full text-destructive hover:text-destructive"
+              >
+                <UserMinus className="h-4 w-4" />Odebrat z akce
+              </Button>
+            )}
+
             {r.status === "approved" && started && (
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">Docházka</p>
@@ -242,6 +270,31 @@ function ManageEventContent() {
           </div>
         )}
       </div>
+
+      <AlertDialog open={removing !== null} onOpenChange={(open) => !open && !removeBusy && setRemoving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Odebrat {removing?.full_name} z akce?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Uvolní se tím místo{removing?.role === "volunteer" ? " dobrovolníka" : ""} a dostane zprávu, že s ním na akci už
+              nepočítáte. Znovu se přihlásit nepůjde.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeBusy}>Zpět</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removeBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                removeFromEvent();
+              }}
+            >
+              {removeBusy ? "Odebírám…" : "Odebrat z akce"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !confirming && setConfirmOpen(open)}>
         <AlertDialogContent>

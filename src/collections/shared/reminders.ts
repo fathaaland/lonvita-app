@@ -71,6 +71,11 @@ export async function scheduleParticipantReminder(
   )
 }
 
+/** They're no longer coming (taken off the event, or cancelled themselves) — no reminder for it. */
+export async function cancelParticipantReminder(registrationId: number | string): Promise<void> {
+  await removeJob(participantJobId(registrationId))
+}
+
 /** US-U-03 — ask a participant the organizer confirmed as attended to rate the event. Goes out as
  * soon as attendance is confirmed, or when the event ends if that's confirmed while it's still on.
  * The worker re-checks everything when it fires. */

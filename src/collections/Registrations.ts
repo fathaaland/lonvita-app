@@ -10,8 +10,8 @@ import type {
 import { APIError } from 'payload'
 
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
-import { sendNotification } from './shared/notify'
-import { scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
+import { escapeHtml, sendNotification } from './shared/notify'
+import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
 import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { deletedAtField, notDeleted } from './shared/softDelete'
@@ -153,6 +153,22 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       return doc
     }
 
+    // Taken back off the event after being approved — "zamítnuta" would read as if they'd never
+    // been let in at all.
+    if (doc.status === 'rejected' && previousDoc?.status === 'approved') {
+      await sendNotification(req.payload, {
+        userId,
+        link: `/akce/${eventId}`,
+        title: 'Pořadatel vás z akce odhlásil',
+        message: `Pořadatel vás odhlásil z akce „${event.title}“ — už s vámi na ní nepočítá.`,
+        email: {
+          subject: `Odhlášení z akce: ${event.title}`,
+          body: `<p>Pořadatel vás odhlásil z akce <strong>${escapeHtml(event.title)}</strong> — už s vámi na ní nepočítá.</p>`,
+        },
+      })
+      return doc
+    }
+
     if (!REGISTRATION_STATUS_SUBJECT[doc.status]) return doc
 
     const approved = doc.status === 'approved'
@@ -180,6 +196,18 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
     req.payload.logger.error(`Failed to notify on registration change: ${error}`)
   }
 
+  return doc
+}
+
+/** Approved, then no longer coming (taken off the event, or cancelled themselves) — the 24h
+ * reminder scheduled at approval goes too, or they'd still be told to come. */
+const dropReminderWhenNoLongerComing: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
+  if (operation !== 'update' || previousDoc?.status !== 'approved' || doc.status === 'approved') return doc
+  try {
+    await cancelParticipantReminder(doc.id)
+  } catch (error) {
+    req.payload.logger.error(`Failed to drop the reminder for registration ${doc.id}: ${error}`)
+  }
   return doc
 }
 
@@ -259,6 +287,46 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
   }
   if (current.attendanceStatus && current.attendanceStatus !== 'not_marked') {
     throw new APIError('Docházka je už potvrzená — změnit ji nejde.', 409)
+  }
+  return args
+}
+
+/**
+ * Who may move a registration where. The registrant may only cancel their own — collection-level
+ * update access lets them touch it for that, so without this they could PATCH themselves "approved"
+ * past the organizer. Approving, rejecting and taking an approved participant back off the event is
+ * for whoever runs it: the pořadatel, every spolupořadatel and the obec's admins — though not once
+ * their attendance is confirmed, the record of what actually happened. Like lockAttendanceOnceMarked,
+ * only when access control applies (every REST request); a platform admin may always.
+ */
+const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'update') return args
+  const { data, id, overrideAccess } = args as {
+    data?: { status?: unknown }
+    id?: number | string
+    overrideAccess?: boolean
+  }
+  if (overrideAccess !== false || data?.status === undefined || id === undefined) return args
+  if (!req.user || req.user.role === 'admin') return args
+
+  const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
+  if (current.status === data.status) return args
+
+  const event = await req.payload
+    .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
+    .catch(() => null)
+  const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(relId(u))) : []
+  const manages =
+    event !== null &&
+    (organizerIds.includes(String(req.user.id)) ||
+      (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(relId(event.municipality))))
+
+  if (!manages) {
+    if (data.status !== 'cancelled') throw new APIError('Přihlášky schvaluje a zamítá jen pořadatel akce.', 403)
+    return args
+  }
+  if (current.status === 'approved' && current.attendanceStatus && current.attendanceStatus !== 'not_marked') {
+    throw new APIError('Docházka je už potvrzená — z akce ho odebrat nejde.', 409)
   }
   return args
 }
@@ -494,9 +562,14 @@ export const Registrations: CollectionConfig = {
         return data
       },
     ],
-    beforeOperation: [lockAttendanceOnceMarked],
+    beforeOperation: [guardStatusChange, lockAttendanceOnceMarked],
     beforeChange: [stampAttendance],
-    afterChange: [notifyOnRegistrationChange, broadcastCapacityChange, scheduleFeedbackOnAttendance],
+    afterChange: [
+      notifyOnRegistrationChange,
+      broadcastCapacityChange,
+      dropReminderWhenNoLongerComing,
+      scheduleFeedbackOnAttendance,
+    ],
   },
   timestamps: true,
 }
