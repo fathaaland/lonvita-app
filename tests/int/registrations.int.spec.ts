@@ -285,13 +285,15 @@ describe('Registrations & EventFeedback', () => {
     })
 
     it('a participant cannot mark their own attendance (it would unlock feedback)', async () => {
-      await payload.update({
-        collection: 'registrations',
-        id: notAttendedReg.id,
-        data: { attendanceStatus: 'attended' },
-        user: participant,
-        overrideAccess: false,
-      })
+      await expect(
+        payload.update({
+          collection: 'registrations',
+          id: notAttendedReg.id,
+          data: { attendanceStatus: 'attended' },
+          user: participant,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow()
       const reg = await payload.findByID({ collection: 'registrations', id: notAttendedReg.id, overrideAccess: true })
       expect(reg.attendanceStatus).toBe('not_marked')
     })
@@ -305,6 +307,19 @@ describe('Registrations & EventFeedback', () => {
         overrideAccess: false,
       })
       expect(reg.attendanceStatus).toBe('attended')
+      expect(typeof reg.attendanceMarkedBy === 'object' ? reg.attendanceMarkedBy?.id : reg.attendanceMarkedBy).toBe(organizer.id)
+    })
+
+    it('confirmed attendance is final — not even the organizer changes it', async () => {
+      await expect(
+        payload.update({
+          collection: 'registrations',
+          id: notAttendedReg.id,
+          data: { attendanceStatus: 'no_show' },
+          user: organizer,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow(/nejde/)
     })
   })
 })

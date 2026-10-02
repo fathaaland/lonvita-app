@@ -24,6 +24,16 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Clock, UserCheck, UserX, CalendarOff, HandHeart } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { isPast } from "@/lib/date";
 import { toast } from "sonner";
 
@@ -42,9 +52,13 @@ function ManageEventContent() {
   const [organizerName, setOrganizerName] = useState<string | null>(null);
   const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
   const [startsAt, setStartsAt] = useState<string | null>(null);
+  // Attendance and volunteer ratings are filled in by the pořadatel who founded the event alone —
+  // not its spolupořadatelé, not the obec co-organizing it (Registrations canMarkAttendance).
+  const [isCreator, setIsCreator] = useState(false);
   // Attendance picked on the page but not yet confirmed — nothing reaches the participant
-  // (and nobody can rate the event) until "Potvrdit docházku" saves it.
+  // (and nobody can rate the event) until "Potvrdit docházku" saves it, for good.
   const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [volunteerRatings, setVolunteerRatings] = useState<Map<string, VolunteerRatingRow>>(new Map());
 
@@ -60,6 +74,7 @@ function ManageEventContent() {
     setLoading(false);
     if (ev) {
       setStartsAt(ev.date_time);
+      setIsCreator(Boolean(user) && ev.organizer_id === String(user!.id));
       const orgName = ev.organization
         ? ev.organization.name
         : ev.organizer_id
@@ -85,21 +100,19 @@ function ManageEventContent() {
   const pickAttendance = (reg: ManageRegistrationRow, status: AttendanceStatus) => {
     setDraft((prev) => {
       const next = { ...prev };
-      // Clicking the picked option again (or the one already saved) drops the unsaved change.
-      if (prev[reg.id] === status || reg.attendance_status === status) delete next[reg.id];
+      // Clicking the picked option again drops it.
+      if (prev[reg.id] === status) delete next[reg.id];
       else next[reg.id] = status;
       return next;
     });
   };
 
   const confirmAttendance = async () => {
-    if (!user) return;
     const changes = Object.entries(draft);
     setConfirming(true);
-    const results = await Promise.allSettled(
-      changes.map(([regId, status]) => updateAttendance(regId, status, String(user.id))),
-    );
+    const results = await Promise.allSettled(changes.map(([regId, status]) => updateAttendance(regId, status)));
     setConfirming(false);
+    setConfirmOpen(false);
     const failed = changes.filter((_, i) => results[i].status === "rejected");
     setDraft(Object.fromEntries(failed));
     await load();
@@ -116,7 +129,9 @@ function ManageEventContent() {
 
   const started = startsAt !== null && isPast(startsAt);
   const hasApproved = regs.some((r) => r.status === "approved");
+  const unmarked = regs.filter((r) => r.status === "approved" && r.attendance_status === "not_marked");
   const changeCount = Object.keys(draft).length;
+  const draftCount = (status: AttendanceStatus) => Object.values(draft).filter((s) => s === status).length;
 
   if (loading) return <><PageHeader title="Přihlášení" back /><Loading /></>;
 
@@ -167,38 +182,42 @@ function ManageEventContent() {
             {r.status === "approved" && started && (
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">Docházka</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {ATTENDANCE_OPTIONS.map(({ value, label, icon: Icon }) => {
-                    const active = (draft[r.id] ?? r.attendance_status) === value;
-                    return (
-                      <Button
-                        key={value}
-                        onClick={() => pickAttendance(r, value)}
-                        variant={active ? "default" : "outline"}
-                        aria-pressed={active}
-                        className={cn("h-11 text-xs px-1", active && value === "no_show" && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
-                      >
-                        <Icon className="h-4 w-4" />{label}
-                      </Button>
-                    );
-                  })}
-                </div>
-                {draft[r.id] ? (
-                  <p className="text-xs text-warning-foreground">Neuloženo</p>
-                ) : r.attendance_status === "attended" ? (
-                  <p className="text-xs text-muted-foreground">Potvrzeno. Účastník může akci ohodnotit.</p>
-                ) : r.attendance_status !== "not_marked" ? (
-                  <p className="text-xs text-muted-foreground">Potvrzeno.</p>
-                ) : null}
+                {r.attendance_status !== "not_marked" ? (
+                  // Confirmed — final, for everyone.
+                  <AttendanceResult status={r.attendance_status} />
+                ) : isCreator ? (
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      {ATTENDANCE_OPTIONS.map(({ value, label, icon: Icon }) => {
+                        const active = draft[r.id] === value;
+                        return (
+                          <Button
+                            key={value}
+                            onClick={() => pickAttendance(r, value)}
+                            variant={active ? "default" : "outline"}
+                            aria-pressed={active}
+                            className={cn("h-11 text-xs px-1", active && value === "no_show" && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+                          >
+                            <Icon className="h-4 w-4" />{label}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    {draft[r.id] && <p className="text-xs text-warning-foreground">Neuloženo</p>}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Zatím nevyplněno — docházku zapíše pořadatel, který akci založil.</p>
+                )}
               </div>
             )}
 
-            {/* A volunteer who came is rated by the organizers — it builds their card in the pool. */}
-            {r.role === "volunteer" && r.status === "approved" && started && r.attendance_status === "attended" && !draft[r.id] && (
+            {/* A volunteer who came is rated by the pořadatel — it builds their card in the pool. */}
+            {r.role === "volunteer" && r.status === "approved" && started && r.attendance_status === "attended" && (
               <RateVolunteer
                 registrationId={r.id}
                 name={r.full_name}
                 existing={volunteerRatings.get(r.id) ?? null}
+                canRate={isCreator}
                 onSaved={load}
               />
             )}
@@ -206,21 +225,82 @@ function ManageEventContent() {
         ))}
 
         {hasApproved && !started && (
-          <p className="text-sm text-muted-foreground">Docházku vyplníte, až akce začne.</p>
+          <p className="text-sm text-muted-foreground">
+            {isCreator ? "Docházku vyplníte, až akce začne." : "Docházku vyplní pořadatel, který akci založil, až akce začne."}
+          </p>
         )}
-        {hasApproved && started && (
+        {isCreator && started && unmarked.length > 0 && (
           <div className="space-y-2 pt-2">
-            <Button onClick={confirmAttendance} disabled={changeCount === 0 || confirming} size="lg" className="h-12 w-full">
+            <Button onClick={() => setConfirmOpen(true)} disabled={changeCount === 0} size="lg" className="h-12 w-full">
               <Check className="h-4 w-4" />
-              {confirming ? "Ukládám…" : changeCount > 0 ? `Potvrdit docházku (${changeCount})` : "Potvrdit docházku"}
+              {changeCount > 0 ? `Potvrdit docházku (${changeCount})` : "Potvrdit docházku"}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Kdo je označený jako Přišel/a, dostane po potvrzení žádost o ohodnocení akce.
+              Kdo je označený jako Přišel/a, dostane po potvrzení žádost o ohodnocení akce. Potvrzenou docházku už nejde
+              změnit.
             </p>
           </div>
         )}
       </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={(open) => !confirming && setConfirmOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Potvrdit docházku?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Docházku pak už nepůjde změnit — ani vámi, ani ostatními pořadateli. Kdo přišel, dostane žádost o
+              ohodnocení akce.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="grid grid-cols-3 gap-2 text-center">
+            {ATTENDANCE_OPTIONS.map(({ value, label, icon: Icon }) => (
+              <li key={value} className="rounded-lg bg-muted px-2 py-2.5">
+                <Icon className="mx-auto h-4 w-4 text-muted-foreground" aria-hidden />
+                <p className="mt-1 text-2xl font-extrabold tabular-nums leading-none">{draftCount(value)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+              </li>
+            ))}
+          </ul>
+          {unmarked.length > changeCount && (
+            <p className="text-sm text-muted-foreground">
+              U {unmarked.length - changeCount} {unmarked.length - changeCount === 1 ? "člověka" : "lidí"} zatím nic
+              nevybíráte — docházku jim můžete doplnit později.
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirming}>Zpět</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirming}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmAttendance();
+              }}
+            >
+              {confirming ? "Ukládám…" : "Potvrdit natrvalo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+/** A confirmed attendance — shown, no longer chosen. */
+function AttendanceResult({ status }: { status: AttendanceStatus }) {
+  const option = ATTENDANCE_OPTIONS.find((o) => o.value === status);
+  if (!option) return null;
+  const Icon = option.icon;
+  return (
+    <p
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold",
+        status === "attended" && "bg-success-soft text-success",
+        status === "no_show" && "bg-destructive/10 text-destructive",
+        status === "excused" && "bg-muted text-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4" aria-hidden /> {option.label}
+    </p>
   );
 }
 

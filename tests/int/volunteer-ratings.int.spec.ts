@@ -21,6 +21,7 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
   let club: TestUser
   let volunteer: TestUser
   let resident: TestUser
+  let obecAdmin: TestUser
   let volunteerProfileId: number
   let pastEvent: { id: number }
   let volunteerRegistration: { id: number }
@@ -57,7 +58,11 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
       overrideAccess: true,
     })
 
-    const makeUser = async (name: string, role: 'organizer' | 'participant', profile: Record<string, unknown> = {}) => {
+    const makeUser = async (
+      name: string,
+      role: 'organizer' | 'participant' | 'municipality_admin',
+      profile: Record<string, unknown> = {},
+    ) => {
       const user = await payload.create({
         collection: 'users',
         data: { email: `vrat-${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -74,6 +79,7 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
     pub = (await makeUser('hospoda', 'organizer')).user
     club = (await makeUser('spolek', 'organizer')).user
     resident = (await makeUser('resident', 'participant')).user
+    obecAdmin = (await makeUser('obec', 'municipality_admin')).user
     const v = await makeUser('dobrovolnik', 'participant', {
       isVolunteer: true,
       volunteerMunicipality: muni.id,
@@ -84,8 +90,19 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
     volunteer = v.user
     volunteerProfileId = v.profileId
 
-    // An event that already happened, with the volunteer on it and marked as attended — set up as
-    // trusted writes, since neither a past start nor attendance can be created through the app.
+    // An event that already happened, founded by the pub and co-organized by the club and the obec,
+    // with the volunteer on it — set up as trusted writes, since a past start can't be created
+    // through the app.
+    const orgs = await payload.find({
+      collection: 'organizations',
+      where: { municipality: { equals: muni.id } },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    const orgOf = (user: TestUser) =>
+      orgs.docs.find((o) => (typeof o.owner === 'object' ? o.owner?.id : o.owner) === user.id)!.id
+    const obecOrg = orgs.docs.find((o) => o.type === 'municipality')!.id
     pastEvent = await payload.db.create({
       collection: 'events',
       data: {
@@ -102,8 +119,9 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
         isPaid: false,
         registrationApprovalMode: 'manual',
         cancellationPolicy: 'none',
-        coOrganizations: [],
-        coOrganizers: [],
+        organization: orgOf(pub),
+        coOrganizations: [orgOf(club), obecOrg],
+        coOrganizers: [club.id],
       },
     })
     eventIds.push(pastEvent.id)
@@ -116,7 +134,7 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
   })
 
   afterAll(async () => {
-    const userIds = [pub.id, club.id, volunteer.id, resident.id]
+    const userIds = [pub.id, club.id, volunteer.id, resident.id, obecAdmin.id]
     await payload.delete({ collection: 'volunteer-ratings', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'registrations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
@@ -129,36 +147,39 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
     await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
   })
 
-  it('a volunteer is rated only once marked as attended', async () => {
-    await expect(rate(pub, 5)).rejects.toThrow(/docházce/)
-    await payload.update({
+  const markAttendance = (user: TestUser, attendanceStatus: 'attended' | 'no_show') =>
+    payload.update({
       collection: 'registrations',
       id: volunteerRegistration.id,
-      data: { attendanceStatus: 'attended' },
-      overrideAccess: true,
+      data: { attendanceStatus },
+      user,
+      overrideAccess: false,
       context: { skipNotifications: true },
     })
+
+  it('a volunteer is rated only once marked as attended', async () => {
+    await expect(rate(pub, 5)).rejects.toThrow(/docházce/)
   })
 
-  it("only the event's organizer rates them, once", async () => {
-    await expect(rate(club, 2)).rejects.toThrow(/pořadatel/)
+  it('only the pořadatel who founded the event marks attendance — not a spolupořadatel, not the obec', async () => {
+    await expect(markAttendance(club, 'attended')).rejects.toThrow(/založil/)
+    await expect(markAttendance(obecAdmin, 'attended')).rejects.toThrow(/založil/)
+    const marked = await markAttendance(pub, 'attended')
+    expect(marked.attendanceStatus).toBe('attended')
+    // …once, for good.
+    await expect(markAttendance(pub, 'no_show')).rejects.toThrow(/nejde/)
+  })
+
+  it('only the pořadatel who founded the event rates the volunteer, once and for good', async () => {
+    await expect(rate(club, 2)).rejects.toThrow(/založil/)
+    await expect(rate(obecAdmin, 2)).rejects.toThrow(/založil/)
     await expect(rate(resident, 1)).rejects.toThrow()
 
-    const rating = await rate(pub, 5, 'Skvělý řidič, spolehlivý.')
-    expect(rating).toMatchObject({ rating: 5, comment: 'Skvělý řidič, spolehlivý.' })
-    await expect(rate(pub, 4)).rejects.toThrow(/už/)
-
-    // …and may change their mind.
-    const changed = await payload.update({
-      collection: 'volunteer-ratings',
-      id: rating.id,
-      data: { rating: 4 },
-      user: pub,
-      overrideAccess: false,
-    })
-    expect(changed.rating).toBe(4)
+    const rating = await rate(pub, 4, 'Skvělý řidič, spolehlivý.')
+    expect(rating).toMatchObject({ rating: 4, comment: 'Skvělý řidič, spolehlivý.' })
+    await expect(rate(pub, 5)).rejects.toThrow(/už/)
     await expect(
-      payload.update({ collection: 'volunteer-ratings', id: rating.id, data: { rating: 1 }, user: club, overrideAccess: false }),
+      payload.update({ collection: 'volunteer-ratings', id: rating.id, data: { rating: 1 }, user: pub, overrideAccess: false }),
     ).rejects.toThrow()
   })
 

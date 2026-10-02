@@ -136,6 +136,6 @@ export const migrations = [
   {
     up: migration_20261002_144539_volunteer_map_and_ratings.up,
     down: migration_20261002_144539_volunteer_map_and_ratings.down,
-    name: '20261002_144539_volunteer_map_and_ratings'
+    name: '20261002_144539_volunteer_map_and_ratings',
   },
 ];

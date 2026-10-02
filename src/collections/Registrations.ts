@@ -1,4 +1,12 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig, FieldAccess, Where } from 'payload'
+import type {
+  Access,
+  CollectionAfterChangeHook,
+  CollectionBeforeChangeHook,
+  CollectionBeforeOperationHook,
+  CollectionConfig,
+  FieldAccess,
+  Where,
+} from 'payload'
 import { APIError } from 'payload'
 
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
@@ -198,11 +206,12 @@ const scheduleFeedbackOnAttendance: CollectionAfterChangeHook = async ({ doc, pr
   return doc
 }
 
-/** Attendance is the organizer's record of who actually came — it gates who may rate the event
- * (EventFeedback) and feeds the obec's analytics. Collection-level update access also lets a
- * participant update their own registration (to cancel it), so without this they could PATCH
- * themselves to "attended". Limited to the event's organizer/co-organizers, an admin of its
- * municipality and a platform admin; looked up once per request, not once per attendance field. */
+/** Attendance is the pořadatel's record of who actually came — it gates who may rate the event
+ * (EventFeedback), whom the pořadatel may rate as a volunteer, and feeds the obec's analytics. Only
+ * the event's own pořadatel (who founded it) fills it in — not its spolupořadatelé, not the obec when
+ * it co-organizes — so there's one person answerable for it. Collection-level update access also lets
+ * a participant update their own registration (to cancel it), so without this they could PATCH
+ * themselves to "attended". Looked up once per request, not once per attendance field. */
 const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
   if (!req.user) return false
   if (req.user.role === 'admin') return true
@@ -214,17 +223,53 @@ const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
   const event = await req.payload
     .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     .catch(() => null)
-  let allowed = false
-  if (event) {
-    const managerIds = [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(typeof u === 'object' ? u.id : u))
-    const municipalityId = typeof event.municipality === 'object' ? event.municipality?.id : event.municipality
-    allowed =
-      managerIds.includes(String(req.user.id)) ||
-      (municipalityId != null &&
-        (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(municipalityId)))
-  }
+  const organizerId = event ? (typeof event.organizer === 'object' ? event.organizer.id : event.organizer) : null
+  const allowed = organizerId !== null && String(organizerId) === String(req.user.id)
   req.context[cacheKey] = allowed
   return allowed
+}
+
+const relId = (value: unknown) => (value && typeof value === 'object' ? (value as { id: number }).id : (value as number))
+
+/**
+ * Attendance is written once and stays — the pořadatel confirms it before saving, and the feedback
+ * prompt and the volunteer rating hang off it. Field access (canMarkAttendance) is what actually
+ * keeps anyone else out, but Payload drops such a field silently; this runs first (beforeOperation
+ * precedes every field pass) purely to answer with a real error instead of a 200 that changed
+ * nothing. Only when access control applies (every REST request); a platform admin may still correct.
+ */
+const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'update') return args
+  const { data, id, overrideAccess } = args as {
+    data?: { attendanceStatus?: unknown }
+    id?: number | string
+    overrideAccess?: boolean
+  }
+  // No id = a bulk update by `where`; field access still strips the field there.
+  if (overrideAccess !== false || data?.attendanceStatus === undefined || id === undefined) return args
+  if (!req.user || req.user.role === 'admin') return args
+
+  const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
+  if (current.attendanceStatus === data.attendanceStatus) return args
+  const event = await req.payload
+    .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
+    .catch(() => null)
+  if (!event || String(relId(event.organizer)) !== String(req.user.id)) {
+    throw new APIError('Docházku zapisuje jen pořadatel, který akci založil.', 403)
+  }
+  if (current.attendanceStatus && current.attendanceStatus !== 'not_marked') {
+    throw new APIError('Docházka je už potvrzená — změnit ji nejde.', 409)
+  }
+  return args
+}
+
+/** Who marked attendance and when — set here, never taken from the client. */
+const stampAttendance: CollectionBeforeChangeHook = ({ data, originalDoc, operation, req }) => {
+  if (operation !== 'update' || !data || data.attendanceStatus === undefined || !req.user) return data
+  if (data.attendanceStatus === originalDoc?.attendanceStatus) return data
+  data.attendanceMarkedBy = req.user.id
+  data.attendanceMarkedAt = new Date().toISOString()
+  return data
 }
 
 /** Nobody registers someone as already attended — only a platform admin may set these on create. */
@@ -449,6 +494,8 @@ export const Registrations: CollectionConfig = {
         return data
       },
     ],
+    beforeOperation: [lockAttendanceOnceMarked],
+    beforeChange: [stampAttendance],
     afterChange: [notifyOnRegistrationChange, broadcastCapacityChange, scheduleFeedbackOnAttendance],
   },
   timestamps: true,

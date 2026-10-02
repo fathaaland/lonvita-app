@@ -7,46 +7,58 @@ import { PayloadApiError } from "@/integrations/payload/client";
 import { RatingStars } from "@/components/RatingStars";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
-/** The organizer's rating of a volunteer who helped on the event — stars and an optional note, kept
- * on the volunteer's card (organizers see the average on the volunteer map). Can be changed later. */
+/** The rating the event's pořadatel gave a volunteer who helped — stars and an optional note, kept
+ * on the volunteer's card. Given once, after a confirmation; from then on it's only shown. Only the
+ * pořadatel who founded the event gets the form (`canRate`); everyone else sees what was given. */
 export function RateVolunteer({
   registrationId,
   name,
   existing,
+  canRate,
   onSaved,
 }: {
   registrationId: string;
   name: string;
   existing: VolunteerRatingRow | null;
+  canRate: boolean;
   onSaved: () => void;
 }) {
-  const [editing, setEditing] = useState(!existing);
-  const [rating, setRating] = useState(existing?.rating ?? 0);
-  const [comment, setComment] = useState(existing?.comment ?? "");
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  if (existing && !editing) {
+  if (existing) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/60 px-3 py-2">
-        <div className="space-y-0.5">
-          <RatingStars value={existing.rating} size="sm" label={`Vaše hodnocení ${name}`} />
-          {existing.comment && <p className="text-sm">„{existing.comment}“</p>}
-        </div>
-        <Button variant="ghost" size="sm" className="h-8" onClick={() => setEditing(true)}>
-          Změnit
-        </Button>
+      <div className="space-y-0.5 rounded-lg bg-muted/60 px-3 py-2">
+        <p className="text-xs font-semibold text-muted-foreground">Hodnocení dobrovolníka</p>
+        <RatingStars value={existing.rating} size="sm" label={`Hodnocení ${name}`} />
+        {existing.comment && <p className="text-sm">„{existing.comment}“</p>}
       </div>
     );
   }
 
+  if (!canRate) {
+    return <p className="text-xs text-muted-foreground">Dobrovolníka ohodnotí pořadatel, který akci založil.</p>;
+  }
+
   const save = async () => {
-    if (rating === 0) return toast.error("Vyberte počet hvězdiček.");
     setSaving(true);
     try {
-      await rateVolunteer(registrationId, rating, comment, existing?.id);
-      toast.success("Hodnocení uloženo. Uvidí ho ostatní pořadatelé na kartě dobrovolníka.");
-      setEditing(false);
+      await rateVolunteer(registrationId, rating, comment);
+      toast.success("Hodnocení uloženo. Ostatní pořadatelé ho uvidí na kartě dobrovolníka.");
+      setConfirming(false);
       onSaved();
     } catch (error) {
       toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Hodnocení se nepodařilo uložit.");
@@ -66,16 +78,40 @@ export function RateVolunteer({
         maxLength={500}
         rows={2}
       />
-      <div className="flex gap-2">
-        {existing && (
-          <Button variant="outline" className="h-10" onClick={() => setEditing(false)} disabled={saving}>
-            Zrušit
-          </Button>
-        )}
-        <Button className="h-10 flex-1" onClick={save} disabled={saving}>
-          {saving ? "Ukládám…" : "Uložit hodnocení"}
-        </Button>
-      </div>
+      <Button
+        className="h-10 w-full"
+        onClick={() => (rating === 0 ? toast.error("Vyberte počet hvězdiček.") : setConfirming(true))}
+      >
+        Uložit hodnocení
+      </Button>
+
+      <AlertDialog open={confirming} onOpenChange={(open) => !saving && setConfirming(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Uložit hodnocení dobrovolníka?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {name} dostane od vás {rating} z 5 hvězdiček. Hodnocení se ukáže na jeho kartě dobrovolníka a pak už ho
+              nepůjde změnit.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex justify-center py-1">
+            <RatingStars value={rating} label="Vaše hodnocení" />
+          </div>
+          {comment.trim() && <p className="text-center text-sm">„{comment.trim()}“</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Zpět</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={saving}
+              onClick={(e) => {
+                e.preventDefault();
+                save();
+              }}
+            >
+              {saving ? "Ukládám…" : "Uložit natrvalo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

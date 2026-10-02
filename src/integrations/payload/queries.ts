@@ -584,17 +584,10 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
   });
 }
 
-/** Organizer marks what actually happened, on the manage-event page. */
-export async function updateAttendance(
-  registrationId: string,
-  attendanceStatus: AttendanceStatus,
-  markedByUserId: string,
-): Promise<void> {
-  await patch(`/registrations/${registrationId}`, {
-    attendanceStatus,
-    attendanceMarkedAt: new Date().toISOString(),
-    attendanceMarkedBy: Number(markedByUserId),
-  });
+/** The event's pořadatel marks what actually happened, on the manage-event page — once, for good.
+ * Who marked it and when the server sets itself (Registrations lockAttendanceOnceMarked). */
+export async function updateAttendance(registrationId: string, attendanceStatus: AttendanceStatus): Promise<void> {
+  await patch(`/registrations/${registrationId}`, { attendanceStatus });
 }
 
 // --- Profiles -----------------------------------------------------------------------
@@ -745,7 +738,7 @@ export async function getVolunteerDetail(userId: string): Promise<VolunteerDetai
 
 export type VolunteerRatingRow = { id: string; registration_id: string; rating: number; comment: string | null };
 
-/** Ratings already given to the volunteers of one event, by their registration. */
+/** The ratings the pořadatel gave this event's volunteers, by registration. */
 export async function getVolunteerRatingsForEvent(eventId: string): Promise<Map<string, VolunteerRatingRow>> {
   const where = buildWhereParams({ event: { equals: eventId } });
   const result = await get<
@@ -759,18 +752,9 @@ export async function getVolunteerRatingsForEvent(eventId: string): Promise<Map<
   );
 }
 
-/** Rates a volunteer who helped on the event — or changes an earlier rating. */
-export async function rateVolunteer(
-  registrationId: string,
-  rating: number,
-  comment: string,
-  existingId?: string,
-): Promise<void> {
-  if (existingId) {
-    await patch(`/volunteer-ratings/${existingId}`, { rating, comment: comment.trim() || null });
-  } else {
-    await post("/volunteer-ratings", { registration: Number(registrationId), rating, comment: comment.trim() || undefined });
-  }
+/** Rates a volunteer who helped on the event — once, for good. */
+export async function rateVolunteer(registrationId: string, rating: number, comment: string): Promise<void> {
+  await post("/volunteer-ratings", { registration: Number(registrationId), rating, comment: comment.trim() || undefined });
 }
 
 /** The whole platform's volunteer pool, for whoever organizes anywhere — through the scoped

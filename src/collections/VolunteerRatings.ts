@@ -1,9 +1,6 @@
 import type { Access, CollectionBeforeValidateHook, CollectionConfig, Where } from 'payload'
 import { APIError } from 'payload'
 
-import { getAdministeredMunicipalityIds } from './access/shared'
-import { eventOrganizerIds } from './Events'
-
 const relationId = (value: unknown): string | null => {
   if (value == null) return null
   return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
@@ -26,18 +23,11 @@ const canReadRating: Access = async ({ req: { user, payload } }) => {
   return where
 }
 
-/** Whoever gave the rating may change it. */
-const canUpdateRating: Access = ({ req: { user } }) => {
-  if (!user) return false
-  if (user.role === 'admin') return true
-  const where: Where = { ratedBy: { equals: user.id } }
-  return where
-}
-
 /**
  * Everything but the stars and the comment is derived from the registration. Only for a volunteer
- * the event's people marked as attended, once the event has started, and only by someone running
- * it: its organizers, an admin of its obec, a platform admin. One rating per volunteer and event.
+ * marked as attended, once the event has started — and only by the event's own pořadatel, whoever
+ * else co-organizes it (the obec included): the same person who fills in its attendance. Once, and
+ * for good: a rating can't be changed afterwards (the pořadatel confirms it first).
  */
 const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (!data) return data
@@ -65,14 +55,8 @@ const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operatio
   if (new Date(event.dateTime).getTime() > Date.now()) {
     throw new APIError('Dobrovolníka ohodnotíte po akci.', 400)
   }
-  if (user.role !== 'admin') {
-    const isOrganizer = eventOrganizerIds(event).includes(String(user.id))
-    const isObecAdmin = (await getAdministeredMunicipalityIds(payload, user.id)).includes(
-      relationId(event.municipality) ?? '',
-    )
-    if (!isOrganizer && !isObecAdmin) {
-      throw new APIError('Dobrovolníka hodnotí pořadatel akce.', 403)
-    }
+  if (relationId(event.organizer) !== String(user.id)) {
+    throw new APIError('Dobrovolníka hodnotí jen pořadatel, který akci založil.', 403)
   }
 
   const existing = await payload.count({
@@ -81,7 +65,9 @@ const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operatio
     overrideAccess: true,
     req,
   })
-  if (existing.totalDocs > 0) throw new APIError('Dobrovolníka na téhle akci už někdo ohodnotil.', 400)
+  if (existing.totalDocs > 0) {
+    throw new APIError('Dobrovolníka na téhle akci už jste ohodnotili — hodnocení změnit nejde.', 400)
+  }
 
   return {
     registration: registration.id,
@@ -114,7 +100,8 @@ export const VolunteerRatings: CollectionConfig = {
   access: {
     read: canReadRating,
     create: ({ req: { user } }) => Boolean(user),
-    update: canUpdateRating,
+    // Final once given — the pořadatel confirms it before saving.
+    update: () => false,
     delete: ({ req: { user } }) => user?.role === 'admin',
   },
   fields: [
