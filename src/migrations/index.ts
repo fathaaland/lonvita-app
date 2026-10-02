@@ -16,6 +16,7 @@ import * as migration_20260923_141549_add_organizations from './20260923_141549_
 import * as migration_20260923_153833_obec_organizations from './20260923_153833_obec_organizations';
 import * as migration_20260927_170152_add_exports from './20260927_170152_add_exports';
 import * as migration_20260928_213410_add_profile_avatars from './20260928_213410_add_profile_avatars';
+import * as migration_20261002_121205_co_organizing_invitations from './20261002_121205_co_organizing_invitations';
 
 export const migrations = [
   {
@@ -106,6 +107,11 @@ export const migrations = [
   {
     up: migration_20260928_213410_add_profile_avatars.up,
     down: migration_20260928_213410_add_profile_avatars.down,
-    name: '20260928_213410_add_profile_avatars'
+    name: '20260928_213410_add_profile_avatars',
+  },
+  {
+    up: migration_20261002_121205_co_organizing_invitations.up,
+    down: migration_20261002_121205_co_organizing_invitations.down,
+    name: '20261002_121205_co_organizing_invitations'
   },
 ];

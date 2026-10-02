@@ -22,7 +22,7 @@ const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 function CreateEventContent() {
   const router = useRouter();
-  const { user, profile, isAdmin, isSuperAdmin } = useAuth();
+  const { user, profile, isAdmin } = useAuth();
   // The obec the event is filed under: one where this user actually holds the admin/organizer
   // role (their home obec when they hold it there). Their home municipality alone isn't enough —
   // a "bez obce" admin has none, and a superadmin can grant a role for a town they don't live in.
@@ -75,7 +75,6 @@ function CreateEventContent() {
         registrationApprovalMode: values.registrationApprovalMode,
         organizerUserId: String(user.id),
         municipalityId,
-        coOrganizationIds: values.coOrganizationIds,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,
         imagePositionX: values.imagePosition.x,
@@ -89,7 +88,7 @@ function CreateEventContent() {
 
       const sent = await sendFollowUpRequests(created.id, {
         volunteerFlag: values.isVolunteering && !isAdmin ? String(user.id) : null,
-        obecCoOrganizing: values.requestObecCoOrganizing,
+        coOrganizationIds: values.inviteOrganizationIds,
       });
       toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena!");
       router.push(`/akce/${created.id}`);
@@ -124,7 +123,6 @@ function CreateEventContent() {
         municipalityId={municipalityId}
         municipalityCenter={center}
         canSetVolunteering={isAdmin}
-        canAddObec={adminHere || isSuperAdmin}
         runsAsObec={adminHere}
         submitLabel="Vytvořit akci"
         onSubmit={handleSubmit}

@@ -976,18 +976,28 @@ export async function getOrganizationFeedbackSummary(organizationId: string): Pr
   return get<OrganizationFeedbackSummary>(`/organizations/${organizationId}/feedback-summary`);
 }
 
-// --- Asking the obec to co-organize -----------------------------------------------------------
+// --- Invitations to co-organize ---------------------------------------------------------------
 
-/** Asks the obec's admins to co-organize the event — the obec joins only once one of them approves. */
-export async function requestObecCoOrganizing(eventId: string): Promise<void> {
-  await post("/co-organizing-requests", { event: Number(eventId) });
+/** Invites an organization to co-organize the event — it joins once its owner (for the obec, one of
+ * its admins) accepts. "approved" when the inviter answers for it themselves (the obec's admin
+ * inviting the obec). */
+export async function inviteCoOrganizer(eventId: string, organizationId: string): Promise<{ status: RequestStatus }> {
+  const doc = await post<{ status: RequestStatus }>("/co-organizing-requests", {
+    event: Number(eventId),
+    organization: Number(organizationId),
+  });
+  return { status: doc.status };
 }
 
-/** Whether a request for the obec to co-organize this event is waiting for the obec's answer. */
-export async function hasPendingObecCoOrganizingRequest(eventId: string): Promise<boolean> {
+type PayloadCoOrganizingInvitation = { organization: number | PayloadOrganization | null };
+
+/** The organizations invited to co-organize this event that haven't answered yet. */
+export async function getPendingCoOrganizers(eventId: string): Promise<OrganizationRef[]> {
   const where = buildWhereParams({ event: { equals: eventId }, status: { equals: "pending" } });
-  const result = await get<PayloadListResponse<{ id: number }>>(`/co-organizing-requests?${where}&depth=0&limit=1`);
-  return result.docs.length > 0;
+  const result = await get<PayloadListResponse<PayloadCoOrganizingInvitation>>(
+    `/co-organizing-requests?${where}&depth=1&limit=100`,
+  );
+  return result.docs.map((r) => mapOrganization(r.organization)).filter((o): o is OrganizationRef => Boolean(o));
 }
 
 // --- Consents / notification preferences ------------------------------------------------

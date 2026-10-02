@@ -67,9 +67,10 @@ export type EventFormValues = {
   isVolunteering: boolean;
   isPaid: boolean;
   priceCents: number | null;
+  /** The spolupořadatelé already on the event that stay on it. */
   coOrganizationIds: string[];
-  /** A pořadatel asks the obec to co-organize — sent after saving (CoOrganizingRequests). */
-  requestObecCoOrganizing: boolean;
+  /** Newly picked organizations — invited after saving, they join once they accept (CoOrganizingRequests). */
+  inviteOrganizationIds: string[];
   isHidden: boolean;
 };
 
@@ -91,13 +92,10 @@ interface Props {
   municipalityCenter: [number, number];
   /** A platform/municipality admin sets the volunteering flag directly; others request it. */
   canSetVolunteering: boolean;
-  /** The obec's admin (or a platform admin) adds the obec as spolupořadatel directly; anyone else
-   * asks it (CoOrganizingRequests). */
-  canAddObec?: boolean;
   /** The event is (or, created by the obec's admin, will be) the obec's own. */
   runsAsObec?: boolean;
-  /** A request for the obec to co-organize this event is waiting for its answer. */
-  obecCoOrganizingPending?: boolean;
+  /** Organizations invited to co-organize the event that haven't answered yet. */
+  pendingCoOrganizations?: OrganizationRef[];
   submitLabel: string;
   /** Handles its own success/error toasts; the form only tracks the submitting state. */
   onSubmit: (values: EventFormValues) => Promise<void>;
@@ -110,9 +108,8 @@ export function EventForm({
   municipalityId,
   municipalityCenter,
   canSetVolunteering,
-  canAddObec = false,
   runsAsObec = false,
-  obecCoOrganizingPending = false,
+  pendingCoOrganizations = [],
   submitLabel,
   onSubmit,
 }: Props) {
@@ -144,7 +141,6 @@ export function EventForm({
   const [recurWeekdays, setRecurWeekdays] = useState<string[]>(initialWeekdays);
   const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
-  const [requestObec, setRequestObec] = useState(false);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
   const [isHidden, setIsHidden] = useState(Boolean(initial?.is_hidden));
@@ -155,9 +151,15 @@ export function EventForm({
   const [submitting, setSubmitting] = useState(false);
 
   const volunteeringLocked = !canSetVolunteering && Boolean(initial?.is_volunteering);
-  // Admins add the obec in the picker; a pořadatel asks it — unless it's already on the event.
-  const canAskObec =
-    !canAddObec && !runsAsObec && !coOrganizations.some((o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE);
+  const savedCoOrganizationIds = new Set((initial?.co_organizations ?? []).map((o) => o.id));
+  const pendingIds = pendingCoOrganizations.map((o) => o.id);
+  // Inviting the obec hands the event over to it once it accepts (Events lockedEventIds) — worth
+  // saying to whoever would lose the right to edit it. Its admins don't.
+  const obecInvited =
+    !canSetVolunteering &&
+    [...pendingCoOrganizations, ...coOrganizations].some(
+      (o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE && !savedCoOrganizationIds.has(o.id),
+    );
 
   const toggleInArray = (arr: string[], setArr: (v: string[]) => void, value: string) => {
     setArr(arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value]);
@@ -232,8 +234,8 @@ export function EventForm({
         accessibilityTags,
         capacity: parsed.data.capacity,
         registrationApprovalMode: approvalMode,
-        coOrganizationIds: coOrganizations.map((c) => c.id),
-        requestObecCoOrganizing: canAskObec && !obecCoOrganizingPending && requestObec,
+        coOrganizationIds: coOrganizations.filter((c) => savedCoOrganizationIds.has(c.id)).map((c) => c.id),
+        inviteOrganizationIds: coOrganizations.filter((c) => !savedCoOrganizationIds.has(c.id)).map((c) => c.id),
         categoryIds: parsed.data.category_ids,
         imageId,
         imagePosition,
@@ -440,43 +442,32 @@ export function EventForm({
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-1.5">
-          Organizace pořadatelů této obce — podnik, spolek nebo jednotlivec{canAddObec && !runsAsObec ? ", případně obec sama" : ""}. Akce
-          se jim objeví v jejich přehledu akcí a mohou ji spravovat. Akci založenou obcí upravuje a maže už jen obec.
-          Akci s další organizací nebo s obcí smažete jen s jejich souhlasem.
+          Organizace pořadatelů této obce — podnik, spolek nebo jednotlivec{runsAsObec ? "" : ", případně obec sama"}. Po{" "}
+          {initial ? "uložení" : "vytvoření"} jim pošlu pozvánku a spolupořadatelem se stanou, až ji přijmou. Pak se jim akce
+          objeví v přehledu akcí a mají k ní stejná práva jako vy. Akci, u které je obec, ale upravuje a maže už jen obec.
+          Akci s další organizací smažete jen s jejím souhlasem.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
-          value={coOrganizations}
-          onChange={setCoOrganizations}
+          value={[...pendingCoOrganizations, ...coOrganizations]}
+          onChange={(value) => setCoOrganizations(value.filter((o) => !pendingIds.includes(o.id)))}
           excludeIds={initial?.organization ? [initial.organization.id] : []}
           excludeObec={runsAsObec}
+          pendingIds={pendingIds}
           // Only the obec admin removes another organization; an organizer can only take their own
-          // off (Events guardCoOrganizedChanges).
-          fixedIds={
-            initial && !canSetVolunteering
+          // off (Events guardCoOrganizedChanges). A sent invitation stays until it's answered.
+          fixedIds={[
+            ...pendingIds,
+            ...(initial && !canSetVolunteering
               ? initial.co_organizations.filter((o) => o.owner_id !== userId).map((o) => o.id)
-              : []
-          }
+              : []),
+          ]}
         />
-        {canAskObec && (
-          <label
-            className={cn(
-              "flex items-start gap-2.5 text-sm mt-3",
-              obecCoOrganizingPending ? "opacity-70" : "cursor-pointer",
-            )}
-          >
-            <Checkbox
-              checked={obecCoOrganizingPending || requestObec}
-              disabled={obecCoOrganizingPending}
-              onCheckedChange={(v) => setRequestObec(v === true)}
-              className="mt-0.5"
-            />
-            <span>
-              {obecCoOrganizingPending
-                ? "Obec o spolupořádání žádáte — čeká se na její souhlas."
-                : `Požádat obec o spolupořádání — po ${initial ? "uložení" : "vytvoření"} jí pošlu žádost. Spolupořadatelem se stane, až ji obec schválí.`}
-            </span>
-          </label>
+        {obecInvited && (
+          <p className="text-sm text-muted-foreground mt-3">
+            Až obec pozvánku přijme, bude akci upravovat a rušit už jen obec. Vy i ostatní spolupořadatelé budete dál
+            spravovat přihlášené a docházku.
+          </p>
         )}
       </div>
 

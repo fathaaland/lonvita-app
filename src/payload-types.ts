@@ -415,7 +415,7 @@ export interface Event {
    */
   organization?: (number | null) | Organization;
   /**
-   * Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the local café, or the obec itself — only with its consent). The event appears in each owner's own dashboard/"moje akce".
+   * Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the local café, or the obec itself). Each joins only by accepting an invitation (CoOrganizingRequests). The event appears in each owner's own dashboard/"moje akce".
    */
   coOrganizations?: (number | Organization)[] | null;
   /**
@@ -720,6 +720,15 @@ export interface CoOrganizingRequest {
   event: number | Event;
   eventTitle: string;
   municipality: number | Municipality;
+  /**
+   * The organization invited to co-organize the event.
+   */
+  organization: number | Organization;
+  organizationName: string;
+  /**
+   * Who accepts or declines — the invited organization's owner. Empty for the obec's own organization: any of its admins does.
+   */
+  organizationOwner?: (number | null) | User;
   requestedBy: number | User;
   status: 'pending' | 'approved' | 'rejected';
   reviewedBy?: (number | null) | User;
@@ -1266,6 +1275,9 @@ export interface CoOrganizingRequestsSelect<T extends boolean = true> {
   event?: T;
   eventTitle?: T;
   municipality?: T;
+  organization?: T;
+  organizationName?: T;
+  organizationOwner?: T;
   requestedBy?: T;
   status?: T;
   reviewedBy?: T;

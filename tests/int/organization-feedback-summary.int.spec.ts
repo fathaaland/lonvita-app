@@ -46,8 +46,8 @@ describe("An organization's feedback summary (GET /api/organizations/:id/feedbac
         registrationApprovalMode: 'manual',
         cancellationPolicy: 'none',
       },
-      user: organizer,
-      overrideAccess: false,
+      // A trusted write: co-organizers otherwise join only by accepting an invitation.
+      overrideAccess: true,
     })
     eventIds.push(event.id)
     return event

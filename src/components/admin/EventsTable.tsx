@@ -151,7 +151,7 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                       {fill} %
                     </p>
                   </div>
-                  {/* The obec admin's own event, co-organized by this viewer — theirs to help run,
+                  {/* An event the obec runs or co-organizes, co-organized by this viewer — theirs to help run,
                       not to edit or cancel. Same fixed widths keep the rows aligned. */}
                   {e.locked_for_viewer ? (
                     <div className="w-16 shrink-0" />

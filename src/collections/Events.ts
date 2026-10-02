@@ -116,12 +116,12 @@ export async function obecRole(
 }
 
 /**
- * An event the obec itself runs (its admin founded it, so its `organization` is the obec's) belongs
- * to the obec: only the obec's admins may edit or delete it. The organizations co-organizing it
- * still help run it (see the attendees, approve registrations, mark attendance — Registrations
- * keeps that). An event the obec only co-organizes stays its pořadatel's — they just can't drop the
- * obec from it, or cancel it without the obec's consent (guardCoOrganizedChanges). And the obec
- * admin may step into any organizer's event in their obec (a problem, a fraud).
+ * Whenever the obec takes part in an event — it runs it (its admin founded it, so its
+ * `organization` is the obec's) or co-organizes it (its organization is among `coOrganizations`) —
+ * the event is the obec's: only the obec's admins may edit or delete it. The other organizations on
+ * it still help run it (see the attendees, approve registrations, mark attendance — Registrations
+ * keeps that). Without the obec, everyone organizing it has equal rights. And the obec admin may
+ * step into any organizer's event in their obec (a problem, a fraud).
  *
  * Of `events`, returns the ids `userId` organizes or co-organizes but is locked out of. Events
  * whose obec they administer themselves are never locked.
@@ -146,7 +146,11 @@ export async function lockedEventIds(
     candidates
       .filter((e) => {
         const obecOrganizationId = obecOrganizations.get(relationId(e.municipality) ?? '')
-        return obecOrganizationId !== undefined && relationId(e.organization) === obecOrganizationId
+        if (obecOrganizationId === undefined) return false
+        return (
+          relationId(e.organization) === obecOrganizationId ||
+          ((e.coOrganizations ?? []) as unknown[]).map(relationId).includes(obecOrganizationId)
+        )
       })
       .map((e) => String(e.id)),
   )
@@ -155,7 +159,7 @@ export async function lockedEventIds(
 /** Brief §4 organizer self-service edit of their own event — the organizer or a co-organizer, a
  * municipality admin for any event in their obec, and a platform admin everywhere. Organizers are
  * shut out of events the obec takes part in (lockedEventIds). Cancelling an event several
- * organizers run needs the others' consent (guardCoOrganizedCancellation). Moving an event to
+ * organizers run needs the others' consent (guardCoOrganizedChanges). Moving an event to
  * another obec or handing it to another organizer stays platform-admin-only (field access below).
  * Trusted internal writes (overrideAccess) — e.g. flipping status to "full" — bypass this as usual. */
 const canUpdateEvent: Access = async ({ req }) => {
@@ -167,7 +171,7 @@ const canUpdateEvent: Access = async ({ req }) => {
   const organized = await payload.find({
     collection: 'events',
     where: { or: [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }] },
-    select: { organizer: true, organization: true, coOrganizers: true, municipality: true },
+    select: { organizer: true, organization: true, coOrganizations: true, coOrganizers: true, municipality: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
@@ -182,6 +186,20 @@ const canUpdateEvent: Access = async ({ req }) => {
   if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
   const where: Where = { or }
   return where
+}
+
+/** The single-event form of canUpdateEvent: whether `user` may edit `event` — and so invite
+ * organizations to co-organize it (CoOrganizingRequests). */
+export async function mayEditEvent(
+  req: PayloadRequest,
+  user: { id: number | string; role?: string | null },
+  event: EventOwnership,
+): Promise<boolean> {
+  if (user.role === 'admin') return true
+  const administeredIds = await administeredIdsFor(req, user.id)
+  if (administeredIds.includes(relationId(event.municipality) ?? '')) return true
+  if (!eventOrganizerIds(event).includes(String(user.id))) return false
+  return !(await lockedEventIds(req, user.id, [event], administeredIds)).has(String(event.id))
 }
 
 /** Whether `user` must go through an EventDeletionRequest (the others' consent) rather than
@@ -205,8 +223,8 @@ export async function deletionNeedsConsent(
  * Two organizers running an event together can both edit it, but neither can drop it on the
  * other: cancelling needs the other's consent, via an EventDeletionRequest (its decide route is
  * the one trusted path, `context.coOrganizerConsent`). For the same reason an organizer can't
- * remove another spolupořadatel — only themselves (leaving the event). The same holds with the obec
- * as spolupořadatel: its consent to cancel, and only its admins take it off the event. The obec's
+ * remove another spolupořadatel — only themselves (leaving the event). An event the obec takes part
+ * in never gets here from an organizer — they're locked out of it (lockedEventIds). The obec's
  * admins and a platform admin are exempt from all of it.
  */
 const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
@@ -225,10 +243,6 @@ const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, 
   if (data.coOrganizers && req.user.role !== 'admin') {
     const administeredIds = await administeredIdsFor(req, req.user.id)
     if (!administeredIds.includes(relationId(originalDoc.municipality) ?? '')) {
-      const obecWas = (await obecRole(req, originalDoc)).coOrganizes
-      if (obecWas && !(await obecRole(req, { ...originalDoc, ...data })).coOrganizes) {
-        throw new APIError('Obec ze spolupořadatelů odebrat nemůžete — může to jen admin obce.', 400)
-      }
       const kept = new Set((data.coOrganizers as unknown[]).map(relationId))
       const removedOthers = ((originalDoc.coOrganizers ?? []) as unknown[])
         .map(relationId)
@@ -339,10 +353,12 @@ const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, ope
 }
 
 /**
- * Spolupořadatelé are organizations of the same obec (Organizations.ts) — the obec admin adds
- * "Kavárna NMNM", not its owner. The obec's own organization can co-organize too, but only with the
- * obec's say-so: its admin (or a platform admin) adds it directly, a pořadatel asks for it
- * (CoOrganizingRequests — its approval is the trusted path, `context.obecCoOrganizingApproved`).
+ * Spolupořadatelé are organizations of the same obec (Organizations.ts) — "Kavárna NMNM", not its
+ * owner, or the obec's own organization. Nobody becomes one without their own consent: whoever may
+ * edit the event invites an organization (CoOrganizingRequests), and it joins once its owner — for
+ * the obec, one of its admins — accepts. That acceptance is the one trusted path that adds one,
+ * `context.coOrganizingApproved`; anyone may still take organizations off (guardCoOrganizedChanges
+ * says whom). Trusted internal writes (no user — seeds, scripts) pass as always.
  * From the organizations this derives the rest of the event's ownership:
  * - `organization` — what the pořadatel runs it as: their own organization in the obec, or the
  *   obec's when they're its admin (it's the obec's event — see lockedEventIds);
@@ -408,19 +424,19 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
       if (id === eventOrganizationId) {
         throw new APIError('Akci už pořádá obec — za spolupořadatele ji přidat nejde.', 400)
       }
-      if (added && !(await mayAddObec(req, municipalityId))) {
-        throw new APIError(
-          'Obec jako spolupořadatele přidat nemůžete — požádejte ji o spolupořádání a počkejte na její souhlas.',
-          400,
-        )
+    } else {
+      const ownerId = relationId(organization.owner)!
+      if (ownerId === organizerId || id === eventOrganizationId) {
+        throw new APIError('Vlastní organizaci nelze přidat jako spolupořadatele — akci už pořádáte.', 400)
       }
-      continue
+      if (added) addedOwnerIds.push(ownerId)
     }
-    const ownerId = relationId(organization.owner)!
-    if (ownerId === organizerId || id === eventOrganizationId) {
-      throw new APIError('Vlastní organizaci nelze přidat jako spolupořadatele — akci už pořádáte.', 400)
+    if (added && req.user && !req.context?.coOrganizingApproved) {
+      throw new APIError(
+        'Spolupořadatele nejde přidat přímo — pošlete organizaci pozvánku. Spolupořadatelem se stane, až ji přijme.',
+        400,
+      )
     }
-    if (added) addedOwnerIds.push(ownerId)
   }
 
   if (addedOwnerIds.length > 0) {
@@ -449,13 +465,6 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
     ...new Set(ids.map((id) => relationId(byId.get(id)!.owner)).filter((id): id is string => id !== null)),
   ].map(Number)
   return data
-}
-
-/** The obec joins an event as spolupořadatel on its own say: its admin's or a platform admin's,
- * or an approved CoOrganizingRequest. Trusted internal writes (no user) pass as always. */
-async function mayAddObec(req: PayloadRequest, municipalityId: string): Promise<boolean> {
-  if (req.context?.obecCoOrganizingApproved || !req.user || req.user.role === 'admin') return true
-  return (await administeredIdsFor(req, req.user.id)).includes(municipalityId)
 }
 
 /** Only resolved for a viewer who organizes the event — the only one either can be true for — so
@@ -666,7 +675,7 @@ async function notifyOrganizersOfObecAction(
   )
 }
 
-const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'obecCoOrganizingApproved', 'skipVolunteeringGuard']
+const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'coOrganizingApproved', 'skipVolunteeringGuard']
 const isOwnRequest = (context: Record<string, unknown> | undefined) =>
   OWN_REQUEST_CONTEXTS.some((key) => context?.[key])
 
@@ -894,7 +903,7 @@ export const Events: CollectionConfig = {
       hasMany: true,
       admin: {
         description:
-          'Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the local café, or the obec itself — only with its consent). The event appears in each owner\'s own dashboard/"moje akce".',
+          'Brief §4 "Spolupořadatelství" — organizations of the same obec running the event together with the organizer (e.g. the local café, or the obec itself). Each joins only by accepting an invitation (CoOrganizingRequests). The event appears in each owner\'s own dashboard/"moje akce".',
       },
     },
     {

@@ -559,6 +559,7 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
 
   afterAll(async () => {
     const userIds = [adminA.id, pubOrganizerA.id, residentA.id, organizerB.id]
+    await payload.delete({ collection: 'co-organizing-requests', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'organizations', where: { owner: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'organizer-requests', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
@@ -578,15 +579,35 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
     expect(await organizationOf(adminA, muniA)).toBeUndefined()
   })
 
-  it("the obec admin can run an event with one of the obec's organizations", async () => {
+  it("the obec admin can run an event with one of the obec's organizations, once it accepts", async () => {
     const pubOrg = await organizationOf(pubOrganizerA, muniA)
-    const event = await payload.create({
+    // Nobody is put on an event without their consent — not even by the obec.
+    await expect(
+      payload.create({ collection: 'events', data: eventData([pubOrg.id]), user: adminA, overrideAccess: false }),
+    ).rejects.toThrow(/pozvánku/)
+    const created = await payload.create({
       collection: 'events',
-      data: eventData([pubOrg.id]),
+      data: eventData([]),
       user: adminA,
       overrideAccess: false,
     })
-    eventIds.push(event.id)
+    eventIds.push(created.id)
+    const invitation = await payload.create({
+      collection: 'co-organizing-requests',
+      data: { event: created.id, organization: pubOrg.id } as never,
+      user: adminA,
+      overrideAccess: false,
+    })
+    expect(invitation.status).toBe('pending')
+    await payload.update({
+      collection: 'co-organizing-requests',
+      id: invitation.id,
+      data: { status: 'approved' },
+      user: pubOrganizerA,
+      overrideAccess: false,
+    })
+
+    const event = await payload.findByID({ collection: 'events', id: created.id, depth: 0, overrideAccess: true })
     expect(event.coOrganizations).toHaveLength(1)
     // Derived from the organization — access rules keep working off the owner.
     expect((event.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([pubOrganizerA.id])
@@ -752,17 +773,16 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
     const orgOf = (user: { id: number }) =>
       orgs.docs.find((o) => (typeof o.owner === 'object' ? o.owner.id : o.owner) === user.id)!.id
 
+    // Trusted writes: co-organizers otherwise join only by accepting an invitation.
     adminEvent = await payload.create({
       collection: 'events',
       data: eventData(admin.id, [orgOf(pub)]),
-      user: admin,
-      overrideAccess: false,
+      overrideAccess: true,
     })
     pubEvent = await payload.create({
       collection: 'events',
       data: eventData(pub.id, [orgOf(club)]),
-      user: pub,
-      overrideAccess: false,
+      overrideAccess: true,
     })
     registration = await payload.create({
       collection: 'registrations',

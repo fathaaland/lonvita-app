@@ -9,20 +9,31 @@ import { X } from "lucide-react";
 
 interface Props {
   municipalityId: string;
-  /** Already-picked co-organizing organizations. */
+  /** Already-picked co-organizing organizations — on the event, invited, or about to be. */
   value: OrganizationRef[];
   onChange: (value: OrganizationRef[]) => void;
   /** Organizations that can't be added — the event's own (its organizer's). */
   excludeIds: string[];
   /** Already-saved co-organizations the current user isn't allowed to remove. */
   fixedIds?: string[];
+  /** Invited organizations that haven't answered yet. */
+  pendingIds?: string[];
   /** The event is the obec's own — it can't co-organize it as well. */
   excludeObec?: boolean;
 }
 
 /** Brief §4 "Spolupořadatelství" — search this obec's organizations (a café, a club, one person's
- * "Vycházky pro seniory") by name and add them as co-organizers (Events.coOrganizations). */
-export function CoOrganizerPicker({ municipalityId, value, onChange, excludeIds, fixedIds = [], excludeObec = false }: Props) {
+ * "Vycházky pro seniory", the obec itself) by name and pick them to invite as co-organizers
+ * (CoOrganizingRequests). */
+export function CoOrganizerPicker({
+  municipalityId,
+  value,
+  onChange,
+  excludeIds,
+  fixedIds = [],
+  pendingIds = [],
+  excludeObec = false,
+}: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<OrganizationRef[]>([]);
   const [searching, setSearching] = useState(false);
@@ -71,6 +82,7 @@ export function CoOrganizerPicker({ municipalityId, value, onChange, excludeIds,
           {value.map((v) => (
             <Badge key={v.id} variant="secondary" className="gap-1 pr-1 h-8">
               {v.name}
+              {pendingIds.includes(v.id) && <span className="font-normal text-muted-foreground">· čeká na souhlas</span>}
               {!fixedIds.includes(v.id) && (
                 <button type="button" onClick={() => remove(v.id)} aria-label="Odebrat" className="ml-0.5 hover:text-destructive">
                   <X className="h-3 w-3" />

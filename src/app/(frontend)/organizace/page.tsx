@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { OrganizationMark } from "@/components/EventCard";
+import { CoOrganizingInvitations } from "@/components/CoOrganizingInvitations";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { TypeChips } from "@/components/admin/OrganizationsTab";
@@ -210,6 +211,8 @@ function OrganizationContent() {
     <div className="animate-fade-in sm:mx-auto sm:max-w-4xl">
       <PageHeader title="Organizace" />
       <div className="px-4 py-5 space-y-6">
+        <CoOrganizingInvitations userId={String(user!.id)} onAccepted={() => loadData(organization.id)} />
+
         {organizations.length > 1 && (
           <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1" role="tablist" aria-label="Vaše organizace">
             {organizations.map((o) => (

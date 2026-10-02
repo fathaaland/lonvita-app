@@ -5,9 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import {
   getEvent,
   getMyAdministeredMunicipalityIds,
-  hasPendingObecCoOrganizingRequest,
+  getPendingCoOrganizers,
   updateEvent,
   EventRow,
+  OrganizationRef,
 } from "@/integrations/payload/queries";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,28 +34,28 @@ function EditEventContent() {
   const [event, setEvent] = useState<EventRow | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [canSetVolunteering, setCanSetVolunteering] = useState(false);
-  const [obecCoOrganizingPending, setObecCoOrganizingPending] = useState(false);
+  const [pendingCoOrganizations, setPendingCoOrganizations] = useState<OrganizationRef[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !id) return;
     let active = true;
     (async () => {
-      const [ev, adminIds, obecPending] = await Promise.all([
+      const [ev, adminIds, pending] = await Promise.all([
         getEvent(id),
         getMyAdministeredMunicipalityIds(String(user.id)).catch(() => [] as string[]),
-        hasPendingObecCoOrganizingRequest(id).catch(() => false),
+        getPendingCoOrganizers(id).catch(() => [] as OrganizationRef[]),
       ]);
-      setObecCoOrganizingPending(obecPending);
       if (!active) return;
+      setPendingCoOrganizations(pending);
       if (ev) {
         const uid = String(user.id);
         const isAdminHere = isSuperAdmin || (!!ev.municipality_id && adminIds.includes(ev.municipality_id));
         setCanSetVolunteering(isAdminHere);
+        // With the obec on the event, only the obec edits it (Events lockedEventIds).
         setCanEdit(
           isAdminHere ||
-            ev.organizer_id === uid ||
-            (ev.co_organizer_ids.includes(uid) && !ev.locked_for_viewer),
+            ((ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)) && !ev.locked_for_viewer),
         );
       }
       setEvent(ev);
@@ -93,7 +94,7 @@ function EditEventContent() {
 
       const sent = await sendFollowUpRequests(event.id, {
         volunteerFlag: values.isVolunteering && !event.is_volunteering && !canSetVolunteering ? String(user.id) : null,
-        obecCoOrganizing: values.requestObecCoOrganizing,
+        coOrganizationIds: values.inviteOrganizationIds,
       });
       toast.success(sent ? `Akce upravena, ${sent}.` : "Akce upravena. Přihlášení účastníci dostanou upozornění o změně.");
       router.push(`/akce/${event.id}`);
@@ -114,7 +115,7 @@ function EditEventContent() {
           title={event ? "Tuto akci nemůžete upravit" : "Akce nebyla nalezena"}
           description={
             event?.locked_for_viewer
-              ? "Tuhle akci pořádá obec — upravit nebo zrušit ji může jen admin obce. Jako spolupořadatel můžete spravovat přihlášené."
+              ? "Tuhle akci pořádá nebo spolupořádá obec — upravit nebo zrušit ji může jen admin obce. Přihlášené a docházku spravovat můžete dál."
               : event
                 ? "Upravovat ji může pořadatel nebo admin obce."
                 : undefined
@@ -133,9 +134,8 @@ function EditEventContent() {
         municipalityId={event.municipality_id ?? ""}
         municipalityCenter={event.lat != null && event.lng != null ? [event.lat, event.lng] : CZECHIA_CENTER}
         canSetVolunteering={canSetVolunteering}
-        canAddObec={canSetVolunteering}
         runsAsObec={isMunicipalityOrganization(event.organization)}
-        obecCoOrganizingPending={obecCoOrganizingPending}
+        pendingCoOrganizations={pendingCoOrganizations}
         submitLabel="Uložit změny"
         onSubmit={handleSubmit}
       />

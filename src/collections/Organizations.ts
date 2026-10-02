@@ -184,6 +184,14 @@ const cleanupOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
     })
   }
 
+  // Invitations to co-organize can't point at an organization that's gone.
+  await payload.delete({
+    collection: 'co-organizing-requests',
+    where: { organization: { equals: id } },
+    overrideAccess: true,
+    req,
+  })
+
   if (owner === null) return
   await payload.delete({
     collection: 'user-roles',

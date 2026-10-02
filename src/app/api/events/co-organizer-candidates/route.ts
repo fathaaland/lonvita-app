@@ -8,12 +8,12 @@ import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 const ORGANIZING_ROLES = ['municipality_admin', 'organizer'] as const
 
 /**
- * Which organizations can be picked as a spolupořadatel of an event in this obec — its
- * organizers' organizations (the café, the club, a single person's "Vycházky pro seniory"), matched
- * by name, never the searcher's own. The obec itself only for its admins and a platform admin — a
- * pořadatel asks the obec instead (CoOrganizingRequests). An organization whose owner has since
- * lost the organizer role isn't offered. Only someone who organizes in the obec (or a platform
- * admin) may search it. Mirrors Events `resolveOrganizations`.
+ * Which organizations can be invited to co-organize an event in this obec — its organizers'
+ * organizations (the café, the club, a single person's "Vycházky pro seniory") and the obec's own,
+ * matched by name, never the searcher's own. Each joins only once it accepts (CoOrganizingRequests).
+ * An organization whose owner has since lost the organizer role isn't offered. Only someone who
+ * organizes in the obec (or a platform admin) may search it. Mirrors CoOrganizingRequests
+ * `prepareRequest`.
  *
  * GET /api/events/co-organizer-candidates?municipalityId=1&q=kav
  */
@@ -49,14 +49,9 @@ export async function GET(request: Request) {
   const organizerIds = [
     ...new Set(roles.docs.filter((r) => r.role === 'organizer').map(userIdOf)),
   ].filter((id) => id !== actor.id)
-  const mayAddObec =
-    actor.role === 'admin' ||
-    roles.docs.some((r) => r.role === 'municipality_admin' && userIdOf(r) === actor.id)
 
-  const offered: Where[] = []
+  const offered: Where[] = [{ type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }]
   if (organizerIds.length > 0) offered.push({ owner: { in: organizerIds } })
-  if (mayAddObec) offered.push({ type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } })
-  if (offered.length === 0) return NextResponse.json({ docs: [] })
 
   const organizations = await payload.find({
     collection: 'organizations',

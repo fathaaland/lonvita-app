@@ -43,6 +43,7 @@ import { CancelEventButton } from "@/components/CancelEventButton";
 import { CoOrganizingRequestCard, OrganizerRequestReason } from "@/components/admin/RequestsTable";
 import { OrganizationsTab } from "@/components/admin/OrganizationsTab";
 import { EventForm, EventFormValues } from "@/components/EventForm";
+import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -408,7 +409,7 @@ function SuperAdminContent() {
   // from the pickers above instead of the logged-in user's own roles.
   const handleCreateEvent = async (values: EventFormValues) => {
     try {
-      await createEvent({
+      const created = await createEvent({
         title: values.title,
         description: values.description,
         dateTimeIso: values.dateTimeIso,
@@ -422,7 +423,6 @@ function SuperAdminContent() {
         registrationApprovalMode: values.registrationApprovalMode,
         organizerUserId: evOrganizerId,
         municipalityId: evMuniId,
-        coOrganizationIds: values.coOrganizationIds,
         categoryIds: values.categoryIds,
         imageId: values.imageId ?? undefined,
         imagePositionX: values.imagePosition.x,
@@ -431,7 +431,9 @@ function SuperAdminContent() {
         isPaid: values.isPaid,
         priceCents: values.priceCents ?? undefined,
       });
-      toast.success("Akce vytvořena.");
+      // Spolupořadatelé join only once they accept — even an event the superadmin creates.
+      const sent = await sendFollowUpRequests(created.id, { volunteerFlag: null, coOrganizationIds: values.inviteOrganizationIds });
+      toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena.");
       setEventFormKey((k) => k + 1);
       await load();
     } catch (error) {
@@ -1135,7 +1137,6 @@ function SuperAdminContent() {
                     municipalityId={evMuniId}
                     municipalityCenter={evMuniCenter}
                     canSetVolunteering
-                    canAddObec
                     runsAsObec={evRunsAsObec}
                     submitLabel="Vytvořit akci"
                     onSubmit={handleCreateEvent}
@@ -1382,7 +1383,7 @@ function SuperAdminContent() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 px-1">
                       <Handshake className="h-4 w-4 text-primary" />
-                      <p className="font-bold text-sm">Žádosti o spolupořádání obcí</p>
+                      <p className="font-bold text-sm">Pozvánky obci ke spolupořádání</p>
                     </div>
                     {coOrgRequests.map((r) => (
                       <CoOrganizingRequestCard

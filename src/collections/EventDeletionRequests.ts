@@ -58,7 +58,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   }
   const locked = await lockedEventIds(req, user.id, [event], await administeredIdsFor(req, user.id))
   if (locked.has(String(event.id))) {
-    throw new APIError('Tuhle akci pořádá obec — smazat ji může jen admin obce.', 403)
+    throw new APIError('Tuhle akci pořádá nebo spolupořádá obec — smazat ji může jen admin obce.', 403)
   }
   if (!(await deletionNeedsConsent(req, user, event))) {
     throw new APIError('Tuhle akci můžete zrušit rovnou, souhlas nikoho dalšího nepotřebuje.', 400)

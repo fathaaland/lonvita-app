@@ -181,7 +181,7 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
         <div className="space-y-2">
           <div className="flex items-center gap-2 px-1">
             <Handshake className="h-4 w-4 text-primary" />
-            <p className="font-bold text-sm">Žádosti o spolupořádání obcí</p>
+            <p className="font-bold text-sm">Pozvánky obci ke spolupořádání</p>
           </div>
           {coOrganizingRequests.map((r) => (
             <CoOrganizingRequestCard
@@ -224,8 +224,8 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   );
 }
 
-/** A pořadatel asking the obec to co-organize their event — approving lists the obec among the
- * event's spolupořadatelé. */
+/** An invitation to co-organize an event — for the obec (its admins answer) or for one of the
+ * viewer's organizations. Accepting lists the organization among the event's spolupořadatelé. */
 export function CoOrganizingRequestCard({
   request,
   busy,
@@ -251,14 +251,14 @@ export function CoOrganizingRequestCard({
           )}
           <p className="text-xs text-muted-foreground">
             {subtitle ? `${subtitle} · ` : ""}
-            {request.requested_by_name} · {new Date(request.created_at).toLocaleDateString("cs-CZ")}
+            zve {request.requested_by_name} · {new Date(request.created_at).toLocaleDateString("cs-CZ")}
           </p>
         </div>
         <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busy} onClick={() => onDecide(true)}>
-          <Check className="h-4 w-4" /> Schválit
+          <Check className="h-4 w-4" /> Přijmout
         </Button>
         <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busy} onClick={() => onDecide(false)}>
-          <X className="h-4 w-4" /> Zamítnout
+          <X className="h-4 w-4" /> Odmítnout
         </Button>
       </CardContent>
     </Card>

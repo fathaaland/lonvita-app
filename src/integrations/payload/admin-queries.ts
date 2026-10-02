@@ -248,6 +248,8 @@ export type CoOrganizingRequestAdminRow = {
   id: string;
   event_id: string;
   event_title: string;
+  /** The organization invited — the obec's own, or a business/club/person's. */
+  organization_name: string;
   requested_by_name: string;
   municipality_id: string;
   created_at: string;
@@ -257,19 +259,17 @@ type PayloadCoOrganizingRequest = {
   id: number;
   event: number | { id: number } | null;
   eventTitle: string;
+  organizationName: string;
   municipality: number | { id: number };
   requestedBy: number | { id: number };
   createdAt: string;
 };
 
-/** Pending requests for the obec to co-organize an event — for one obec, or (a superadmin,
- * no `municipalityId`) every obec. */
-export async function getCoOrganizingRequestsForAdmin(municipalityId?: string): Promise<CoOrganizingRequestAdminRow[]> {
+async function listPendingCoOrganizingRequests(
+  filter: Parameters<typeof buildWhereParams>[0],
+): Promise<CoOrganizingRequestAdminRow[]> {
   const query = buildQuery({ depth: 0, sort: "createdAt", limit: 1000 });
-  const where = buildWhereParams({
-    status: { equals: "pending" },
-    ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
-  });
+  const where = buildWhereParams({ status: { equals: "pending" }, ...filter });
   const result = await get<PayloadListResponse<PayloadCoOrganizingRequest>>(`/co-organizing-requests?${where}&${query}`);
 
   const userIds = Array.from(new Set(result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
@@ -289,13 +289,29 @@ export async function getCoOrganizingRequestsForAdmin(municipalityId?: string): 
     id: String(r.id),
     event_id: toId(r.event) ?? "",
     event_title: r.eventTitle,
+    organization_name: r.organizationName,
     requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
     municipality_id: toId(r.municipality)!,
     created_at: r.createdAt,
   }));
 }
 
-/** Approving puts the obec among the event's spolupořadatelé (CoOrganizingRequests applyDecision). */
+/** Pending invitations for the obec itself to co-organize an event — for one obec, or (a
+ * superadmin, no `municipalityId`) every obec. The obec's own organization has no owner. */
+export function getCoOrganizingRequestsForAdmin(municipalityId?: string): Promise<CoOrganizingRequestAdminRow[]> {
+  return listPendingCoOrganizingRequests({
+    organizationOwner: { exists: false },
+    ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
+  });
+}
+
+/** Pending invitations for one of the user's own organizations to co-organize an event. */
+export function getMyCoOrganizingInvitations(userId: string): Promise<CoOrganizingRequestAdminRow[]> {
+  return listPendingCoOrganizingRequests({ organizationOwner: { equals: userId } });
+}
+
+/** Approving puts the invited organization among the event's spolupořadatelé
+ * (CoOrganizingRequests applyDecision). */
 export async function decideCoOrganizingRequest(requestId: string, approve: boolean): Promise<void> {
   await patch(`/co-organizing-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
 }
