@@ -448,6 +448,13 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
           volunteerFocus: person.volunteer?.focus ?? [],
           volunteerNote: person.volunteer?.note ?? null,
           volunteerSince: person.volunteer ? new Date().toISOString() : null,
+          volunteerMunicipality:
+            person.volunteer && person.municipality ? municipalityIds.get(person.municipality) : null,
+          // Every volunteer is reachable on at least one channel (Profiles validateVolunteerContact).
+          volunteerAllowPhone: Boolean(person.volunteer && person.phone),
+          volunteerContactPhone: person.volunteer ? person.phone : null,
+          volunteerAllowEmail: Boolean(person.volunteer && !person.phone),
+          volunteerContactEmail: person.volunteer ? person.email : null,
           onboardingCompleted: true,
         },
         overrideAccess: true,

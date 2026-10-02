@@ -22,6 +22,7 @@ export function TopNav() {
     administeredMunicipalityIds,
     organizerMunicipalityIds,
     viewingMunicipalityId,
+    profile,
     signOut,
   } = useAuth();
   const pathname = usePathname();
@@ -50,6 +51,8 @@ export function TopNav() {
     ...(isAdmin && canManageObecHere ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
     // The organization they run events as — the obec's own one for its admin.
     ...(isOrganizer ? [{ to: "/organizace", label: "Organizace" }] : []),
+    // Their own card in the volunteer pool — there only while they're in it.
+    ...(profile?.is_volunteer ? [{ to: `/dobrovolnik/${user.id}`, label: "Dobrovolník" }] : []),
     { to: "/profil", label: "Profil" },
   ];
 

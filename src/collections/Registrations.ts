@@ -8,6 +8,10 @@ import { scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/r
 import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { deletedAtField, notDeleted } from './shared/softDelete'
 
+/** Who takes up the event's places: participants. A volunteer helping run it (an accepted
+ * VolunteerInvitation) never uses up a participant's spot. */
+export const PARTICIPANTS_ONLY: Where = { role: { not_equals: 'volunteer' } }
+
 const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
   approved: 'Vaše přihláška byla schválena',
   rejected: 'Vaše přihláška byla zamítnuta',
@@ -23,11 +27,13 @@ const REGISTRATION_STATUS_SUBJECT: Record<string, string> = {
  * approved registrations reach capacity, and back to 'active' once they drop below it again.
  * Never overwrites 'cancelled' or 'finished', which are terminal/time-driven, not capacity-driven. */
 const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
-  const wasApproved = previousDoc?.status === 'approved'
-  const isApproved = doc.status === 'approved'
+  // Only approved participants use up places — a volunteer turning participant (leaving the pool)
+  // or the other way round (an accepted invitation) moves the count just like an approval does.
+  const counts = (reg: { status?: string | null; role?: string | null } | undefined) =>
+    reg?.status === 'approved' && reg?.role !== 'volunteer'
   // On create there's no previousDoc, so only a create that lands straight in "approved"
   // (organizer-registers-own-event, or auto-approval mode) can have changed the count.
-  const mayHaveChanged = operation === 'create' ? isApproved : wasApproved !== isApproved
+  const mayHaveChanged = operation === 'create' ? counts(doc) : counts(previousDoc) !== counts(doc)
   if (!mayHaveChanged) return doc
 
   const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
@@ -37,7 +43,7 @@ const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previou
     // pre-write snapshot and undercount the row that was just approved/unapproved.
     const result = await req.payload.count({
       collection: 'registrations',
-      where: { and: [{ event: { equals: eventId } }, { status: { equals: 'approved' } }] },
+      where: { and: [{ event: { equals: eventId } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },
       overrideAccess: true,
       req,
     })
@@ -70,8 +76,9 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
   req,
   context,
 }) => {
-  // Seeded demo registrations (src/lib/seed/run.ts) mustn't mail anyone or queue reminders.
-  if (context?.skipNotifications) return doc
+  // Seeded demo registrations (src/lib/seed/run.ts) mustn't mail anyone or queue reminders; a
+  // volunteer's comes from an accepted invitation, which tells everyone itself (VolunteerInvitations).
+  if (context?.skipNotifications || context?.volunteerInvitation || context?.leavingVolunteerPool) return doc
   try {
     const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
     const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
@@ -121,10 +128,13 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
     // table), only when someone else did.
     if (doc.status === 'cancelled') {
       if (String(req.user?.id) !== String(organizerId)) {
+        const volunteer = doc.role === 'volunteer'
         await sendNotification(req.payload, {
           userId: organizerId,
-          title: 'Přihláška zrušena',
-          message: `Někdo zrušil svou přihlášku na vaši akci „${event.title}“.`,
+          title: volunteer ? 'Dobrovolník nepřijde' : 'Přihláška zrušena',
+          message: volunteer
+            ? `Dobrovolník zrušil svou účast na vaší akci „${event.title}“.`
+            : `Někdo zrušil svou přihlášku na vaši akci „${event.title}“.`,
           link: `/akce/${eventId}`,
           email: {
             subject: `Zrušená přihláška: ${event.title}`,
@@ -315,6 +325,22 @@ export const Registrations: CollectionConfig = {
       },
     },
     {
+      name: 'role',
+      type: 'select',
+      defaultValue: 'participant',
+      // Only an accepted VolunteerInvitation makes someone a volunteer (overrideAccess) — nobody
+      // signs up as one, or turns their own participant registration into one.
+      access: { create: isPlatformAdminField, update: isPlatformAdminField },
+      options: [
+        { label: 'Participant', value: 'participant' },
+        { label: 'Volunteer', value: 'volunteer' },
+      ],
+      admin: {
+        description:
+          'A volunteer helps run the event (an accepted VolunteerInvitation) — approved straight away, and not counted against capacity.',
+      },
+    },
+    {
       name: 'attendanceStatus',
       type: 'select',
       defaultValue: 'not_marked',
@@ -400,7 +426,7 @@ export const Registrations: CollectionConfig = {
               400,
             )
           }
-          if (event.registrationApprovalMode === 'auto') {
+          if (data.role !== 'volunteer' && event.registrationApprovalMode === 'auto') {
             // Brief §4/§8 — "auto" registers everyone immediately, so the capacity check has
             // to happen server-side here, not just as a disabled button on the frontend (that
             // read can be stale). What happens to a signup that arrives once it's already full
@@ -409,7 +435,7 @@ export const Registrations: CollectionConfig = {
             const activeCount = await req.payload.count({
               collection: 'registrations',
               where: {
-                and: [{ event: { equals: data.event } }, { status: { in: ['pending', 'approved'] } }],
+                and: [{ event: { equals: data.event } }, { status: { in: ['pending', 'approved'] } }, PARTICIPANTS_ONLY],
               },
               overrideAccess: true,
             })

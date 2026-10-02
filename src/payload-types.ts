@@ -88,6 +88,8 @@ export interface Config {
     'event-deletion-requests': EventDeletionRequest;
     organizations: Organization;
     exports: Export;
+    'volunteer-invitations': VolunteerInvitation;
+    'volunteer-ratings': VolunteerRating;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -116,6 +118,8 @@ export interface Config {
     'event-deletion-requests': EventDeletionRequestsSelect<false> | EventDeletionRequestsSelect<true>;
     organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
     exports: ExportsSelect<false> | ExportsSelect<true>;
+    'volunteer-invitations': VolunteerInvitationsSelect<false> | VolunteerInvitationsSelect<true>;
+    'volunteer-ratings': VolunteerRatingsSelect<false> | VolunteerRatingsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -322,6 +326,26 @@ export interface Profile {
   volunteerNote?: string | null;
   volunteerSince?: string | null;
   /**
+   * Where the volunteer helps — what puts them on the organizers' volunteer map. Prefilled from the home obec; someone "bez obce" picks one on joining.
+   */
+  volunteerMunicipality?: (number | null) | Municipality;
+  /**
+   * Pořadatelé mohou dobrovolníka oslovit e-mailem (volunteerContactEmail).
+   */
+  volunteerAllowEmail?: boolean | null;
+  /**
+   * The address organizers write to — prefilled from the account, but changing it doesn't touch the sign-in e-mail.
+   */
+  volunteerContactEmail?: string | null;
+  /**
+   * Pořadatelé mohou dobrovolníka oslovit telefonem (volunteerContactPhone).
+   */
+  volunteerAllowPhone?: boolean | null;
+  /**
+   * The number organizers call — separate from `phone`, which event change/cancellation SMS go to.
+   */
+  volunteerContactPhone?: string | null;
+  /**
    * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
   deletedAt?: string | null;
@@ -496,6 +520,10 @@ export interface Registration {
    * "Smí přijít" — whether the registration itself is allowed, not whether they attended.
    */
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  /**
+   * A volunteer helps run the event (an accepted VolunteerInvitation) — approved straight away, and not counted against capacity.
+   */
+  role?: ('participant' | 'volunteer') | null;
   /**
    * What actually happened — set by the organizer after the event, on the manage-event page.
    */
@@ -805,6 +833,42 @@ export interface Export {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "volunteer-invitations".
+ */
+export interface VolunteerInvitation {
+  id: number;
+  event: number | Event;
+  eventTitle: string;
+  volunteer: number | User;
+  invitedBy: number | User;
+  /**
+   * The organizer's note — what they need help with.
+   */
+  message?: string | null;
+  status: 'pending' | 'accepted' | 'declined' | 'withdrawn';
+  registration?: (number | null) | Registration;
+  decidedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "volunteer-ratings".
+ */
+export interface VolunteerRating {
+  id: number;
+  registration: number | Registration;
+  event: number | Event;
+  eventTitle: string;
+  volunteer: number | User;
+  ratedBy: number | User;
+  rating: number;
+  comment?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -910,6 +974,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'exports';
         value: number | Export;
+      } | null)
+    | ({
+        relationTo: 'volunteer-invitations';
+        value: number | VolunteerInvitation;
+      } | null)
+    | ({
+        relationTo: 'volunteer-ratings';
+        value: number | VolunteerRating;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1073,6 +1145,11 @@ export interface ProfilesSelect<T extends boolean = true> {
   volunteerFocus?: T;
   volunteerNote?: T;
   volunteerSince?: T;
+  volunteerMunicipality?: T;
+  volunteerAllowEmail?: T;
+  volunteerContactEmail?: T;
+  volunteerAllowPhone?: T;
+  volunteerContactPhone?: T;
   deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1134,6 +1211,7 @@ export interface RegistrationsSelect<T extends boolean = true> {
   event?: T;
   user?: T;
   status?: T;
+  role?: T;
   attendanceStatus?: T;
   attendanceMarkedAt?: T;
   attendanceMarkedBy?: T;
@@ -1340,6 +1418,37 @@ export interface ExportsSelect<T extends boolean = true> {
   error?: T;
   downloadedAt?: T;
   expiresAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "volunteer-invitations_select".
+ */
+export interface VolunteerInvitationsSelect<T extends boolean = true> {
+  event?: T;
+  eventTitle?: T;
+  volunteer?: T;
+  invitedBy?: T;
+  message?: T;
+  status?: T;
+  registration?: T;
+  decidedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "volunteer-ratings_select".
+ */
+export interface VolunteerRatingsSelect<T extends boolean = true> {
+  registration?: T;
+  event?: T;
+  eventTitle?: T;
+  volunteer?: T;
+  ratedBy?: T;
+  rating?: T;
+  comment?: T;
   updatedAt?: T;
   createdAt?: T;
 }

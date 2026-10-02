@@ -27,13 +27,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart } from "lucide-react";
 import { formatEventDate, formatEventTime } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 
-interface Reg { id: string; user_id: string; status: string; full_name: string; avatar_url: string | null }
+interface Reg { id: string; user_id: string; status: string; role: "participant" | "volunteer"; full_name: string; avatar_url: string | null }
 
 const ACCESSIBILITY_LABELS: Record<string, string> = {
   wheelchair_access: "Bezbariérový přístup",
@@ -190,7 +190,8 @@ function EventDetailContent() {
   const mapEmbed = event.lat && event.lng
     ? `https://www.google.com/maps?q=${event.lat},${event.lng}&z=15&output=embed`
     : `https://www.google.com/maps?q=${encodeURIComponent(event.location_text)}&output=embed`;
-  const approvedAttendees = regs.filter((r) => r.status === "approved");
+  const approvedAttendees = regs.filter((r) => r.status === "approved" && r.role !== "volunteer");
+  const volunteers = regs.filter((r) => r.status === "approved" && r.role === "volunteer");
 
   return (
     <article className="animate-fade-in pb-6 sm:mx-auto sm:max-w-3xl">
@@ -349,6 +350,26 @@ function EventDetailContent() {
                 ))}
               </div>
             )}
+            {volunteers.length > 0 && (
+              <>
+                <h3 className="text-base font-bold mt-4 mb-2 flex items-center gap-1.5">
+                  <HandHeart className="h-4 w-4 text-primary" aria-hidden /> Dobrovolníci
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {volunteers.map((r) => (
+                    <div key={r.id} className="flex items-center gap-2 bg-primary-soft rounded-full pl-1 pr-3 py-1">
+                      <UserAvatar
+                        name={r.full_name}
+                        src={r.avatar_url}
+                        className="h-7 w-7"
+                        fallbackClassName="text-xs bg-primary text-primary-foreground"
+                      />
+                      <span className="text-sm font-medium">{r.full_name}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
         {(canEdit || isSuperAdmin) && (
@@ -397,14 +418,16 @@ function EventDetailContent() {
         ) : myReg ? (
           <div className="space-y-2">
             <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold">
-              {myReg.status === "approved" ? (
+              {myReg.role === "volunteer" ? (
+                <><HandHeart className="h-5 w-5 text-primary" /> <span className="text-primary">Pomáháte jako dobrovolník</span></>
+              ) : myReg.status === "approved" ? (
                 <><CheckCircle2 className="h-5 w-5 text-success" /> <span className="text-success">Jste přihlášen/a</span></>
               ) : (
                 <><Clock className="h-5 w-5 text-warning" /> <span className="text-warning">Čeká na schválení pořadatelem</span></>
               )}
             </div>
             <Button onClick={handleCancel} disabled={submitting} variant="outline" className="w-full h-12 text-base">
-              Zrušit přihlášku
+              {myReg.role === "volunteer" ? "Zrušit účast" : "Zrušit přihlášku"}
             </Button>
           </div>
         ) : isFull ? (

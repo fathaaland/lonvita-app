@@ -209,7 +209,7 @@ function AdminContent() {
             </TabsContent>
 
             <TabsContent value="volunteers" className="pt-4">
-              <VolunteersTable municipalityId={muniId} />
+              <VolunteersTable />
             </TabsContent>
 
             <TabsContent value="requests" className="pt-4">

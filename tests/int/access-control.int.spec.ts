@@ -334,7 +334,7 @@ describe('Consents ownership (GDPR foundation, brief §A3)', () => {
   })
 })
 
-describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
+describe("Volunteer pool fields are the volunteer's own (Profiles)", () => {
   let muniA: { id: number }
   let muniB: { id: number }
   let volunteerA: { id: number; email: string; role: string }
@@ -390,6 +390,9 @@ describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
         isVolunteer: true,
         volunteerFocus: ['akce'],
         volunteerNote: 'Mám auto',
+        volunteerAllowEmail: true,
+        volunteerContactEmail: 'volunteer-a@test.local',
+        volunteerMunicipality: muniA.id,
       },
       overrideAccess: true,
     })
@@ -412,29 +415,25 @@ describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
   const readProfileAs = (user: { id: number; email: string; role: string }) =>
     payload.findByID({ collection: 'profiles', id: volunteerProfile.id, user, overrideAccess: false })
 
-  it("an admin of another obec doesn't see that someone is a volunteer", async () => {
-    const profile = await readProfileAs(adminB)
-    expect(profile.fullName).toBe('Volunteer A')
-    expect(profile.isVolunteer).toBeUndefined()
-    expect(profile.volunteerFocus).toBeUndefined()
-    expect(profile.volunteerNote).toBeUndefined()
+  it("nobody but the volunteer reads the raw volunteer fields — not even the obec's admin", async () => {
+    for (const viewer of [adminA, adminB]) {
+      const profile = await readProfileAs(viewer)
+      expect(profile.fullName).toBe('Volunteer A')
+      expect(profile.isVolunteer).toBeUndefined()
+      expect(profile.volunteerFocus).toBeUndefined()
+      expect(profile.volunteerContactEmail).toBeUndefined()
+    }
   })
 
-  it("an admin of another obec can't list volunteers by filtering on isVolunteer", async () => {
+  it("an admin can't list volunteers by filtering on isVolunteer", async () => {
     await expect(
       payload.find({
         collection: 'profiles',
-        where: { and: [{ municipality: { equals: muniA.id } }, { isVolunteer: { equals: true } }] },
-        user: adminB,
+        where: { isVolunteer: { equals: true } },
+        user: adminA,
         overrideAccess: false,
       }),
     ).rejects.toThrow()
-  })
-
-  it("the obec's own admin sees the volunteer fields", async () => {
-    const profile = await readProfileAs(adminA)
-    expect(profile.isVolunteer).toBe(true)
-    expect(profile.volunteerFocus).toEqual(['akce'])
   })
 
   it('the volunteer sees their own volunteer fields', async () => {
@@ -443,19 +442,42 @@ describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
     expect(profile.volunteerNote).toBe('Mám auto')
   })
 
-  it('someone without an obec cannot join the volunteer pool', async () => {
-    await expect(
+  it('someone without an obec can join the pool too — it is one for the whole platform', async () => {
+    const joined = await payload.update({
+      collection: 'profiles',
+      id: homelessProfile.id,
+      data: {
+        isVolunteer: true,
+        volunteerMunicipality: muniB.id,
+        volunteerFocus: ['it'],
+        volunteerAllowPhone: true,
+        volunteerContactPhone: '+420 777 123 456',
+      },
+      user: homeless,
+      overrideAccess: false,
+    })
+    expect(joined.isVolunteer).toBe(true)
+    expect(joined.volunteerSince).toBeTruthy()
+  })
+
+  it('joining needs an obec to help in, and at least one channel with its contact', async () => {
+    const join = (data: Record<string, unknown>) =>
       payload.update({
         collection: 'profiles',
         id: homelessProfile.id,
-        data: { isVolunteer: true },
+        data: { isVolunteer: true, ...data },
         user: homeless,
         overrideAccess: false,
-      }),
-    ).rejects.toThrow()
+      })
+    await expect(join({ volunteerMunicipality: null })).rejects.toThrow(/obec/)
+    await expect(join({ volunteerAllowEmail: false, volunteerAllowPhone: false })).rejects.toThrow(/oslovit/)
+    await expect(join({ volunteerAllowPhone: true, volunteerContactPhone: '' })).rejects.toThrow(/telefon/)
+    await expect(
+      join({ volunteerAllowPhone: false, volunteerAllowEmail: true, volunteerContactEmail: 'neni-email' }),
+    ).rejects.toThrow(/e-mail/)
   })
 
-  it('clearing the obec drops a volunteer out of the pool', async () => {
+  it('changing the obec keeps a volunteer in the pool', async () => {
     const updated = await payload.update({
       collection: 'profiles',
       id: volunteerProfile.id,
@@ -463,7 +485,7 @@ describe('Volunteer pool is per-obec (Profiles volunteer fields)', () => {
       user: volunteerA,
       overrideAccess: false,
     })
-    expect(updated.isVolunteer).toBe(false)
+    expect(updated.isVolunteer).toBe(true)
   })
 })
 

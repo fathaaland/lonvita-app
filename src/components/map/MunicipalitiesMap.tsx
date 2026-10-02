@@ -6,15 +6,32 @@ import { MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet"
 
 import "leaflet/dist/leaflet.css";
 
-export type MunicipalityMapPoint = { id: string; name: string; lat: number; lng: number };
+export type MunicipalityMapPoint = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  /** Shown in the pin instead of a plain dot — e.g. how many volunteers help in the obec. */
+  count?: number;
+};
 
 // Geographic center of the Czech Republic — a sane default when there's nothing (yet) to
 // fit bounds to, or only a single municipality (fitBounds on one point is degenerate).
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 const DEFAULT_ZOOM = 7;
 
-function createMunicipalityIcon(label: string, active: boolean) {
+function createMunicipalityIcon(label: string, active: boolean, count?: number) {
   const escaped = label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  if (count !== undefined) {
+    // Wider for two digits; anchored at its centre like the dot.
+    const size = count > 9 ? 34 : 30;
+    return L.divIcon({
+      html: `<div class="muni-marker-count${active ? " muni-marker-count--active" : ""}" style="width:${size}px;height:${size}px">${count}</div>`,
+      className: "muni-marker-icon",
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    });
+  }
   return L.divIcon({
     html: `<div class="muni-marker-dot${active ? " muni-marker-dot--active" : ""}"></div><div class="muni-marker-label">${escaped}</div>`,
     className: "muni-marker-icon",
@@ -68,6 +85,10 @@ export default function MunicipalitiesMap({ points, selectedId, onSelect, classN
         .muni-marker-dot { width: 14px; height: 14px; border-radius: 999px; background: hsl(var(--primary)); border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4); cursor: pointer; }
         .muni-marker-dot--active { background: hsl(var(--accent)); width: 18px; height: 18px; margin: -2px; }
         .muni-marker-label { display: none; }
+        .muni-marker-count { display: flex; align-items: center; justify-content: center; border-radius: 999px; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font: 700 13px/1 'DM Sans', ui-sans-serif, system-ui, sans-serif; border: 2.5px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.35); cursor: pointer; transition: transform 120ms ease; }
+        .muni-marker-count:hover { transform: scale(1.08); }
+        .muni-marker-count--active { background: hsl(var(--accent)); transform: scale(1.15); }
+        @media (prefers-reduced-motion: reduce) { .muni-marker-count { transition: none; } }
       `}</style>
       <MapContainer center={CZECHIA_CENTER} zoom={DEFAULT_ZOOM} scrollWheelZoom={false} style={{ height: "100%", width: "100%" }}>
         <TileLayer
@@ -81,10 +102,10 @@ export default function MunicipalitiesMap({ points, selectedId, onSelect, classN
           <Marker
             key={m.id}
             position={[m.lat, m.lng]}
-            icon={createMunicipalityIcon(m.name, m.id === selectedId)}
+            icon={createMunicipalityIcon(m.name, m.id === selectedId, m.count)}
             eventHandlers={{ click: () => onSelect(m.id) }}
           >
-            <Tooltip direction="top" offset={[0, -8]}>{m.name}</Tooltip>
+            <Tooltip direction="top" offset={[0, m.count !== undefined ? -14 : -8]}>{m.name}</Tooltip>
           </Marker>
         ))}
       </MapContainer>

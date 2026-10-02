@@ -28,6 +28,10 @@ interface Props {
   value: MunicipalityChoice;
   onChange: (value: MunicipalityChoice) => void;
   id?: string;
+  /** Wording for a different question than "where do you live" — e.g. where a volunteer helps. */
+  copy?: { placeholder: string; title: string; description: string };
+  /** Hide "Moje obec tu zatím není" — when an obec has to be picked. */
+  requireMunicipality?: boolean;
 }
 
 /**
@@ -37,7 +41,13 @@ interface Props {
  * yet chosen, an obec, or "my town isn't here" (which the dialog offers, rather than a stray
  * checkbox sitting under the form).
  */
-export function MunicipalityPicker({ points, value, onChange, id }: Props) {
+const DEFAULT_COPY = {
+  placeholder: "Vyberte obec na mapě",
+  title: "Kde bydlíte?",
+  description: "Klepněte na tečku své obce. Budete pak vidět akce, které se v ní konají.",
+};
+
+export function MunicipalityPicker({ points, value, onChange, id, copy = DEFAULT_COPY, requireMunicipality = false }: Props) {
   const [open, setOpen] = useState(false);
   // The dialog holds a draft of the choice: nothing lands on the form until it's confirmed, so
   // a mis-tapped pin costs nothing.
@@ -77,7 +87,7 @@ export function MunicipalityPicker({ points, value, onChange, id }: Props) {
           ) : value.noMunicipality ? (
             <span className="font-semibold">Moje obec tu zatím není</span>
           ) : (
-            <span className="text-muted-foreground">Vyberte obec na mapě</span>
+            <span className="text-muted-foreground">{copy.placeholder}</span>
           )}
         </span>
         {resolved ? (
@@ -90,10 +100,8 @@ export function MunicipalityPicker({ points, value, onChange, id }: Props) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[min(56rem,calc(100vw-2rem))] gap-5 overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Kde bydlíte?</DialogTitle>
-            <DialogDescription className="text-base">
-              Klepněte na tečku své obce. Budete pak vidět akce, které se v ní konají.
-            </DialogDescription>
+            <DialogTitle className="text-2xl">{copy.title}</DialogTitle>
+            <DialogDescription className="text-base">{copy.description}</DialogDescription>
           </DialogHeader>
 
           <MunicipalitiesMap
@@ -103,15 +111,17 @@ export function MunicipalityPicker({ points, value, onChange, id }: Props) {
             className="h-[min(56vh,28rem)] min-h-[13rem] w-full overflow-hidden rounded-2xl border border-border"
           />
 
-          <DialogFooter className="items-center gap-3 sm:justify-between">
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-12 px-3 text-base font-semibold text-muted-foreground hover:text-foreground"
-              onClick={() => confirm({ id: "", noMunicipality: true })}
-            >
-              Moje obec tu zatím není
-            </Button>
+          <DialogFooter className={cn("items-center gap-3", requireMunicipality ? "sm:justify-end" : "sm:justify-between")}>
+            {!requireMunicipality && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-12 px-3 text-base font-semibold text-muted-foreground hover:text-foreground"
+                onClick={() => confirm({ id: "", noMunicipality: true })}
+              >
+                Moje obec tu zatím není
+              </Button>
+            )}
             <Button
               type="button"
               className="h-12 px-6 text-base font-semibold"

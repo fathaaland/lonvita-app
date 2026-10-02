@@ -3,7 +3,7 @@
  * already expect — snake_case field names, same nesting — so pages mostly only need their
  * data-fetching `useEffect` rewritten, not their JSX.
  */
-import { buildQuery, buildWhereParams, del, get, patch, post, uploadFile } from "./client";
+import { buildQuery, buildWhereParams, del, get, patch, post, uploadFile, PayloadApiError } from "./client";
 
 import type { PayloadListResponse } from "./client";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
@@ -321,11 +321,15 @@ export async function updateEvent(eventId: string, data: Record<string, unknown>
 
 // --- Registrations ----------------------------------------------------------------------
 
+export type RegistrationRole = "participant" | "volunteer";
+
 export type RegistrationRow = {
   id: string;
   event_id: string;
   user_id: string;
   status: "pending" | "approved" | "rejected" | "cancelled";
+  /** A volunteer helps run the event (an accepted invitation from the pool) — not a participant. */
+  role: RegistrationRole;
 };
 
 export type AttendanceStatus = "not_marked" | "attended" | "no_show" | "excused";
@@ -335,6 +339,7 @@ type PayloadRegistration = {
   event: number | { id: number };
   user: number | { id: number };
   status: RegistrationRow["status"];
+  role?: RegistrationRole | null;
   attendanceStatus?: AttendanceStatus;
 };
 
@@ -343,6 +348,7 @@ const mapRegistration = (r: PayloadRegistration): RegistrationRow => ({
   event_id: toId(r.event)!,
   user_id: toId(r.user)!,
   status: r.status,
+  role: r.role ?? "participant",
 });
 
 export type RegistrationCountRow = { approved: number; pending: number };
@@ -489,7 +495,7 @@ export async function submitEventFeedback(input: {
 /** For EventDetail.tsx — pending+approved registrations for one event, with each participant's name. */
 export async function getEventRegistrationsWithNames(
   eventId: string,
-): Promise<{ id: string; user_id: string; status: string; full_name: string; avatar_url: string | null }[]> {
+): Promise<{ id: string; user_id: string; status: string; role: RegistrationRole; full_name: string; avatar_url: string | null }[]> {
   const where = buildWhereParams({
     event: { equals: eventId },
     status: { in: ["pending", "approved"] },
@@ -517,6 +523,7 @@ export async function getEventRegistrationsWithNames(
     id: String(r.id),
     user_id: toId(r.user)!,
     status: r.status,
+    role: r.role ?? "participant",
     full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
     avatar_url: avatarByUser.get(toId(r.user) ?? "") ?? null,
   }));
@@ -531,6 +538,7 @@ export async function getOrganizerName(userId: string): Promise<string | null> {
 export type ManageRegistrationRow = {
   id: string;
   status: RegistrationRow["status"];
+  role: RegistrationRole;
   attendance_status: AttendanceStatus;
   user_id: string;
   full_name: string;
@@ -566,6 +574,7 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
     return {
       id: String(r.id),
       status: r.status,
+      role: r.role ?? "participant",
       attendance_status: r.attendanceStatus ?? "not_marked",
       user_id: uid,
       full_name: info?.fullName ?? "Účastník",
@@ -608,6 +617,12 @@ export type ProfileRow = {
   volunteer_focus: string[] | null;
   volunteer_note: string | null;
   volunteer_since: string | null;
+  volunteer_allow_email: boolean;
+  volunteer_contact_email: string | null;
+  volunteer_allow_phone: boolean;
+  volunteer_contact_phone: string | null;
+  /** Where they help as a volunteer — the obec that puts them on the volunteer map. */
+  volunteer_municipality_id: string | null;
 };
 
 type PayloadProfile = {
@@ -629,6 +644,11 @@ type PayloadProfile = {
   volunteerFocus?: string[] | null;
   volunteerNote?: string | null;
   volunteerSince?: string | null;
+  volunteerAllowEmail?: boolean | null;
+  volunteerContactEmail?: string | null;
+  volunteerAllowPhone?: boolean | null;
+  volunteerContactPhone?: string | null;
+  volunteerMunicipality?: number | { id: number } | null;
 };
 
 /** The square avatar crop, else the original — a photo smaller than the crop gets no crop. */
@@ -670,35 +690,213 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   volunteer_focus: p.volunteerFocus ?? null,
   volunteer_note: p.volunteerNote ?? null,
   volunteer_since: p.volunteerSince ?? null,
+  volunteer_allow_email: Boolean(p.volunteerAllowEmail),
+  volunteer_contact_email: p.volunteerContactEmail ?? null,
+  volunteer_allow_phone: Boolean(p.volunteerAllowPhone),
+  volunteer_contact_phone: p.volunteerContactPhone ?? null,
+  volunteer_municipality_id: toId(p.volunteerMunicipality),
 });
 
 export type VolunteerRow = {
   id: string;
   user_id: string;
   full_name: string;
+  avatar_url: string | null;
+  /** Where they help — the obec that puts them on the volunteer map. */
+  location: { id: string; name: string; lat: number; lng: number } | null;
+  /** Only the channels the volunteer allowed — null otherwise. */
   phone: string | null;
   email: string | null;
   volunteer_focus: string[] | null;
   volunteer_note: string | null;
   volunteer_since: string | null;
+  /** Their average rating from organizers, once anyone has rated them. */
+  rating: { average: number; count: number } | null;
+  /** The viewer may take them off the pool (a platform admin, or an admin of the obec they help in). */
+  can_remove: boolean;
 };
 
-/** Goes through the scoped /admin/volunteers endpoint — the volunteer fields on a profile
- * can't be filtered on over plain REST (see Profiles `canReadVolunteerFields`). */
-export async function getVolunteers(municipalityId: string): Promise<VolunteerRow[]> {
-  const result = await get<{ docs: VolunteerRow[] }>(`/admin/volunteers?municipalityId=${encodeURIComponent(municipalityId)}`);
+export type VolunteerDetail = {
+  volunteer: VolunteerRow;
+  /** The viewer is the volunteer themselves. */
+  is_self: boolean;
+  ratings: {
+    id: string;
+    rating: number;
+    comment: string | null;
+    event_id: string;
+    event_title: string;
+    rated_by_name: string;
+    created_at: string;
+  }[];
+  events: { id: string; title: string; date_time: string; location_text: string | null; upcoming: boolean; attended: boolean }[];
+};
+
+/** A volunteer's card — for the volunteer themselves and anyone who organizes. Null once they've left
+ * the pool (the card disappears with it). */
+export async function getVolunteerDetail(userId: string): Promise<VolunteerDetail | null> {
+  try {
+    return await get<VolunteerDetail>(`/volunteers/${userId}`);
+  } catch (error) {
+    if (error instanceof PayloadApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export type VolunteerRatingRow = { id: string; registration_id: string; rating: number; comment: string | null };
+
+/** Ratings already given to the volunteers of one event, by their registration. */
+export async function getVolunteerRatingsForEvent(eventId: string): Promise<Map<string, VolunteerRatingRow>> {
+  const where = buildWhereParams({ event: { equals: eventId } });
+  const result = await get<
+    PayloadListResponse<{ id: number; registration: number | { id: number }; rating: number; comment?: string | null }>
+  >(`/volunteer-ratings?${where}&depth=0&limit=200`);
+  return new Map(
+    result.docs.map((r) => [
+      toId(r.registration)!,
+      { id: String(r.id), registration_id: toId(r.registration)!, rating: r.rating, comment: r.comment ?? null },
+    ]),
+  );
+}
+
+/** Rates a volunteer who helped on the event — or changes an earlier rating. */
+export async function rateVolunteer(
+  registrationId: string,
+  rating: number,
+  comment: string,
+  existingId?: string,
+): Promise<void> {
+  if (existingId) {
+    await patch(`/volunteer-ratings/${existingId}`, { rating, comment: comment.trim() || null });
+  } else {
+    await post("/volunteer-ratings", { registration: Number(registrationId), rating, comment: comment.trim() || undefined });
+  }
+}
+
+/** The whole platform's volunteer pool, for whoever organizes anywhere — through the scoped
+ * /admin/volunteers endpoint, since the volunteer fields on a profile are the volunteer's own. */
+export async function getVolunteers(): Promise<VolunteerRow[]> {
+  const result = await get<{ docs: VolunteerRow[] }>("/admin/volunteers");
   return result.docs;
 }
 
-/** Admin adds someone (by user id) to their municipality's volunteer pool — Profiles.access.update
- * is self-only, so this goes through a dedicated overrideAccess endpoint. */
-export async function addVolunteer(userId: string, municipalityId: string): Promise<void> {
-  await post("/admin/volunteers", { userId: Number(userId), municipalityId: Number(municipalityId), isVolunteer: true });
+/** Takes someone off the pool (misuse, or they asked by phone) — joining is only ever their own. */
+export async function removeVolunteer(userId: string): Promise<void> {
+  await post("/admin/volunteers", { userId: Number(userId), isVolunteer: false });
 }
 
-/** Admin removes someone (by user id) from their municipality's volunteer pool. */
-export async function removeVolunteer(userId: string, municipalityId: string): Promise<void> {
-  await post("/admin/volunteers", { userId: Number(userId), municipalityId: Number(municipalityId), isVolunteer: false });
+// --- Volunteer invitations --------------------------------------------------------------------
+
+/** Asks a volunteer from the pool to help run the event — they're on it once they accept. */
+export async function inviteVolunteer(eventId: string, volunteerUserId: string, message: string): Promise<void> {
+  await post("/volunteer-invitations", {
+    event: Number(eventId),
+    volunteer: Number(volunteerUserId),
+    message: message.trim() || undefined,
+  });
+}
+
+export type VolunteerInvitationRow = {
+  id: string;
+  event_id: string;
+  event_title: string;
+  event_date_time: string | null;
+  event_location: string | null;
+  invited_by_name: string;
+  message: string | null;
+};
+
+type PayloadVolunteerInvitation = {
+  id: number;
+  event: number | { id: number; dateTime: string; locationText?: string | null } | null;
+  eventTitle: string;
+  invitedBy: number | { id: number };
+  message?: string | null;
+};
+
+/** The volunteer's own invitations still waiting for their answer, soonest event first. */
+export async function getMyVolunteerInvitations(userId: string): Promise<VolunteerInvitationRow[]> {
+  const where = buildWhereParams({ volunteer: { equals: userId }, status: { equals: "pending" } });
+  const result = await get<PayloadListResponse<PayloadVolunteerInvitation>>(
+    `/volunteer-invitations?${where}&depth=1&limit=100`,
+  );
+  const names = await getFullNamesByUserIds(
+    [...new Set(result.docs.map((r) => toId(r.invitedBy)).filter((v): v is string => Boolean(v)))],
+  );
+  return result.docs
+    .map((r) => {
+      const event = typeof r.event === "object" ? r.event : null;
+      return {
+        id: String(r.id),
+        event_id: toId(r.event) ?? "",
+        event_title: r.eventTitle,
+        event_date_time: event?.dateTime ?? null,
+        event_location: event?.locationText ?? null,
+        invited_by_name: names.get(toId(r.invitedBy) ?? "") ?? "Pořadatel",
+        message: r.message ?? null,
+      };
+    })
+    .filter((r) => !r.event_date_time || new Date(r.event_date_time).getTime() > Date.now())
+    .sort((a, b) => (a.event_date_time ?? "").localeCompare(b.event_date_time ?? ""));
+}
+
+/** Accepting puts the volunteer on the event (VolunteerInvitations applyDecision). */
+export async function decideVolunteerInvitation(invitationId: string, accept: boolean): Promise<void> {
+  await patch(`/volunteer-invitations/${invitationId}`, { status: accept ? "accepted" : "declined" });
+}
+
+/** Which of these events the volunteer already has a pending invitation for — so the pool's
+ * "Pozvat" doesn't offer them twice. */
+export async function getPendingVolunteerInvitationEventIds(volunteerUserId: string, eventIds: string[]): Promise<Set<string>> {
+  if (eventIds.length === 0) return new Set();
+  const where = buildWhereParams({
+    volunteer: { equals: volunteerUserId },
+    status: { equals: "pending" },
+    event: { in: eventIds },
+  });
+  const result = await get<PayloadListResponse<{ event: number | { id: number } }>>(
+    `/volunteer-invitations?${where}&depth=0&limit=200`,
+  );
+  return new Set(result.docs.map((r) => toId(r.event)!).filter(Boolean));
+}
+
+export type VolunteerShiftRow = {
+  registration_id: string;
+  event_id: string;
+  title: string;
+  date_time: string;
+  /** Leaving the pool turns the volunteer into a participant only where a place is free — on a full
+   * event they'd drop off it (Profiles handleLeavingPool). */
+  full: boolean;
+};
+
+/** The upcoming events the user helps on as a volunteer. */
+export async function getMyVolunteerShifts(userId: string): Promise<VolunteerShiftRow[]> {
+  const where = buildWhereParams({
+    user: { equals: userId },
+    role: { equals: "volunteer" },
+    status: { in: ["pending", "approved"] },
+  });
+  const result = await get<PayloadListResponse<PayloadRegistration & { event: number | PayloadEvent }>>(
+    `/registrations?${where}&depth=1&limit=100`,
+  );
+  const upcoming = result.docs
+    .flatMap((r) =>
+      typeof r.event === "object" && r.event && r.event.status !== "cancelled"
+        ? [{ registration_id: String(r.id), event: r.event }]
+        : [],
+    )
+    .filter((r) => new Date(r.event.dateTime).getTime() > Date.now());
+  const counts = await getRegistrationCounts(upcoming.map((r) => String(r.event.id)));
+  return upcoming
+    .map(({ registration_id, event }) => ({
+      registration_id,
+      event_id: String(event.id),
+      title: event.title,
+      date_time: event.dateTime,
+      full: (counts.get(String(event.id))?.approved ?? 0) >= event.capacity,
+    }))
+    .sort((a, b) => a.date_time.localeCompare(b.date_time));
 }
 
 /** Display names for a list of user ids (e.g. co-organizers on an event detail page). */
@@ -712,30 +910,6 @@ export async function getFullNamesByUserIds(userIds: string[]): Promise<Map<stri
     if (uid) names.set(uid, p.fullName);
   }
   return names;
-}
-
-export type MunicipalityUserRow = { id: string; full_name: string; email: string | null };
-
-/** For VolunteersTable — people with a profile in this municipality, matched by name, so an
- * admin can add someone to the volunteer pool without knowing their exact email. */
-export async function searchMunicipalityUsers(municipalityId: string, query: string): Promise<MunicipalityUserRow[]> {
-  const trimmed = query.trim();
-  if (trimmed.length < 2) return [];
-  const where = buildWhereParams({
-    municipality: { equals: municipalityId },
-    fullName: { like: trimmed },
-  });
-  const q = buildQuery({ sort: "fullName", depth: 1, limit: 10 });
-  const result = await get<PayloadListResponse<PayloadProfile & { user: number | { id: number; email: string } }>>(
-    `/profiles?${where}&${q}`,
-  );
-  return result.docs
-    .filter((p) => typeof p.user === "object")
-    .map((p) => ({
-      id: String((p.user as { id: number }).id),
-      full_name: p.fullName,
-      email: (p.user as { email: string }).email ?? null,
-    }));
 }
 
 /** An organization that can be invited to co-organize — with its own photo/logo, if it has one. */

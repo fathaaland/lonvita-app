@@ -74,6 +74,10 @@ const lockPlatformRole: CollectionBeforeOperationHook = async ({ args, operation
  * account provisioned from the superadmin panel (user + profile + participant role) always
  * failed. Event feedback hangs off a registration, so it's handled separately, before this. */
 const USER_OWNED_COLLECTIONS: { collection: CollectionSlug; field: string }[] = [
+  { collection: 'volunteer-ratings', field: 'volunteer' },
+  { collection: 'volunteer-ratings', field: 'ratedBy' },
+  { collection: 'volunteer-invitations', field: 'volunteer' },
+  { collection: 'volunteer-invitations', field: 'invitedBy' },
   { collection: 'registrations', field: 'user' },
   { collection: 'event-media', field: 'uploadedBy' },
   { collection: 'volunteer-flag-requests', field: 'requestedBy' },

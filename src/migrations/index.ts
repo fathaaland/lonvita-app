@@ -18,6 +18,9 @@ import * as migration_20260927_170152_add_exports from './20260927_170152_add_ex
 import * as migration_20260928_213410_add_profile_avatars from './20260928_213410_add_profile_avatars';
 import * as migration_20261002_121205_co_organizing_invitations from './20261002_121205_co_organizing_invitations';
 import * as migration_20261002_133958_organization_avatars from './20261002_133958_organization_avatars';
+import * as migration_20261002_140448_volunteer_pool_contact from './20261002_140448_volunteer_pool_contact';
+import * as migration_20261002_141202_volunteer_invitations from './20261002_141202_volunteer_invitations';
+import * as migration_20261002_144539_volunteer_map_and_ratings from './20261002_144539_volunteer_map_and_ratings';
 
 export const migrations = [
   {
@@ -118,6 +121,21 @@ export const migrations = [
   {
     up: migration_20261002_133958_organization_avatars.up,
     down: migration_20261002_133958_organization_avatars.down,
-    name: '20261002_133958_organization_avatars'
+    name: '20261002_133958_organization_avatars',
+  },
+  {
+    up: migration_20261002_140448_volunteer_pool_contact.up,
+    down: migration_20261002_140448_volunteer_pool_contact.down,
+    name: '20261002_140448_volunteer_pool_contact',
+  },
+  {
+    up: migration_20261002_141202_volunteer_invitations.up,
+    down: migration_20261002_141202_volunteer_invitations.down,
+    name: '20261002_141202_volunteer_invitations',
+  },
+  {
+    up: migration_20261002_144539_volunteer_map_and_ratings.up,
+    down: migration_20261002_144539_volunteer_map_and_ratings.down,
+    name: '20261002_144539_volunteer_map_and_ratings'
   },
 ];

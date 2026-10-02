@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Download, FileText, HandHeart, Hourglass, Loader2, Pencil } from "lucide-react";
+import { Building2, Download, FileText, Hourglass, Loader2, Pencil } from "lucide-react";
 import {
   getEventCategories,
   getMyOrganizations,
@@ -384,14 +384,9 @@ function OrganizationContent() {
               />
             </section>
 
-            {events.some((e) => e.is_volunteering) && (
-              <section className="space-y-2">
-                <h3 className="font-bold flex items-center gap-2">
-                  <HandHeart className="h-4 w-4 text-primary" /> Pool dobrovolníků obce
-                </h3>
-                <VolunteersTable municipalityId={obec ? organization.municipality_id : undefined} />
-              </section>
-            )}
+            <section aria-label="Pool dobrovolníků">
+              <VolunteersTable />
+            </section>
           </>
         )}
       </div>

@@ -150,6 +150,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       })
     }
     for (const collection of [
+      'volunteer-ratings',
+      'volunteer-invitations',
       'registrations',
       'event-media',
       'volunteer-flag-requests',

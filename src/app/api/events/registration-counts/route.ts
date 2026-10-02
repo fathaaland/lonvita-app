@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { PARTICIPANTS_ONLY } from '@/collections/Registrations'
 
 export type RegistrationCounts = Record<string, { approved: number; pending: number }>
 
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
         { event: { in: eventIds } },
         { status: { in: ['pending', 'approved'] } },
         { deletedAt: { exists: false } },
+        PARTICIPANTS_ONLY,
       ],
     },
     select: { event: true, status: true },

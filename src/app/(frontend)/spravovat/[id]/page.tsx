@@ -8,9 +8,12 @@ import {
   updateRegistrationStatus,
   updateAttendance,
   getOrganizerName,
+  getVolunteerRatingsForEvent,
   ManageRegistrationRow,
   AttendanceStatus,
+  VolunteerRatingRow,
 } from "@/integrations/payload/queries";
+import { RateVolunteer } from "@/components/RateVolunteer";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,7 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Clock, UserCheck, UserX, CalendarOff } from "lucide-react";
+import { Check, X, Clock, UserCheck, UserX, CalendarOff, HandHeart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isPast } from "@/lib/date";
 import { toast } from "sonner";
@@ -43,11 +46,17 @@ function ManageEventContent() {
   // (and nobody can rate the event) until "Potvrdit docházku" saves it.
   const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({});
   const [confirming, setConfirming] = useState(false);
+  const [volunteerRatings, setVolunteerRatings] = useState<Map<string, VolunteerRatingRow>>(new Map());
 
   const load = async () => {
     if (!id) return;
-    const [ev, rows] = await Promise.all([getEvent(id), getEventRegistrationsForManage(id)]);
+    const [ev, rows, ratings] = await Promise.all([
+      getEvent(id),
+      getEventRegistrationsForManage(id),
+      getVolunteerRatingsForEvent(id).catch(() => new Map<string, VolunteerRatingRow>()),
+    ]);
     setRegs(rows);
+    setVolunteerRatings(ratings);
     setLoading(false);
     if (ev) {
       setStartsAt(ev.date_time);
@@ -136,10 +145,14 @@ function ManageEventContent() {
                 <p className="font-bold truncate">{r.full_name}</p>
                 {r.phone && <p className="text-sm text-muted-foreground">{r.phone}</p>}
               </div>
-              {r.status === "approved" && <Badge className="bg-success text-success-foreground">Schválen</Badge>}
+              {r.role === "volunteer" && r.status === "approved" ? (
+                <Badge className="bg-primary-soft text-brand-purple-dark gap-1"><HandHeart className="h-3 w-3" />Dobrovolník</Badge>
+              ) : r.status === "approved" && <Badge className="bg-success text-success-foreground">Schválen</Badge>}
               {r.status === "pending" && <Badge variant="outline" className="gap-1"><Clock className="h-3 w-3" />Čeká</Badge>}
               {r.status === "rejected" && <Badge variant="destructive">Zamítnut</Badge>}
-              {r.status === "cancelled" && <Badge variant="outline">Zrušeno účastníkem</Badge>}
+              {r.status === "cancelled" && (
+                <Badge variant="outline">{r.role === "volunteer" ? "Zrušeno dobrovolníkem" : "Zrušeno účastníkem"}</Badge>
+              )}
             </div>
 
             {r.status === "pending" && (
@@ -178,6 +191,16 @@ function ManageEventContent() {
                   <p className="text-xs text-muted-foreground">Potvrzeno.</p>
                 ) : null}
               </div>
+            )}
+
+            {/* A volunteer who came is rated by the organizers — it builds their card in the pool. */}
+            {r.role === "volunteer" && r.status === "approved" && started && r.attendance_status === "attended" && !draft[r.id] && (
+              <RateVolunteer
+                registrationId={r.id}
+                name={r.full_name}
+                existing={volunteerRatings.get(r.id) ?? null}
+                onSaved={load}
+              />
             )}
           </CardContent></Card>
         ))}

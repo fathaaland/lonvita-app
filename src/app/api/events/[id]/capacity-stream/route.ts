@@ -3,6 +3,7 @@ import config from '@payload-config'
 
 import { createCapacitySubscriber, capacityChannel } from '@/lib/realtime/eventCapacity'
 import { logger } from '@/lib/logger'
+import { PARTICIPANTS_ONLY } from '@/collections/Registrations'
 
 /**
  * Brief §8 "websocket bude sledovat aktivitu na backendu zdali se někdo neodhlásí, pokud ano,
@@ -50,7 +51,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       try {
         const result = await payload.count({
           collection: 'registrations',
-          where: { and: [{ event: { equals: id } }, { status: { equals: 'approved' } }] },
+          where: { and: [{ event: { equals: id } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },
           overrideAccess: true,
         })
         send({ approvedCount: result.totalDocs })
