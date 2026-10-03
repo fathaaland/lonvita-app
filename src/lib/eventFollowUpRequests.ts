@@ -17,8 +17,12 @@ export async function sendFollowUpRequests(
     try {
       await requestVolunteerFlag(eventId, requests.volunteerFlag);
       sent.push("žádost o příznak Dobrovolnictví");
-    } catch {
-      toast.error("Žádost o příznak Dobrovolnictví se nepodařilo odeslat.");
+    } catch (error) {
+      toast.error(
+        error instanceof PayloadApiError && error.status < 500
+          ? error.message
+          : "Žádost o příznak Dobrovolnictví se nepodařilo odeslat.",
+      );
     }
   }
   let invited = 0;

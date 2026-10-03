@@ -1,5 +1,6 @@
-import type { Payload } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
+import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
@@ -32,6 +33,75 @@ export const getMunicipalityAdminUserIds = async (payload: Payload, municipality
     overrideAccess: true,
   })
   return result.docs.map((doc) => (typeof doc.user === 'object' ? doc.user.id : doc.user))
+}
+
+type EventTeamSource = {
+  organizer?: unknown
+  coOrganizers?: unknown[] | null
+  organization?: unknown
+  coOrganizations?: unknown[] | null
+  municipality?: unknown
+}
+
+const teamRelId = (value: unknown): string | null =>
+  value == null ? null : String(typeof value === 'object' ? (value as { id: unknown }).id : value)
+
+/**
+ * Everyone who runs the event and so hears about what happens on it: the pořadatel, every
+ * spolupořadatel and — whenever the obec runs or co-organizes it — each of the obec's admins (any
+ * one of them answers for the obec). `exclude` drops whoever caused the notification. Pass `req`
+ * from inside a transaction that may have just changed who organizes it.
+ */
+export async function getEventTeamUserIds(
+  payload: Payload,
+  event: EventTeamSource,
+  { exclude = [], req }: { exclude?: (number | string | null | undefined)[]; req?: PayloadRequest } = {},
+): Promise<string[]> {
+  const ids = new Set(
+    [event.organizer, ...(event.coOrganizers ?? [])].map(teamRelId).filter((id): id is string => id !== null),
+  )
+  const municipalityId = teamRelId(event.municipality)
+  if (municipalityId) {
+    const obecOrganization = await payload.find({
+      collection: 'organizations',
+      where: {
+        and: [{ municipality: { equals: municipalityId } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }],
+      },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      req,
+    })
+    const obecOrganizationId = obecOrganization.docs[0] ? String(obecOrganization.docs[0].id) : null
+    const obecTakesPart =
+      obecOrganizationId !== null &&
+      (teamRelId(event.organization) === obecOrganizationId ||
+        (event.coOrganizations ?? []).map(teamRelId).includes(obecOrganizationId))
+    if (obecTakesPart) {
+      for (const adminId of await getMunicipalityAdminUserIds(payload, municipalityId)) ids.add(String(adminId))
+    }
+  }
+  for (const id of exclude) if (id != null) ids.delete(String(id))
+  return [...ids]
+}
+
+/** "Jana Nováková (jana@example.cz)" — how a participant is named to the event's team, so they know
+ * whom to reach. Falls back to whichever half is known. */
+export async function describeUser(payload: Payload, userId: number | string): Promise<string> {
+  const [profile, user] = await Promise.all([
+    payload.find({
+      collection: 'profiles',
+      where: { user: { equals: userId } },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+    }),
+    payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }).catch(() => null),
+  ])
+  const name = profile.docs[0]?.fullName?.trim()
+  const email = user?.email
+  if (name && email) return `${name} (${email})`
+  return name || email || 'Účastník'
 }
 
 type NotificationContent = {

@@ -837,12 +837,19 @@ export interface Export {
  */
 export interface VolunteerInvitation {
   id: number;
+  /**
+   * Who asked: the event creator inviting a volunteer, or a volunteer offering to help — the other side answers.
+   */
+  kind: 'invitation' | 'application';
   event: number | Event;
   eventTitle: string;
   volunteer: number | User;
+  /**
+   * The organizer's side — who invited, or for an application the event creator who answers it.
+   */
   invitedBy: number | User;
   /**
-   * The organizer's note — what they need help with.
+   * A note — what the organizer needs help with, or what the volunteer offers.
    */
   message?: string | null;
   status: 'pending' | 'accepted' | 'declined' | 'withdrawn';
@@ -1426,6 +1433,7 @@ export interface ExportsSelect<T extends boolean = true> {
  * via the `definition` "volunteer-invitations_select".
  */
 export interface VolunteerInvitationsSelect<T extends boolean = true> {
+  kind?: T;
   event?: T;
   eventTitle?: T;
   volunteer?: T;

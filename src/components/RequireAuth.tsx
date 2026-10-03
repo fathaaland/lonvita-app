@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
@@ -41,13 +41,25 @@ export function RequireRole({
   children: ReactNode;
   role: "superadmin" | "municipality_admin" | "organizer";
 }) {
-  const { loading, isSuperAdmin, isAdmin, isOrganizer } = useAuth();
+  const { loading, isSuperAdmin, isAdmin, isOrganizer, refreshProfile } = useAuth();
   const router = useRouter();
   const ok = role === "superadmin" ? isSuperAdmin : role === "municipality_admin" ? isAdmin : isOrganizer;
+  // Roles are loaded once per session — someone the obec has just made an organizer opens the
+  // "schválena" notification with the old ones. Re-read them once before turning them away.
+  const rechecking = useRef(false);
+  const [rechecked, setRechecked] = useState(false);
 
   useEffect(() => {
-    if (!loading && !ok) router.replace("/");
-  }, [loading, ok, router]);
+    if (loading || ok) return;
+    if (rechecked) {
+      router.replace("/");
+      return;
+    }
+    if (rechecking.current) return;
+    rechecking.current = true;
+    refreshProfile().finally(() => setRechecked(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, ok, rechecked, router]);
 
   if (loading || !ok) return <Loading />;
   return <>{children}</>;

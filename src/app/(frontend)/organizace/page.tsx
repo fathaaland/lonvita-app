@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Building2, Download, FileText, Hourglass, Loader2, Pencil } from "lucide-react";
 import {
@@ -107,6 +108,7 @@ function Meter({ label, share, value }: { label: string; share: number; value: s
 function OrganizationContent() {
   const { user, administeredMunicipalityIds } = useAuth();
   const administeredKey = administeredMunicipalityIds.join(",");
+  const requestedId = useSearchParams().get("organizace");
 
   const [organizations, setOrganizations] = useState<MyOrganizationRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -126,13 +128,17 @@ function OrganizationContent() {
     if (!user) return;
     const orgs = await getMyOrganizations(String(user.id), administeredMunicipalityIds).catch(() => []);
     setOrganizations(orgs);
-    setSelectedId((current) => (current && orgs.some((o) => o.id === current) ? current : (orgs[0]?.id ?? null)));
+    // "?organizace=<id>" — a notification about one of them (e.g. the obec just approved it).
+    setSelectedId((current) => {
+      if (requestedId && orgs.some((o) => o.id === requestedId)) return requestedId;
+      return current && orgs.some((o) => o.id === current) ? current : (orgs[0]?.id ?? null);
+    });
   };
 
   useEffect(() => {
     loadOrganizations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, administeredKey]);
+  }, [user?.id, administeredKey, requestedId]);
 
   const loadData = async (organizationId: string) => {
     setLoadingData(true);
@@ -381,6 +387,8 @@ function OrganizationContent() {
                 profiles={[]}
                 onDeleted={() => loadData(organization.id)}
                 tagFor={(e) => (coOrganizedIds.has(e.id) ? "Spolupořádáte" : null)}
+                // The flag is its creator's — or, on the obec's own page, its admin's.
+                canRemoveVolunteering={(e) => obec || e.organizer_id === String(user!.id)}
               />
             </section>
 
@@ -434,7 +442,9 @@ export default function OrganizationPage() {
   return (
     <RequireAuth>
       <RequireRole role="organizer">
-        <OrganizationContent />
+        <Suspense fallback={<Loading />}>
+          <OrganizationContent />
+        </Suspense>
       </RequireRole>
     </RequireAuth>
   );

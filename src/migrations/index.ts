@@ -21,6 +21,7 @@ import * as migration_20261002_133958_organization_avatars from './20261002_1339
 import * as migration_20261002_140448_volunteer_pool_contact from './20261002_140448_volunteer_pool_contact';
 import * as migration_20261002_141202_volunteer_invitations from './20261002_141202_volunteer_invitations';
 import * as migration_20261002_144539_volunteer_map_and_ratings from './20261002_144539_volunteer_map_and_ratings';
+import * as migration_20261003_084807_volunteer_applications from './20261003_084807_volunteer_applications';
 
 export const migrations = [
   {
@@ -137,5 +138,10 @@ export const migrations = [
     up: migration_20261002_144539_volunteer_map_and_ratings.up,
     down: migration_20261002_144539_volunteer_map_and_ratings.down,
     name: '20261002_144539_volunteer_map_and_ratings',
+  },
+  {
+    up: migration_20261003_084807_volunteer_applications.up,
+    down: migration_20261003_084807_volunteer_applications.down,
+    name: '20261003_084807_volunteer_applications'
   },
 ];

@@ -800,7 +800,12 @@ type PayloadVolunteerInvitation = {
 
 /** The volunteer's own invitations still waiting for their answer, soonest event first. */
 export async function getMyVolunteerInvitations(userId: string): Promise<VolunteerInvitationRow[]> {
-  const where = buildWhereParams({ volunteer: { equals: userId }, status: { equals: "pending" } });
+  // Only invitations — the volunteer's own offers to help are the creator's to answer.
+  const where = buildWhereParams({
+    volunteer: { equals: userId },
+    status: { equals: "pending" },
+    kind: { equals: "invitation" },
+  });
   const result = await get<PayloadListResponse<PayloadVolunteerInvitation>>(
     `/volunteer-invitations?${where}&depth=1&limit=100`,
   );
@@ -829,8 +834,102 @@ export async function decideVolunteerInvitation(invitationId: string, accept: bo
   await patch(`/volunteer-invitations/${invitationId}`, { status: accept ? "accepted" : "declined" });
 }
 
-/** Which of these events the volunteer already has a pending invitation for — so the pool's
- * "Pozvat" doesn't offer them twice. */
+// --- Offering to help as a volunteer (VolunteerInvitations kind "application") ----------------
+
+/** Someone from the pool offers to help on an event flagged as volunteering — its creator answers. */
+export async function offerVolunteerHelp(eventId: string, message: string): Promise<void> {
+  await post("/volunteer-invitations", {
+    kind: "application",
+    event: Number(eventId),
+    message: message.trim() || undefined,
+  });
+}
+
+/** The volunteer takes back an offer the creator hasn't answered yet. */
+export async function withdrawVolunteerOffer(applicationId: string): Promise<void> {
+  await patch(`/volunteer-invitations/${applicationId}`, { status: "withdrawn" });
+}
+
+export type MyVolunteerRequest = {
+  id: string;
+  /** "invitation": the creator asked them; "application": they offered to help. */
+  kind: "invitation" | "application";
+  status: "pending" | "accepted" | "declined" | "withdrawn";
+  message: string | null;
+};
+
+/** What stands between the viewer and helping on the event — a pending invitation or offer, or (so
+ * they aren't left guessing) the creator having turned their last offer down. Null when nothing. */
+export async function getMyVolunteerRequestForEvent(eventId: string, userId: string): Promise<MyVolunteerRequest | null> {
+  const where = buildWhereParams({ event: { equals: eventId }, volunteer: { equals: userId } });
+  const result = await get<
+    PayloadListResponse<{ id: number; kind?: MyVolunteerRequest["kind"]; status: MyVolunteerRequest["status"]; message?: string | null }>
+  >(`/volunteer-invitations?${where}&depth=0&sort=-createdAt&limit=10`);
+  const row =
+    result.docs.find((r) => r.status === "pending") ??
+    result.docs.find((r) => r.kind === "application" && r.status === "declined");
+  if (!row) return null;
+  return { id: String(row.id), kind: row.kind ?? "invitation", status: row.status, message: row.message ?? null };
+}
+
+export type VolunteerOfferRow = {
+  id: string;
+  user_id: string;
+  full_name: string;
+  avatar_url: string | null;
+  message: string | null;
+  volunteer_focus: string[] | null;
+  /** Their average from organizers — what the creator weighs the offer by. */
+  rating: { average: number; count: number } | null;
+  created_at: string;
+};
+
+/** Pending offers to help on the event, oldest first — each with the volunteer's card from the pool
+ * (name, photo, ratings). For everyone running it; the creator answers them. */
+export async function getVolunteerOffersForEvent(eventId: string): Promise<VolunteerOfferRow[]> {
+  const where = buildWhereParams({
+    event: { equals: eventId },
+    kind: { equals: "application" },
+    status: { equals: "pending" },
+  });
+  const result = await get<
+    PayloadListResponse<{ id: number; volunteer: number | { id: number }; message?: string | null; createdAt: string }>
+  >(`/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`);
+  return Promise.all(
+    result.docs.map(async (r) => {
+      const userId = toId(r.volunteer) ?? "";
+      const card = await getVolunteerDetail(userId).catch(() => null);
+      return {
+        id: String(r.id),
+        user_id: userId,
+        full_name: card?.volunteer.full_name ?? "Dobrovolník",
+        avatar_url: card?.volunteer.avatar_url ?? null,
+        message: r.message ?? null,
+        volunteer_focus: card?.volunteer.volunteer_focus ?? null,
+        rating: card?.volunteer.rating ?? null,
+        created_at: r.createdAt,
+      };
+    }),
+  );
+}
+
+/** Which of these events the volunteer is already on — registered (as a volunteer or participant,
+ * approved or waiting) — so the pool's "Pozvat" doesn't offer them. */
+export async function getEventIdsUserIsOn(userId: string, eventIds: string[]): Promise<Set<string>> {
+  if (eventIds.length === 0) return new Set();
+  const where = buildWhereParams({
+    user: { equals: userId },
+    status: { in: ["pending", "approved"] },
+    event: { in: eventIds },
+  });
+  const result = await get<PayloadListResponse<{ event: number | { id: number } }>>(
+    `/registrations?${where}&depth=0&limit=200`,
+  );
+  return new Set(result.docs.map((r) => toId(r.event)!).filter(Boolean));
+}
+
+/** Which of these events the volunteer already has a pending invitation or offer to help for — so
+ * the pool's "Pozvat" doesn't offer them twice. */
 export async function getPendingVolunteerInvitationEventIds(volunteerUserId: string, eventIds: string[]): Promise<Set<string>> {
   if (eventIds.length === 0) return new Set();
   const where = buildWhereParams({
@@ -1085,6 +1184,13 @@ export async function decideEventDeletion(
 
 export async function requestVolunteerFlag(eventId: string, userId: string): Promise<void> {
   await post("/volunteer-flag-requests", { event: Number(eventId), requestedBy: Number(userId) });
+}
+
+/** Whether the event's request for the volunteering flag is still waiting on the obec. */
+export async function hasPendingVolunteerFlagRequest(eventId: string): Promise<boolean> {
+  const where = buildWhereParams({ event: { equals: eventId }, status: { equals: "pending" } });
+  const result = await get<PayloadListResponse<{ id: number }>>(`/volunteer-flag-requests?${where}&depth=0&limit=0`);
+  return result.totalDocs > 0;
 }
 
 // --- The viewer's organizations ("Organizace") ----------------------------------------------

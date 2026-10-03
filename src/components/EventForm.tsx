@@ -90,8 +90,12 @@ interface Props {
   initial?: EventRow;
   municipalityId: string;
   municipalityCenter: [number, number];
-  /** A platform/municipality admin sets the volunteering flag directly; others request it. */
-  canSetVolunteering: boolean;
+  /** The viewer acts for the obec (its admin, or a platform admin) — may take any spolupořadatel off. */
+  isObecAdmin: boolean;
+  /** The volunteering flag is the event creator's alone: "set" (a creator who administers the obec,
+   * or a platform admin), "request" (any other creator — the obec approves it), "none" (everyone
+   * else, the obec included). */
+  volunteering: "set" | "request" | "none";
   /** The event is (or, created by the obec's admin, will be) the obec's own. */
   runsAsObec?: boolean;
   /** Organizations invited to co-organize the event that haven't answered yet. */
@@ -107,7 +111,8 @@ export function EventForm({
   initial,
   municipalityId,
   municipalityCenter,
-  canSetVolunteering,
+  isObecAdmin,
+  volunteering,
   runsAsObec = false,
   pendingCoOrganizations = [],
   submitLabel,
@@ -150,13 +155,14 @@ export function EventForm({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const volunteeringLocked = !canSetVolunteering && Boolean(initial?.is_volunteering);
+  const volunteeringLocked =
+    volunteering === "none" || (volunteering === "request" && Boolean(initial?.is_volunteering));
   const savedCoOrganizationIds = new Set((initial?.co_organizations ?? []).map((o) => o.id));
   const pendingIds = pendingCoOrganizations.map((o) => o.id);
   // Inviting the obec hands the event over to it once it accepts (Events lockedEventIds) — worth
   // saying to whoever would lose the right to edit it. Its admins don't.
   const obecInvited =
-    !canSetVolunteering &&
+    !isObecAdmin &&
     [...pendingCoOrganizations, ...coOrganizations].some(
       (o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE && !savedCoOrganizationIds.has(o.id),
     );
@@ -456,7 +462,7 @@ export function EventForm({
           // off (Events guardCoOrganizedChanges). A sent invitation stays until it's answered.
           fixedIds={[
             ...pendingIds,
-            ...(initial && !canSetVolunteering
+            ...(initial && !isObecAdmin
               ? initial.co_organizations.filter((o) => o.owner_id !== userId).map((o) => o.id)
               : []),
           ]}
@@ -477,11 +483,15 @@ export function EventForm({
           className="mt-0.5"
         />
         <span>
-          {canSetVolunteering
+          {volunteering === "set"
             ? "Tohle je dobrovolnická aktivita."
-            : volunteeringLocked
-              ? "Dobrovolnická aktivita (příznak schválen obcí)."
-              : `Tohle je dobrovolnická aktivita — po ${initial ? "uložení" : "vytvoření"} požádám obec o schválení příznaku.`}
+            : volunteering === "none"
+              ? isVolunteering
+                ? "Dobrovolnická aktivita — příznak spravuje ten, kdo akci založil."
+                : "Příznak Dobrovolnictví může přidat jen ten, kdo akci založil."
+              : volunteeringLocked
+                ? "Dobrovolnická aktivita (příznak schválen obcí)."
+                : `Tohle je dobrovolnická aktivita — po ${initial ? "uložení" : "vytvoření"} požádám obec o schválení příznaku.`}
         </span>
       </label>
 

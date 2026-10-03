@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -20,11 +21,22 @@ interface Props {
   onDeleted?: () => void;
   /** A short note on the row, e.g. which events the organization only co-organizes. */
   tagFor?: (event: EventRow) => string | null;
+  /** Who may take the volunteering flag off a row — the event's creator or the obec's admin
+   * (Events guardIsVolunteering). Everyone, by default: the obec's dashboard. */
+  canRemoveVolunteering?: (event: EventRow) => boolean;
 }
 
 type Filter = "upcoming" | "past" | "all";
 
-export function EventsTable({ events, registrations, categories, profiles, onDeleted, tagFor }: Props) {
+export function EventsTable({
+  events,
+  registrations,
+  categories,
+  profiles,
+  onDeleted,
+  tagFor,
+  canRemoveVolunteering = () => true,
+}: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [busyVolunteerId, setBusyVolunteerId] = useState<string | null>(null);
@@ -125,18 +137,23 @@ export function EventsTable({ events, registrations, categories, profiles, onDel
                       <div onClick={(ev) => ev.stopPropagation()}>
                         <Badge
                           variant="secondary"
-                          className="h-5 text-[10px] pl-1.5 pr-0.5 gap-1 text-[hsl(var(--brand-purple))] bg-[hsl(var(--brand-purple))]/10"
+                          className={cn(
+                            "h-5 text-[10px] pl-1.5 gap-1 text-[hsl(var(--brand-purple))] bg-[hsl(var(--brand-purple))]/10",
+                            canRemoveVolunteering(e) ? "pr-0.5" : "pr-1.5",
+                          )}
                         >
                           <HandHeart className="h-3 w-3" /> Dobrovolnictví
-                          <button
-                            type="button"
-                            aria-label="Odebrat příznak Dobrovolnictví"
-                            disabled={busyVolunteerId === e.id}
-                            onClick={() => handleRemoveVolunteering(e.id)}
-                            className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                          {canRemoveVolunteering(e) && (
+                            <button
+                              type="button"
+                              aria-label="Odebrat příznak Dobrovolnictví"
+                              disabled={busyVolunteerId === e.id}
+                              onClick={() => handleRemoveVolunteering(e.id)}
+                              className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                         </Badge>
                       </div>
                     )}

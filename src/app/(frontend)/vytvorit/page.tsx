@@ -22,7 +22,7 @@ const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 function CreateEventContent() {
   const router = useRouter();
-  const { user, profile, isAdmin } = useAuth();
+  const { user, profile } = useAuth();
   // The obec the event is filed under: one where this user actually holds the admin/organizer
   // role (their home obec when they hold it there). Their home municipality alone isn't enough —
   // a "bez obce" admin has none, and a superadmin can grant a role for a town they don't live in.
@@ -79,15 +79,15 @@ function CreateEventContent() {
         imageId: values.imageId ?? undefined,
         imagePositionX: values.imagePosition.x,
         imagePositionY: values.imagePosition.y,
-        // Only an admin can flip isVolunteering directly (brief §3) — a plain organizer's
-        // checkbox instead fires a VolunteerFlagRequest right after creation, below.
-        isVolunteering: isAdmin ? values.isVolunteering : false,
+        // The creator flips isVolunteering directly only as the obec's admin (brief §3) — a plain
+        // organizer's checkbox instead fires a VolunteerFlagRequest right after creation, below.
+        isVolunteering: adminHere ? values.isVolunteering : false,
         isPaid: values.isPaid,
         priceCents: values.priceCents ?? undefined,
       });
 
       const sent = await sendFollowUpRequests(created.id, {
-        volunteerFlag: values.isVolunteering && !isAdmin ? String(user.id) : null,
+        volunteerFlag: values.isVolunteering && !adminHere ? String(user.id) : null,
         coOrganizationIds: values.inviteOrganizationIds,
       });
       toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena!");
@@ -122,7 +122,8 @@ function CreateEventContent() {
         userId={String(user.id)}
         municipalityId={municipalityId}
         municipalityCenter={center}
-        canSetVolunteering={isAdmin}
+        isObecAdmin={adminHere}
+        volunteering={adminHere ? "set" : "request"}
         runsAsObec={adminHere}
         submitLabel="Vytvořit akci"
         onSubmit={handleSubmit}

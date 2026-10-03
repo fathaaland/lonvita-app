@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { EventForm, EventFormValues } from "@/components/EventForm";
+import { VolunteeringRequestCard } from "@/components/VolunteeringRequestCard";
 import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { toast } from "sonner";
@@ -33,7 +34,8 @@ function EditEventContent() {
   const { user, isSuperAdmin } = useAuth();
   const [event, setEvent] = useState<EventRow | null>(null);
   const [canEdit, setCanEdit] = useState(false);
-  const [canSetVolunteering, setCanSetVolunteering] = useState(false);
+  const [isAdminHere, setIsAdminHere] = useState(false);
+  const [volunteering, setVolunteering] = useState<"set" | "request" | "none">("none");
   const [pendingCoOrganizations, setPendingCoOrganizations] = useState<OrganizationRef[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +53,11 @@ function EditEventContent() {
       if (ev) {
         const uid = String(user.id);
         const isAdminHere = isSuperAdmin || (!!ev.municipality_id && adminIds.includes(ev.municipality_id));
-        setCanSetVolunteering(isAdminHere);
+        setIsAdminHere(isAdminHere);
+        // The volunteering flag is the creator's alone — not a spolupořadatel's, not the obec's
+        // (Events guardIsVolunteering). A creator who administers the obec sets it, any other asks it.
+        const isCreator = ev.organizer_id === uid;
+        setVolunteering(isSuperAdmin || (isCreator && isAdminHere) ? "set" : isCreator ? "request" : "none");
         // With the obec on the event, only the obec edits it (Events lockedEventIds).
         setCanEdit(
           isAdminHere ||
@@ -88,12 +94,12 @@ function EditEventContent() {
         imagePositionY: values.imagePosition.y,
         isPaid: values.isPaid,
         priceCents: values.isPaid ? values.priceCents : null,
-        ...(canSetVolunteering ? { isVolunteering: values.isVolunteering } : {}),
+        ...(volunteering === "set" ? { isVolunteering: values.isVolunteering } : {}),
         isHidden: values.isHidden,
       });
 
       const sent = await sendFollowUpRequests(event.id, {
-        volunteerFlag: values.isVolunteering && !event.is_volunteering && !canSetVolunteering ? String(user.id) : null,
+        volunteerFlag: values.isVolunteering && !event.is_volunteering && volunteering === "request" ? String(user.id) : null,
         coOrganizationIds: values.inviteOrganizationIds,
       });
       toast.success(sent ? `Akce upravena, ${sent}.` : "Akce upravena. Přihlášení účastníci dostanou upozornění o změně.");
@@ -121,6 +127,12 @@ function EditEventContent() {
                 : undefined
           }
         />
+        {/* The obec locks the event's creator out of editing it, but not out of its volunteering. */}
+        {event && volunteering === "request" && (
+          <div className="px-4 pb-6">
+            <VolunteeringRequestCard eventId={event.id} isVolunteering={Boolean(event.is_volunteering)} />
+          </div>
+        )}
       </div>
     );
   }
@@ -133,7 +145,8 @@ function EditEventContent() {
         initial={event}
         municipalityId={event.municipality_id ?? ""}
         municipalityCenter={event.lat != null && event.lng != null ? [event.lat, event.lng] : CZECHIA_CENTER}
-        canSetVolunteering={canSetVolunteering}
+        isObecAdmin={isAdminHere}
+        volunteering={volunteering}
         runsAsObec={isMunicipalityOrganization(event.organization)}
         pendingCoOrganizations={pendingCoOrganizations}
         submitLabel="Uložit změny"

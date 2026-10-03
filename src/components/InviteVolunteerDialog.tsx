@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   getMyOrganizedEvents,
+  getEventIdsUserIsOn,
   getPendingVolunteerInvitationEventIds,
   inviteVolunteer,
   EventRow,
@@ -27,8 +28,8 @@ const formatWhen = (iso: string) =>
   new Date(iso).toLocaleString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /** Asks one volunteer from the pool to help on one of the viewer's upcoming events — the ones they
- * may edit (with the obec on an event, only its admins). The volunteer accepts or declines in their
- * profile. */
+ * founded themselves: volunteers are the event creator's to invite, not a spolupořadatel's or the
+ * obec's (VolunteerInvitations). The volunteer accepts or declines in their profile. */
 export function InviteVolunteerDialog({
   volunteer,
   onOpenChange,
@@ -53,13 +54,19 @@ export function InviteVolunteerDialog({
     (async () => {
       const all = await getMyOrganizedEvents(String(user.id), administeredMunicipalityIds).catch(() => [] as EventRow[]);
       const upcoming = all
-        .filter((e) => e.status !== "cancelled" && !e.locked_for_viewer && new Date(e.date_time).getTime() > Date.now())
+        .filter(
+          (e) =>
+            e.organizer_id === String(user.id) && e.status !== "cancelled" && new Date(e.date_time).getTime() > Date.now(),
+        )
         .sort((a, b) => a.date_time.localeCompare(b.date_time));
-      const invited = await getPendingVolunteerInvitationEventIds(volunteer.user_id, upcoming.map((e) => e.id)).catch(
-        () => new Set<string>(),
-      );
+      const ids = upcoming.map((e) => e.id);
+      // Already on the event (as a volunteer, or a participant), or an invitation/offer is waiting.
+      const [invited, onEvent] = await Promise.all([
+        getPendingVolunteerInvitationEventIds(volunteer.user_id, ids).catch(() => new Set<string>()),
+        getEventIdsUserIsOn(volunteer.user_id, ids).catch(() => new Set<string>()),
+      ]);
       if (!active) return;
-      setAlreadyInvited(invited);
+      setAlreadyInvited(new Set([...invited, ...onEvent]));
       setEvents(upcoming);
     })();
     return () => {
@@ -102,8 +109,8 @@ export function InviteVolunteerDialog({
         ) : available.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">
             {events.length === 0
-              ? "Nemáte žádnou nadcházející akci, kterou byste mohli upravovat."
-              : "Na všechny vaše nadcházející akce už pozvánku má."}
+              ? "Nemáte žádnou nadcházející akci, kterou jste sami založili. Dobrovolníky zve vždy ten, kdo akci založil."
+              : `${volunteer?.full_name ?? "Dobrovolník"} už na všech vašich nadcházejících akcích pomáhá, je na nich přihlášený, nebo na ně pozvánku či nabídku pomoci už má.`}
           </p>
         ) : (
           <div className="space-y-4">

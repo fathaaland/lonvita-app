@@ -38,7 +38,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId: adminId,
         title: 'Nová žádost o roli organizátora',
-        link: '/admin-obce',
+        link: '/admin-obce?tab=requests',
         message: `${who} žádá o roli organizátora za „${doc.organizationName}“: „${reason}“ — vyřiďte to v sekci Žádosti.`,
         email: {
           subject: 'Nová žádost o roli organizátora',
@@ -67,11 +67,24 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       } catch (error) {
         req.payload.logger.error(`Failed to grant organizer role after request ${doc.id} approval: ${error}`)
       }
+      // Straight to the organization the obec just approved — they may run several, one per obec.
+      const organization = await req.payload
+        .find({
+          collection: 'organizations',
+          where: { and: [{ owner: { equals: userId } }, { municipality: { equals: municipalityId } }] },
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+        })
+        .catch(() => null)
+      const organizationId = organization?.docs[0]?.id
       sendNotification(req.payload, {
         userId,
         title: 'Role organizátora schválena',
-        link: '/vytvorit',
-        message: 'Vaše žádost o roli organizátora byla schválena.',
+        link: organizationId ? `/organizace?organizace=${organizationId}` : '/organizace',
+        message: doc.organizationName
+          ? `Vaše žádost o roli organizátora byla schválena — za „${doc.organizationName}“ teď můžete zakládat akce.`
+          : 'Vaše žádost o roli organizátora byla schválena.',
         email: {
           subject: 'Role organizátora schválena',
           body: '<p>Vaše žádost o roli organizátora byla schválena. Teď můžete v aplikaci zakládat vlastní akce.</p>',

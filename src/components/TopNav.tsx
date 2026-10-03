@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
+import { UnreadBadge, unreadLabel } from "@/components/UnreadBadge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Bell, LogOut } from "lucide-react";
@@ -84,12 +85,10 @@ export function TopNav() {
         <Link
           href="/oznameni"
           className="relative h-9 w-9 rounded-md inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          aria-label="Oznámení"
+          aria-label={unreadCount > 0 ? `Oznámení, ${unreadLabel(unreadCount)}` : "Oznámení"}
         >
           <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-          )}
+          <UnreadBadge count={unreadCount} className="-top-1 -right-1.5" />
         </Link>
         <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
           <LogOut className="h-4 w-4" />

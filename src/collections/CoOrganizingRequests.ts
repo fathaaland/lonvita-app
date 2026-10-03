@@ -11,7 +11,7 @@ import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { administeredIdsFor, mayEditEvent } from './Events'
-import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
+import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
@@ -175,8 +175,10 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
   const ownerId = relationId(doc.organizationOwner)
   const title = escapeHtml(doc.eventTitle)
 
-  if (operation === 'create') {
-    if (doc.status !== 'pending') return doc
+  // The obec's admin inviting the obec has consented by inviting (prepareRequest) — still news to
+  // everyone else on the event, who from now on can't edit it (Events lockedEventIds).
+  const approvedOnCreate = operation === 'create' && doc.status === 'approved'
+  if (operation === 'create' && !approvedOnCreate) {
     const requester = await req.payload.find({
       collection: 'profiles',
       where: { user: { equals: requesterId } },
@@ -195,7 +197,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId,
         title: 'Pozvánka ke spolupořádání akce',
-        link: ownerId ? '/organizace' : '/admin-obce',
+        link: ownerId ? '/organizace' : '/admin-obce?tab=requests',
         message: `${who} zve ${invited} ke spolupořádání akce „${doc.eventTitle}“.`,
         email: {
           subject: `Pozvánka ke spolupořádání akce: ${doc.eventTitle}`,
@@ -206,11 +208,19 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     return doc
   }
 
-  if (operation !== 'update' || doc.status === previousDoc?.status) return doc
+  if (!approvedOnCreate && (operation !== 'update' || doc.status === previousDoc?.status)) return doc
   const approved = doc.status === 'approved'
   const who = ownerId ? `Organizace ${doc.organizationName}` : 'Obec'
-  sendNotification(req.payload, {
-    userId: requesterId,
+  // Whoever invited, and everyone running the event — on approval that includes the organization
+  // that just joined (and the obec's other admins), though not whoever made the decision.
+  const event = eventId
+    ? await req.payload
+        .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
+        .catch(() => null)
+    : null
+  const team = event ? await getEventTeamUserIds(req.payload, event, { req }) : []
+  const recipients = [...new Set([requesterId, ...team])].filter((id) => id !== String(req.user?.id))
+  sendNotificationToMany(req.payload, recipients, {
     title: approved ? `${who} akci spolupořádá` : `${who} spolupořádání odmítla`,
     link: `/akce/${eventId}`,
     message: approved

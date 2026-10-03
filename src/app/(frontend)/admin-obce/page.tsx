@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getMunicipalityEventsForAdmin,
   getRegistrationsForEventIds,
@@ -24,7 +24,7 @@ import { CommunityReport } from "@/components/admin/CommunityReport";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
-import { AdminSideNav } from "@/components/admin/AdminSideNav";
+import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
 import { EventRow, RegistrationRow, CategoryRow, FeedbackRow } from "@/lib/analytics";
 import type { ProfileWithDob } from "@/lib/report";
@@ -44,7 +44,15 @@ function AdminContent() {
   const [muniOptions, setMuniOptions] = useState<{ id: string; name: string }[]>([]);
   const [rulesForCreation, setRulesForCreation] = useState<RulesForCreation>("approved_organizers");
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<string>("overview");
+  // A notification can open a section straight away — e.g. "?tab=requests" for something waiting
+  // on the obec's approval.
+  const tabParam = useSearchParams().get("tab");
+  const [tab, setTab] = useState<string>(
+    tabParam && ADMIN_NAV.some((item) => item.value === tabParam) ? tabParam : "overview",
+  );
+  useEffect(() => {
+    if (tabParam && ADMIN_NAV.some((item) => item.value === tabParam)) setTab(tabParam);
+  }, [tabParam]);
   // Brief §3 "i admin obce může sám organizovat akce a chce vidět jejich výkon zvlášť."
   const [scope, setScope] = useState<"all" | "mine">("all");
 
@@ -232,7 +240,9 @@ export default function AdminPage() {
   return (
     <RequireAuth>
       <RequireRole role="municipality_admin">
-        <AdminContent />
+        <Suspense fallback={<Loading />}>
+          <AdminContent />
+        </Suspense>
       </RequireRole>
     </RequireAuth>
   );

@@ -10,7 +10,7 @@ import type {
 import { APIError } from 'payload'
 
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
-import { escapeHtml, sendNotification } from './shared/notify'
+import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
 import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
@@ -109,20 +109,22 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
           email: {
             subject: pending ? `Přihláška odeslána: ${event.title}` : `Přihláška potvrzena: ${event.title}`,
             body: pending
-              ? `<p>Vaše přihláška na akci <strong>${event.title}</strong> čeká na schválení organizátorem.</p>`
-              : `<p>Jste přihlášeni na akci <strong>${event.title}</strong>.</p>`,
+              ? `<p>Vaše přihláška na akci <strong>${escapeHtml(event.title)}</strong> čeká na schválení organizátorem.</p>`
+              : `<p>Jste přihlášeni na akci <strong>${escapeHtml(event.title)}</strong>.</p>`,
           },
         })
 
-        // Brief §7 "Nové přihlášení na akci → organizátor".
-        await sendNotification(req.payload, {
-          userId: organizerId,
+        // Brief §7 "Nové přihlášení na akci → organizátor" — to everyone running it, who all
+        // approve registrations (guardStatusChange); the manage page is where they do.
+        const who = await describeUser(req.payload, userId)
+        const awaiting = pending ? ' Přihláška čeká na vaše schválení.' : ''
+        await sendNotificationToMany(req.payload, await getEventTeamUserIds(req.payload, event, { exclude: [userId] }), {
           title: 'Nová přihláška na akci',
-          message: `Někdo se přihlásil na vaši akci „${event.title}“.`,
-          link: `/akce/${eventId}`,
+          message: `${who} se přihlásil(a) na vaši akci „${event.title}“.${awaiting}`,
+          link: `/spravovat/${eventId}`,
           email: {
             subject: `Nová přihláška: ${event.title}`,
-            body: `<p>Někdo se přihlásil na vaši akci <strong>${event.title}</strong>.</p>`,
+            body: `<p>${escapeHtml(who)} se přihlásil(a) na vaši akci <strong>${escapeHtml(event.title)}</strong>.${awaiting}</p>`,
           },
         })
       }
@@ -131,22 +133,24 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
 
     if (operation !== 'update' || doc.status === previousDoc?.status) return doc
 
-    // Task 9: a participant cancelling their own registration notifies the organizer — not
-    // when the organizer/admin is the one who set it to "cancelled" (e.g. via the manage-event
-    // table), only when someone else did.
+    // Task 9: a cancelled registration tells everyone running the event (pořadatel,
+    // spolupořadatelé, the obec when it takes part) who it was — name and e-mail, so they can
+    // reach them. Whoever cancelled it isn't told about their own doing.
     if (doc.status === 'cancelled') {
-      if (String(req.user?.id) !== String(organizerId)) {
+      const recipients = await getEventTeamUserIds(req.payload, event, { exclude: [req.user?.id, userId] })
+      if (recipients.length > 0) {
         const volunteer = doc.role === 'volunteer'
-        await sendNotification(req.payload, {
-          userId: organizerId,
+        const who = await describeUser(req.payload, userId)
+        const message = volunteer
+          ? `Dobrovolník ${who} už na akci „${event.title}“ nepomůže — jeho účast byla zrušena.`
+          : `${who} už na akci „${event.title}“ nepřijde — přihláška byla zrušena.`
+        await sendNotificationToMany(req.payload, recipients, {
           title: volunteer ? 'Dobrovolník nepřijde' : 'Přihláška zrušena',
-          message: volunteer
-            ? `Dobrovolník zrušil svou účast na vaší akci „${event.title}“.`
-            : `Někdo zrušil svou přihlášku na vaši akci „${event.title}“.`,
-          link: `/akce/${eventId}`,
+          message,
+          link: `/spravovat/${eventId}`,
           email: {
             subject: `Zrušená přihláška: ${event.title}`,
-            body: `<p>Někdo zrušil svou přihlášku na vaši akci <strong>${event.title}</strong>.</p>`,
+            body: `<p>${escapeHtml(message)}</p>`,
           },
         })
       }
@@ -182,8 +186,8 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       email: {
         subject: `${REGISTRATION_STATUS_SUBJECT[doc.status]}: ${event.title}`,
         body: approved
-          ? `<p>Vaše přihláška na akci <strong>${event.title}</strong> byla schválena.</p>`
-          : `<p>Vaše přihláška na akci <strong>${event.title}</strong> byla bohužel zamítnuta.</p>`,
+          ? `<p>Vaše přihláška na akci <strong>${escapeHtml(event.title)}</strong> byla schválena.</p>`
+          : `<p>Vaše přihláška na akci <strong>${escapeHtml(event.title)}</strong> byla bohužel zamítnuta.</p>`,
       },
     })
 

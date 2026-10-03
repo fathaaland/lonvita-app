@@ -189,9 +189,9 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
     expect(await notificationsFor(pub, 'Dobrovolník pozvánku odmítl')).toBeGreaterThan(0)
   })
 
-  it('only someone who may edit the event invites, only people in the pool, once', async () => {
+  it('only the event creator invites, only people in the pool, once', async () => {
     const event = await createEvent(pub)
-    await expect(invite(event.id, club)).rejects.toThrow(/upravovat/)
+    await expect(invite(event.id, club)).rejects.toThrow(/založil/)
     await expect(invite(event.id, pub, outsider.id)).rejects.toThrow(/poolu/)
     await expect(invite(event.id, pub, pub.id)).rejects.toThrow()
     await invite(event.id, pub)

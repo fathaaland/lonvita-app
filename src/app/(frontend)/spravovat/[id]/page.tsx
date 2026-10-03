@@ -14,6 +14,7 @@ import {
   VolunteerRatingRow,
 } from "@/integrations/payload/queries";
 import { RateVolunteer } from "@/components/RateVolunteer";
+import { VolunteerOffers } from "@/components/VolunteerOffers";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
@@ -163,6 +164,7 @@ function ManageEventContent() {
             {coOrganizerNames.length > 0 && <> · spolu s {coOrganizerNames.join(", ")}</>}
           </p>
         )}
+        {!started && <VolunteerOffers eventId={id} canDecide={isCreator} onDecided={load} />}
         {regs.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">Zatím nikdo není přihlášen.</p>
         ) : regs.map((r) => (

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Clock, Landmark, MapPin } from "lucide-react";
+import { Clock, HandHeart, Landmark, MapPin } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { relativeDay, formatEventTime } from "@/lib/date";
 import { formatCzk } from "@/lib/money";
@@ -24,6 +24,8 @@ export interface EventCardData {
   categories?: { id: string; name: string; icon: string; color: string }[];
   is_paid?: boolean;
   price_cents?: number | null;
+  /** A volunteering activity (Events.isVolunteering). */
+  is_volunteering?: boolean;
   /** Shown next to the location when events from several municipalities are listed together. */
   municipality_name?: string;
   /** Who runs it — the pořadatel's organization (the obec's own one for the obec's events). */
@@ -169,11 +171,20 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
       </div>
 
       <div className="flex flex-1 flex-col p-4 gap-2.5">
-        {event.categories && event.categories.length > 0 && (
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-brand-purple-dark min-w-0">
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{event.categories.map((c) => c.name).join(", ")}</span>
-          </p>
+        {((event.categories && event.categories.length > 0) || event.is_volunteering) && (
+          <div className="flex items-center gap-3 text-xs font-semibold text-brand-purple-dark min-w-0">
+            {event.categories && event.categories.length > 0 && (
+              <p className="flex items-center gap-1.5 min-w-0">
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{event.categories.map((c) => c.name).join(", ")}</span>
+              </p>
+            )}
+            {event.is_volunteering && (
+              <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-primary">
+                <HandHeart className="h-3.5 w-3.5" aria-hidden /> Dobrovolnictví
+              </span>
+            )}
+          </div>
         )}
         <h3 className="text-lg font-bold leading-snug line-clamp-2 [text-wrap:balance] break-words">{event.title}</h3>
 

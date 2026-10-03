@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { cn } from "@/lib/utils";
+import { UnreadBadge, unreadLabel } from "@/components/UnreadBadge";
 
 export function BottomNav() {
   const {
@@ -61,6 +62,7 @@ export function BottomNav() {
             <Link
               key={item.to}
               href={item.to}
+              aria-label={item.badge ? `${item.label}, ${unreadLabel(item.badge)}` : undefined}
               className={cn(
                 "flex flex-col items-center justify-center gap-1 py-2 text-xs font-semibold transition-colors",
                 "min-h-[64px]",
@@ -74,9 +76,7 @@ export function BottomNav() {
                 )}
               >
                 <Icon className={cn("h-6 w-6", isActive && "stroke-[2.5]")} />
-                {!!item.badge && (
-                  <span className="absolute top-0 right-0.5 h-2 w-2 rounded-full bg-destructive" />
-                )}
+                <UnreadBadge count={item.badge ?? 0} ringClassName="ring-card" className="-top-1 left-1/2 ml-1" />
               </span>
               <span>{item.label}</span>
             </Link>

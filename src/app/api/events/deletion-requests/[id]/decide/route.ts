@@ -5,7 +5,7 @@ import config from '@payload-config'
 import { eventOrganizerIds, obecRole } from '@/collections/Events'
 import { getEventRegistrants, notifyEventCancelled } from '@/collections/shared/eventNotifications'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
-import { sendNotification } from '@/collections/shared/notify'
+import { getEventTeamUserIds, sendNotificationToMany } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { logger, serializeError } from '@/lib/logger'
@@ -92,8 +92,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       data: { status: 'rejected', decidedBy: user.id, decidedAt },
       overrideAccess: true,
     })
-    sendNotification(payload, {
-      userId: requesterId,
+    // The requester, and everyone else who was asked — the event stays for all of them.
+    const team = await getEventTeamUserIds(payload, event, { exclude: [uid] })
+    sendNotificationToMany(payload, [...new Set([requesterId, ...team])].filter((id) => id !== uid), {
       title: 'Smazání akce zamítnuto',
       link: `/akce/${event.id}`,
       message: `${asApprover ? 'Spolupořadatel nesouhlasil' : 'Obec nesouhlasila'} se smazáním akce „${event.title}“ — akce zůstává.`,
@@ -129,6 +130,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   // Collected up front — the registrations go with the event, and so would the ids of their
   // reminder jobs.
   const registrants = await getEventRegistrants(payload, event.id, relationId(event.organizer)!)
+  // Likewise everyone running it — the obec's admins included when it co-organizes.
+  const team = await getEventTeamUserIds(payload, event, { exclude: [uid] })
 
   const req = await createLocalReq({ user }, payload)
   const shouldCommit = await initTransaction(req)
@@ -191,14 +194,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } catch (error) {
     payload.logger.error(`Failed to notify registrants of deleted event ${event.id}: ${error}`)
   }
-  for (const organizerId of onEvent) {
-    if (organizerId === uid) continue
-    sendNotification(payload, {
-      userId: organizerId,
-      title: 'Akce smazána',
-      message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillCoOrganizes ? ' i obce' : ''} smazána.`,
-    })
-  }
+  sendNotificationToMany(payload, team, {
+    title: 'Akce smazána',
+    message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillCoOrganizes ? ' i obce' : ''} smazána.`,
+  })
   writeAuditLog(payload, {
     action: 'events.consented_delete',
     actor: user.id,

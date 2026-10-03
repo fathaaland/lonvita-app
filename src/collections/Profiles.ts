@@ -2,7 +2,7 @@ import { APIError, type CollectionAfterChangeHook, type CollectionBeforeChangeHo
 
 import { canReadVolunteerFields, isLoggedIn } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
-import { sendNotification } from './shared/notify'
+import { getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { PARTICIPANTS_ONLY } from './Registrations'
 
 /**
@@ -46,6 +46,8 @@ const notifyOnVolunteerSignup: CollectionAfterChangeHook = async ({ doc, previou
   sendNotification(req.payload, {
     userId: typeof doc.user === 'object' ? doc.user.id : doc.user,
     title: 'Přihlášení do poolu dobrovolníků',
+    // Their own card in the pool — what organizers see before inviting them.
+    link: `/dobrovolnik/${typeof doc.user === 'object' ? doc.user.id : doc.user}`,
     message: 'Jste v poolu dobrovolníků. Pořadatelé akcí vás teď mohou oslovit, když budou potřebovat pomoc.',
     email: {
       subject: 'Přihlášení do poolu dobrovolníků',
@@ -60,7 +62,7 @@ const relId = (value: number | { id: number }): number => (typeof value === 'obj
 
 /**
  * Leaving the pool needs nobody's say-so — but the organizers counting on the volunteer must hear
- * of it. Pending invitations are withdrawn (their inviters told). On every upcoming event the
+ * of it. Pending invitations and offers to help are withdrawn (the organizers told). On every upcoming event the
  * volunteer helps on they stop being a volunteer: they stay on it as a participant where a place is
  * free, and drop off it where the event is full (a volunteer never took a place, so keeping them
  * would overfill it). The event's organizers get an in-app alert saying which. The volunteer is told
@@ -89,11 +91,17 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
       context: { withdrawingVolunteerInvitations: true },
       req,
     })
-    sendNotification(payload, {
-      userId: relId(invitation.invitedBy),
-      title: 'Pozvánka dobrovolníka zrušena',
+    const invitedFor = await payload
+      .findByID({ collection: 'events', id: relId(invitation.event), depth: 0, overrideAccess: true, req })
+      .catch(() => null)
+    const team = invitedFor ? await getEventTeamUserIds(payload, invitedFor, { exclude: [userId], req }) : []
+    sendNotificationToMany(payload, [...new Set([String(relId(invitation.invitedBy)), ...team])], {
+      title: invitation.kind === 'application' ? 'Nabídka dobrovolníka zrušena' : 'Pozvánka dobrovolníka zrušena',
       link: `/akce/${relId(invitation.event)}`,
-      message: `${who} odešel/odešla z poolu dobrovolníků — pozvánka na akci „${invitation.eventTitle}“ už neplatí.`,
+      message:
+        invitation.kind === 'application'
+          ? `${who} odešel/odešla z poolu dobrovolníků — nabídka pomoci na akci „${invitation.eventTitle}“ už neplatí.`
+          : `${who} odešel/odešla z poolu dobrovolníků — pozvánka na akci „${invitation.eventTitle}“ už neplatí.`,
     })
   }
 
@@ -146,17 +154,13 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
       req,
     })
 
-    const organizers = [event.organizer, ...(event.coOrganizers ?? [])].map(relId).filter((id) => id !== userId)
-    for (const organizerId of new Set(organizers)) {
-      sendNotification(payload, {
-        userId: organizerId,
-        title: 'Dobrovolník odešel z poolu',
-        link: `/spravovat/${event.id}`,
-        message: staysAsParticipant
-          ? `${who} odešel/odešla z poolu dobrovolníků. Na akci „${event.title}“ už nepomáhá — zůstává přihlášený jako účastník.`
-          : `${who} odešel/odešla z poolu dobrovolníků. Na akci „${event.title}“ už nepomáhá, a protože je akce plná, z akce se odhlásil.`,
-      })
-    }
+    sendNotificationToMany(payload, await getEventTeamUserIds(payload, event, { exclude: [userId], req }), {
+      title: 'Dobrovolník odešel z poolu',
+      link: `/spravovat/${event.id}`,
+      message: staysAsParticipant
+        ? `${who} odešel/odešla z poolu dobrovolníků. Na akci „${event.title}“ už nepomáhá — zůstává přihlášený jako účastník.`
+        : `${who} odešel/odešla z poolu dobrovolníků. Na akci „${event.title}“ už nepomáhá, a protože je akce plná, z akce se odhlásil.`,
+    })
   }
   return doc
 }

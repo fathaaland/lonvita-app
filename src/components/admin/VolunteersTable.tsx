@@ -19,7 +19,8 @@ import { UserAvatar } from "@/components/UserAvatar";
 const volunteersLabel = (n: number) => (n === 1 ? "1 dobrovolník" : n < 5 ? `${n} dobrovolníci` : `${n} dobrovolníků`);
 
 /** The volunteer pool — one for the whole platform, the same for every organizer and obec admin.
- * "Najít dobrovolníka" opens it as a map; below, the whole list to search. Each volunteer's contact
+ * The search finds volunteers by name, obec, focus or note — nobody is listed until searched for —
+ * and "Najít dobrovolníka" opens the whole pool as a map. Each volunteer's contact
  * shows only on the channels they allowed. Joining is only ever the volunteer's own; a platform
  * admin, or an admin of the obec they help in, may take someone off. */
 export function VolunteersTable() {
@@ -55,9 +56,10 @@ export function VolunteersTable() {
     }
   };
 
+  const searching = q.trim().length > 0;
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return rows;
+    if (!needle) return [];
     return rows.filter(
       (r) =>
         r.full_name.toLowerCase().includes(needle) ||
@@ -69,23 +71,6 @@ export function VolunteersTable() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex flex-1 items-center gap-3">
-            <HandHeart className="h-6 w-6 shrink-0 text-primary" aria-hidden />
-            <div>
-              <p className="font-bold text-lg leading-tight">Pool dobrovolníků</p>
-              <p className="text-sm text-muted-foreground">
-                {loading ? "Načítám…" : `${volunteersLabel(rows.length)} z celé Lonvity`}
-              </p>
-            </div>
-          </div>
-          <Button className="h-11 sm:px-5" onClick={() => setMapOpen(true)} disabled={loading || rows.length === 0}>
-            <MapPinned className="h-4 w-4" /> Najít dobrovolníka
-          </Button>
-        </CardContent>
-      </Card>
-
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
         <Input
@@ -97,9 +82,10 @@ export function VolunteersTable() {
         />
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="text-center text-muted-foreground py-8">
-          {loading ? "" : rows.length === 0 ? "Zatím se nikdo do poolu nepřihlásil." : "Nikdo takový v poolu není."}
+      {/* Nobody is listed until searched for — with a big pool a full list would swamp the page. */}
+      {!searching ? null : filtered.length === 0 ? (
+        <p className="text-center text-muted-foreground py-6">
+          {loading ? "" : "Nikdo takový v poolu není."}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -179,6 +165,23 @@ export function VolunteersTable() {
           ))}
         </ul>
       )}
+
+      <Card>
+        <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex flex-1 items-center gap-3">
+            <HandHeart className="h-6 w-6 shrink-0 text-primary" aria-hidden />
+            <div>
+              <p className="font-bold text-lg leading-tight">Pool dobrovolníků</p>
+              <p className="text-sm text-muted-foreground">
+                {loading ? "Načítám…" : `${volunteersLabel(rows.length)} z celé Lonvity`}
+              </p>
+            </div>
+          </div>
+          <Button className="h-11 sm:px-5" onClick={() => setMapOpen(true)} disabled={loading || rows.length === 0}>
+            <MapPinned className="h-4 w-4" /> Najít dobrovolníka
+          </Button>
+        </CardContent>
+      </Card>
 
       <VolunteerMapDialog
         open={mapOpen}

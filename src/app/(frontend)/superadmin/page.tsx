@@ -1136,7 +1136,8 @@ function SuperAdminContent() {
                     userId={evOrganizerId}
                     municipalityId={evMuniId}
                     municipalityCenter={evMuniCenter}
-                    canSetVolunteering
+                    isObecAdmin
+                    volunteering="set"
                     runsAsObec={evRunsAsObec}
                     submitLabel="Vytvořit akci"
                     onSubmit={handleCreateEvent}

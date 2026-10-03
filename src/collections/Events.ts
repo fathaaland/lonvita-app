@@ -17,7 +17,7 @@ import {
 } from './access/shared'
 import { ensureMunicipalityOrganization, findOrganizationId, municipalityOrganizationIds } from './Organizations'
 import { notDeleted } from './shared/softDelete'
-import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
+import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleAttendanceReminder } from './shared/reminders'
 import { guardCancellationWindow } from './shared/eventCancellation'
 import {
@@ -277,31 +277,44 @@ const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } |
 /**
  * Brief §3 "Žádost organizátora o příznak Dobrovolnictví... schvaluje se odděleně od role
  * organizátora. Admin obce sám o příznak žádat nemusí, může ho u vlastní akce zaškrtnout
- * rovnou." Only a platform/municipality admin may flip this true directly; an organizer's
- * request instead goes through VolunteerFlagRequests, whose approval hook sets
- * `req.context.skipVolunteeringGuard` — the one trusted path allowed to flip it for a
- * non-admin, since that hook already ran its own approval check.
+ * rovnou." The flag is the event creator's (`organizer`) alone — not a spolupořadatel's, not the
+ * obec's when it merely co-organizes or oversees the event. A creator who administers the obec
+ * flips it straight away; any other creator asks the obec through VolunteerFlagRequests, whose
+ * approval hook sets `req.context.skipVolunteeringGuard` — the one trusted path allowed to flip it
+ * for them. A platform admin may always. Anyone else's attempt is dropped. Taking the flag off is
+ * the creator's too — and the obec's, which oversees every event in it (its dashboard).
  */
 const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, originalDoc }) => {
-  if (!data || data.isVolunteering !== true || originalDoc?.isVolunteering === true) return data
+  if (!data || data.isVolunteering === undefined) return data
+  const adding = data.isVolunteering === true && originalDoc?.isVolunteering !== true
+  const removing = data.isVolunteering === false && originalDoc?.isVolunteering === true
+  if (!adding && !removing) return data
   if (req.context?.skipVolunteeringGuard) return data
 
-  const { user, payload } = req
-  if (user?.role === 'admin') return data
+  const { user } = req
+  // Trusted internal writes (no user) may take it off; only the approval path above puts it on.
+  if (user?.role === 'admin' || (!user && removing)) return data
 
-  const municipalityId = String(
-    typeof data.municipality === 'object' ? data.municipality?.id : (data.municipality ?? originalDoc?.municipality),
-  )
-  const isMuniAdminHere = user
-    ? (await getAdministeredMunicipalityIds(payload, user.id)).includes(municipalityId)
-    : false
+  const isCreator = !!user && relationId(data.organizer ?? originalDoc?.organizer) === String(user.id)
+  const municipalityId = relationId(data.municipality ?? originalDoc?.municipality)
+  const administersObec =
+    !!user && municipalityId !== null && (await administeredIdsFor(req, user.id)).includes(municipalityId)
+  // On: the creator, as the obec's admin. Off: the creator, or the obec overseeing its events.
+  const allowed = adding ? isCreator && administersObec : isCreator || administersObec
 
-  if (!isMuniAdminHere) {
+  if (!allowed) {
     data.isVolunteering = originalDoc?.isVolunteering ?? false
   }
 
   return data
 }
+
+/** Whether `user` decides about the event's volunteering — sets the flag (or asks the obec for it)
+ * and invites volunteers from the pool: its creator alone, and a platform admin. */
+export const isEventCreator = (
+  user: { id: number | string; role?: string | null },
+  event: Pick<EventOwnership, 'organizer'>,
+): boolean => user.role === 'admin' || relationId(event.organizer) === String(user.id)
 
 /**
  * An event is always filed under someone who actually organizes in that obec — its organizer
@@ -616,10 +629,11 @@ type ObecAction = 'edited' | 'cancelled' | 'deleted'
 
 /**
  * The obec's admin (or a platform admin) may edit, cancel or delete any organizer's event in the
- * obec — and the organizers must hear about it, in-app and by e-mail. Changes made by one of the
- * event's own organizers, or ones they asked for themselves (an approved volunteer-flag or
- * obec co-organizing request, a consented deletion), don't notify from here. Organizers who
- * administer the obec themselves are the obec — an event it runs doesn't notify its own admins.
+ * obec — and the organizers must hear about it, in-app and by e-mail. An edit by one of the
+ * event's own organizers tells the others, in-app. Changes they asked for themselves (an approved
+ * volunteer-flag or obec co-organizing request, a consented deletion) don't notify from here — those
+ * announce themselves. Organizers who administer the obec themselves are the obec — an event it
+ * runs doesn't notify its own admins.
  */
 async function notifyOrganizersOfObecAction(
   req: PayloadRequest,
@@ -630,11 +644,33 @@ async function notifyOrganizersOfObecAction(
   const { user, payload } = req
   if (!user) return
   const organizerIds = [...new Set([...eventOrganizerIds(event), ...formerOrganizerIds])]
-  if (organizerIds.includes(String(user.id))) return
-
   const municipalityId = relationId(event.municipality)
   if (!municipalityId) return
   const byObecAdmin = (await administeredIdsFor(req, user.id)).includes(municipalityId)
+
+  if (organizerIds.includes(String(user.id))) {
+    // One of the organizers edited it — the rest of them hear about it in the app. (Cancelling
+    // with others on it goes through their consent, EventDeletionRequests, which tells them.)
+    if (action !== 'edited' || byObecAdmin) return
+    const recipients = await getEventTeamUserIds(payload, event, { exclude: [user.id], req })
+    if (recipients.length === 0) return
+    const profile = await payload.find({
+      collection: 'profiles',
+      where: { user: { equals: user.id } },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      req,
+    })
+    const who = profile.docs[0]?.fullName || 'Spolupořadatel'
+    const change = changedLabels.length > 0 ? ` (změna: ${changedLabels.join(', ')})` : ''
+    await sendNotificationToMany(payload, recipients, {
+      title: 'Společná akce byla upravena',
+      message: `${who} upravil(a) akci „${event.title}“, kterou spolu pořádáte${change}.`,
+      link: `/akce/${event.id}`,
+    })
+    return
+  }
   if (!byObecAdmin && user.role !== 'admin') return
 
   const obecAdminIds = new Set((await getMunicipalityAdminUserIds(payload, municipalityId)).map(String))

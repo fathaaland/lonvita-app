@@ -175,6 +175,7 @@ function IndexContent() {
           image_position: e.image_position,
           is_paid: e.is_paid,
           price_cents: e.price_cents,
+          is_volunteering: e.is_volunteering,
           municipality_id: e.municipality_id,
           registrations_count: counts.get(e.id) ?? 0,
           organization: e.organization,

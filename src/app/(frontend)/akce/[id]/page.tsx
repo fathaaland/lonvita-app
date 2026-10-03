@@ -12,6 +12,11 @@ import {
   getMyAdministeredMunicipalityIds,
   createRegistration,
   cancelRegistration,
+  decideVolunteerInvitation,
+  getMyVolunteerRequestForEvent,
+  offerVolunteerHelp,
+  withdrawVolunteerOffer,
+  MyVolunteerRequest,
   CategoryRow,
   RegistrationCountRow,
 } from "@/integrations/payload/queries";
@@ -26,6 +31,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
+import { VolunteeringRequestCard } from "@/components/VolunteeringRequestCard";
+import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { toast } from "sonner";
 import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart } from "lucide-react";
 import { formatEventDate, formatEventTime } from "@/lib/date";
@@ -46,7 +53,7 @@ function EventDetailContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
-  const { user, isSuperAdmin } = useAuth();
+  const { user, profile, isSuperAdmin } = useAuth();
   const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
   const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
@@ -58,6 +65,9 @@ function EventDetailContent() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // The viewer's pending invitation/offer to help on the event (or their last declined offer).
+  const [volunteerRequest, setVolunteerRequest] = useState<MyVolunteerRequest | null>(null);
+  const [joinOpen, setJoinOpen] = useState(false);
 
   const refreshRegistrations = async (eventId: string) => {
     const [regRows, countRows] = await Promise.all([
@@ -66,6 +76,10 @@ function EventDetailContent() {
     ]);
     setRegs(regRows);
     setCounts(countRows.get(eventId) ?? { approved: 0, pending: 0 });
+  };
+
+  const refreshVolunteerRequest = async (eventId: string) => {
+    setVolunteerRequest(user ? await getMyVolunteerRequestForEvent(eventId, String(user.id)).catch(() => null) : null);
   };
 
   const load = async () => {
@@ -86,6 +100,7 @@ function EventDetailContent() {
       ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
       user ? getMyAdministeredMunicipalityIds(String(user.id)).catch(() => []) : Promise.resolve([]),
       refreshRegistrations(ev.id),
+      refreshVolunteerRequest(ev.id),
     ]);
     setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
     // Run as an organization ("Kavárna NMNM", or the obec itself) — the person's name only as a fallback.
@@ -118,6 +133,8 @@ function EventDetailContent() {
   const isPaidEvent = !!event?.is_paid;
   const isEventOrganizer =
     !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
+  // Who founded it — the one who decides about its volunteering (the flag, inviting volunteers).
+  const isCreator = !!user && !!event && event.organizer_id === String(user.id);
   const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
   const canManage = isEventOrganizer || isAdminOfEventMunicipality;
   // A co-organizer of the obec admin's own event helps run it (Spravovat) but can't edit or cancel it.
@@ -125,12 +142,66 @@ function EventDetailContent() {
   const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
   const canSeeAttendees = canManage || isSuperAdmin;
+  // Someone from the volunteer pool may offer to help on an event that looks for volunteers — its
+  // creator answers (VolunteerInvitations, kind "application").
+  const canOfferHelp =
+    !!user &&
+    !!event &&
+    Boolean(event.is_volunteering) &&
+    Boolean(profile?.is_volunteer) &&
+    !isEventOrganizer &&
+    event.status !== "cancelled" &&
+    new Date(event.date_time).getTime() > Date.now();
+  const pendingOffer = volunteerRequest?.status === "pending" && volunteerRequest.kind === "application" ? volunteerRequest : null;
+  const pendingInvitation =
+    volunteerRequest?.status === "pending" && volunteerRequest.kind === "invitation" ? volunteerRequest : null;
 
   // A ref guard (checked synchronously, before the first await) closes the window a fast
   // double-click/double-tap leaves open with `submitting` state alone — React doesn't
   // repaint the disabled button until the next render, so two clicks in the same tick can
   // both get through and fire two requests (the DB has its own constraint as a backstop).
   const submittingRef = useRef(false);
+
+  const handleJoinClick = () => {
+    if (canOfferHelp) setJoinOpen(true);
+    else handleJoinFree();
+  };
+
+  const runVolunteerAction = async (action: () => Promise<void>, success: string, fallback: string) => {
+    if (!event || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await action();
+      toast.success(success);
+      setJoinOpen(false);
+      load();
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : fallback);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const handleOfferHelp = (message: string) =>
+    runVolunteerAction(
+      () => offerVolunteerHelp(event!.id, message),
+      "Nabídka pomoci odeslána. Pořadatel vám dá vědět.",
+      "Nabídku se nepodařilo odeslat.",
+    );
+
+  const handleWithdrawOffer = () =>
+    pendingOffer &&
+    runVolunteerAction(() => withdrawVolunteerOffer(pendingOffer.id), "Nabídka pomoci stažena.", "Nabídku se nepodařilo stáhnout.");
+
+  const handleDecideInvitation = (accept: boolean) =>
+    pendingInvitation &&
+    runVolunteerAction(
+      () => decideVolunteerInvitation(pendingInvitation.id, accept),
+      accept ? "Pomáháte na akci jako dobrovolník." : "Pozvánka odmítnuta.",
+      "Rozhodnutí se nepodařilo uložit.",
+    );
 
   const handleJoinFree = async () => {
     if (!user) {
@@ -146,6 +217,7 @@ function EventDetailContent() {
     try {
       const reg = await createRegistration(event.id, String(user.id));
       toast.success(reg.status === "approved" ? "Jste přihlášeni na akci." : "Přihláška odeslána pořadateli ke schválení.");
+      setJoinOpen(false);
       load();
     } catch (error) {
       toast.error(
@@ -239,6 +311,11 @@ function EventDetailContent() {
               {category.name}
             </Badge>
           ))}
+          {event.is_volunteering && (
+            <Badge variant="outline" className="border-0 bg-primary-soft text-primary gap-1 font-semibold">
+              <HandHeart className="h-3.5 w-3.5" aria-hidden /> Dobrovolnictví
+            </Badge>
+          )}
           {isPaidEvent ? (
             <Badge className="bg-accent text-accent-foreground gap-1">
               <Tag className="h-3 w-3" /> {event.price_cents ? formatCzk(event.price_cents) : "Placená akce"}
@@ -372,6 +449,10 @@ function EventDetailContent() {
             )}
           </div>
         )}
+        {/* The obec co-organizing it locks its creator out of editing — but not out of its volunteering. */}
+        {isCreator && event.locked_for_viewer && (
+          <VolunteeringRequestCard eventId={event.id} isVolunteering={Boolean(event.is_volunteering)} />
+        )}
         {(canEdit || isSuperAdmin) && (
           <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">
             <div>
@@ -430,14 +511,53 @@ function EventDetailContent() {
               {myReg.role === "volunteer" ? "Zrušit účast" : "Zrušit přihlášku"}
             </Button>
           </div>
-        ) : isFull ? (
+        ) : pendingOffer ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold text-warning">
+              <Clock className="h-5 w-5" /> Vaše nabídka pomoci čeká na pořadatele
+            </div>
+            <Button onClick={handleWithdrawOffer} disabled={submitting} variant="outline" className="w-full h-12 text-base">
+              Stáhnout nabídku
+            </Button>
+          </div>
+        ) : pendingInvitation ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold text-primary">
+              <HandHeart className="h-5 w-5" /> Pořadatel vás zve jako dobrovolníka
+            </div>
+            {pendingInvitation.message && (
+              <p className="text-center text-sm text-muted-foreground">„{pendingInvitation.message}“</p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Button onClick={() => handleDecideInvitation(true)} disabled={submitting} className="h-12 text-base">
+                Pomůžu
+              </Button>
+              <Button onClick={() => handleDecideInvitation(false)} disabled={submitting} variant="outline" className="h-12 text-base">
+                Odmítnout
+              </Button>
+            </div>
+          </div>
+        ) : isFull && !canOfferHelp ? (
           <Button disabled className="w-full h-14 text-base font-semibold">Akce je plná</Button>
         ) : (
-          <Button onClick={handleJoinFree} disabled={submitting} className="w-full h-14 text-base font-semibold">
-            Přihlásit se
+          <Button onClick={handleJoinClick} disabled={submitting} className="w-full h-14 text-base font-semibold">
+            {isFull ? "Nabídnout pomoc" : "Přihlásit se"}
           </Button>
         )}
       </div>
+
+      {event && (
+        <JoinEventDialog
+          open={joinOpen}
+          onOpenChange={setJoinOpen}
+          full={isFull}
+          needsApproval={event.registration_approval_mode === "manual"}
+          lastOfferDeclined={volunteerRequest?.kind === "application" && volunteerRequest.status === "declined"}
+          busy={submitting}
+          onJoin={handleJoinFree}
+          onOffer={handleOfferHelp}
+        />
+      )}
     </article>
   );
 }
