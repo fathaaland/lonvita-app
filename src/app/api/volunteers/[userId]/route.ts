@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
+import type { Payload } from 'payload'
 
 import config from '@payload-config'
+import type { VolunteerRating } from '@/payload-types'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
+import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
 
 const relId = (value: unknown): number | null =>
   value == null ? null : typeof value === 'object' ? (value as { id: number }).id : (value as number)
@@ -46,7 +49,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
     toVolunteerCards(payload, [profile], viewer),
     payload.find({
       collection: 'volunteer-ratings',
-      where: { volunteer: { equals: userId } },
+      where: { and: [{ volunteer: { equals: userId } }, notDeleted] },
       sort: '-createdAt',
       depth: 0,
       pagination: false,
@@ -102,6 +105,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
   )
   const now = Date.now()
 
+  // Only the volunteer themselves may report a rating to the obec — so only they learn where each
+  // complaint stands.
+  const complaints = isSelf
+    ? await reviewComplaintsFor(payload, viewer, ratings.docs)
+    : new Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean }>()
+
   return NextResponse.json({
     volunteer: card,
     is_self: isSelf,
@@ -113,6 +122,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
       event_title: r.eventTitle,
       rated_by_name: raterName.get(relId(r.ratedBy)) ?? 'Pořadatel',
       created_at: r.createdAt,
+      complaint_status: complaints.get(String(r.id))?.status ?? null,
+      can_complain: complaints.get(String(r.id))?.canComplain ?? false,
     })),
     events: events.docs.map((e) => ({
       id: String(e.id),
@@ -123,4 +134,36 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
       attended: attendedEventIds.has(e.id),
     })),
   })
+}
+
+/** Per rating: where the volunteer's complaint about it stands, and whether they may file one. */
+async function reviewComplaintsFor(
+  payload: Payload,
+  viewer: { id: number; role?: string | null },
+  ratings: VolunteerRating[],
+): Promise<Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean }>> {
+  const result = new Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean }>()
+  if (ratings.length === 0) return result
+  const [statuses, ctx, events] = await Promise.all([
+    complaintStatusByReview(payload, 'volunteer-rating', ratings.map((r) => r.id)),
+    complainantContext(payload, viewer),
+    payload.find({
+      collection: 'events',
+      where: { id: { in: [...new Set(ratings.map((r) => relId(r.event)!))] } },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    }),
+  ])
+  const eventById = new Map(events.docs.map((e) => [e.id, e]))
+  for (const r of ratings) {
+    const status = statuses.get(String(r.id)) ?? null
+    const event = eventById.get(relId(r.event)!)
+    const canComplain =
+      status === null &&
+      event !== undefined &&
+      mayComplainAbout({ type: 'volunteer-rating', event, volunteerId: String(relId(r.volunteer)) }, ctx)
+    result.set(String(r.id), { status, canComplain })
+  }
+  return result
 }

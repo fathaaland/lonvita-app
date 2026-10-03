@@ -11,3 +11,7 @@ export const isValidPassword = (value: string | null | undefined): value is stri
 /** Bounds for the "why do you want to organize here" text of an organizer-role request. */
 export const ORGANIZER_REASON_MIN_LENGTH = 20
 export const ORGANIZER_REASON_MAX_LENGTH = 1000
+
+/** Bounds for the reason an organizer or volunteer gives when reporting a review to the obec. */
+export const REVIEW_COMPLAINT_REASON_MIN_LENGTH = 10
+export const REVIEW_COMPLAINT_REASON_MAX_LENGTH = 1000

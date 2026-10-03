@@ -13,6 +13,7 @@ import { getAdministeredMunicipalityIds } from './access/shared'
 import { eventOrganizerIds, isEventCreator } from './Events'
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleParticipantReminder } from './shared/reminders'
+import { notDeleted } from './shared/softDelete'
 
 const relationId = (value: unknown): string | null => {
   if (value == null) return null
@@ -308,7 +309,7 @@ const applyDecision: CollectionBeforeChangeHook = async ({ data, req, operation,
 async function ratingSummary(req: PayloadRequest, volunteerId: string): Promise<string> {
   const ratings = await req.payload.find({
     collection: 'volunteer-ratings',
-    where: { volunteer: { equals: volunteerId } },
+    where: { and: [{ volunteer: { equals: volunteerId } }, notDeleted] },
     select: { rating: true },
     depth: 0,
     pagination: false,

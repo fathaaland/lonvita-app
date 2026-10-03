@@ -722,6 +722,9 @@ export type VolunteerDetail = {
     event_title: string;
     rated_by_name: string;
     created_at: string;
+    /** Only ever set for the volunteer themselves — where their complaint about the rating stands. */
+    complaint_status: ReviewComplaintStatus;
+    can_complain: boolean;
   }[];
   events: { id: string; title: string; date_time: string; location_text: string | null; upcoming: boolean; attended: boolean }[];
 };
@@ -1275,6 +1278,42 @@ export type { OrganizationFeedbackSummary };
 
 export async function getOrganizationFeedbackSummary(organizationId: string): Promise<OrganizationFeedbackSummary> {
   return get<OrganizationFeedbackSummary>(`/organizations/${organizationId}/feedback-summary`);
+}
+
+// --- Reviews and complaints about them --------------------------------------------------------
+
+export type ReviewComplaintStatus = "pending" | "rejected" | null;
+
+/** One participant's feedback on the organization's event — without who wrote it. */
+export type OrganizationReviewRow = {
+  id: string;
+  event_id: string;
+  event_title: string;
+  event_date: string;
+  satisfaction: number;
+  felt_welcome: number | null;
+  comment: string | null;
+  created_at: string;
+  complaint_status: ReviewComplaintStatus;
+  can_complain: boolean;
+};
+
+export async function getOrganizationReviews(organizationId: string): Promise<OrganizationReviewRow[]> {
+  const result = await get<{ docs: OrganizationReviewRow[] }>(`/organizations/${organizationId}/reviews`);
+  return result.docs;
+}
+
+/** Reports a review to the obec the event belongs to — it decides whether to remove it. */
+export async function reportReview(
+  type: "event-feedback" | "volunteer-rating",
+  reviewId: string,
+  reason: string,
+): Promise<void> {
+  await post("/review-complaints", {
+    reviewType: type,
+    [type === "event-feedback" ? "eventFeedback" : "volunteerRating"]: Number(reviewId),
+    reason: reason.trim(),
+  });
 }
 
 // --- Invitations to co-organize ---------------------------------------------------------------

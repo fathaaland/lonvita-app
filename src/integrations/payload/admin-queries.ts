@@ -4,7 +4,7 @@
  * RegistrationRow/CategoryRow/ProfileRow interfaces directly, since those pure
  * client-side analytics functions are unaware of Payload and expect that exact shape.
  */
-import { buildQuery, buildWhereParams, del, get, patch } from "./client";
+import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
 import type { EventRow, RegistrationRow, CategoryRow, ProfileRow, FeedbackRow } from "@/lib/analytics";
@@ -242,6 +242,37 @@ export async function getVolunteerFlagRequestsForAdmin(municipalityId: string): 
 
 export async function decideVolunteerFlagRequest(requestId: string, approve: boolean): Promise<void> {
   await patch(`/volunteer-flag-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
+}
+
+// --- Stížnosti na recenze ------------------------------------------------------------------
+
+export type ReviewComplaintAdminRow = {
+  id: string;
+  review_type: "event-feedback" | "volunteer-rating";
+  event_id: string | null;
+  event_title: string;
+  /** Null once the review itself is gone — the complaint can still be closed. */
+  review: {
+    rating: number;
+    comment: string | null;
+    author_name: string;
+    /** Whom the review is about — the organization running the event, or the rated volunteer. */
+    subject_name: string;
+    created_at: string;
+  } | null;
+  complainant_name: string;
+  reason: string;
+  created_at: string;
+};
+
+export async function getReviewComplaintsForAdmin(municipalityId: string): Promise<ReviewComplaintAdminRow[]> {
+  const result = await get<{ docs: ReviewComplaintAdminRow[] }>(`/municipalities/${municipalityId}/review-complaints`);
+  return result.docs;
+}
+
+/** Upholding removes the review (and so drops it from every average); rejecting keeps it. */
+export async function decideReviewComplaint(complaintId: string, uphold: boolean, note: string): Promise<void> {
+  await post(`/review-complaints/${complaintId}/decide`, { uphold, note: note.trim() || undefined });
 }
 
 export type CoOrganizingRequestAdminRow = {

@@ -1,6 +1,8 @@
 import type { Access, CollectionBeforeValidateHook, CollectionConfig, Where } from 'payload'
 import { APIError } from 'payload'
 
+import { deletedAtField, notDeleted } from './shared/softDelete'
+
 const relationId = (value: unknown): string | null => {
   if (value == null) return null
   return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
@@ -12,14 +14,15 @@ const COMMENT_MAX_LENGTH = 500
  * invite by it). */
 const canReadRating: Access = async ({ req: { user, payload } }) => {
   if (!user) return false
-  if (user.role === 'admin') return true
+  // A rating the obec removed on the volunteer's complaint (ReviewComplaints) is gone for everyone.
+  if (user.role === 'admin') return notDeleted
   const organizing = await payload.count({
     collection: 'user-roles',
     where: { and: [{ user: { equals: user.id } }, { role: { in: ['municipality_admin', 'organizer'] } }] },
     overrideAccess: true,
   })
-  if (organizing.totalDocs > 0) return true
-  const where: Where = { volunteer: { equals: user.id } }
+  if (organizing.totalDocs > 0) return notDeleted
+  const where: Where = { and: [{ volunteer: { equals: user.id } }, notDeleted] }
   return where
 }
 
@@ -119,6 +122,7 @@ export const VolunteerRatings: CollectionConfig = {
     { name: 'ratedBy', type: 'relationship', relationTo: 'users', required: true, access: fixedAfterCreate },
     { name: 'rating', type: 'number', required: true, min: 1, max: 5 },
     { name: 'comment', type: 'textarea', maxLength: COMMENT_MAX_LENGTH },
+    deletedAtField,
   ],
   hooks: {
     beforeValidate: [prepareRating],

@@ -9,16 +9,19 @@ import {
   getCoOrganizingRequestsForAdmin,
   decideCoOrganizingRequest,
   getOrganizersForAdmin,
+  getReviewComplaintsForAdmin,
   revokeOrganizerRole,
   OrganizerRequestAdminRow,
   VolunteerFlagRequestAdminRow,
   CoOrganizingRequestAdminRow,
   OrganizerRoleRow,
+  ReviewComplaintAdminRow,
 } from "@/integrations/payload/admin-queries";
+import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, X, UserPlus, HandHeart, Handshake, Users } from "lucide-react";
+import { Check, X, UserPlus, HandHeart, Handshake, Users, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { organizationTypeLabel } from "@/lib/organizations";
@@ -31,6 +34,7 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const [organizerRequests, setOrganizerRequests] = useState<OrganizerRequestAdminRow[]>([]);
   const [volunteerRequests, setVolunteerRequests] = useState<VolunteerFlagRequestAdminRow[]>([]);
   const [coOrganizingRequests, setCoOrganizingRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
+  const [reviewComplaints, setReviewComplaints] = useState<ReviewComplaintAdminRow[]>([]);
   const [organizers, setOrganizers] = useState<OrganizerRoleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -38,15 +42,17 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const load = async () => {
     if (!muniId) return;
     setLoading(true);
-    const [org, vol, coOrg, activeOrganizers] = await Promise.all([
+    const [org, vol, coOrg, complaints, activeOrganizers] = await Promise.all([
       getOrganizerRequestsForAdmin(muniId),
       getVolunteerFlagRequestsForAdmin(muniId),
       getCoOrganizingRequestsForAdmin(muniId),
+      getReviewComplaintsForAdmin(muniId).catch(() => [] as ReviewComplaintAdminRow[]),
       getOrganizersForAdmin(muniId),
     ]);
     setOrganizerRequests(org);
     setVolunteerRequests(vol);
     setCoOrganizingRequests(coOrg);
+    setReviewComplaints(complaints);
     setOrganizers(activeOrganizers);
     setLoading(false);
   };
@@ -110,7 +116,11 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   };
 
   const totalCount =
-    organizerRequests.length + volunteerRequests.length + coOrganizingRequests.length + organizers.length;
+    organizerRequests.length +
+    volunteerRequests.length +
+    coOrganizingRequests.length +
+    reviewComplaints.length +
+    organizers.length;
 
   if (loading) return <p className="text-center text-muted-foreground py-8">Načítám…</p>;
 
@@ -190,6 +200,18 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
               busy={busyId === r.id}
               onDecide={(approve) => handleCoOrganizingDecision(r.id, approve)}
             />
+          ))}
+        </div>
+      )}
+
+      {reviewComplaints.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <Flag className="h-4 w-4 text-primary" />
+            <p className="font-bold text-sm">Stížnosti na recenze</p>
+          </div>
+          {reviewComplaints.map((c) => (
+            <ReviewComplaintCard key={c.id} complaint={c} onDecided={load} />
           ))}
         </div>
       )}

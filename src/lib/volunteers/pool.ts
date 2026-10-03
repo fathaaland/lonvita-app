@@ -1,6 +1,7 @@
 import type { Payload } from 'payload'
 
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
+import { notDeleted } from '@/collections/shared/softDelete'
 import type { Profile } from '@/payload-types'
 
 type Viewer = { id: number; role?: string | null }
@@ -55,7 +56,7 @@ export async function ratingsByVolunteer(
   if (userIds.length === 0) return result
   const ratings = await payload.find({
     collection: 'volunteer-ratings',
-    where: { volunteer: { in: userIds } },
+    where: { and: [{ volunteer: { in: userIds } }, notDeleted] },
     select: { volunteer: true, rating: true },
     depth: 0,
     pagination: false,

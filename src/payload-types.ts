@@ -90,6 +90,7 @@ export interface Config {
     exports: Export;
     'volunteer-invitations': VolunteerInvitation;
     'volunteer-ratings': VolunteerRating;
+    'review-complaints': ReviewComplaint;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -120,6 +121,7 @@ export interface Config {
     exports: ExportsSelect<false> | ExportsSelect<true>;
     'volunteer-invitations': VolunteerInvitationsSelect<false> | VolunteerInvitationsSelect<true>;
     'volunteer-ratings': VolunteerRatingsSelect<false> | VolunteerRatingsSelect<true>;
+    'review-complaints': ReviewComplaintsSelect<false> | ReviewComplaintsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -875,6 +877,33 @@ export interface VolunteerRating {
   ratedBy: number | User;
   rating: number;
   comment?: string | null;
+  /**
+   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
+   */
+  deletedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "review-complaints".
+ */
+export interface ReviewComplaint {
+  id: number;
+  reviewType: 'event-feedback' | 'volunteer-rating';
+  eventFeedback?: (number | null) | EventFeedback;
+  volunteerRating?: (number | null) | VolunteerRating;
+  event?: (number | null) | Event;
+  municipality: number | Municipality;
+  complainant: number | User;
+  reason: string;
+  status: 'pending' | 'upheld' | 'rejected';
+  decidedBy?: (number | null) | User;
+  decidedAt?: string | null;
+  /**
+   * The obec's reasoning, shown to the complainant.
+   */
+  decisionNote?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -993,6 +1022,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'volunteer-ratings';
         value: number | VolunteerRating;
+      } | null)
+    | ({
+        relationTo: 'review-complaints';
+        value: number | ReviewComplaint;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1462,6 +1495,26 @@ export interface VolunteerRatingsSelect<T extends boolean = true> {
   ratedBy?: T;
   rating?: T;
   comment?: T;
+  deletedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "review-complaints_select".
+ */
+export interface ReviewComplaintsSelect<T extends boolean = true> {
+  reviewType?: T;
+  eventFeedback?: T;
+  volunteerRating?: T;
+  event?: T;
+  municipality?: T;
+  complainant?: T;
+  reason?: T;
+  status?: T;
+  decidedBy?: T;
+  decidedAt?: T;
+  decisionNote?: T;
   updatedAt?: T;
   createdAt?: T;
 }

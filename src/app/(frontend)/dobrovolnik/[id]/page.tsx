@@ -12,6 +12,7 @@ import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { UserAvatar } from "@/components/UserAvatar";
 import { RatingStars } from "@/components/RatingStars";
+import { ReportReviewAction } from "@/components/ReportReviewAction";
 import { focusLabel } from "@/components/VolunteerCard";
 import { InviteVolunteerDialog } from "@/components/InviteVolunteerDialog";
 import { Button } from "@/components/ui/button";
@@ -29,17 +30,21 @@ function VolunteerContent() {
   const { isOrganizer, isAdmin } = useAuth();
   const [detail, setDetail] = useState<VolunteerDetail | null | undefined>(undefined);
   const [inviting, setInviting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    setDetail(undefined);
+  }, [id]);
 
   useEffect(() => {
     let active = true;
-    setDetail(undefined);
     getVolunteerDetail(id)
       .catch(() => null)
       .then((d) => active && setDetail(d));
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
   if (detail === undefined) return <><PageHeader title="Dobrovolník" back /><Loading /></>;
 
@@ -176,6 +181,15 @@ function VolunteerContent() {
                           {r.event_title}
                         </Link>
                       </p>
+                      {isSelf && (
+                        <ReportReviewAction
+                          type="volunteer-rating"
+                          reviewId={r.id}
+                          status={r.complaint_status}
+                          canComplain={r.can_complain}
+                          onReported={() => setReloadKey((k) => k + 1)}
+                        />
+                      )}
                     </CardContent>
                   </Card>
                 </li>

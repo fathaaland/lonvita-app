@@ -33,6 +33,7 @@ import { Organizations } from './collections/Organizations'
 import { Exports } from './collections/Exports'
 import { VolunteerInvitations } from './collections/VolunteerInvitations'
 import { VolunteerRatings } from './collections/VolunteerRatings'
+import { ReviewComplaints } from './collections/ReviewComplaints'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError } from './lib/logger'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
@@ -90,6 +91,7 @@ export default buildConfig({
     Exports,
     VolunteerInvitations,
     VolunteerRatings,
+    ReviewComplaints,
   ].map(withCrudLogging),
   hooks: {
     afterError: [

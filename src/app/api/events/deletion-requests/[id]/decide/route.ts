@@ -153,6 +153,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       })
     }
     for (const collection of [
+      'review-complaints',
       'volunteer-ratings',
       'volunteer-invitations',
       'registrations',

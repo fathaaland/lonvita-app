@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { OrganizationMark } from "@/components/EventCard";
 import { CoOrganizingInvitations } from "@/components/CoOrganizingInvitations";
 import { AvatarEditor } from "@/components/AvatarEditor";
+import { OrganizationReviews } from "@/components/OrganizationReviews";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { OrganizersDirectoryCard } from "@/components/OrganizersDirectoryCard";
@@ -367,6 +368,8 @@ function OrganizationContent() {
                 </CardContent>
               </Card>
             )}
+
+            <OrganizationReviews organizationId={organization.id} />
 
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-3">

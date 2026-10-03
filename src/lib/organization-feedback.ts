@@ -10,13 +10,8 @@ const average = (values: number[]): number | null =>
 const share = (values: boolean[]): number | null =>
   values.length ? values.filter(Boolean).length / values.length : null
 
-/** Aggregate feedback over every event the organization runs or co-organizes — nobody's single
- * answer. Server-side only (overrideAccess): callers check who may see it. Shared by
- * GET /api/organizations/:id/feedback-summary and the worker's organization PDF. */
-export async function summarizeOrganizationFeedback(
-  payload: Payload,
-  organizationId: number | string,
-): Promise<OrganizationFeedbackSummary> {
+/** Every event the organization runs or co-organizes — the events its feedback comes from. */
+export async function findOrganizationEvents(payload: Payload, organizationId: number | string) {
   const events = await payload.find({
     collection: 'events',
     where: {
@@ -26,7 +21,17 @@ export async function summarizeOrganizationFeedback(
     pagination: false,
     overrideAccess: true,
   })
-  const eventIds = events.docs.map((e) => e.id)
+  return events.docs
+}
+
+/** Aggregate feedback over every event the organization runs or co-organizes — nobody's single
+ * answer. Server-side only (overrideAccess): callers check who may see it. Shared by
+ * GET /api/organizations/:id/feedback-summary and the worker's organization PDF. */
+export async function summarizeOrganizationFeedback(
+  payload: Payload,
+  organizationId: number | string,
+): Promise<OrganizationFeedbackSummary> {
+  const eventIds = (await findOrganizationEvents(payload, organizationId)).map((e) => e.id)
 
   const feedback = eventIds.length
     ? (
