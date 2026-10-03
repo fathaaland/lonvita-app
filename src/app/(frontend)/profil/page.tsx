@@ -23,7 +23,6 @@ import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
-import { ConnectedAccountsCard } from "@/components/ConnectedAccountsCard";
 import { Loading } from "@/components/Loading";
 
 function ProfileContent() {
@@ -109,8 +108,6 @@ function ProfileContent() {
         </Card>
 
         <NotificationPreferencesCard />
-
-        <ConnectedAccountsCard />
 
         <EventFeedbackCard />
 

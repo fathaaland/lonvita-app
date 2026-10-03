@@ -1,12 +1,8 @@
 import type { Access, CollectionConfig } from 'payload'
 
-/** A person sees and can remove their own linked sign-ins (the profile's "Propojené účty");
- * creating one only ever happens through the Google callback, which vouches for the account. */
-const adminOrOwn: Access = ({ req }) => {
-  if (!req.user) return false
-  if (req.user.role === 'admin') return true
-  return { user: { equals: req.user.id } }
-}
+/** Linked sign-ins are plumbing, not something a person manages: only the Google callback
+ * (Local API, `overrideAccess`) creates or reads them, and only a platform admin sees them over the API. */
+const adminOnly: Access = ({ req }) => req.user?.role === 'admin'
 
 export const AuthIdentities: CollectionConfig = {
   slug: 'auth-identities',
@@ -18,10 +14,10 @@ export const AuthIdentities: CollectionConfig = {
     useAsTitle: 'providerSubject',
   },
   access: {
-    read: adminOrOwn,
-    create: ({ req }) => req.user?.role === 'admin',
-    update: ({ req }) => req.user?.role === 'admin',
-    delete: adminOrOwn,
+    read: adminOnly,
+    create: adminOnly,
+    update: adminOnly,
+    delete: adminOnly,
   },
   fields: [
     {

@@ -351,8 +351,8 @@ describe('Signing in with Google', () => {
     })
   })
 
-  describe('the linked accounts on the profile', () => {
-    it('are visible and removable by their owner only, and never creatable over the API', async () => {
+  describe('the linked accounts', () => {
+    it('are not readable, removable or creatable over the API by anyone but a platform admin — not even their owner', async () => {
       const owner = await payload.create({
         collection: 'users',
         data: { email: `acc-owner-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -369,8 +369,9 @@ describe('Signing in with Google', () => {
         await payload.find({ collection: 'auth-identities', where: { user: { equals: owner.id } }, overrideAccess: true })
       ).docs[0]!
 
-      const asStranger = await payload.find({ collection: 'auth-identities', user: stranger, overrideAccess: false })
-      expect(asStranger.docs.map((d) => d.id)).not.toContain(identity.id)
+      await expect(
+        payload.find({ collection: 'auth-identities', user: stranger, overrideAccess: false }),
+      ).rejects.toThrow()
       await expect(
         payload.delete({ collection: 'auth-identities', id: identity.id, user: stranger, overrideAccess: false }),
       ).rejects.toThrow()
@@ -383,13 +384,16 @@ describe('Signing in with Google', () => {
         }),
       ).rejects.toThrow()
 
-      const asOwner = await payload.find({ collection: 'auth-identities', user: owner, overrideAccess: false })
-      expect(asOwner.docs.map((d) => d.id)).toEqual([identity.id])
-      await payload.delete({ collection: 'auth-identities', id: identity.id, user: owner, overrideAccess: false })
+      await expect(
+        payload.find({ collection: 'auth-identities', user: owner, overrideAccess: false }),
+      ).rejects.toThrow()
+      await expect(
+        payload.delete({ collection: 'auth-identities', id: identity.id, user: owner, overrideAccess: false }),
+      ).rejects.toThrow()
       expect(
         (await payload.find({ collection: 'auth-identities', where: { user: { equals: owner.id } }, overrideAccess: true }))
           .totalDocs,
-      ).toBe(0)
+      ).toBe(1)
     })
   })
 })
