@@ -1,8 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
-import { eventOrganizerIds } from '@/collections/Events'
-import { notDeleted } from '@/collections/shared/softDelete'
+import { isEventCreator } from '@/collections/Events'
 import type { Event } from '@/payload-types'
 
 /** The two kinds of review someone can report to the obec: a participant's feedback on an event
@@ -57,39 +56,26 @@ export async function resolveReview(
 }
 
 /** What the viewer's standing is, looked up once for a whole list of reviews. */
-export type ComplainantContext = { viewer: Viewer; administeredIds: string[]; ownedOrganizationIds: string[] }
+export type ComplainantContext = { viewer: Viewer; administeredIds: string[] }
 
 export async function complainantContext(payload: Payload, viewer: Viewer): Promise<ComplainantContext> {
-  const [administeredIds, owned] = await Promise.all([
-    viewer.role === 'admin' ? Promise.resolve([] as string[]) : getAdministeredMunicipalityIds(payload, viewer.id),
-    payload.find({
-      collection: 'organizations',
-      where: { and: [{ owner: { equals: viewer.id } }, notDeleted] },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
-  ])
-  return { viewer, administeredIds, ownedOrganizationIds: owned.docs.map((o) => String(o.id)) }
+  const administeredIds = viewer.role === 'admin' ? [] : await getAdministeredMunicipalityIds(payload, viewer.id)
+  return { viewer, administeredIds }
 }
 
 /**
- * Who may report a review to the obec: about event feedback, whoever runs the event — its pořadatel,
- * a spolupořadatel, or the owner of an organization on it; about a volunteer rating, the volunteer.
- * Never the obec the event belongs to, nor a platform admin — they are the ones who decide.
+ * Who may report a review to the obec: about event feedback, the event's creator (`organizer`) alone —
+ * not a spolupořadatel, so a co-organized event's reviews have one voice; about a volunteer rating,
+ * the volunteer. Never the obec the event belongs to, nor a platform admin — they are the ones who decide.
  */
 export function mayComplainAbout(review: Pick<ResolvedReview, 'type' | 'event' | 'volunteerId'>, ctx: ComplainantContext): boolean {
-  const { viewer, administeredIds, ownedOrganizationIds } = ctx
+  const { viewer, administeredIds } = ctx
   if (viewer.role === 'admin') return false
   const municipalityId = relationId(review.event.municipality)
   if (municipalityId !== null && administeredIds.includes(municipalityId)) return false
 
-  const uid = String(viewer.id)
-  if (review.type === 'volunteer-rating') return review.volunteerId === uid
-
-  if (eventOrganizerIds(review.event).includes(uid)) return true
-  const eventOrganizationIds = [review.event.organization, ...(review.event.coOrganizations ?? [])].map(relationId)
-  return eventOrganizationIds.some((id) => id !== null && ownedOrganizationIds.includes(id))
+  if (review.type === 'volunteer-rating') return review.volunteerId === String(viewer.id)
+  return isEventCreator(viewer, review.event)
 }
 
 /**

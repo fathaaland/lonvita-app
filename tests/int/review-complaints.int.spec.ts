@@ -227,8 +227,9 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
     expect((await reviewsAs(otherOrganizer)).status).toBe(403)
   })
 
-  it('only whoever runs the event reports its feedback — not a participant, another organizer or the obec', async () => {
+  it("only the event's creator reports its feedback — not a spolupořadatel, a participant, another organizer or the obec", async () => {
     const bad = { type: 'event-feedback' as const, id: badFeedback.id }
+    await expect(complain(club, bad)).rejects.toThrow(/nahlásit nemůžete/)
     await expect(complain(grumpy, bad)).rejects.toThrow(/nahlásit nemůžete/)
     await expect(complain(otherOrganizer, bad)).rejects.toThrow(/nahlásit nemůžete/)
     await expect(complain(volunteer, bad)).rejects.toThrow(/nahlásit nemůžete/)
@@ -237,7 +238,7 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
   })
 
   it('a reported review waits for the obec, once — the queue shows the review, its author and the reason', async () => {
-    const complaint = await complain(club, { type: 'event-feedback', id: badFeedback.id })
+    const complaint = await complain(pub, { type: 'event-feedback', id: badFeedback.id })
     expect(complaint).toMatchObject({ status: 'pending', complainant: expect.anything() })
     await expect(complain(pub, { type: 'event-feedback', id: badFeedback.id })).rejects.toThrow(/čeká/)
 
@@ -252,7 +253,7 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       review_type: 'event-feedback',
-      complainant_name: 'rc spolek',
+      complainant_name: 'rc hospoda',
       review: { rating: 1, comment: 'Hrozné, pořadatel je podvodník.', author_name: 'rc nespokojeny' },
     })
     const asOrganizer = await getQueue(new Request('http://localhost/api/x', { headers: await auth(pub) }), {
@@ -285,7 +286,7 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
 
     const told = await payload.find({
       collection: 'notifications',
-      where: { and: [{ user: { equals: club.id } }, { title: { equals: 'Recenze odstraněna' } }] },
+      where: { and: [{ user: { equals: pub.id } }, { title: { equals: 'Recenze odstraněna' } }] },
       overrideAccess: true,
     })
     expect(told.totalDocs).toBe(1)

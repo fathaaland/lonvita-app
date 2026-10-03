@@ -138,7 +138,9 @@ function EventDetailContent() {
   const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
   const canManage = isEventOrganizer || isAdminOfEventMunicipality;
   // A co-organizer of the obec admin's own event helps run it (Spravovat) but can't edit or cancel it.
-  const canEdit = canManage && !event?.locked_for_viewer;
+  // Once it has taken place, nobody edits it any more (Events canUpdateEvent).
+  const hasEnded = event?.status === "finished";
+  const canEdit = canManage && !event?.locked_for_viewer && !hasEnded;
   const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
   const canSeeAttendees = canManage || isSuperAdmin;
@@ -450,14 +452,14 @@ function EventDetailContent() {
           </div>
         )}
         {/* The obec co-organizing it locks its creator out of editing — but not out of its volunteering. */}
-        {isCreator && event.locked_for_viewer && (
+        {isCreator && event.locked_for_viewer && !hasEnded && (
           <VolunteeringCard
             eventId={event.id}
             isVolunteering={Boolean(event.is_volunteering)}
             onChanged={(isVolunteering) => setEvent((ev) => (ev ? { ...ev, is_volunteering: isVolunteering } : ev))}
           />
         )}
-        {(canEdit || isSuperAdmin) && (
+        {(canEdit || (isSuperAdmin && !hasEnded)) && (
           <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">
             <div>
               <h2 className="text-lg font-bold">{event.deletion_needs_consent ? "Smazání akce" : "Zrušení akce"}</h2>

@@ -13,6 +13,7 @@ import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from '.
 import { administeredIdsFor, mayEditEvent } from './Events'
 import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
+import { hasEventEnded } from '@/lib/eventEnded'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 const relationId = (value: unknown): string | null => {
@@ -154,6 +155,10 @@ const applyDecision: CollectionBeforeChangeHook = async ({ data, req, operation,
     : null
   if (!event || event.deletedAt || event.status === 'cancelled') {
     throw new APIError('Akce už byla zrušena — pozvánku můžete jen odmítnout.', 409)
+  }
+  // A held event is history — nobody joins it as a spolupořadatel after the fact.
+  if (hasEventEnded(event.dateTime, event.endDateTime)) {
+    throw new APIError('Akce už proběhla — pozvánku můžete jen odmítnout.', 409)
   }
   const current = (event.coOrganizations ?? []).map((o) => Number(relationId(o)))
   if (current.includes(organizationId)) return data

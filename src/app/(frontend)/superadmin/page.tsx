@@ -1141,11 +1141,13 @@ function SuperAdminContent() {
                         {formatEventDateTime(ev.dateTimeIso)} · {ev.municipalityName}
                       </p>
                     </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" asChild>
-                      <Link href={`/upravit/${ev.id}`} aria-label="Upravit akci">
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-                    </Button>
+                    {!ev.hasEnded && (
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" asChild>
+                        <Link href={`/upravit/${ev.id}`} aria-label="Upravit akci">
+                          <Pencil className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    )}
                     <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} variant="icon" onCancelled={load} />
                   </CardContent>
                 </Card>

@@ -3,6 +3,7 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { isEventCreator } from '@/collections/Events'
+import { hasEventEnded } from '@/lib/eventEnded'
 
 /**
  * The event's creator marks it as one for volunteers (or takes the mark off) — no obec approval.
@@ -30,6 +31,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   if (!isEventCreator(user, event)) {
     return NextResponse.json({ error: 'Dobrovolnictví u akce nastavuje jen ten, kdo ji založil.' }, { status: 403 })
+  }
+  if (hasEventEnded(event.dateTime, event.endDateTime)) {
+    return NextResponse.json({ error: 'Akce už proběhla — upravit ji nejde.' }, { status: 400 })
   }
 
   const updated = await payload.update({

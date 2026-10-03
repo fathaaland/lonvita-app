@@ -57,10 +57,12 @@ function EditEventContent() {
         // The volunteering flag is the creator's alone — not a spolupořadatel's, not the obec's
         // (Events guardIsVolunteering). The creator sets it straight away, no obec approval.
         setVolunteering(isSuperAdmin || ev.organizer_id === uid ? "set" : "none");
-        // With the obec on the event, only the obec edits it (Events lockedEventIds).
+        // With the obec on the event, only the obec edits it (Events lockedEventIds). Once it has
+        // taken place, nobody does (Events canUpdateEvent).
         setCanEdit(
-          isAdminHere ||
-            ((ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)) && !ev.locked_for_viewer),
+          ev.status !== "finished" &&
+            (isAdminHere ||
+              ((ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)) && !ev.locked_for_viewer)),
         );
       }
       setEvent(ev);
@@ -116,7 +118,9 @@ function EditEventContent() {
         <EmptyState
           title={event ? "Tuto akci nemůžete upravit" : "Akce nebyla nalezena"}
           description={
-            event?.locked_for_viewer
+            event?.status === "finished"
+              ? "Akce už proběhla — upravovat ji nejde. Přihlášené a docházku spravovat můžete dál."
+              : event?.locked_for_viewer
               ? "Tuhle akci pořádá nebo spolupořádá obec — upravit nebo zrušit ji může jen admin obce. Přihlášené a docházku spravovat můžete dál."
               : event
                 ? "Upravovat ji může pořadatel nebo admin obce."
@@ -124,7 +128,7 @@ function EditEventContent() {
           }
         />
         {/* The obec locks the event's creator out of editing it, but not out of its volunteering. */}
-        {event && volunteering === "set" && (
+        {event && volunteering === "set" && event.status !== "finished" && (
           <div className="px-4 pb-6">
             <VolunteeringCard eventId={event.id} isVolunteering={Boolean(event.is_volunteering)} />
           </div>

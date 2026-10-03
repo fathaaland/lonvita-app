@@ -41,6 +41,9 @@ export function EventsTable({
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [busyVolunteerId, setBusyVolunteerId] = useState<string | null>(null);
 
+  // A held event is history — its flag stays as it was (Events canUpdateEvent).
+  const mayRemoveVolunteering = (e: EventRow) => e.status !== "finished" && canRemoveVolunteering(e);
+
   const handleRemoveVolunteering = async (eventId: string) => {
     setBusyVolunteerId(eventId);
     try {
@@ -139,11 +142,11 @@ export function EventsTable({
                           variant="secondary"
                           className={cn(
                             "h-5 text-[10px] pl-1.5 gap-1 text-[hsl(var(--brand-purple))] bg-[hsl(var(--brand-purple))]/10",
-                            canRemoveVolunteering(e) ? "pr-0.5" : "pr-1.5",
+                            mayRemoveVolunteering(e) ? "pr-0.5" : "pr-1.5",
                           )}
                         >
                           <HandHeart className="h-3 w-3" /> Dobrovolnictví
-                          {canRemoveVolunteering(e) && (
+                          {mayRemoveVolunteering(e) && (
                             <button
                               type="button"
                               aria-label="Odebrat příznak Dobrovolnictví"
@@ -170,7 +173,7 @@ export function EventsTable({
                   </div>
                   {/* An event the obec runs or co-organizes, co-organized by this viewer — theirs to help run,
                       not to edit or cancel. Same fixed widths keep the rows aligned. */}
-                  {e.locked_for_viewer ? (
+                  {e.locked_for_viewer || e.status === "finished" ? (
                     <div className="w-16 shrink-0" />
                   ) : (
                     <>

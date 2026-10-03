@@ -28,6 +28,7 @@ import {
   queueEventUpdatedNotification,
   snapshotNotifiableFields,
 } from './shared/eventNotifications'
+import { hasEventEnded } from '@/lib/eventEnded'
 import { haversineDistanceKm } from '@/lib/geo/distance'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
@@ -156,16 +157,28 @@ export async function lockedEventIds(
   )
 }
 
+/** Events that haven't taken place yet — the where-form of hasEventEnded. */
+const notYetEnded = (): Where => {
+  const now = new Date().toISOString()
+  return {
+    or: [
+      { endDateTime: { greater_than_equal: now } },
+      { and: [{ endDateTime: { exists: false } }, { dateTime: { greater_than_equal: now } }] },
+    ],
+  }
+}
+
 /** Brief §4 organizer self-service edit of their own event — the organizer or a co-organizer, a
  * municipality admin for any event in their obec, and a platform admin everywhere. Organizers are
  * shut out of events the obec takes part in (lockedEventIds). Cancelling an event several
  * organizers run needs the others' consent (guardCoOrganizedChanges). Moving an event to
  * another obec or handing it to another organizer stays platform-admin-only (field access below).
+ * An event that has taken place is nobody's to edit any more, a platform admin's neither.
  * Trusted internal writes (overrideAccess) — e.g. flipping status to "full" — bypass this as usual. */
 const canUpdateEvent: Access = async ({ req }) => {
   const { user, payload } = req
   if (!user) return false
-  if (user.role === 'admin') return true
+  if (user.role === 'admin') return notYetEnded()
 
   const administeredIds = await administeredIdsFor(req, user.id)
   const organized = await payload.find({
@@ -184,7 +197,7 @@ const canUpdateEvent: Access = async ({ req }) => {
     lockedIds.size > 0 ? { and: [organizerWhere, { id: { not_in: [...lockedIds] } }] } : organizerWhere,
   ]
   if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
-  const where: Where = { or }
+  const where: Where = { and: [notYetEnded(), { or }] }
   return where
 }
 
@@ -193,8 +206,9 @@ const canUpdateEvent: Access = async ({ req }) => {
 export async function mayEditEvent(
   req: PayloadRequest,
   user: { id: number | string; role?: string | null },
-  event: EventOwnership,
+  event: EventOwnership & { dateTime: string; endDateTime?: string | null },
 ): Promise<boolean> {
+  if (hasEventEnded(event.dateTime, event.endDateTime)) return false
   if (user.role === 'admin') return true
   const administeredIds = await administeredIdsFor(req, user.id)
   if (administeredIds.includes(relationId(event.municipality) ?? '')) return true
@@ -768,8 +782,7 @@ const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ d
  */
 const deriveFinishedStatus: CollectionAfterReadHook = ({ doc }) => {
   if (doc.status !== 'active' && doc.status !== 'full') return doc
-  const endsAt = new Date(doc.endDateTime ?? doc.dateTime)
-  if (Number.isNaN(endsAt.getTime()) || endsAt.getTime() >= Date.now()) return doc
+  if (!hasEventEnded(doc.dateTime, doc.endDateTime)) return doc
   return { ...doc, status: 'finished' }
 }
 
