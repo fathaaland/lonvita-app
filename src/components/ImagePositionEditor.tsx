@@ -18,6 +18,8 @@ interface Props {
   onChange: (value: ImagePosition) => void;
   /** Sizing of the frame — must match the crop the photo is shown in (16:10 cards and detail). */
   className?: string;
+  /** The "Přetažením nastavte výřez" badge on the photo — off for frames too small to carry it. */
+  hint?: boolean;
 }
 
 /**
@@ -26,7 +28,7 @@ interface Props {
  * on it and dragging the photo where they want it. The result is a CSS object-position in percent,
  * stored on the event, so every same-ratio crop (dashboard cards, event detail) frames it the same.
  */
-export function ImagePositionEditor({ src, value, onChange, className }: Props) {
+export function ImagePositionEditor({ src, value, onChange, className, hint = true }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const drag = useRef<{ startX: number; startY: number; from: ImagePosition; overflowX: number; overflowY: number } | null>(
     null,
@@ -111,9 +113,11 @@ export function ImagePositionEditor({ src, value, onChange, className }: Props) 
         className="pointer-events-none h-full w-full object-cover"
         style={{ objectPosition: `${value.x}% ${value.y}%` }}
       />
-      <span className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-card/95 px-3 py-1.5 text-xs font-semibold shadow">
-        <Move className="h-3.5 w-3.5" /> Přetažením nastavte výřez
-      </span>
+      {hint && (
+        <span className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-card/95 px-3 py-1.5 text-xs font-semibold shadow">
+          <Move className="h-3.5 w-3.5" /> Přetažením nastavte výřez
+        </span>
+      )}
     </div>
   );
 }

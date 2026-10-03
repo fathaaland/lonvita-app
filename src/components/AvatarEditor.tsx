@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Pencil, ImagePlus, Trash2 } from "lucide-react";
+import { Move, Pencil, ImagePlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
+import { ImageUploadError, cropToSquare, prepareImageForUpload } from "@/lib/image";
 import { Button } from "@/components/ui/button";
+import { CENTERED_IMAGE_POSITION, ImagePositionEditor, type ImagePosition } from "@/components/ImagePositionEditor";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ export function AvatarEditor({
   const [open, setOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
+  const [position, setPosition] = useState<ImagePosition>(CENTERED_IMAGE_POSITION);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,6 +74,7 @@ export function AvatarEditor({
     if (!file) return;
     setPendingFile(file);
     setPendingPreview(URL.createObjectURL(file));
+    setPosition(CENTERED_IMAGE_POSITION);
   };
 
   const save = async (action: () => Promise<void>, done: string, failed: string) => {
@@ -92,7 +95,7 @@ export function AvatarEditor({
   const handleSave = () =>
     pendingFile &&
     save(
-      async () => onSave(await prepareImageForUpload(pendingFile)),
+      async () => onSave(await cropToSquare(await prepareImageForUpload(pendingFile), position)),
       "Fotka uložena.",
       "Fotku se nepodařilo uložit.",
     );
@@ -120,7 +123,23 @@ export function AvatarEditor({
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
 
-          <div className="flex justify-center py-2">{renderAvatar(preview, "preview")}</div>
+          {pendingPreview ? (
+            // A freshly picked photo is rarely square — the person drags it to choose what the circle shows.
+            <div className="flex flex-col items-center gap-2 py-2">
+              <ImagePositionEditor
+                src={pendingPreview}
+                value={position}
+                onChange={setPosition}
+                hint={false}
+                className="h-40 w-40 rounded-full"
+              />
+              <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Move className="h-4 w-4" /> Přetažením nastavte výřez
+              </p>
+            </div>
+          ) : (
+            <div className="flex justify-center py-2">{renderAvatar(preview, "preview")}</div>
+          )}
 
           <input
             ref={fileInputRef}

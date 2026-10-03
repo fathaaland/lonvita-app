@@ -49,3 +49,40 @@ export async function prepareImageForUpload(file: File): Promise<File> {
   const baseName = file.name.replace(/\.[^.]+$/, "") || "fotografie";
   return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
 }
+
+/**
+ * Cuts the square a round avatar shows out of the photo, at the spot the person dragged it to
+ * (`position` in percent, the same object-position the ImagePositionEditor produces). Baking the
+ * crop into the file means every place that shows the avatar frames it the same with no stored offset.
+ */
+export async function cropToSquare(file: File, position: { x: number; y: number }): Promise<File> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new ImageUploadError("Fotku se nepodařilo zpracovat.");
+  }
+
+  const side = Math.min(bitmap.width, bitmap.height);
+  const sx = ((bitmap.width - side) * position.x) / 100;
+  const sy = ((bitmap.height - side) * position.y) / 100;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = side;
+  canvas.height = side;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    bitmap.close();
+    throw new ImageUploadError("Fotku se nepodařilo zpracovat.");
+  }
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, side, side);
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, side, side);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+  if (!blob) throw new ImageUploadError("Fotku se nepodařilo zpracovat.");
+
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "fotografie";
+  return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+}
