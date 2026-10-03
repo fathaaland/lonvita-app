@@ -142,21 +142,21 @@ export function OrganizerRequestCard() {
                     ? `Napište aspoň ${ORGANIZER_REASON_MIN_LENGTH} znaků (zatím ${reasonLength}).`
                     : `${reason.length}/${ORGANIZER_REASON_MAX_LENGTH}`}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 pt-1">
+                  <Button
+                    onClick={handleRequest}
+                    disabled={submitting || !canSubmit}
+                    className="w-full h-11"
+                  >
+                    Odeslat žádost
+                  </Button>
                   <Button
                     variant="ghost"
-                    className="h-11"
+                    className="w-full h-11 text-muted-foreground"
                     onClick={() => setFormOpen(false)}
                     disabled={submitting}
                   >
                     Zpět
-                  </Button>
-                  <Button
-                    onClick={handleRequest}
-                    disabled={submitting || !canSubmit}
-                    className="flex-1 h-11"
-                  >
-                    Odeslat žádost
                   </Button>
                 </div>
               </div>

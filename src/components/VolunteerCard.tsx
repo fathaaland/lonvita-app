@@ -217,12 +217,17 @@ export function VolunteerCard() {
         {!editing && shifts.length > 0 && <ShiftList shifts={shifts} />}
 
         {editing ? (
-          <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button variant="outline" className="h-11 sm:flex-1" onClick={() => setEditing(false)} disabled={saving}>
-              Zrušit
-            </Button>
-            <Button className="h-11 sm:flex-[2]" onClick={save} disabled={saving}>
+          <div className="flex flex-col gap-2 pt-1">
+            <Button className="w-full h-11" onClick={save} disabled={saving}>
               {saving ? "Ukládám…" : inPool ? "Uložit změny" : "Přihlásit se do poolu"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full h-11 text-muted-foreground"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+            >
+              Zrušit
             </Button>
           </div>
         ) : inPool ? (
