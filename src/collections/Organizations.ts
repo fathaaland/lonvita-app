@@ -14,6 +14,7 @@ import { APIError } from 'payload'
 import { getAdministeredMunicipalityIds } from './access/shared'
 import { deletedAtField, notDeleted } from './shared/softDelete'
 import {
+  ORGANIZATION_DESCRIPTION_MAX_LENGTH,
   ORGANIZATION_NAME_MAX_LENGTH,
   ORGANIZATION_NAME_MIN_LENGTH,
   ORGANIZATION_TYPES,
@@ -75,6 +76,9 @@ const validateOrganization: CollectionBeforeValidateHook = async ({ data, req, o
     }
   }
 
+  if (typeof data.description === 'string') {
+    data.description = data.description.trim() || null
+  }
   if (typeof data.name === 'string') {
     data.name = data.name.trim()
     if (data.name.length < ORGANIZATION_NAME_MIN_LENGTH) {
@@ -234,7 +238,13 @@ const cleanupOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
  */
 export async function ensureOrganization(
   req: PayloadRequest,
-  args: { owner: number; municipality: number; name?: string | null; type?: OrganizationType | null },
+  args: {
+    owner: number
+    municipality: number
+    name?: string | null
+    type?: OrganizationType | null
+    description?: string | null
+  },
 ): Promise<void> {
   const { payload } = req
   const existing = await payload.find({
@@ -248,13 +258,19 @@ export async function ensureOrganization(
   const current = existing.docs[0]
   const name = args.name?.trim() || null
   const type = args.type && isOrganizationType(args.type) ? args.type : null
+  const description = args.description?.trim() || null
 
   if (current) {
     if (!name && !current.deletedAt) return
     await payload.update({
       collection: 'organizations',
       id: current.id,
-      data: { ...(name ? { name, type: type ?? current.type } : {}), deletedAt: null },
+      data: {
+        ...(name ? { name, type: type ?? current.type } : {}),
+        // A fresh approval brings the applicant's own words — unless the owner already wrote some.
+        ...(description && !current.description ? { description } : {}),
+        deletedAt: null,
+      },
       overrideAccess: true,
       req,
     })
@@ -279,6 +295,7 @@ export async function ensureOrganization(
     data: {
       name: name ?? fallbackName ?? 'Pořadatel',
       type: type ?? 'individual',
+      description,
       owner: args.owner,
       municipality: args.municipality,
     },
@@ -413,6 +430,15 @@ export const Organizations: CollectionConfig = {
       type: 'text',
       required: true,
       maxLength: ORGANIZATION_NAME_MAX_LENGTH,
+    },
+    {
+      // Starts as what the applicant told the obec (OrganizerRequests.reason); the owner edits it.
+      name: 'description',
+      type: 'textarea',
+      maxLength: ORGANIZATION_DESCRIPTION_MAX_LENGTH,
+      admin: {
+        description: 'Who the organization is and what it organizes — shown on its profile among the obec\'s organizers.',
+      },
     },
     {
       name: 'type',

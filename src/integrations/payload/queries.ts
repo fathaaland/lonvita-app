@@ -139,6 +139,7 @@ type PayloadOrganization = {
   type: AnyOrganizationType;
   owner?: number | { id: number } | null;
   avatarUrl?: string | null;
+  description?: string | null;
 };
 type PayloadEvent = {
   id: number;
@@ -1204,6 +1205,8 @@ export type MyOrganizationRow = {
   /** The viewer owns it and may rename it — the obec's own one carries the obec's name. */
   is_own: boolean;
   avatar_url: string | null;
+  /** In the organization's own words — shown on its profile among the obec's organizers. */
+  description: string | null;
 };
 
 type PayloadOrganizationWithMunicipality = PayloadOrganization & {
@@ -1229,6 +1232,7 @@ export async function getMyOrganizations(userId: string, administeredMunicipalit
       municipality_name: typeof o.municipality === "object" ? o.municipality.name : "",
       is_own: toId(o.owner) === userId,
       avatar_url: o.avatarUrl ?? null,
+      description: o.description ?? null,
     }))
     .sort((a, b) => Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) - Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE));
 }
@@ -1244,8 +1248,33 @@ export async function getOrganizationEvents(organizationId: string): Promise<Eve
   return result.docs.map(mapEvent);
 }
 
-export async function updateMyOrganization(id: string, input: { name: string; type: OrganizationType }): Promise<void> {
+export async function updateMyOrganization(
+  id: string,
+  input: { name: string; type: OrganizationType; description: string },
+): Promise<void> {
   await patch(`/organizations/${id}`, input);
+}
+
+// --- "Organizátoři v mém městě" -------------------------------------------------------------
+
+export type OrganizerProfileRow = {
+  id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  avatar_url: string | null;
+  owner_name: string | null;
+  since: string;
+  is_own: boolean;
+  stats: { eventCount: number; coOrganizedCount: number; people: number; returning: number; fillRate: number | null };
+  next_event: { id: string; title: string; date_time: string } | null;
+  /** How to reach its owner — their account e-mail. */
+  contact: { email: string | null };
+};
+
+/** Every organization organizing in the obec, with the numbers of its Organizace page (no ratings). */
+export async function getMunicipalityOrganizers(municipalityId: string): Promise<OrganizerProfileRow[]> {
+  return (await get<{ docs: OrganizerProfileRow[] }>(`/municipalities/${municipalityId}/organizers`)).docs;
 }
 
 /** Uploads a new photo/logo for the organization and puts it on it — every event it runs or

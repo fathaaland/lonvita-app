@@ -29,11 +29,13 @@ import { CoOrganizingInvitations } from "@/components/CoOrganizingInvitations";
 import { AvatarEditor } from "@/components/AvatarEditor";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
+import { OrganizersDirectoryCard } from "@/components/OrganizersDirectoryCard";
 import { TypeChips } from "@/components/admin/OrganizationsTab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +48,7 @@ import { EventRow, RegistrationRow } from "@/lib/analytics";
 import { computeOrganizationStats, formatDecimal, formatPercent } from "@/lib/organization-stats";
 import { useExport } from "@/hooks/useExport";
 import {
+  ORGANIZATION_DESCRIPTION_MAX_LENGTH,
   ORGANIZATION_NAME_MAX_LENGTH,
   isMunicipalityOrganization,
   isOrganizationType,
@@ -121,6 +124,7 @@ function OrganizationContent() {
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState<OrganizationType>("individual");
+  const [editDescription, setEditDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const exporter = useExport();
 
@@ -193,6 +197,7 @@ function OrganizationContent() {
   const openEdit = () => {
     setEditName(organization.name);
     setEditType(isOrganizationType(organization.type) ? organization.type : "individual");
+    setEditDescription(organization.description ?? "");
     setEditOpen(true);
   };
 
@@ -200,7 +205,11 @@ function OrganizationContent() {
     e.preventDefault();
     setSaving(true);
     try {
-      await updateMyOrganization(organization.id, { name: editName.trim(), type: editType });
+      await updateMyOrganization(organization.id, {
+        name: editName.trim(),
+        type: editType,
+        description: editDescription.trim(),
+      });
       toast.success("Organizace uložena.");
       setEditOpen(false);
       await loadOrganizations();
@@ -281,6 +290,21 @@ function OrganizationContent() {
             </Button>
           )}
         </section>
+
+        {!obec &&
+          (organization.description ? (
+            <p className="-mt-2 max-w-prose whitespace-pre-line text-foreground/85">{organization.description}</p>
+          ) : (
+            organization.is_own && (
+              <button
+                type="button"
+                onClick={openEdit}
+                className="-mt-2 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+              >
+                Přidat popis organizace
+              </button>
+            )
+          ))}
 
         {loadingData ? (
           <Loading />
@@ -392,6 +416,14 @@ function OrganizationContent() {
               />
             </section>
 
+            <section aria-label="Organizátoři v obci">
+              <OrganizersDirectoryCard
+                municipalityId={organization.municipality_id}
+                municipalityName={organization.municipality_name}
+                organizationId={organization.id}
+              />
+            </section>
+
             <section aria-label="Pool dobrovolníků">
               <VolunteersTable />
             </section>
@@ -404,7 +436,8 @@ function OrganizationContent() {
           <DialogHeader>
             <DialogTitle>Upravit organizaci</DialogTitle>
             <DialogDescription>
-              Pod tímto názvem vás lidé uvidí na kartách a v detailu vašich akcí.
+              Pod tímto názvem vás lidé uvidí na kartách a v detailu vašich akcí. Popis se ukáže ostatním pořadatelům
+              v obci.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSave} className="space-y-4">
@@ -422,6 +455,21 @@ function OrganizationContent() {
                 className="h-11 mt-1.5"
                 required
               />
+            </div>
+            <div>
+              <Label htmlFor="org-description">Popis</Label>
+              <Textarea
+                id="org-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                maxLength={ORGANIZATION_DESCRIPTION_MAX_LENGTH}
+                rows={5}
+                placeholder="Kdo jste a jaké akce pořádáte — třeba „Kavárna na náměstí, pořádáme čtení a odpolední setkání u kávy.“"
+                className="mt-1.5"
+              />
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Uvidí ho ostatní pořadatelé a admin obce v přehledu Organizátoři v mém městě.
+              </p>
             </div>
             <DialogFooter className="gap-2">
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>

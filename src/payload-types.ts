@@ -493,6 +493,10 @@ export interface Event {
 export interface Organization {
   id: number;
   name: string;
+  /**
+   * Who the organization is and what it organizes — shown on its profile among the obec's organizers.
+   */
+  description?: string | null;
   type: 'business' | 'association' | 'individual' | 'municipality';
   owner?: (number | null) | User;
   municipality: number | Municipality;
@@ -1401,6 +1405,7 @@ export interface EventDeletionRequestsSelect<T extends boolean = true> {
  */
 export interface OrganizationsSelect<T extends boolean = true> {
   name?: T;
+  description?: T;
   type?: T;
   owner?: T;
   municipality?: T;

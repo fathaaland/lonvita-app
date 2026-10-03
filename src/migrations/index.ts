@@ -22,6 +22,7 @@ import * as migration_20261002_140448_volunteer_pool_contact from './20261002_14
 import * as migration_20261002_141202_volunteer_invitations from './20261002_141202_volunteer_invitations';
 import * as migration_20261002_144539_volunteer_map_and_ratings from './20261002_144539_volunteer_map_and_ratings';
 import * as migration_20261003_084807_volunteer_applications from './20261003_084807_volunteer_applications';
+import * as migration_20261003_103017_organization_description from './20261003_103017_organization_description';
 
 export const migrations = [
   {
@@ -142,6 +143,11 @@ export const migrations = [
   {
     up: migration_20261003_084807_volunteer_applications.up,
     down: migration_20261003_084807_volunteer_applications.down,
-    name: '20261003_084807_volunteer_applications'
+    name: '20261003_084807_volunteer_applications',
+  },
+  {
+    up: migration_20261003_103017_organization_description.up,
+    down: migration_20261003_103017_organization_description.down,
+    name: '20261003_103017_organization_description',
   },
 ];

@@ -63,7 +63,7 @@ export function TopNav() {
         <Link href="/" className="shrink-0">
           <LonvitaLogo size="sm" />
         </Link>
-        <nav className="flex items-center gap-1 flex-1">
+        <nav className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
           {links.map((l) => {
             const isActive = l.end ? pathname === l.to : pathname.startsWith(l.to);
             return (
@@ -71,7 +71,7 @@ export function TopNav() {
                 key={l.to}
                 href={l.to}
                 className={cn(
-                  "px-3 py-2 rounded-md text-sm font-semibold transition-colors",
+                  "px-3 py-2 rounded-md text-sm font-semibold whitespace-nowrap transition-colors",
                   isActive
                     ? "bg-brand-purple-pale text-brand-purple-dark"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted",

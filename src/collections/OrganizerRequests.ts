@@ -62,7 +62,10 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
           data: { user: userId, municipality: municipalityId, role: 'organizer' },
           overrideAccess: true,
           // UserRoles creates the organization the obec just approved along with the role.
-          context: { organization: { name: doc.organizationName, type: doc.organizationType } },
+          // The applicant's reason becomes the organization's description on its profile.
+          context: {
+            organization: { name: doc.organizationName, type: doc.organizationType, description: doc.reason },
+          },
         })
       } catch (error) {
         req.payload.logger.error(`Failed to grant organizer role after request ${doc.id} approval: ${error}`)

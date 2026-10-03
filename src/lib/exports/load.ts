@@ -21,7 +21,7 @@ const toId = (value: unknown): string | null => {
   return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
 }
 
-const toEventRow = (e: Event): EventRow => ({
+export const toEventRow = (e: Event): EventRow => ({
   id: String(e.id),
   title: e.title,
   date_time: e.dateTime,
@@ -35,7 +35,7 @@ const toEventRow = (e: Event): EventRow => ({
   is_volunteering: e.isVolunteering ?? undefined,
 })
 
-async function loadRegistrations(payload: Payload, eventIds: string[]): Promise<RegistrationRow[]> {
+export async function loadRegistrations(payload: Payload, eventIds: string[]): Promise<RegistrationRow[]> {
   if (eventIds.length === 0) return []
   const result = await payload.find({
     collection: 'registrations',

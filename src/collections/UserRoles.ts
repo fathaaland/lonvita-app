@@ -211,12 +211,15 @@ export const UserRoles: CollectionConfig = {
       // type the obec approved via `context.organization`; any other grant gets an "individual".
       async ({ doc, previousDoc, req }) => {
         if (doc.role !== 'organizer' || previousDoc?.role === 'organizer') return doc
-        const requested = req.context?.organization as { name?: string; type?: OrganizationType } | undefined
+        const requested = req.context?.organization as
+      | { name?: string; type?: OrganizationType; description?: string | null }
+      | undefined
         await ensureOrganization(req, {
           owner: relId(doc.user),
           municipality: relId(doc.municipality),
           name: requested?.name,
           type: requested?.type,
+          description: requested?.description,
         })
         return doc
       },

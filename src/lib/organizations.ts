@@ -30,3 +30,5 @@ export const isOrganizationType = (value: unknown): value is OrganizationType =>
 
 export const ORGANIZATION_NAME_MIN_LENGTH = 2
 export const ORGANIZATION_NAME_MAX_LENGTH = 120
+/** The organization's own words about itself — shown on its profile among the obec's organizers. */
+export const ORGANIZATION_DESCRIPTION_MAX_LENGTH = 1000
