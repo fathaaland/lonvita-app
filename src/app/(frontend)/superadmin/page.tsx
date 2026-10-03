@@ -36,6 +36,7 @@ import { getEventCategories, createEvent, listMunicipalities } from "@/integrati
 import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { SignOutButton } from "@/components/SignOutButton";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
@@ -121,7 +122,6 @@ const chipClass = (active: boolean) =>
   );
 
 function SuperAdminContent() {
-  const { signOut } = useAuth();
   const [tab, setTab] = useState("municipalities");
   const [municipalities, setMunicipalities] = useState<MunicipalityRow[]>([]);
   const [mapPoints, setMapPoints] = useState<MunicipalityMapPoint[]>([]);
@@ -549,10 +549,12 @@ function SuperAdminContent() {
   const pendingRequestCount = orgRequests.length + volRequests.length + coOrgRequests.length;
 
   const logoutAction = (
-    <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
-      <LogOut className="h-4 w-4" />
-      Odhlásit
-    </Button>
+    <SignOutButton>
+      <Button variant="ghost" size="sm" className="gap-2">
+        <LogOut className="h-4 w-4" />
+        Odhlásit
+      </Button>
+    </SignOutButton>
   );
 
   if (loading) return <><PageHeader title="Superadmin" right={logoutAction} /><Loading /></>;

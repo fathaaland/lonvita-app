@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { UnreadBadge, unreadLabel } from "@/components/UnreadBadge";
+import { SignOutButton } from "@/components/SignOutButton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Bell, LogOut } from "lucide-react";
@@ -24,7 +25,6 @@ export function TopNav() {
     organizerMunicipalityIds,
     viewingMunicipalityId,
     profile,
-    signOut,
   } = useAuth();
   const pathname = usePathname();
   const unreadCount = useUnreadNotificationCount();
@@ -90,10 +90,12 @@ export function TopNav() {
           <Bell className="h-5 w-5" />
           <UnreadBadge count={unreadCount} className="-top-1 -right-1.5" />
         </Link>
-        <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
-          <LogOut className="h-4 w-4" />
-          Odhlásit
-        </Button>
+        <SignOutButton>
+          <Button variant="ghost" size="sm" className="gap-2">
+            <LogOut className="h-4 w-4" />
+            Odhlásit
+          </Button>
+        </SignOutButton>
       </div>
     </header>
   );

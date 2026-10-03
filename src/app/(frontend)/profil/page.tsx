@@ -9,6 +9,7 @@ import {
   setMarketingConsent,
 } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
+import { SignOutButton } from "@/components/SignOutButton";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +28,7 @@ import { Loading } from "@/components/Loading";
 
 function ProfileContent() {
   const router = useRouter();
-  const { user, profile, isSuperAdmin, isAdmin, isOrganizer, signOut } = useAuth();
+  const { user, profile, isSuperAdmin, isAdmin, isOrganizer } = useAuth();
   const [stats, setStats] = useState({ upcoming: 0, attended: 0, volunteerHours: 0 });
   const [marketingConsent, setMarketingConsentState] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
@@ -64,11 +65,6 @@ function ProfileContent() {
   }, [user]);
 
   const roleLabel = isSuperAdmin ? "Superadmin" : isAdmin ? "Admin obce" : isOrganizer ? "Organizátor" : "Účastník";
-
-  const handleSignOut = () => {
-    signOut();
-    toast.success("Odhlášeno.");
-  };
 
   return (
     <div className="animate-fade-in md:mx-auto md:max-w-2xl">
@@ -169,9 +165,11 @@ function ProfileContent() {
           </Button>
         )}
 
-        <Button onClick={handleSignOut} variant="outline" className="w-full h-14 text-base">
-          <LogOut className="h-5 w-5" /> Odhlásit se
-        </Button>
+        <SignOutButton>
+          <Button variant="outline" className="w-full h-14 text-base">
+            <LogOut className="h-5 w-5" /> Odhlásit se
+          </Button>
+        </SignOutButton>
       </div>
     </div>
   );
