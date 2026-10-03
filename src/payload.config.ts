@@ -26,7 +26,6 @@ import { Consents } from './collections/Consents'
 import { AuditLog } from './collections/AuditLog'
 import { Notifications } from './collections/Notifications'
 import { OrganizerRequests } from './collections/OrganizerRequests'
-import { VolunteerFlagRequests } from './collections/VolunteerFlagRequests'
 import { CoOrganizingRequests } from './collections/CoOrganizingRequests'
 import { EventDeletionRequests } from './collections/EventDeletionRequests'
 import { Organizations } from './collections/Organizations'
@@ -84,7 +83,6 @@ export default buildConfig({
     AuditLog,
     Notifications,
     OrganizerRequests,
-    VolunteerFlagRequests,
     CoOrganizingRequests,
     EventDeletionRequests,
     Organizations,

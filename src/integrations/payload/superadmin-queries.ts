@@ -6,7 +6,7 @@
 import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
-import type { OrganizerRequestAdminRow, VolunteerFlagRequestAdminRow } from "./admin-queries";
+import type { OrganizerRequestAdminRow } from "./admin-queries";
 import type { EventRow, RegistrationRow } from "@/lib/analytics";
 import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from "@/lib/report";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
@@ -314,9 +314,9 @@ export async function deleteOrganizationAsSuperAdmin(organizationId: string): Pr
 }
 
 // --- Cross-municipality request hub (US-S-04) -------------------------------------------
-// OrganizerRequests/VolunteerFlagRequests are otherwise only visible per-obec (RequestsTable,
+// OrganizerRequests are otherwise only visible per-obec (RequestsTable,
 // scoped by admin-queries.ts). These pull every pending request platform-wide, so the decide
-// actions themselves are reused as-is from admin-queries.ts (same PATCH call either way).
+// action itself is reused as-is from admin-queries.ts (same PATCH call either way).
 
 export type SuperAdminOrganizerRequestRow = OrganizerRequestAdminRow & {
   municipality_id: string;
@@ -366,56 +366,6 @@ export async function getAllOrganizerRequestsForSuperAdmin(): Promise<SuperAdmin
       reason: r.reason ?? null,
       organization_name: r.organizationName ?? null,
       organization_type: r.organizationType ?? null,
-      created_at: r.createdAt,
-      municipality_id: municipalityId,
-      municipality_name: muniNameById.get(municipalityId) ?? "Neznámá obec",
-    };
-  });
-}
-
-export type SuperAdminVolunteerFlagRequestRow = VolunteerFlagRequestAdminRow & {
-  municipality_id: string;
-  municipality_name: string;
-};
-
-type PayloadVolunteerFlagRequestSuper = {
-  id: number;
-  event: number | { id: number; title?: string; municipality?: number | { id: number } };
-  requestedBy: number | { id: number };
-  status: string;
-  createdAt: string;
-};
-
-export async function getAllVolunteerFlagRequestsForSuperAdmin(): Promise<SuperAdminVolunteerFlagRequestRow[]> {
-  const where = buildWhereParams({ status: { equals: "pending" } });
-  const query = buildQuery({ depth: 1, sort: "createdAt", limit: 1000 });
-  const [result, munisRes] = await Promise.all([
-    get<PayloadListResponse<PayloadVolunteerFlagRequestSuper>>(`/volunteer-flag-requests?${where}&${query}`),
-    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
-  ]);
-  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
-
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
-  }
-
-  return result.docs.map((r) => {
-    const municipalityId = toId(typeof r.event === "object" ? r.event.municipality : undefined) ?? "";
-    return {
-      id: String(r.id),
-      event_id: toId(r.event)!,
-      event_title: typeof r.event === "object" ? (r.event.title ?? "") : "",
-      requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
-      status: r.status as VolunteerFlagRequestAdminRow["status"],
       created_at: r.createdAt,
       municipality_id: municipalityId,
       municipality_name: muniNameById.get(municipalityId) ?? "Neznámá obec",

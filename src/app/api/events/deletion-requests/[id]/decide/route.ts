@@ -19,7 +19,7 @@ const relationId = (value: unknown): string | null => {
  * A spolupořadatel answers a request to delete the event they run together
  * (EventDeletionRequests) — or an obec admin, for the obec co-organizing it. A refusal keeps the
  * event; once everyone asked (the obec included) has consented the event
- * is hard-deleted — with its registrations, their feedback, photos and volunteering-flag requests,
+ * is hard-deleted — with its registrations, their feedback and photos,
  * in one transaction — and the registrants are told it's off.
  *
  * POST /api/events/deletion-requests/:id/decide  { approve: boolean }
@@ -158,7 +158,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       'volunteer-invitations',
       'registrations',
       'event-media',
-      'volunteer-flag-requests',
       'co-organizing-requests',
     ] as const) {
       await payload.delete({ collection, where: { event: { equals: event.id } }, overrideAccess: true, req })

@@ -275,32 +275,26 @@ const canDeleteEvent: Access = async ({ req }) => {
 const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } | null } }) => user?.role === 'admin'
 
 /**
- * Brief §3 "Žádost organizátora o příznak Dobrovolnictví... schvaluje se odděleně od role
- * organizátora. Admin obce sám o příznak žádat nemusí, může ho u vlastní akce zaškrtnout
- * rovnou." The flag is the event creator's (`organizer`) alone — not a spolupořadatel's, not the
- * obec's when it merely co-organizes or oversees the event. A creator who administers the obec
- * flips it straight away; any other creator asks the obec through VolunteerFlagRequests, whose
- * approval hook sets `req.context.skipVolunteeringGuard` — the one trusted path allowed to flip it
- * for them. A platform admin may always. Anyone else's attempt is dropped. Taking the flag off is
- * the creator's too — and the obec's, which oversees every event in it (its dashboard).
+ * The volunteering flag is the event creator's (`organizer`) alone — they mark their event as one
+ * for volunteers themselves, no obec approval needed. Not a spolupořadatel's, not the obec's when it
+ * merely co-organizes or oversees the event. A platform admin may always, and so may trusted
+ * internal writes (no user). Anyone else's attempt is dropped. Taking the flag off is the creator's
+ * too — and the obec's, which oversees every event in it (its dashboard).
  */
 const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, originalDoc }) => {
   if (!data || data.isVolunteering === undefined) return data
   const adding = data.isVolunteering === true && originalDoc?.isVolunteering !== true
   const removing = data.isVolunteering === false && originalDoc?.isVolunteering === true
   if (!adding && !removing) return data
-  if (req.context?.skipVolunteeringGuard) return data
 
   const { user } = req
-  // Trusted internal writes (no user) may take it off; only the approval path above puts it on.
-  if (user?.role === 'admin' || (!user && removing)) return data
+  if (!user || user.role === 'admin') return data
 
-  const isCreator = !!user && relationId(data.organizer ?? originalDoc?.organizer) === String(user.id)
+  const isCreator = relationId(data.organizer ?? originalDoc?.organizer) === String(user.id)
   const municipalityId = relationId(data.municipality ?? originalDoc?.municipality)
-  const administersObec =
-    !!user && municipalityId !== null && (await administeredIdsFor(req, user.id)).includes(municipalityId)
-  // On: the creator, as the obec's admin. Off: the creator, or the obec overseeing its events.
-  const allowed = adding ? isCreator && administersObec : isCreator || administersObec
+  const administersObec = municipalityId !== null && (await administeredIdsFor(req, user.id)).includes(municipalityId)
+  // On: the creator. Off: the creator, or the obec overseeing its events.
+  const allowed = adding ? isCreator : isCreator || administersObec
 
   if (!allowed) {
     data.isVolunteering = originalDoc?.isVolunteering ?? false
@@ -309,8 +303,8 @@ const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, orig
   return data
 }
 
-/** Whether `user` decides about the event's volunteering — sets the flag (or asks the obec for it)
- * and invites volunteers from the pool: its creator alone, and a platform admin. */
+/** Whether `user` decides about the event's volunteering — sets the flag and invites volunteers
+ * from the pool: its creator alone, and a platform admin. */
 export const isEventCreator = (
   user: { id: number | string; role?: string | null },
   event: Pick<EventOwnership, 'organizer'>,
@@ -631,7 +625,7 @@ type ObecAction = 'edited' | 'cancelled' | 'deleted'
  * The obec's admin (or a platform admin) may edit, cancel or delete any organizer's event in the
  * obec — and the organizers must hear about it, in-app and by e-mail. An edit by one of the
  * event's own organizers tells the others, in-app. Changes they asked for themselves (an approved
- * volunteer-flag or obec co-organizing request, a consented deletion) don't notify from here — those
+ * obec co-organizing request, a consented deletion) don't notify from here — those
  * announce themselves. Organizers who administer the obec themselves are the obec — an event it
  * runs doesn't notify its own admins.
  */
@@ -711,7 +705,7 @@ async function notifyOrganizersOfObecAction(
   )
 }
 
-const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'coOrganizingApproved', 'skipVolunteeringGuard']
+const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'coOrganizingApproved']
 const isOwnRequest = (context: Record<string, unknown> | undefined) =>
   OWN_REQUEST_CONTEXTS.some((key) => context?.[key])
 

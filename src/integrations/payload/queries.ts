@@ -1169,15 +1169,11 @@ export async function decideEventDeletion(
   return post(`/events/deletion-requests/${requestId}/decide`, { approve });
 }
 
-export async function requestVolunteerFlag(eventId: string, userId: string): Promise<void> {
-  await post("/volunteer-flag-requests", { event: Number(eventId), requestedBy: Number(userId) });
-}
-
-/** Whether the event's request for the volunteering flag is still waiting on the obec. */
-export async function hasPendingVolunteerFlagRequest(eventId: string): Promise<boolean> {
-  const where = buildWhereParams({ event: { equals: eventId }, status: { equals: "pending" } });
-  const result = await get<PayloadListResponse<{ id: number }>>(`/volunteer-flag-requests?${where}&depth=0&limit=0`);
-  return result.totalDocs > 0;
+/** The creator marks their event as one for volunteers, or takes the mark off — no obec approval.
+ * Works even when the obec co-organizing the event has locked them out of editing it. */
+export async function setEventVolunteering(eventId: string, isVolunteering: boolean): Promise<boolean> {
+  const result = await post<{ isVolunteering: boolean }>(`/events/${eventId}/volunteering`, { isVolunteering });
+  return result.isVolunteering;
 }
 
 // --- The viewer's organizations ("Organizace") ----------------------------------------------

@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
-import { VolunteeringRequestCard } from "@/components/VolunteeringRequestCard";
+import { VolunteeringCard } from "@/components/VolunteeringCard";
 import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { toast } from "sonner";
 import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart } from "lucide-react";
@@ -451,7 +451,11 @@ function EventDetailContent() {
         )}
         {/* The obec co-organizing it locks its creator out of editing — but not out of its volunteering. */}
         {isCreator && event.locked_for_viewer && (
-          <VolunteeringRequestCard eventId={event.id} isVolunteering={Boolean(event.is_volunteering)} />
+          <VolunteeringCard
+            eventId={event.id}
+            isVolunteering={Boolean(event.is_volunteering)}
+            onChanged={(isVolunteering) => setEvent((ev) => (ev ? { ...ev, is_volunteering: isVolunteering } : ev))}
+          />
         )}
         {(canEdit || isSuperAdmin) && (
           <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">

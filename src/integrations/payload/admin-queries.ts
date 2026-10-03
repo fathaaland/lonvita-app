@@ -125,13 +125,12 @@ export async function deleteEvent(eventId: string): Promise<void> {
   await patch(`/events/${eventId}`, { deletedAt: new Date().toISOString(), status: "cancelled" });
 }
 
-/** Removes an already-granted "Dobrovolnictví" flag directly — a plain field flip, distinct
- * from deciding a pending VolunteerFlagRequests row (US-A-09). */
+/** The obec takes the "Dobrovolnictví" flag off an event in it (US-A-09) — its creator sets it. */
 export async function removeVolunteeringFlag(eventId: string): Promise<void> {
   await patch(`/events/${eventId}`, { isVolunteering: false });
 }
 
-// --- Žádosti: role organizátora + příznak Dobrovolnictví ---------------------------------
+// --- Žádosti: role organizátora ---------------------------------
 
 export type OrganizerRequestAdminRow = {
   id: string;
@@ -188,60 +187,6 @@ export async function getOrganizerRequestsForAdmin(municipalityId: string): Prom
 
 export async function decideOrganizerRequest(requestId: string, approve: boolean): Promise<void> {
   await patch(`/organizer-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
-}
-
-export type VolunteerFlagRequestAdminRow = {
-  id: string;
-  event_id: string;
-  event_title: string;
-  requested_by_name: string;
-  status: "pending" | "approved" | "rejected";
-  created_at: string;
-};
-
-type PayloadVolunteerFlagRequestAdmin = {
-  id: number;
-  event: number | { id: number; title?: string };
-  requestedBy: number | { id: number };
-  status: string;
-  createdAt: string;
-};
-
-/** Pending volunteering-flag requests for events in this municipality — filtered client-side
- * by event.municipality since the collection has no direct municipality field of its own. */
-export async function getVolunteerFlagRequestsForAdmin(municipalityId: string): Promise<VolunteerFlagRequestAdminRow[]> {
-  const query = buildQuery({ depth: 1, sort: "createdAt", limit: 200 });
-  const where = buildWhereParams({ status: { equals: "pending" } });
-  const result = await get<PayloadListResponse<PayloadVolunteerFlagRequestAdmin & { event: { id: number; title: string; municipality: number | { id: number } } }>>(
-    `/volunteer-flag-requests?${where}&${query}`,
-  );
-  const filtered = result.docs.filter((r) => toId(r.event?.municipality) === municipalityId);
-
-  const userIds = Array.from(new Set(filtered.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
-  }
-
-  return filtered.map((r) => ({
-    id: String(r.id),
-    event_id: toId(r.event)!,
-    event_title: r.event.title,
-    requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
-    status: r.status as VolunteerFlagRequestAdminRow["status"],
-    created_at: r.createdAt,
-  }));
-}
-
-export async function decideVolunteerFlagRequest(requestId: string, approve: boolean): Promise<void> {
-  await patch(`/volunteer-flag-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
 }
 
 // --- Stížnosti na recenze ------------------------------------------------------------------

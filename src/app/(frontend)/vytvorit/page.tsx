@@ -79,17 +79,13 @@ function CreateEventContent() {
         imageId: values.imageId ?? undefined,
         imagePositionX: values.imagePosition.x,
         imagePositionY: values.imagePosition.y,
-        // The creator flips isVolunteering directly only as the obec's admin (brief §3) — a plain
-        // organizer's checkbox instead fires a VolunteerFlagRequest right after creation, below.
-        isVolunteering: adminHere ? values.isVolunteering : false,
+        // The flag is the creator's to set — no obec approval.
+        isVolunteering: values.isVolunteering,
         isPaid: values.isPaid,
         priceCents: values.priceCents ?? undefined,
       });
 
-      const sent = await sendFollowUpRequests(created.id, {
-        volunteerFlag: values.isVolunteering && !adminHere ? String(user.id) : null,
-        coOrganizationIds: values.inviteOrganizationIds,
-      });
+      const sent = await sendFollowUpRequests(created.id, values.inviteOrganizationIds);
       toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena!");
       router.push(`/akce/${created.id}`);
     } catch (error) {
@@ -123,7 +119,7 @@ function CreateEventContent() {
         municipalityId={municipalityId}
         municipalityCenter={center}
         isObecAdmin={adminHere}
-        volunteering={adminHere ? "set" : "request"}
+        volunteering="set"
         runsAsObec={adminHere}
         submitLabel="Vytvořit akci"
         onSubmit={handleSubmit}

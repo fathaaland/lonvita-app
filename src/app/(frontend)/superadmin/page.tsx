@@ -14,21 +14,18 @@ import {
   grantCommunityRole,
   revokeCommunityRole,
   getAllOrganizerRequestsForSuperAdmin,
-  getAllVolunteerFlagRequestsForSuperAdmin,
   getMunicipalityComparison,
   listOrganizationsForSuperAdmin,
   MunicipalityRow,
   PlatformUserRow,
   SuperAdminEventRow,
   SuperAdminOrganizerRequestRow,
-  SuperAdminVolunteerFlagRequestRow,
   MunicipalityComparisonRow,
   SuperAdminOrganizationRow,
 } from "@/integrations/payload/superadmin-queries";
 import {
   decideCoOrganizingRequest,
   decideOrganizerRequest,
-  decideVolunteerFlagRequest,
   getCoOrganizingRequestsForAdmin,
   type CoOrganizingRequestAdminRow,
 } from "@/integrations/payload/admin-queries";
@@ -74,7 +71,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, HandHeart, Handshake, BarChart3, Store } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
@@ -130,7 +127,6 @@ function SuperAdminContent() {
   const [events, setEvents] = useState<SuperAdminEventRow[]>([]);
   const [organizations, setOrganizations] = useState<SuperAdminOrganizationRow[]>([]);
   const [orgRequests, setOrgRequests] = useState<SuperAdminOrganizerRequestRow[]>([]);
-  const [volRequests, setVolRequests] = useState<SuperAdminVolunteerFlagRequestRow[]>([]);
   const [coOrgRequests, setCoOrgRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
   const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -206,7 +202,7 @@ function SuperAdminContent() {
     // below already calls, so folding the comparison refetch in here — whenever that view is the
     // one on screen — keeps it live without threading a refetch through each handler individually.
     const wantsComparison = muniView === "comparison";
-    const [munis, points, us, cats, evs, orgs, orgReqs, volReqs, coOrgReqs, comp] = await Promise.all([
+    const [munis, points, us, cats, evs, orgs, orgReqs, coOrgReqs, comp] = await Promise.all([
       listMunicipalitiesForSuperAdmin(),
       listMunicipalities(),
       listAllUsersForSuperAdmin(),
@@ -214,7 +210,6 @@ function SuperAdminContent() {
       listAllEventsForSuperAdmin(),
       listOrganizationsForSuperAdmin(),
       getAllOrganizerRequestsForSuperAdmin(),
-      getAllVolunteerFlagRequestsForSuperAdmin(),
       getCoOrganizingRequestsForAdmin(),
       wantsComparison ? getMunicipalityComparison() : Promise.resolve(null),
     ]);
@@ -225,7 +220,6 @@ function SuperAdminContent() {
     setEvents(evs);
     setOrganizations(orgs);
     setOrgRequests(orgReqs);
-    setVolRequests(volReqs);
     setCoOrgRequests(coOrgReqs);
     if (wantsComparison) setComparison(comp);
     setLoading(false);
@@ -432,7 +426,7 @@ function SuperAdminContent() {
         priceCents: values.priceCents ?? undefined,
       });
       // Spolupořadatelé join only once they accept — even an event the superadmin creates.
-      const sent = await sendFollowUpRequests(created.id, { volunteerFlag: null, coOrganizationIds: values.inviteOrganizationIds });
+      const sent = await sendFollowUpRequests(created.id, values.inviteOrganizationIds);
       toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena.");
       setEventFormKey((k) => k + 1);
       await load();
@@ -520,19 +514,6 @@ function SuperAdminContent() {
     }
   };
 
-  const handleVolunteerRequestDecision = async (id: string, approve: boolean) => {
-    setRequestBusyId(id);
-    try {
-      await decideVolunteerFlagRequest(id, approve);
-      toast.success(approve ? "Příznak Dobrovolnictví schválen." : "Žádost zamítnuta.");
-      await load();
-    } catch {
-      toast.error("Nepodařilo se vyřídit žádost.");
-    } finally {
-      setRequestBusyId(null);
-    }
-  };
-
   const handleCoOrganizingRequestDecision = async (id: string, approve: boolean) => {
     setRequestBusyId(id);
     try {
@@ -546,7 +527,7 @@ function SuperAdminContent() {
     }
   };
 
-  const pendingRequestCount = orgRequests.length + volRequests.length + coOrgRequests.length;
+  const pendingRequestCount = orgRequests.length + coOrgRequests.length;
 
   const logoutAction = (
     <SignOutButton>
@@ -1337,45 +1318,6 @@ function SuperAdminContent() {
                             organizationName={r.organization_name}
                             organizationType={r.organization_type}
                           />
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-
-                {volRequests.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 px-1">
-                      <HandHeart className="h-4 w-4 text-primary" />
-                      <p className="font-bold text-sm">Žádosti o příznak Dobrovolnictví</p>
-                    </div>
-                    {volRequests.map((r) => (
-                      <Card key={r.id}>
-                        <CardContent className="p-3 flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate">{r.event_title}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {r.municipality_name} · {r.requested_by_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
-                            </p>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-9 text-success border-success/40"
-                            disabled={requestBusyId === r.id}
-                            onClick={() => handleVolunteerRequestDecision(r.id, true)}
-                          >
-                            <Check className="h-4 w-4" /> Schválit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-9 text-destructive border-destructive/40"
-                            disabled={requestBusyId === r.id}
-                            onClick={() => handleVolunteerRequestDecision(r.id, false)}
-                          >
-                            <X className="h-4 w-4" /> Zamítnout
-                          </Button>
                         </CardContent>
                       </Card>
                     ))}

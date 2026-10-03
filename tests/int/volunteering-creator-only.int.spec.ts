@@ -1,7 +1,11 @@
+// @vitest-environment node
+// Node environment: payload.login signs a JWT with jose, which rejects jsdom's Uint8Array.
 import { getPayload, Payload } from 'payload'
 import config from '@/payload.config'
 
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
+
+import { POST as setVolunteeringRoute } from '@/app/api/events/[id]/volunteering/route'
 
 let payload: Payload
 
@@ -75,21 +79,13 @@ const setVolunteering = (eventId: number, user: TestUser, isVolunteering: boolea
 const flagOf = async (eventId: number) =>
   (await payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true })).isVolunteering
 
-const requestFlag = (eventId: number, user: TestUser) =>
-  payload.create({
-    collection: 'volunteer-flag-requests',
-    data: { event: eventId, requestedBy: user.id },
-    user,
-    overrideAccess: false,
-  })
-
 const createVolunteeringEvent = async (owner: TestUser, options: { withObec?: boolean } = {}) => {
   const event = await createEvent(owner, options)
   return payload.update({
     collection: 'events',
     id: event.id,
     data: { isVolunteering: true },
-    context: { skipVolunteeringGuard: true, skipNotifications: true },
+    context: { skipNotifications: true },
     overrideAccess: true,
   })
 }
@@ -175,7 +171,6 @@ describe('Volunteering on an event is its creator’s alone', () => {
   afterAll(async () => {
     const userIds = [creator.id, coOrganizer.id, obecAdmin.id, volunteer.id]
     await payload.delete({ collection: 'volunteer-invitations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'volunteer-flag-requests', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'registrations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
@@ -194,34 +189,37 @@ describe('Volunteering on an event is its creator’s alone', () => {
     expect(await flagOf(event.id)).toBe(false)
   })
 
-  it('only the creator may ask the obec for it — and the obec’s approval puts it on', async () => {
-    const event = await createEvent(creator, { withObec: true })
-    await expect(requestFlag(event.id, coOrganizer)).rejects.toThrow(/založil/)
-    await expect(requestFlag(event.id, obecAdmin)).rejects.toThrow(/založil/)
-
-    // Filed under whoever is signed in, whatever the client names.
-    const request = await payload.create({
-      collection: 'volunteer-flag-requests',
-      data: { event: event.id, requestedBy: coOrganizer.id },
-      user: creator,
-      overrideAccess: false,
-    })
-    expect(typeof request.requestedBy === 'object' ? request.requestedBy.id : request.requestedBy).toBe(creator.id)
-    await expect(requestFlag(event.id, creator)).rejects.toThrow(/čeká/)
-
-    await payload.update({
-      collection: 'volunteer-flag-requests',
-      id: request.id,
-      data: { status: 'approved' },
-      user: obecAdmin,
-      overrideAccess: false,
-    })
+  it('the creator sets it straight away — no obec approval, and no request left for the obec', async () => {
+    const event = await createEvent(creator)
+    await setVolunteering(event.id, creator, true)
     expect(await flagOf(event.id)).toBe(true)
+    await setVolunteering(event.id, creator, false)
+    expect(await flagOf(event.id)).toBe(false)
   })
 
-  it('a creator who administers the obec sets it straight away', async () => {
-    const event = await createEvent(obecAdmin)
-    await setVolunteering(event.id, obecAdmin, true)
+  it('a creator the obec has locked out of editing still sets it, through its own endpoint', async () => {
+    const event = await createEvent(creator, { withObec: true })
+    // The locked event's update access keeps the creator out of a plain update…
+    await expect(setVolunteering(event.id, creator, true)).rejects.toThrow()
+
+    const call = async (user: TestUser, isVolunteering: boolean) => {
+      const { token } = await payload.login({ collection: 'users', data: { email: user.email, password: 'test1234' } })
+      return setVolunteeringRoute(
+        new Request(`http://localhost/api/events/${event.id}/volunteering`, {
+          method: 'POST',
+          headers: { Authorization: `JWT ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isVolunteering }),
+        }),
+        { params: Promise.resolve({ id: String(event.id) }) },
+      )
+    }
+    expect((await call(coOrganizer, true)).status).toBe(403)
+    expect((await call(obecAdmin, true)).status).toBe(403)
+    expect(await flagOf(event.id)).toBe(false)
+
+    const response = await call(creator, true)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ isVolunteering: true })
     expect(await flagOf(event.id)).toBe(true)
   })
 
@@ -231,7 +229,6 @@ describe('Volunteering on an event is its creator’s alone', () => {
       collection: 'events',
       id: event.id,
       data: { isVolunteering: true },
-      context: { skipVolunteeringGuard: true },
       overrideAccess: true,
     })
     await setVolunteering(event.id, coOrganizer, false)

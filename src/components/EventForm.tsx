@@ -92,10 +92,9 @@ interface Props {
   municipalityCenter: [number, number];
   /** The viewer acts for the obec (its admin, or a platform admin) — may take any spolupořadatel off. */
   isObecAdmin: boolean;
-  /** The volunteering flag is the event creator's alone: "set" (a creator who administers the obec,
-   * or a platform admin), "request" (any other creator — the obec approves it), "none" (everyone
-   * else, the obec included). */
-  volunteering: "set" | "request" | "none";
+  /** The volunteering flag is the event creator's alone: "set" (the creator, or a platform admin —
+   * no obec approval), "none" (everyone else, the obec included). */
+  volunteering: "set" | "none";
   /** The event is (or, created by the obec's admin, will be) the obec's own. */
   runsAsObec?: boolean;
   /** Organizations invited to co-organize the event that haven't answered yet. */
@@ -155,8 +154,7 @@ export function EventForm({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const volunteeringLocked =
-    volunteering === "none" || (volunteering === "request" && Boolean(initial?.is_volunteering));
+  const volunteeringLocked = volunteering === "none";
   const savedCoOrganizationIds = new Set((initial?.co_organizations ?? []).map((o) => o.id));
   const pendingIds = pendingCoOrganizations.map((o) => o.id);
   // Inviting the obec hands the event over to it once it accepts (Events lockedEventIds) — worth
@@ -485,13 +483,9 @@ export function EventForm({
         <span>
           {volunteering === "set"
             ? "Tohle je dobrovolnická aktivita."
-            : volunteering === "none"
-              ? isVolunteering
-                ? "Dobrovolnická aktivita — příznak spravuje ten, kdo akci založil."
-                : "Příznak Dobrovolnictví může přidat jen ten, kdo akci založil."
-              : volunteeringLocked
-                ? "Dobrovolnická aktivita (příznak schválen obcí)."
-                : `Tohle je dobrovolnická aktivita — po ${initial ? "uložení" : "vytvoření"} požádám obec o schválení příznaku.`}
+            : isVolunteering
+              ? "Dobrovolnická aktivita — příznak spravuje ten, kdo akci založil."
+              : "Příznak Dobrovolnictví může přidat jen ten, kdo akci založil."}
         </span>
       </label>
 

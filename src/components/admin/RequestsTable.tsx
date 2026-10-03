@@ -4,15 +4,12 @@ import { useEffect, useState } from "react";
 import {
   getOrganizerRequestsForAdmin,
   decideOrganizerRequest,
-  getVolunteerFlagRequestsForAdmin,
-  decideVolunteerFlagRequest,
   getCoOrganizingRequestsForAdmin,
   decideCoOrganizingRequest,
   getOrganizersForAdmin,
   getReviewComplaintsForAdmin,
   revokeOrganizerRole,
   OrganizerRequestAdminRow,
-  VolunteerFlagRequestAdminRow,
   CoOrganizingRequestAdminRow,
   OrganizerRoleRow,
   ReviewComplaintAdminRow,
@@ -21,7 +18,7 @@ import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, X, UserPlus, HandHeart, Handshake, Users, Flag } from "lucide-react";
+import { Check, X, UserPlus, Handshake, Users, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { organizationTypeLabel } from "@/lib/organizations";
@@ -32,7 +29,6 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const { profile } = useAuth();
   const muniId = municipalityId || profile?.municipality_id;
   const [organizerRequests, setOrganizerRequests] = useState<OrganizerRequestAdminRow[]>([]);
-  const [volunteerRequests, setVolunteerRequests] = useState<VolunteerFlagRequestAdminRow[]>([]);
   const [coOrganizingRequests, setCoOrganizingRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
   const [reviewComplaints, setReviewComplaints] = useState<ReviewComplaintAdminRow[]>([]);
   const [organizers, setOrganizers] = useState<OrganizerRoleRow[]>([]);
@@ -42,15 +38,13 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const load = async () => {
     if (!muniId) return;
     setLoading(true);
-    const [org, vol, coOrg, complaints, activeOrganizers] = await Promise.all([
+    const [org, coOrg, complaints, activeOrganizers] = await Promise.all([
       getOrganizerRequestsForAdmin(muniId),
-      getVolunteerFlagRequestsForAdmin(muniId),
       getCoOrganizingRequestsForAdmin(muniId),
       getReviewComplaintsForAdmin(muniId).catch(() => [] as ReviewComplaintAdminRow[]),
       getOrganizersForAdmin(muniId),
     ]);
     setOrganizerRequests(org);
-    setVolunteerRequests(vol);
     setCoOrganizingRequests(coOrg);
     setReviewComplaints(complaints);
     setOrganizers(activeOrganizers);
@@ -67,19 +61,6 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
     try {
       await decideOrganizerRequest(id, approve);
       toast.success(approve ? "Role organizátora schválena." : "Žádost zamítnuta.");
-      await load();
-    } catch {
-      toast.error("Nepodařilo se vyřídit žádost.");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleVolunteerDecision = async (id: string, approve: boolean) => {
-    setBusyId(id);
-    try {
-      await decideVolunteerFlagRequest(id, approve);
-      toast.success(approve ? "Příznak Dobrovolnictví schválen." : "Žádost zamítnuta.");
       await load();
     } catch {
       toast.error("Nepodařilo se vyřídit žádost.");
@@ -117,7 +98,6 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
 
   const totalCount =
     organizerRequests.length +
-    volunteerRequests.length +
     coOrganizingRequests.length +
     reviewComplaints.length +
     organizers.length;
@@ -156,31 +136,6 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
                   organizationName={r.organization_name}
                   organizationType={r.organization_type}
                 />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {volunteerRequests.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-1">
-            <HandHeart className="h-4 w-4 text-primary" />
-            <p className="font-bold text-sm">Žádosti o příznak Dobrovolnictví</p>
-          </div>
-          {volunteerRequests.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="p-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{r.event_title}</p>
-                  <p className="text-xs text-muted-foreground">{r.requested_by_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}</p>
-                </div>
-                <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busyId === r.id} onClick={() => handleVolunteerDecision(r.id, true)}>
-                  <Check className="h-4 w-4" /> Schválit
-                </Button>
-                <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busyId === r.id} onClick={() => handleVolunteerDecision(r.id, false)}>
-                  <X className="h-4 w-4" /> Zamítnout
-                </Button>
               </CardContent>
             </Card>
           ))}

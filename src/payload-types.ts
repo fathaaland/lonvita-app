@@ -83,7 +83,6 @@ export interface Config {
     'audit-log': AuditLog;
     notifications: Notification;
     'organizer-requests': OrganizerRequest;
-    'volunteer-flag-requests': VolunteerFlagRequest;
     'co-organizing-requests': CoOrganizingRequest;
     'event-deletion-requests': EventDeletionRequest;
     organizations: Organization;
@@ -114,7 +113,6 @@ export interface Config {
     'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
     notifications: NotificationsSelect<false> | NotificationsSelect<true>;
     'organizer-requests': OrganizerRequestsSelect<false> | OrganizerRequestsSelect<true>;
-    'volunteer-flag-requests': VolunteerFlagRequestsSelect<false> | VolunteerFlagRequestsSelect<true>;
     'co-organizing-requests': CoOrganizingRequestsSelect<false> | CoOrganizingRequestsSelect<true>;
     'event-deletion-requests': EventDeletionRequestsSelect<false> | EventDeletionRequestsSelect<true>;
     organizations: OrganizationsSelect<false> | OrganizationsSelect<true>;
@@ -738,20 +736,6 @@ export interface OrganizerRequest {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "volunteer-flag-requests".
- */
-export interface VolunteerFlagRequest {
-  id: number;
-  event: number | Event;
-  requestedBy: number | User;
-  status: 'pending' | 'approved' | 'rejected';
-  reviewedBy?: (number | null) | User;
-  reviewedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "co-organizing-requests".
  */
 export interface CoOrganizingRequest {
@@ -994,10 +978,6 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'organizer-requests';
         value: number | OrganizerRequest;
-      } | null)
-    | ({
-        relationTo: 'volunteer-flag-requests';
-        value: number | VolunteerFlagRequest;
       } | null)
     | ({
         relationTo: 'co-organizing-requests';
@@ -1375,19 +1355,6 @@ export interface OrganizerRequestsSelect<T extends boolean = true> {
   reason?: T;
   organizationName?: T;
   organizationType?: T;
-  status?: T;
-  reviewedBy?: T;
-  reviewedAt?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "volunteer-flag-requests_select".
- */
-export interface VolunteerFlagRequestsSelect<T extends boolean = true> {
-  event?: T;
-  requestedBy?: T;
   status?: T;
   reviewedBy?: T;
   reviewedAt?: T;
