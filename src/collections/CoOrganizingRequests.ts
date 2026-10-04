@@ -1,6 +1,7 @@
 import type {
   Access,
   CollectionAfterChangeHook,
+  CollectionAfterReadHook,
   CollectionBeforeChangeHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
@@ -15,6 +16,10 @@ import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotif
 import { writeAuditLog } from './shared/auditLog'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
+
+/** How long an invited organization has to accept — never past the event's start. Whoever doesn't
+ * accept in time isn't on the event; the inviter may invite them again. */
+export const CO_ORGANIZING_INVITATION_HOURS = 24
 
 const relationId = (value: unknown): string | null => {
   if (value == null) return null
@@ -108,6 +113,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
         { event: { equals: event.id } },
         { organization: { equals: organization.id } },
         { status: { equals: 'pending' } },
+        { expiresAt: { greater_than: new Date().toISOString() } },
       ],
     },
     depth: 0,
@@ -116,6 +122,13 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
     req,
   })
   if (pending.docs.length > 0) throw new APIError('Pozvánka pro tuhle organizaci už čeká na odpověď.', 400)
+
+  // An event already under way (a multi-day one) has no start left to cap it with.
+  const startsAt = new Date(event.dateTime).getTime()
+  const expiresAt = Math.min(
+    Date.now() + CO_ORGANIZING_INVITATION_HOURS * 60 * 60 * 1000,
+    startsAt > Date.now() ? startsAt : Number.POSITIVE_INFINITY,
+  )
 
   return {
     event: event.id,
@@ -126,6 +139,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
     organizationOwner: isObec ? null : Number(relationId(organization.owner)),
     requestedBy: user.id,
     status: (await answersFor(req, user, organization)) ? 'approved' : 'pending',
+    expiresAt: new Date(expiresAt).toISOString(),
   }
 }
 
@@ -138,6 +152,14 @@ const applyDecision: CollectionBeforeChangeHook = async ({ data, req, operation,
   if (!data) return data
   if (operation === 'update') {
     if (!originalDoc || data.status === undefined || data.status === originalDoc.status) return data
+    // originalDoc carries the stored status — a lapsed one may still read "pending" there.
+    const lapsed =
+      originalDoc.status === 'pending' &&
+      originalDoc.expiresAt &&
+      new Date(originalDoc.expiresAt).getTime() <= Date.now()
+    if (lapsed || originalDoc.status === 'expired' || data.status === 'expired') {
+      throw new APIError('Pozvánka už vypršela — o spolupořádání musí pořadatel požádat znovu.', 409)
+    }
     if (originalDoc.status !== 'pending') throw new APIError('O pozvánce už bylo rozhodnuto.', 409)
   }
   if (operation === 'create' && data.status !== 'approved') return data
@@ -243,13 +265,20 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
   return doc
 }
 
+/** A pending invitation past its `expiresAt` reads back as "expired" straight away (like
+ * EventDeletionRequests); the worker's sync-statuses job writes it down. */
+const deriveExpiredStatus: CollectionAfterReadHook = ({ doc }) => {
+  if (doc.status !== 'pending' || !doc.expiresAt || new Date(doc.expiresAt).getTime() > Date.now()) return doc
+  return { ...doc, status: 'expired' }
+}
+
 const fixedAfterCreate = { update: () => false }
 
 /**
  * An invitation for an organization to co-organize an event — nobody becomes a spolupořadatel
  * without their own consent (brief §4 "Spolupořadatelství"). Whoever may edit the event invites;
  * the organization's owner accepts or declines — for the obec's own organization, any of the obec's
- * admins. Accepting adds the organization to the event (Events.coOrganizations); with the obec on
+ * admins — within CO_ORGANIZING_INVITATION_HOURS, or the invitation lapses. Accepting adds the organization to the event (Events.coOrganizations); with the obec on
  * it, only the obec edits the event from then on (Events lockedEventIds).
  */
 export const CoOrganizingRequests: CollectionConfig = {
@@ -329,7 +358,15 @@ export const CoOrganizingRequests: CollectionConfig = {
         { label: 'Pending', value: 'pending' },
         { label: 'Approved', value: 'approved' },
         { label: 'Rejected', value: 'rejected' },
+        { label: 'Expired', value: 'expired' },
       ],
+    },
+    {
+      name: 'expiresAt',
+      type: 'date',
+      required: true,
+      access: fixedAfterCreate,
+      admin: { description: 'Unanswered by then, the invitation lapses — 24 h, never past the event start.' },
     },
     {
       name: 'reviewedBy',
@@ -347,6 +384,7 @@ export const CoOrganizingRequests: CollectionConfig = {
     beforeValidate: [prepareRequest],
     beforeChange: [applyDecision],
     afterChange: [notifyOnRequestChange],
+    afterRead: [deriveExpiredStatus],
   },
   timestamps: true,
 }

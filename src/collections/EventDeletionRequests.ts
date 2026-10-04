@@ -17,6 +17,10 @@ import { formatPragueDateTime } from '@/lib/date'
 /** How long the other organizers have to answer before the request lapses (the event stays). */
 export const DELETION_CONSENT_HOURS = 24
 
+/** Still waiting on someone until `expiresAt` — the other organizers (`pending`), or the obec once
+ * the requester turned to it after a refusal (`escalated`, `expiresAt` = the event's start). */
+export const OPEN_STATUSES = ['pending', 'escalated']
+
 const relationId = (value: unknown): string | null => {
   if (value == null) return null
   return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
@@ -72,7 +76,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
     where: {
       and: [
         { event: { equals: event.id } },
-        { status: { equals: 'pending' } },
+        { status: { in: OPEN_STATUSES } },
         { expiresAt: { greater_than: new Date().toISOString() } },
       ],
     },
@@ -156,18 +160,26 @@ const notifyApprovers: CollectionAfterChangeHook = async ({ doc, operation, req 
   return doc
 }
 
-/** A pending request past its 24 h reads back as "expired" straight away, like Events'
+/** An open request past its `expiresAt` reads back as "expired" straight away, like Events'
  * deriveFinishedStatus; the worker's sync-statuses job writes it down. The event is left as it was. */
 const deriveExpiredStatus: CollectionAfterReadHook = ({ doc }) => {
-  if (doc.status !== 'pending' || new Date(doc.expiresAt).getTime() > Date.now()) return doc
+  if (!OPEN_STATUSES.includes(doc.status) || new Date(doc.expiresAt).getTime() > Date.now()) return doc
   return { ...doc, status: 'expired' }
 }
 
 /**
  * Two organizers running an event together must both agree before it's deleted: one asks, the
- * others (and the obec, if it co-organizes) get notified and have DELETION_CONSENT_HOURS to confirm. All confirm → the event is
- * hard-deleted (api/events/deletion-requests/[id]/decide); anyone refuses, or time runs out → the
- * event stays. Created over REST; decided only through that route (update is closed here).
+ * others (and the obec, if it co-organizes) get notified and have DELETION_CONSENT_HOURS to
+ * answer (api/events/deletion-requests/[id]/decide):
+ * - all consent → the event is hard-deleted (`approved`);
+ * - one keeps the event but lets the requester go → the requester leaves it, the event stays with
+ *   the rest — handed over to whoever chose so, if the requester was its pořadatel
+ *   (`requester-removed`);
+ * - one refuses, or time runs out → everything stays (`rejected` / `expired`).
+ * After a refusal the requester may turn to the obec (…/escalate → `escalated`, open until the event
+ * starts), whose admin takes them off the event without the others' consent (`requester-removed`)
+ * or turns it down (`escalation-rejected`) — …/municipality-decide. Created over REST; decided only
+ * through those routes (update is closed here).
  */
 export const EventDeletionRequests: CollectionConfig = {
   slug: 'event-deletion-requests',
@@ -244,12 +256,36 @@ export const EventDeletionRequests: CollectionConfig = {
         { label: 'Approved (event deleted)', value: 'approved' },
         { label: 'Rejected', value: 'rejected' },
         { label: 'Expired', value: 'expired' },
+        { label: 'Requester removed (event kept)', value: 'requester-removed' },
+        { label: 'Escalated to the obec', value: 'escalated' },
+        { label: 'Rejected by the obec', value: 'escalation-rejected' },
       ],
     },
     {
+      // The others' answer deadline; once escalated, the event's start (the obec's deadline).
       name: 'expiresAt',
       type: 'date',
       required: true,
+    },
+    {
+      name: 'rejectedBy',
+      type: 'relationship',
+      relationTo: 'users',
+      admin: {
+        description:
+          'The organizer who refused — if the obec then takes the pořadatel off, the event passes to them.',
+      },
+    },
+    {
+      name: 'escalatedAt',
+      type: 'date',
+      admin: { description: 'When the requester turned to the obec after the refusal.' },
+    },
+    {
+      name: 'successor',
+      type: 'relationship',
+      relationTo: 'users',
+      admin: { description: 'Who took the event over when the requester leaving it was its pořadatel.' },
     },
     {
       name: 'decidedBy',

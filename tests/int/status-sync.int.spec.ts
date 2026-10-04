@@ -71,17 +71,46 @@ describe('Finished/expired status sync (worker cron)', () => {
     return event
   }
 
-  const createDeletionRequest = async (expiresAt: string) => {
+  const createDeletionRequest = async (expiresAt: string, status: 'pending' | 'escalated' = 'pending') => {
     const request = await payload.db.create({
       collection: 'event-deletion-requests',
-      data: { eventTitle: `Status sync request ${STAMP}`, requestedBy: organizer.id, status: 'pending', expiresAt },
+      data: { eventTitle: `Status sync request ${STAMP}`, requestedBy: organizer.id, status, expiresAt },
     })
     requestIds.push(request.id as number)
     return request
   }
 
+  const createInvitation = async (expiresAt: string) => {
+    const event = await createEvent({ dateTime: ahead(3 * DAY) })
+    const organization = (
+      await payload.find({
+        collection: 'organizations',
+        where: { owner: { equals: organizer.id } },
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+      })
+    ).docs[0]
+    return payload.db.create({
+      collection: 'co-organizing-requests',
+      data: {
+        event: event.id,
+        eventTitle: event.title,
+        municipality: municipality.id,
+        organization: organization.id,
+        organizationName: organization.name,
+        requestedBy: organizer.id,
+        status: 'pending',
+        expiresAt,
+      },
+    })
+  }
+
   /** The stored value, bypassing the afterRead hooks that derive it. */
-  const rawStatus = async (collection: 'events' | 'event-deletion-requests', id: number | string) =>
+  const rawStatus = async (
+    collection: 'events' | 'event-deletion-requests' | 'co-organizing-requests',
+    id: number | string,
+  ) =>
     ((await payload.db.findOne({ collection, where: { id: { equals: id } } })) as { status?: string } | null)?.status
 
   const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
@@ -122,9 +151,11 @@ describe('Finished/expired status sync (worker cron)', () => {
     for (const id of requestIds) {
       await payload.delete({ collection: 'event-deletion-requests', id, overrideAccess: true }).catch(() => {})
     }
+    await payload.delete({ collection: 'co-organizing-requests', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     for (const id of eventIds) {
       await payload.delete({ collection: 'events', id, overrideAccess: true }).catch(() => {})
     }
+    await payload.delete({ collection: 'organizations', where: { owner: { equals: organizer.id } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'user-roles', where: { user: { equals: organizer.id } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'users', id: organizer.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true }).catch(() => {})
@@ -187,6 +218,22 @@ describe('Finished/expired status sync (worker cron)', () => {
     expect(result.deletionRequestsExpired).toBeGreaterThanOrEqual(1)
     expect(await rawStatus('event-deletion-requests', overdue.id)).toBe('expired')
     expect(await rawStatus('event-deletion-requests', open.id)).toBe('pending')
+  })
+
+  it('expires escalated requests once the event starts, and lapsed co-organizing invitations', async () => {
+    const escalated = await createDeletionRequest(ago(HOUR), 'escalated')
+    const waiting = await createDeletionRequest(ahead(DAY), 'escalated')
+    const lapsed = await createInvitation(ago(HOUR))
+    const open = await createInvitation(ahead(DAY))
+
+    const result = await processSyncStatusesJob()
+
+    expect(result.deletionRequestsExpired).toBeGreaterThanOrEqual(1)
+    expect(result.coOrganizingInvitationsExpired).toBeGreaterThanOrEqual(1)
+    expect(await rawStatus('event-deletion-requests', escalated.id)).toBe('expired')
+    expect(await rawStatus('event-deletion-requests', waiting.id)).toBe('escalated')
+    expect(await rawStatus('co-organizing-requests', lapsed.id)).toBe('expired')
+    expect(await rawStatus('co-organizing-requests', open.id)).toBe('pending')
   })
 
   it('is a no-op on a second run', async () => {

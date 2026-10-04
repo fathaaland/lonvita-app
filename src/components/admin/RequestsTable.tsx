@@ -6,6 +6,9 @@ import {
   decideOrganizerRequest,
   getCoOrganizingRequestsForAdmin,
   decideCoOrganizingRequest,
+  getEscalatedDeletionRequestsForAdmin,
+  decideEscalatedDeletionRequest,
+  EscalatedDeletionRequestRow,
   getOrganizersForAdmin,
   getReviewComplaintsForAdmin,
   revokeOrganizerRole,
@@ -18,7 +21,19 @@ import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, X, UserPlus, Handshake, Users, Flag } from "lucide-react";
+import { Check, X, UserPlus, Handshake, Users, Flag, UserMinus } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { formatEventDateTime } from "@/lib/date";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { organizationTypeLabel } from "@/lib/organizations";
@@ -31,6 +46,7 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const [organizerRequests, setOrganizerRequests] = useState<OrganizerRequestAdminRow[]>([]);
   const [coOrganizingRequests, setCoOrganizingRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
   const [reviewComplaints, setReviewComplaints] = useState<ReviewComplaintAdminRow[]>([]);
+  const [escalated, setEscalated] = useState<EscalatedDeletionRequestRow[]>([]);
   const [organizers, setOrganizers] = useState<OrganizerRoleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -38,14 +54,16 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const load = async () => {
     if (!muniId) return;
     setLoading(true);
-    const [org, coOrg, complaints, activeOrganizers] = await Promise.all([
+    const [org, coOrg, leaving, complaints, activeOrganizers] = await Promise.all([
       getOrganizerRequestsForAdmin(muniId),
       getCoOrganizingRequestsForAdmin(muniId),
+      getEscalatedDeletionRequestsForAdmin(muniId).catch(() => [] as EscalatedDeletionRequestRow[]),
       getReviewComplaintsForAdmin(muniId).catch(() => [] as ReviewComplaintAdminRow[]),
       getOrganizersForAdmin(muniId),
     ]);
     setOrganizerRequests(org);
     setCoOrganizingRequests(coOrg);
+    setEscalated(leaving);
     setReviewComplaints(complaints);
     setOrganizers(activeOrganizers);
     setLoading(false);
@@ -83,6 +101,19 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
     }
   };
 
+  const handleEscalatedDecision = async (id: string, remove: boolean) => {
+    setBusyId(id);
+    try {
+      await decideEscalatedDeletionRequest(id, remove);
+      toast.success(remove ? "Žadatel z akce odebrán." : "Žádost zamítnuta, pořadatelé zůstávají.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se vyřídit žádost.");
+    } finally {
+      setBusyId(null);
+      await load();
+    }
+  };
+
   const handleRevokeOrganizer = async (userRoleId: string) => {
     setBusyId(userRoleId);
     try {
@@ -99,6 +130,7 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
   const totalCount =
     organizerRequests.length +
     coOrganizingRequests.length +
+    escalated.length +
     reviewComplaints.length +
     organizers.length;
 
@@ -154,6 +186,23 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
               request={r}
               busy={busyId === r.id}
               onDecide={(approve) => handleCoOrganizingDecision(r.id, approve)}
+            />
+          ))}
+        </div>
+      )}
+
+      {escalated.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <UserMinus className="h-4 w-4 text-primary" />
+            <p className="font-bold text-sm">Žádosti o zrušení spolupořadatelství</p>
+          </div>
+          {escalated.map((r) => (
+            <EscalatedDeletionRequestCard
+              key={r.id}
+              request={r}
+              busy={busyId === r.id}
+              onDecide={(remove) => handleEscalatedDecision(r.id, remove)}
             />
           ))}
         </div>
@@ -228,7 +277,7 @@ export function CoOrganizingRequestCard({
           )}
           <p className="text-xs text-muted-foreground">
             {subtitle ? `${subtitle} · ` : ""}
-            zve {request.requested_by_name} · {new Date(request.created_at).toLocaleDateString("cs-CZ")}
+            zve {request.requested_by_name} · platí do {formatEventDateTime(request.expires_at)}
           </p>
         </div>
         <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busy} onClick={() => onDecide(true)}>
@@ -237,6 +286,66 @@ export function CoOrganizingRequestCard({
         <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busy} onClick={() => onDecide(false)}>
           <X className="h-4 w-4" /> Odmítnout
         </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** An organizer wants to stop running an event, a spolupořadatel refused to let them go — the obec
+ * may take them off it without that consent (EventDeletionRequests, …/municipality-decide). */
+function EscalatedDeletionRequestCard({
+  request,
+  busy,
+  onDecide,
+}: {
+  request: EscalatedDeletionRequestRow;
+  busy: boolean;
+  onDecide: (remove: boolean) => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-3 space-y-2">
+        <div className="min-w-0">
+          {request.event_id ? (
+            <a href={`/akce/${request.event_id}`} className="font-semibold text-sm truncate block hover:underline">
+              {request.event_title}
+            </a>
+          ) : (
+            <p className="font-semibold text-sm truncate">{request.event_title}</p>
+          )}
+          <p className="text-xs text-muted-foreground">rozhodněte do {formatEventDateTime(request.expires_at)}</p>
+        </div>
+        <p className="text-sm">
+          <span className="font-semibold">{request.requested_by_name}</span> chce přestat akci pořádat,{" "}
+          <span className="font-semibold">{request.rejected_by_name}</span> nesouhlasí se smazáním akce ani s jeho
+          odchodem.
+          {request.requester_is_organizer && " Je hlavním pořadatelem — když ho odeberete, akce přejde na spolupořadatele."}
+        </p>
+        <div className="flex gap-2">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button size="sm" variant="outline" className="flex-1 h-9 text-destructive border-destructive/40" disabled={busy}>
+                <UserMinus className="h-4 w-4" /> Odebrat žadatele
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Odebrat {request.requested_by_name} z akce?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Akci přestane pořádat i bez souhlasu spolupořadatele
+                  {request.requester_is_organizer ? " a akce přejde na spolupořadatele" : ""}. Akce sama zůstane, jak je.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Zpět</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onDecide(true)}>Odebrat žadatele</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <Button size="sm" variant="outline" className="flex-1 h-9" disabled={busy} onClick={() => onDecide(false)}>
+            <X className="h-4 w-4" /> Zamítnout
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

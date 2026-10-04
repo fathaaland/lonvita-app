@@ -169,6 +169,7 @@ export type SyncStatusesJobData = Record<string, never>
 export type SyncStatusesJobResult = {
   eventsFinished: number
   deletionRequestsExpired: number
+  coOrganizingInvitationsExpired: number
 }
 
 /**

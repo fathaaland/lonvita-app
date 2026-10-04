@@ -1110,36 +1110,48 @@ export async function requestOrganizerRole(
 
 // --- Consented deletion of a co-organized event ---------------------------------------------
 
+export type EventDeletionRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "expired"
+  | "requester-removed"
+  | "escalated"
+  | "escalation-rejected";
+
 export type EventDeletionRequestRow = {
   id: string;
+  status: EventDeletionRequestStatus;
   requested_by_id: string;
   approver_ids: string[];
   approved_by_ids: string[];
+  /** The spolupořadatel who refused — after that the requester may turn to the obec. */
+  rejected_by_id: string | null;
   /** The obec co-organizes the event — one of its admins has to consent for it too. */
   municipality_consent: boolean;
   municipality_approved: boolean;
+  /** The others' deadline; once escalated, the event's start (the obec's). */
   expires_at: string;
 };
 
 type PayloadEventDeletionRequest = {
   id: number;
+  status: EventDeletionRequestStatus;
   requestedBy: number | { id: number };
   approvers?: (number | { id: number })[] | null;
   approvedBy?: (number | { id: number })[] | null;
+  rejectedBy?: number | { id: number } | null;
   municipalityConsent?: boolean | null;
   municipalityApprovedBy?: number | { id: number } | null;
   expiresAt: string;
 };
 
-/** The open (pending, not yet lapsed) request to delete this event, if any. */
-export async function getOpenEventDeletionRequest(eventId: string): Promise<EventDeletionRequestRow | null> {
-  const where = buildWhereParams({
-    event: { equals: eventId },
-    status: { equals: "pending" },
-    expiresAt: { greater_than: new Date().toISOString() },
-  });
+/** The event's latest request to delete it, whatever became of it — still open, refused (its
+ * requester may turn to the obec), with the obec, or settled. Lapsed ones read back "expired". */
+export async function getLatestEventDeletionRequest(eventId: string): Promise<EventDeletionRequestRow | null> {
+  const where = buildWhereParams({ event: { equals: eventId } });
   const result = await get<PayloadListResponse<PayloadEventDeletionRequest>>(
-    `/event-deletion-requests?${where}&depth=0&limit=1`,
+    `/event-deletion-requests?${where}&depth=0&limit=1&sort=-createdAt`,
   );
   const r = result.docs[0];
   if (!r) return null;
@@ -1147,9 +1159,11 @@ export async function getOpenEventDeletionRequest(eventId: string): Promise<Even
     (v ?? []).map(toId).filter((x): x is string => Boolean(x));
   return {
     id: String(r.id),
+    status: r.status,
     requested_by_id: toId(r.requestedBy)!,
     approver_ids: ids(r.approvers),
     approved_by_ids: ids(r.approvedBy),
+    rejected_by_id: toId(r.rejectedBy ?? null),
     municipality_consent: Boolean(r.municipalityConsent),
     municipality_approved: Boolean(r.municipalityApprovedBy),
     expires_at: r.expiresAt,
@@ -1161,12 +1175,20 @@ export async function requestEventDeletion(eventId: string): Promise<void> {
   await post("/event-deletion-requests", { event: Number(eventId) });
 }
 
-/** "approved" = everyone consented and the event is gone; "pending" = others still have to. */
+export type EventDeletionDecision = "approve" | "reject" | "remove-requester";
+
+/** "approved" = everyone consented and the event is gone; "pending" = others still have to;
+ * "requester-removed" = the event stays, without the requester. */
 export async function decideEventDeletion(
   requestId: string,
-  approve: boolean,
-): Promise<{ status: "pending" | "approved" | "rejected" }> {
-  return post(`/events/deletion-requests/${requestId}/decide`, { approve });
+  decision: EventDeletionDecision,
+): Promise<{ status: "pending" | "approved" | "rejected" | "requester-removed" }> {
+  return post(`/events/deletion-requests/${requestId}/decide`, { decision });
+}
+
+/** After a spolupořadatel refused, the requester asks the obec to take them off the event. */
+export async function escalateEventDeletion(requestId: string): Promise<void> {
+  await post(`/events/deletion-requests/${requestId}/escalate`, {});
 }
 
 /** The creator marks their event as one for volunteers, or takes the mark off — no obec approval.
@@ -1327,9 +1349,13 @@ export async function inviteCoOrganizer(eventId: string, organizationId: string)
 
 type PayloadCoOrganizingInvitation = { organization: number | PayloadOrganization | null };
 
-/** The organizations invited to co-organize this event that haven't answered yet. */
+/** The organizations invited to co-organize this event that haven't answered yet (and still can). */
 export async function getPendingCoOrganizers(eventId: string): Promise<OrganizationRef[]> {
-  const where = buildWhereParams({ event: { equals: eventId }, status: { equals: "pending" } });
+  const where = buildWhereParams({
+    event: { equals: eventId },
+    status: { equals: "pending" },
+    expiresAt: { greater_than: new Date().toISOString() },
+  });
   const result = await get<PayloadListResponse<PayloadCoOrganizingInvitation>>(
     `/co-organizing-requests?${where}&depth=1&limit=100`,
   );

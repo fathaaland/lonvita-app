@@ -446,7 +446,8 @@ export function EventForm({
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-2">
-          Pozvaná organizace se stane spolupořadatelem, až pozvánku přijme. Pak má k akci stejná práva jako vy.
+          Pozvaná organizace se stane spolupořadatelem, až pozvánku přijme — má na to 24 hodin. Pak má k akci stejná
+          práva jako vy.
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
@@ -456,15 +457,17 @@ export function EventForm({
           excludeOwnerId={initial ? undefined : userId}
           excludeObec={runsAsObec}
           pendingIds={pendingIds}
-          // Only the obec admin removes another organization; an organizer can only take their own
-          // off (Events guardCoOrganizedChanges). A sent invitation stays until it's answered.
-          fixedIds={[
-            ...pendingIds,
-            ...(initial && !isObecAdmin
-              ? initial.co_organizations.filter((o) => o.owner_id !== userId).map((o) => o.id)
-              : []),
-          ]}
+          // Only the obec admin takes an organization off; an organizer — even their own — leaves only
+          // through a deletion request (Events guardCoOrganizedChanges). A sent invitation stays until
+          // it's answered or lapses.
+          fixedIds={[...pendingIds, ...(initial && !isObecAdmin ? initial.co_organizations.map((o) => o.id) : [])]}
         />
+        {initial && !isObecAdmin && initial.co_organizations.length > 0 && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Spolupořadatele odebrat nejde. Kdo akci pořádat nechce, požádá v detailu akce o její smazání — ostatní ho
+            pak můžou z akce pustit, případně rozhodne obec.
+          </p>
+        )}
         {obecInvited && (
           <p className="text-sm text-muted-foreground mt-3">
             Až obec pozvánku přijme, bude akci upravovat a rušit už jen obec. Vy i ostatní spolupořadatelé budete dál

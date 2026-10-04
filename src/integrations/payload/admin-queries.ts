@@ -229,6 +229,8 @@ export type CoOrganizingRequestAdminRow = {
   requested_by_name: string;
   municipality_id: string;
   created_at: string;
+  /** Unanswered by then, the invitation lapses. */
+  expires_at: string;
 };
 
 type PayloadCoOrganizingRequest = {
@@ -239,27 +241,38 @@ type PayloadCoOrganizingRequest = {
   municipality: number | { id: number };
   requestedBy: number | { id: number };
   createdAt: string;
+  expiresAt: string;
 };
+
+/** Names behind user ids, from their profiles (anyone without one is left out). */
+async function fullNamesByUserIds(userIds: string[]): Promise<Map<string, string>> {
+  const nameById = new Map<string, string>();
+  if (userIds.length === 0) return nameById;
+  const profileWhere = buildWhereParams({ user: { in: [...new Set(userIds)] } });
+  const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+    `/profiles?${profileWhere}&depth=0&limit=500`,
+  );
+  for (const p of profiles.docs) {
+    const uid = toId(p.user);
+    if (uid) nameById.set(uid, p.fullName);
+  }
+  return nameById;
+}
 
 async function listPendingCoOrganizingRequests(
   filter: Parameters<typeof buildWhereParams>[0],
 ): Promise<CoOrganizingRequestAdminRow[]> {
   const query = buildQuery({ depth: 0, sort: "createdAt", limit: 1000 });
-  const where = buildWhereParams({ status: { equals: "pending" }, ...filter });
+  const where = buildWhereParams({
+    status: { equals: "pending" },
+    expiresAt: { greater_than: new Date().toISOString() },
+    ...filter,
+  });
   const result = await get<PayloadListResponse<PayloadCoOrganizingRequest>>(`/co-organizing-requests?${where}&${query}`);
 
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
-  }
+  const nameById = await fullNamesByUserIds(
+    result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v)),
+  );
 
   return result.docs.map((r) => ({
     id: String(r.id),
@@ -269,6 +282,7 @@ async function listPendingCoOrganizingRequests(
     requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
     municipality_id: toId(r.municipality)!,
     created_at: r.createdAt,
+    expires_at: r.expiresAt,
   }));
 }
 
@@ -290,6 +304,67 @@ export function getMyCoOrganizingInvitations(userId: string): Promise<CoOrganizi
  * (CoOrganizingRequests applyDecision). */
 export async function decideCoOrganizingRequest(requestId: string, approve: boolean): Promise<void> {
   await patch(`/co-organizing-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
+}
+
+export type EscalatedDeletionRequestRow = {
+  id: string;
+  event_id: string;
+  event_title: string;
+  requested_by_name: string;
+  rejected_by_name: string;
+  /** The requester is the event's pořadatel — removing them hands the event over. */
+  requester_is_organizer: boolean;
+  escalated_at: string;
+  /** The event's start — the obec's deadline. */
+  expires_at: string;
+};
+
+type PayloadEscalatedDeletionRequest = {
+  id: number;
+  event: number | { id: number; organizer: number | { id: number } } | null;
+  eventTitle: string;
+  requestedBy: number | { id: number };
+  rejectedBy?: number | { id: number } | null;
+  escalatedAt: string;
+  expiresAt: string;
+};
+
+/** Requests to leave an event a spolupořadatel refused, escalated to the obec (EventDeletionRequests)
+ * — for one obec, or (a superadmin, no `municipalityId`) every obec. */
+export async function getEscalatedDeletionRequestsForAdmin(
+  municipalityId?: string,
+): Promise<EscalatedDeletionRequestRow[]> {
+  const where = buildWhereParams({
+    status: { equals: "escalated" },
+    expiresAt: { greater_than: new Date().toISOString() },
+    ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
+  });
+  const query = buildQuery({ depth: 1, sort: "escalatedAt", limit: 1000 });
+  const result = await get<PayloadListResponse<PayloadEscalatedDeletionRequest>>(
+    `/event-deletion-requests?${where}&${query}`,
+  );
+  const nameById = await fullNamesByUserIds(
+    result.docs.flatMap((r) => [toId(r.requestedBy), toId(r.rejectedBy ?? null)]).filter((v): v is string => Boolean(v)),
+  );
+  return result.docs.map((r) => {
+    const requesterId = toId(r.requestedBy) ?? "";
+    const event = r.event && typeof r.event === "object" ? r.event : null;
+    return {
+      id: String(r.id),
+      event_id: toId(r.event ?? null) ?? "",
+      event_title: r.eventTitle,
+      requested_by_name: nameById.get(requesterId) ?? "Organizátor",
+      rejected_by_name: nameById.get(toId(r.rejectedBy ?? null) ?? "") ?? "spolupořadatel",
+      requester_is_organizer: Boolean(event && toId(event.organizer) === requesterId),
+      escalated_at: r.escalatedAt,
+      expires_at: r.expiresAt,
+    };
+  });
+}
+
+/** `remove` takes the requester off the event without the others' consent; otherwise it stays. */
+export async function decideEscalatedDeletionRequest(requestId: string, remove: boolean): Promise<void> {
+  await post(`/events/deletion-requests/${requestId}/municipality-decide`, { remove });
 }
 
 // --- Aktivní organizátoři (revoke role, US-A-09) ------------------------------------------

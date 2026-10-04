@@ -236,10 +236,11 @@ export async function deletionNeedsConsent(
 /**
  * Two organizers running an event together can both edit it, but neither can drop it on the
  * other: cancelling needs the other's consent, via an EventDeletionRequest (its decide route is
- * the one trusted path, `context.coOrganizerConsent`). For the same reason an organizer can't
- * remove another spolupořadatel — only themselves (leaving the event). An event the obec takes part
- * in never gets here from an organizer — they're locked out of it (lockedEventIds). The obec's
- * admins and a platform admin are exempt from all of it.
+ * the one trusted path, `context.coOrganizerConsent`). For the same reason an organizer can't take a
+ * spolupořadatel off — not even themselves: leaving goes through an EventDeletionRequest too (the
+ * others agree to it, or the obec decides), which takes them off with that same context. An event
+ * the obec takes part in never gets here from an organizer — they're locked out of it
+ * (lockedEventIds). The obec's admins and a platform admin are exempt from all of it.
  */
 const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
   if (operation !== 'update' || !data || !originalDoc || !req.user) return data
@@ -258,12 +259,12 @@ const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, 
     const administeredIds = await administeredIdsFor(req, req.user.id)
     if (!administeredIds.includes(relationId(originalDoc.municipality) ?? '')) {
       const kept = new Set((data.coOrganizers as unknown[]).map(relationId))
-      const removedOthers = ((originalDoc.coOrganizers ?? []) as unknown[])
+      const removed = ((originalDoc.coOrganizers ?? []) as unknown[])
         .map(relationId)
-        .filter((id) => id !== null && !kept.has(id) && id !== String(req.user!.id))
-      if (removedOthers.length > 0) {
+        .filter((id) => id !== null && !kept.has(id))
+      if (removed.length > 0) {
         throw new APIError(
-          'Jiného spolupořadatele z akce odebrat nemůžete — odebrat se může jen každý sám, případně je odebere admin obce.',
+          'Spolupořadatele z akce odebrat nemůžete — z akce se odchází jen přes žádost o smazání (se souhlasem ostatních, nebo rozhodnutím obce). Přímo spolupořadatele odebere jen admin obce.',
           400,
         )
       }
@@ -378,8 +379,8 @@ const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, ope
  * owner, or the obec's own organization. Nobody becomes one without their own consent: whoever may
  * edit the event invites an organization (CoOrganizingRequests), and it joins once its owner — for
  * the obec, one of its admins — accepts. That acceptance is the one trusted path that adds one,
- * `context.coOrganizingApproved`; anyone may still take organizations off (guardCoOrganizedChanges
- * says whom). Trusted internal writes (no user — seeds, scripts) pass as always.
+ * `context.coOrganizingApproved`; taking one off is the obec's call or goes through an
+ * EventDeletionRequest (guardCoOrganizedChanges). Trusted internal writes (no user — seeds, scripts) pass as always.
  * From the organizations this derives the rest of the event's ownership:
  * - `organization` — what the pořadatel runs it as: their own organization in the obec, or the
  *   obec's when they're its admin (it's the obec's event — see lockedEventIds);

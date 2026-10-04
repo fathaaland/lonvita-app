@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { commitTransaction, createLocalReq, getPayload, initTransaction, killTransaction } from 'payload'
+import { APIError, commitTransaction, createLocalReq, getPayload, initTransaction, killTransaction } from 'payload'
 
 import config from '@payload-config'
 import { eventOrganizerIds, obecRole } from '@/collections/Events'
@@ -7,6 +7,7 @@ import { getEventRegistrants, notifyEventCancelled } from '@/collections/shared/
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { getEventTeamUserIds, sendNotificationToMany } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
+import { announceRequesterRemoved, removeOrganizerFromEvent } from '@/collections/shared/removeOrganizer'
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { logger, serializeError } from '@/lib/logger'
 
@@ -15,15 +16,21 @@ const relationId = (value: unknown): string | null => {
   return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
 }
 
+const DECISIONS = ['approve', 'reject', 'remove-requester'] as const
+type Decision = (typeof DECISIONS)[number]
+
 /**
  * A spolupořadatel answers a request to delete the event they run together
  * (EventDeletionRequests) — or an obec admin, for the obec co-organizing it. A refusal keeps the
  * event; once everyone asked (the obec included) has consented the event
  * is hard-deleted — with its registrations, their feedback and photos,
- * in one transaction — and the registrants are told it's off.
+ * in one transaction — and the registrants are told it's off. Or an organizer keeps the event
+ * but lets the requester go: the requester leaves it (handing it over to them, if the requester
+ * was its pořadatel) and the request is settled — nobody else's answer matters any more, the event
+ * can't be deleted against their will anyway.
  *
- * POST /api/events/deletion-requests/:id/decide  { approve: boolean }
- * → { status: 'pending' | 'approved' | 'rejected' }
+ * POST /api/events/deletion-requests/:id/decide  { decision: 'approve' | 'reject' | 'remove-requester' }
+ * → { status: 'pending' | 'approved' | 'rejected' | 'requester-removed' }
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
@@ -31,8 +38,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { user } = await payload.auth({ headers: request.headers })
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = (await request.json().catch(() => null)) as { approve?: unknown } | null
-  if (typeof body?.approve !== 'boolean') {
+  const body = (await request.json().catch(() => null)) as { decision?: unknown } | null
+  const decision = body?.decision as Decision
+  if (!DECISIONS.includes(decision)) {
     return NextResponse.json({ error: 'Chybí rozhodnutí.' }, { status: 400 })
   }
 
@@ -85,19 +93,83 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const requesterId = relationId(deletionRequest.requestedBy)!
   const decidedAt = new Date().toISOString()
 
-  if (!body.approve) {
+  if (decision === 'remove-requester') {
+    // The obec answers only for itself — whom the event stays with is the organizers' call.
+    if (!asApprover) {
+      return NextResponse.json({ error: 'Odebrat žadatele může jen spolupořadatel akce.' }, { status: 403 })
+    }
+    if (!onEvent.has(requesterId)) {
+      return NextResponse.json({ error: 'Žadatel už akci nepořádá.' }, { status: 409 })
+    }
+    const successorId = relationId(event.organizer) === requesterId ? uid : null
+
+    const req = await createLocalReq({ user }, payload)
+    const shouldCommit = await initTransaction(req)
+    let updated
+    try {
+      updated = await removeOrganizerFromEvent(req, event, requesterId, successorId)
+      await payload.update({
+        collection: 'event-deletion-requests',
+        id: deletionRequest.id,
+        data: {
+          status: 'requester-removed',
+          successor: successorId ? Number(successorId) : null,
+          decidedBy: user.id,
+          decidedAt,
+        },
+        overrideAccess: true,
+        req,
+      })
+      if (shouldCommit) await commitTransaction(req)
+    } catch (error) {
+      if (shouldCommit) await killTransaction(req)
+      // E.g. the successor no longer organizes in the obec (Events requireOrganizerRole).
+      if (error instanceof APIError && error.status < 500) {
+        return NextResponse.json({ error: error.message }, { status: 409 })
+      }
+      logger.error('Removing the deletion requester failed', {
+        event: 'events.requester_removal_failed',
+        eventId: event.id,
+        requestId: deletionRequest.id,
+        ...serializeError(error),
+      })
+      return NextResponse.json({ error: 'Žadatele se nepodařilo z akce odebrat.' }, { status: 500 })
+    }
+
+    await announceRequesterRemoved(payload, { event: updated, requesterId, successorId, deciderId: uid, byObec: false })
+    writeAuditLog(payload, {
+      action: 'event-deletion-requests.requester-removed',
+      actor: user.id,
+      targetCollection: 'event-deletion-requests',
+      targetId: deletionRequest.id,
+      municipality: Number(relationId(event.municipality)) || null,
+      metadata: { event: event.id, requestedBy: requesterId, successor: successorId },
+    })
+    return NextResponse.json({ status: 'requester-removed' })
+  }
+
+  if (decision === 'reject') {
     await payload.update({
       collection: 'event-deletion-requests',
       id: deletionRequest.id,
-      data: { status: 'rejected', decidedBy: user.id, decidedAt },
+      data: { status: 'rejected', decidedBy: user.id, decidedAt, rejectedBy: asApprover ? user.id : null },
       overrideAccess: true,
     })
-    // The requester, and everyone else who was asked — the event stays for all of them.
-    const team = await getEventTeamUserIds(payload, event, { exclude: [uid] })
-    sendNotificationToMany(payload, [...new Set([requesterId, ...team])].filter((id) => id !== uid), {
+    // The requester, and everyone else who was asked — the event stays for all of them. The
+    // requester may still turn to the obec to leave it (…/escalate).
+    const who = asApprover ? 'Spolupořadatel nesouhlasil' : 'Obec nesouhlasila'
+    const team = await getEventTeamUserIds(payload, event, { exclude: [uid, requesterId] })
+    sendNotificationToMany(payload, [requesterId], {
       title: 'Smazání akce zamítnuto',
       link: `/akce/${event.id}`,
-      message: `${asApprover ? 'Spolupořadatel nesouhlasil' : 'Obec nesouhlasila'} se smazáním akce „${event.title}“ — akce zůstává.`,
+      message: asApprover
+        ? `${who} se smazáním akce „${event.title}“ ani s tím, abyste ji opustili — akce zůstává. Pokud ji pořádat nechcete, můžete požádat obec o zrušení spolupořadatelství.`
+        : `${who} se smazáním akce „${event.title}“ — akce zůstává.`,
+    })
+    sendNotificationToMany(payload, team, {
+      title: 'Smazání akce zamítnuto',
+      link: `/akce/${event.id}`,
+      message: `${who} se smazáním akce „${event.title}“ — akce zůstává.`,
     })
     return NextResponse.json({ status: 'rejected' })
   }

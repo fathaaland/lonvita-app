@@ -753,7 +753,11 @@ export interface CoOrganizingRequest {
    */
   organizationOwner?: (number | null) | User;
   requestedBy: number | User;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  /**
+   * Unanswered by then, the invitation lapses — 24 h, never past the event start.
+   */
+  expiresAt: string;
   reviewedBy?: (number | null) | User;
   reviewedAt?: string | null;
   updatedAt: string;
@@ -779,8 +783,20 @@ export interface EventDeletionRequest {
    */
   municipalityApprovedBy?: (number | null) | User;
   approvedBy?: (number | User)[] | null;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'requester-removed' | 'escalated' | 'escalation-rejected';
   expiresAt: string;
+  /**
+   * The organizer who refused — if the obec then takes the pořadatel off, the event passes to them.
+   */
+  rejectedBy?: (number | null) | User;
+  /**
+   * When the requester turned to the obec after the refusal.
+   */
+  escalatedAt?: string | null;
+  /**
+   * Who took the event over when the requester leaving it was its pořadatel.
+   */
+  successor?: (number | null) | User;
   decidedBy?: (number | null) | User;
   decidedAt?: string | null;
   updatedAt: string;
@@ -1374,6 +1390,7 @@ export interface CoOrganizingRequestsSelect<T extends boolean = true> {
   organizationOwner?: T;
   requestedBy?: T;
   status?: T;
+  expiresAt?: T;
   reviewedBy?: T;
   reviewedAt?: T;
   updatedAt?: T;
@@ -1394,6 +1411,9 @@ export interface EventDeletionRequestsSelect<T extends boolean = true> {
   approvedBy?: T;
   status?: T;
   expiresAt?: T;
+  rejectedBy?: T;
+  escalatedAt?: T;
+  successor?: T;
   decidedBy?: T;
   decidedAt?: T;
   updatedAt?: T;

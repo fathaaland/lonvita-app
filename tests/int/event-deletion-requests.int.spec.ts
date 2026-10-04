@@ -6,6 +6,8 @@ import config from '@/payload.config'
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 
 import { POST as decide } from '@/app/api/events/deletion-requests/[id]/decide/route'
+import { POST as escalate } from '@/app/api/events/deletion-requests/[id]/escalate/route'
+import { POST as municipalityDecide } from '@/app/api/events/deletion-requests/[id]/municipality-decide/route'
 
 let payload: Payload
 
@@ -63,17 +65,28 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
       overrideAccess: false,
     })
 
-  const decideAs = async (user: TestUser, requestId: number, approve: boolean) => {
+  const postAs = async (
+    route: (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>,
+    action: string,
+    user: TestUser,
+    requestId: number,
+    body: unknown,
+  ) => {
     const { token } = await payload.login({ collection: 'users', data: { email: user.email, password: 'test1234' } })
-    return decide(
-      new Request(`http://localhost/api/events/deletion-requests/${requestId}/decide`, {
+    return route(
+      new Request(`http://localhost/api/events/deletion-requests/${requestId}/${action}`, {
         method: 'POST',
         headers: { Authorization: `JWT ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approve }),
+        body: JSON.stringify(body),
       }),
       { params: Promise.resolve({ id: String(requestId) }) },
     )
   }
+  const decideAs = (user: TestUser, requestId: number, decision: 'approve' | 'reject' | 'remove-requester') =>
+    postAs(decide, 'decide', user, requestId, { decision })
+  const escalateAs = (user: TestUser, requestId: number) => postAs(escalate, 'escalate', user, requestId, {})
+  const obecDecides = (user: TestUser, requestId: number, remove: boolean) =>
+    postAs(municipalityDecide, 'municipality-decide', user, requestId, { remove })
 
   const eventExists = async (id: number) =>
     Boolean(await payload.findByID({ collection: 'events', id, overrideAccess: true }).catch(() => null))
@@ -195,16 +208,20 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     await expect(
       payload.update({ collection: 'events', id: event.id, data: { coOrganizations: [orgOf(club)] }, user: club, overrideAccess: false }),
     ).rejects.toThrow()
-    // Leaving the event themselves is.
-    const left = await payload.update({
+    // Nor is leaving it themselves — that goes through a deletion request (the others let them go,
+    // or the obec decides).
+    await expect(
+      payload.update({ collection: 'events', id: event.id, data: { coOrganizations: [orgOf(bakery)] }, user: club, overrideAccess: false }),
+    ).rejects.toThrow(/žádost o smazání/)
+    // The obec's admin takes anyone off directly.
+    const removed = await payload.update({
       collection: 'events',
       id: event.id,
       data: { coOrganizations: [orgOf(bakery)] },
-      user: club,
+      user: admin,
       overrideAccess: false,
     })
-    expect(left.coOrganizations).toHaveLength(1)
-    expect((left.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([bakery.id])
+    expect((removed.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([bakery.id])
 
     const read = await payload.findByID({ collection: 'events', id: event.id, user: pub, overrideAccess: false })
     expect(read.deletionNeedsConsent).toBe(true)
@@ -226,15 +243,15 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     await expect(requestDeletion(event.id, pub)).rejects.toThrow()
 
     // Not the requester's (or a stranger's) call.
-    expect((await decideAs(club, first.id, true)).status).toBe(403)
-    expect((await decideAs(resident, first.id, true)).status).toBe(403)
+    expect((await decideAs(club, first.id, 'approve')).status).toBe(403)
+    expect((await decideAs(resident, first.id, 'approve')).status).toBe(403)
 
-    const refused = await decideAs(pub, first.id, false)
+    const refused = await decideAs(pub, first.id, 'reject')
     expect(await refused.json()).toEqual({ status: 'rejected' })
     expect(await eventExists(event.id)).toBe(true)
 
     const second = await requestDeletion(event.id, club)
-    const approved = await decideAs(pub, second.id, true)
+    const approved = await decideAs(pub, second.id, 'approve')
     expect(await approved.json()).toEqual({ status: 'approved' })
 
     expect(await eventExists(event.id)).toBe(false)
@@ -249,9 +266,9 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     const event = await createEvent(pub, [club, bakery])
     const request = await requestDeletion(event.id, club)
 
-    expect(await (await decideAs(pub, request.id, true)).json()).toEqual({ status: 'pending' })
+    expect(await (await decideAs(pub, request.id, 'approve')).json()).toEqual({ status: 'pending' })
     expect(await eventExists(event.id)).toBe(true)
-    expect(await (await decideAs(bakery, request.id, true)).json()).toEqual({ status: 'approved' })
+    expect(await (await decideAs(bakery, request.id, 'approve')).json()).toEqual({ status: 'approved' })
     expect(await eventExists(event.id)).toBe(false)
   })
 
@@ -269,7 +286,7 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
       overrideAccess: true,
     })
 
-    const late = await decideAs(pub, request.id, true)
+    const late = await decideAs(pub, request.id, 'approve')
     expect(late.status).toBe(409)
     expect(await eventExists(event.id)).toBe(true)
     // …and a fresh request can be made.
@@ -289,6 +306,130 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
       overrideAccess: false,
     })
     expect(cancelled.deletedAt).toBeTruthy()
+  })
+
+  const readEvent = (id: number) => payload.findByID({ collection: 'events', id, depth: 0, overrideAccess: true })
+  const readRequest = (id: number) =>
+    payload.findByID({ collection: 'event-deletion-requests', id, depth: 0, overrideAccess: true })
+  const ids = (values?: (number | { id: number })[] | null) => (values ?? []).map(relId)
+
+  it('a spolupořadatel asks — the other keeps the event and lets them go', async () => {
+    const event = await createEvent(pub, [club])
+    const request = await requestDeletion(event.id, club)
+    // Not the requester's call.
+    expect((await decideAs(club, request.id, 'remove-requester')).status).toBe(403)
+
+    expect(await (await decideAs(pub, request.id, 'remove-requester')).json()).toEqual({ status: 'requester-removed' })
+    const after = await readEvent(event.id)
+    expect(relId(after.organizer)).toBe(pub.id)
+    expect(ids(after.coOrganizations)).toEqual([])
+    expect(ids(after.coOrganizers)).toEqual([])
+    const settled = await readRequest(request.id)
+    expect(settled.status).toBe('requester-removed')
+    expect(settled.successor ?? null).toBeNull()
+
+    // The pub runs it alone now — it cancels outright.
+    const read = await payload.findByID({ collection: 'events', id: event.id, user: pub, overrideAccess: false })
+    expect(read.deletionNeedsConsent).toBe(false)
+  })
+
+  it('the pořadatel asks — a spolupořadatel takes the event over, creator rights included', async () => {
+    const event = await createEvent(pub, [club])
+    const request = await requestDeletion(event.id, pub)
+
+    expect(await (await decideAs(club, request.id, 'remove-requester')).json()).toEqual({ status: 'requester-removed' })
+    const after = await readEvent(event.id)
+    expect(relId(after.organizer)).toBe(club.id)
+    expect(relId(after.organization!)).toBe(orgOf(club))
+    expect(ids(after.coOrganizations)).toEqual([])
+    expect(ids(after.coOrganizers)).toEqual([])
+    expect(relId((await readRequest(request.id)).successor!)).toBe(club.id)
+
+    // The volunteering flag is the creator's — the club's now.
+    const flagged = await payload.update({
+      collection: 'events',
+      id: event.id,
+      data: { isVolunteering: true },
+      user: club,
+      overrideAccess: false,
+    })
+    expect(flagged.isVolunteering).toBe(true)
+    await expect(
+      payload.update({ collection: 'events', id: event.id, data: { title: 'Pořád moje' }, user: pub, overrideAccess: false }),
+    ).rejects.toThrow()
+  })
+
+  it('with three organizers the first one keeping the event settles the request', async () => {
+    const event = await createEvent(pub, [club, bakery])
+    const request = await requestDeletion(event.id, club)
+    expect(await (await decideAs(pub, request.id, 'approve')).json()).toEqual({ status: 'pending' })
+    expect(await (await decideAs(bakery, request.id, 'remove-requester')).json()).toEqual({
+      status: 'requester-removed',
+    })
+
+    const after = await readEvent(event.id)
+    expect(relId(after.organizer)).toBe(pub.id)
+    expect(ids(after.coOrganizers)).toEqual([bakery.id])
+    expect((await decideAs(pub, request.id, 'reject')).status).toBe(409)
+  })
+
+  it('after a refusal the requester turns to the obec, which takes them off without consent', async () => {
+    const event = await createEvent(pub, [club])
+    const request = await requestDeletion(event.id, pub)
+    // Only once a spolupořadatel refused.
+    expect((await escalateAs(pub, request.id)).status).toBe(409)
+    expect(await (await decideAs(club, request.id, 'reject')).json()).toEqual({ status: 'rejected' })
+    expect(relId((await readRequest(request.id)).rejectedBy!)).toBe(club.id)
+
+    // Only the requester escalates.
+    expect((await escalateAs(club, request.id)).status).toBe(403)
+    expect(await (await escalateAs(pub, request.id)).json()).toEqual({ status: 'escalated' })
+    const escalated = await readRequest(request.id)
+    expect(escalated.status).toBe('escalated')
+    expect(new Date(escalated.expiresAt).getTime()).toBe(new Date(event.dateTime).getTime())
+    // While the obec decides, nobody opens another request.
+    await expect(requestDeletion(event.id, club)).rejects.toThrow(/už se rozhoduje/)
+
+    // Only the obec decides.
+    expect((await obecDecides(club, request.id, true)).status).toBe(403)
+    expect((await obecDecides(pub, request.id, true)).status).toBe(403)
+    expect(await (await obecDecides(admin, request.id, true)).json()).toEqual({ status: 'requester-removed' })
+
+    // The pořadatel left — the event passed to the club that refused.
+    const after = await readEvent(event.id)
+    expect(relId(after.organizer)).toBe(club.id)
+    expect(relId(after.organization!)).toBe(orgOf(club))
+    expect(ids(after.coOrganizers)).toEqual([])
+    const settled = await readRequest(request.id)
+    expect(settled.status).toBe('requester-removed')
+    expect(relId(settled.successor!)).toBe(club.id)
+    expect(relId(settled.decidedBy!)).toBe(admin.id)
+  })
+
+  it('the obec may turn it down, and an escalation lapses once the event starts', async () => {
+    const event = await createEvent(pub, [club])
+    const first = await requestDeletion(event.id, club)
+    await decideAs(pub, first.id, 'reject')
+    await escalateAs(club, first.id)
+
+    expect(await (await obecDecides(admin, first.id, false)).json()).toEqual({ status: 'escalation-rejected' })
+    expect(ids((await readEvent(event.id)).coOrganizers)).toEqual([club.id])
+    // Decided once and for all.
+    expect((await obecDecides(admin, first.id, true)).status).toBe(409)
+    expect((await escalateAs(club, first.id)).status).toBe(409)
+
+    const second = await requestDeletion(event.id, club)
+    await decideAs(pub, second.id, 'reject')
+    await escalateAs(club, second.id)
+    await payload.update({
+      collection: 'event-deletion-requests',
+      id: second.id,
+      data: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      overrideAccess: true,
+    })
+    expect((await readRequest(second.id)).status).toBe('expired')
+    expect((await obecDecides(admin, second.id, true)).status).toBe(409)
+    expect(ids((await readEvent(event.id)).coOrganizers)).toEqual([club.id])
   })
 
   const invite = (eventId: number, organization: number, user: TestUser) =>

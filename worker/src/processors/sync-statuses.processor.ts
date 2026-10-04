@@ -24,7 +24,12 @@ const finishedEvents = (now: string): Where => ({
   ],
 })
 
+/** Still waiting on the other organizers, or on the obec after the requester turned to it. */
 const expiredDeletionRequests = (now: string): Where => ({
+  and: [{ status: { in: ['pending', 'escalated'] } }, { expiresAt: { less_than_equal: now } }],
+})
+
+const expiredCoOrganizingInvitations = (now: string): Where => ({
   and: [{ status: { equals: 'pending' } }, { expiresAt: { less_than_equal: now } }],
 })
 
@@ -67,14 +72,21 @@ export const processSyncStatusesJob = async (): Promise<SyncStatusesJobResult> =
     expiredDeletionRequests(now),
     'expired',
   )
+  const coOrganizingInvitationsExpired = await setStatus(
+    payload,
+    'co-organizing-requests',
+    expiredCoOrganizingInvitations(now),
+    'expired',
+  )
 
   // Runs every quarter of an hour — only worth an info line when it actually changed something.
-  const level = eventsFinished + deletionRequestsExpired > 0 ? 'info' : 'debug'
+  const level = eventsFinished + deletionRequestsExpired + coOrganizingInvitationsExpired > 0 ? 'info' : 'debug'
   logger[level]('Status sync finished', {
     event: 'statuses.sync_finished',
     eventsFinished,
     deletionRequestsExpired,
+    coOrganizingInvitationsExpired,
   })
 
-  return { eventsFinished, deletionRequestsExpired }
+  return { eventsFinished, deletionRequestsExpired, coOrganizingInvitationsExpired }
 }

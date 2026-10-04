@@ -254,6 +254,46 @@ describe('Co-organizing between organizations takes the invited one’s consent'
     expect(await seenBy(club)).toBe(0)
   })
 
+  const lapse = (id: number) =>
+    payload.update({
+      collection: 'co-organizing-requests',
+      id,
+      data: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      overrideAccess: true,
+    })
+
+  it('an invitation lapses after 24 hours — never past the event’s start', async () => {
+    const event = await createEvent(pub)
+    const invitation = await invite(event.id, orgOf(club), pub)
+    const hours = (new Date(invitation.expiresAt).getTime() - Date.now()) / 3_600_000
+    expect(hours).toBeGreaterThan(23.9)
+    expect(hours).toBeLessThanOrEqual(24)
+
+    const soon = await createEvent(pub)
+    const startsAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+    await payload.update({ collection: 'events', id: soon.id, data: { dateTime: startsAt }, overrideAccess: true })
+    const capped = await invite(soon.id, orgOf(club), pub)
+    expect(new Date(capped.expiresAt).getTime()).toBe(new Date(startsAt).getTime())
+  })
+
+  it('of two invited, the one who doesn’t accept in time isn’t on the event', async () => {
+    const event = await createEvent(pub)
+    const toClub = await invite(event.id, orgOf(club), pub)
+    const toBakery = await invite(event.id, orgOf(bakery), pub)
+    await decide(toClub.id, 'approved', club)
+    await lapse(toBakery.id)
+
+    const lapsed = await payload.findByID({ collection: 'co-organizing-requests', id: toBakery.id, overrideAccess: true })
+    expect(lapsed.status).toBe('expired')
+    await expect(decide(toBakery.id, 'approved', bakery)).rejects.toThrow(/vypršela/)
+    // The event goes on with the pořadatel and the one spolupořadatel who accepted.
+    expect(await coOrganizationsOf(event.id)).toEqual([orgOf(club)])
+
+    // A lapsed invitation doesn't block a new one.
+    const again = await invite(event.id, orgOf(bakery), pub)
+    expect(again.status).toBe('pending')
+  })
+
   it('deleting an invited organization takes its invitations along', async () => {
     const event = await createEvent(pub)
     const invitation = await invite(event.id, orgOf(bakery), pub)

@@ -475,7 +475,9 @@ function EventDetailContent() {
                 title={event.title}
                 dateTime={event.date_time}
                 userId={String(user.id)}
+                organizerId={event.organizer_id}
                 obecCoOrganizes={obecCoOrganizes}
+                onOrganizersChanged={load}
               />
             ) : (
               <>
