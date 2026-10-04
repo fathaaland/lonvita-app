@@ -1,4 +1,4 @@
-import type { Access, FieldAccess, Where } from 'payload'
+import type { Access, FieldAccess, PayloadRequest, Where } from 'payload'
 
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
@@ -117,4 +117,84 @@ export const canReadVolunteerFields: FieldAccess = ({ req, doc }) => {
   if (!doc) return false
   const ownerId = typeof doc.user === 'object' && doc.user ? doc.user.id : doc.user
   return String(ownerId) === String(user.id)
+}
+
+const profileOwnerId = (doc: Record<string, unknown>): string | null => {
+  const owner = doc.user as number | { id: number } | null | undefined
+  return owner == null ? null : String(typeof owner === 'object' ? owner.id : owner)
+}
+
+/** Looked up once per request — a profile list asks for every document's fields. */
+const perRequest = <T>(req: PayloadRequest, key: string, load: () => Promise<T>): Promise<T> => {
+  const context = (req.context ??= {}) as Record<string, unknown>
+  return (context[key] ??= load()) as Promise<T>
+}
+
+const administeredIdsOf = (req: PayloadRequest, userId: number) =>
+  perRequest(req, `profileAccess:administered:${userId}`, () => getAdministeredMunicipalityIds(req.payload, userId))
+
+/** Everyone registered (in any status) for an event `userId` runs or co-organizes, or that's in an
+ * obec they administer — the people on their Spravovat pages. */
+const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
+  perRequest(req, `profileAccess:registrants:${userId}`, async () => {
+    const administeredIds = await administeredIdsOf(req, userId)
+    const managed: Where[] = [{ organizer: { equals: userId } }, { coOrganizers: { in: [userId] } }]
+    if (administeredIds.length > 0) managed.push({ municipality: { in: administeredIds } })
+    const events = await req.payload.find({
+      collection: 'events',
+      where: { or: managed },
+      select: { organizer: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    if (events.docs.length === 0) return new Set<string>()
+    const registrations = await req.payload.find({
+      collection: 'registrations',
+      where: { and: [{ event: { in: events.docs.map((e) => e.id) } }, { deletedAt: { exists: false } }] },
+      select: { user: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    return new Set(registrations.docs.map((r) => String(typeof r.user === 'object' ? r.user.id : r.user)))
+  })
+
+/**
+ * Field-level read access for what a profile's onboarding asks (gender, interests, home area): only
+ * the person themselves and a platform admin — nothing else in the app reads them. Like
+ * canReadVolunteerFields, nobody else may filter by them either.
+ */
+export const canReadOwnProfileField: FieldAccess = ({ req, doc }) => {
+  const { user } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+  return Boolean(doc) && profileOwnerId(doc!) === String(user.id)
+}
+
+/** Date of birth: also the admins of the person's home obec — its analytics count the residents
+ * aged 50+ (Datavita). */
+export const canReadDateOfBirth: FieldAccess = async ({ req, doc }) => {
+  const { user } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+  if (!doc) return false
+  if (profileOwnerId(doc) === String(user.id)) return true
+  const municipality = doc.municipality as number | { id: number } | null | undefined
+  if (municipality == null) return false
+  const municipalityId = String(typeof municipality === 'object' ? municipality.id : municipality)
+  return (await administeredIdsOf(req, user.id)).includes(municipalityId)
+}
+
+/** Phone: also whoever runs an event the person signed up for — the event's pořadatel,
+ * spolupořadatelé and the obec's admins — to reach them about it (the Spravovat page). */
+export const canReadPhone: FieldAccess = async ({ req, doc }) => {
+  const { user } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+  if (!doc) return false
+  const ownerId = profileOwnerId(doc)
+  if (ownerId === null) return false
+  if (ownerId === String(user.id)) return true
+  return (await registrantsManagedBy(req, user.id)).has(ownerId)
 }

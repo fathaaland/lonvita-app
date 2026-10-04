@@ -1,6 +1,12 @@
 import { APIError, type CollectionAfterChangeHook, type CollectionBeforeChangeHook, type CollectionConfig } from 'payload'
 
-import { canReadVolunteerFields, isLoggedIn } from './access/shared'
+import {
+  canReadDateOfBirth,
+  canReadOwnProfileField,
+  canReadPhone,
+  canReadVolunteerFields,
+  isLoggedIn,
+} from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 import { getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { PARTICIPANTS_ONLY } from './Registrations'
@@ -223,6 +229,7 @@ export const Profiles: CollectionConfig = {
     {
       name: 'phone',
       type: 'text',
+      access: { read: canReadPhone },
     },
     {
       name: 'phoneVerified',
@@ -252,10 +259,12 @@ export const Profiles: CollectionConfig = {
     {
       name: 'dateOfBirth',
       type: 'date',
+      access: { read: canReadDateOfBirth },
     },
     {
       name: 'gender',
       type: 'select',
+      access: { read: canReadOwnProfileField },
       options: [
         { label: 'Žena', value: 'zena' },
         { label: 'Muž', value: 'muz' },
@@ -266,12 +275,14 @@ export const Profiles: CollectionConfig = {
     {
       name: 'interests',
       type: 'relationship',
+      access: { read: canReadOwnProfileField },
       relationTo: 'event-categories',
       hasMany: true,
     },
     {
       name: 'homeArea',
       type: 'relationship',
+      access: { read: canReadOwnProfileField },
       relationTo: 'municipality-areas',
       admin: {
         description: 'Neighborhood within the municipality, chosen during onboarding.',

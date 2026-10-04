@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
+import { PersonalDetailsCard } from "@/components/PersonalDetailsCard";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
 import { Loading } from "@/components/Loading";
@@ -106,6 +107,8 @@ function ProfileContent() {
             <AccessibilityControls />
           </CardContent>
         </Card>
+
+        <PersonalDetailsCard />
 
         <NotificationPreferencesCard />
 
