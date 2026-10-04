@@ -143,6 +143,10 @@ function EventDetailContent() {
   const hasEnded = event?.status === "finished";
   const canEdit = canManage && !event?.locked_for_viewer && !hasEnded;
   const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
+  // Whoever runs the event takes part in it automatically — the obec's admins too whenever the obec
+  // runs or co-organizes it. Anywhere else they sign up as themselves, like everyone (Registrations).
+  const runsItForObec = isAdminOfEventMunicipality && (isMunicipalityOrganization(event?.organization) || obecCoOrganizes);
+  const takesPartAutomatically = isEventOrganizer || runsItForObec;
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
   const canSeeAttendees = canManage || isSuperAdmin;
   // Someone from the volunteer pool may offer to help on an event that looks for volunteers — its
@@ -152,7 +156,7 @@ function EventDetailContent() {
     !!event &&
     Boolean(event.is_volunteering) &&
     Boolean(profile?.is_volunteer) &&
-    !isEventOrganizer &&
+    !takesPartAutomatically &&
     event.status !== "cancelled" &&
     new Date(event.date_time).getTime() > Date.now();
   const pendingOffer = volunteerRequest?.status === "pending" && volunteerRequest.kind === "application" ? volunteerRequest : null;
@@ -504,10 +508,11 @@ function EventDetailContent() {
       </div>
 
       <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur border-t border-border px-4 py-3 -mb-2">
-        {isEventOrganizer ? (
-          // The organizer takes part automatically and doesn't use up a participant's spot.
+        {takesPartAutomatically ? (
+          // Whoever runs it takes part automatically and doesn't use up a participant's spot.
           <div className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-primary">
-            <CheckCircle2 className="h-5 w-5" /> Tuto akci pořádáte — počítá se s vámi automaticky
+            <CheckCircle2 className="h-5 w-5" />{" "}
+            {isEventOrganizer ? "Tuto akci pořádáte" : "Akci pořádá vaše obec"} — počítá se s vámi automaticky
           </div>
         ) : myReg ? (
           <div className="space-y-2">

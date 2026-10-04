@@ -158,7 +158,7 @@ export async function lockedEventIds(
 }
 
 /** Events that haven't taken place yet — the where-form of hasEventEnded. */
-const notYetEnded = (): Where => {
+export const notYetEnded = (): Where => {
   const now = new Date().toISOString()
   return {
     or: [
@@ -767,6 +767,79 @@ const notifyOrganizersOnObecDelete: CollectionAfterDeleteHook = async ({ doc, re
   return doc
 }
 
+/**
+ * Whoever runs the event takes part in it automatically and uses up no participant's spot: its
+ * pořadatel, every spolupořadatel and — whenever the obec runs or co-organizes it — each of the
+ * obec's admins (getEventTeamUserIds). So once someone joins them, their own place on the event
+ * goes: the registration (participant or volunteer) is cancelled, freeing the spot, and a pending
+ * volunteer invitation or offer is withdrawn. Quietly — they've just been told they run it. Pass
+ * the request's `req` so it happens in the same transaction.
+ */
+export async function releasePlacesOfTeam(
+  req: PayloadRequest,
+  eventId: number | string,
+  userIds: (number | string)[],
+): Promise<void> {
+  if (userIds.length === 0) return
+  const { payload } = req
+
+  const invitations = await payload.find({
+    collection: 'volunteer-invitations',
+    where: { and: [{ event: { equals: eventId } }, { volunteer: { in: userIds } }, { status: { equals: 'pending' } }] },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  for (const invitation of invitations.docs) {
+    await payload.update({
+      collection: 'volunteer-invitations',
+      id: invitation.id,
+      data: { status: 'withdrawn' },
+      overrideAccess: true,
+      context: { withdrawingVolunteerInvitations: true },
+      req,
+    })
+  }
+
+  const registrations = await payload.find({
+    collection: 'registrations',
+    where: { and: [{ event: { equals: eventId } }, { user: { in: userIds } }, { status: { in: ['pending', 'approved'] } }] },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  for (const registration of registrations.docs) {
+    await payload.update({
+      collection: 'registrations',
+      id: registration.id,
+      data: { status: 'cancelled' },
+      overrideAccess: true,
+      context: { joiningAsOrganizer: true },
+      req,
+    })
+  }
+}
+
+/** Someone joined the people running the event (an accepted co-organizing invitation — the obec's
+ * too, a successor taking it over) — their own place on it goes (releasePlacesOfTeam). */
+const releaseOrganizersPlaces: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
+  if (operation !== 'update' || !previousDoc) return doc
+  const runBy = (event: typeof doc) =>
+    JSON.stringify([
+      eventOrganizerIds(event),
+      relationId(event.organization),
+      ((event.coOrganizations ?? []) as unknown[]).map(relationId),
+      relationId(event.municipality),
+    ])
+  if (runBy(doc) === runBy(previousDoc)) return doc
+  const before = new Set(await getEventTeamUserIds(req.payload, previousDoc, { req }))
+  const joined = (await getEventTeamUserIds(req.payload, doc, { req })).filter((id) => !before.has(id))
+  await releasePlacesOfTeam(req, doc.id, joined)
+  return doc
+}
+
 /** Scheduled once at creation time; moved along with the event if it's later rescheduled. */
 const scheduleAttendanceReminderOnCreate: CollectionAfterChangeHook = async ({ doc, operation, req, context }) => {
   // Seeded demo events (src/lib/seed/run.ts) don't queue organizer reminders.
@@ -1122,6 +1195,7 @@ export const Events: CollectionConfig = {
       notifyRegistrantsOnEdit,
       notifyOrganizersOnObecChange,
       scheduleAttendanceReminderOnCreate,
+      releaseOrganizersPlaces,
     ],
     afterDelete: [notifyOrganizersOnObecDelete],
     afterRead: [deriveFinishedStatus],

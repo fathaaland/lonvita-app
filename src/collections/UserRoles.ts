@@ -3,6 +3,8 @@ import type { CollectionConfig, PayloadRequest } from 'payload'
 import { canCreateForAdministeredMunicipality, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
 import { ensureOrganization } from './Organizations'
+import { notYetEnded, obecRole, releasePlacesOfTeam } from './Events'
+import { notDeleted } from './shared/softDelete'
 import type { OrganizationType } from '@/lib/organizations'
 
 const relId = (value: number | { id: number }): number =>
@@ -203,6 +205,59 @@ export const UserRoles: CollectionConfig = {
             overrideAccess: true,
             req,
           })
+        }
+        return doc
+      },
+      // A new obec admin takes part in every event the obec runs or co-organizes automatically —
+      // their own place on one that's still ahead goes (Events releasePlacesOfTeam).
+      async ({ doc, previousDoc, req }) => {
+        if (doc.role !== 'municipality_admin') return doc
+        const municipalityId = relId(doc.municipality)
+        if (previousDoc?.role === 'municipality_admin' && relId(previousDoc.municipality) === municipalityId) return doc
+
+        const userId = relId(doc.user)
+        const [registrations, invitations] = await Promise.all([
+          req.payload.find({
+            collection: 'registrations',
+            where: { and: [{ user: { equals: userId } }, { status: { in: ['pending', 'approved'] } }] },
+            select: { event: true },
+            depth: 0,
+            pagination: false,
+            overrideAccess: true,
+            req,
+          }),
+          req.payload.find({
+            collection: 'volunteer-invitations',
+            where: { and: [{ volunteer: { equals: userId } }, { status: { equals: 'pending' } }] },
+            select: { event: true },
+            depth: 0,
+            pagination: false,
+            overrideAccess: true,
+            req,
+          }),
+        ])
+        const eventIds = [...new Set([...registrations.docs, ...invitations.docs].map((r) => relId(r.event)))]
+        if (eventIds.length === 0) return doc
+
+        const events = await req.payload.find({
+          collection: 'events',
+          where: {
+            and: [
+              { id: { in: eventIds } },
+              { municipality: { equals: municipalityId } },
+              { status: { not_equals: 'cancelled' } },
+              notDeleted,
+              notYetEnded(),
+            ],
+          },
+          depth: 0,
+          pagination: false,
+          overrideAccess: true,
+          req,
+        })
+        for (const event of events.docs) {
+          const { runs, coOrganizes } = await obecRole(req, event)
+          if (runs || coOrganizes) await releasePlacesOfTeam(req, event.id, [userId])
         }
         return doc
       },

@@ -191,7 +191,14 @@ function ManageEventContent() {
               )}
             </div>
 
-            {r.status === "pending" && (
+            {/* Signed up as themselves (an obec's admin on a club's event) — the pořadatel decides. */}
+            {r.user_id === String(user?.id) && !started && (r.status === "pending" || r.status === "approved") && (
+              <p className="text-sm text-muted-foreground">
+                Vaše vlastní přihláška — rozhoduje o ní pořadatel akce. Zrušit ji můžete na stránce akce.
+              </p>
+            )}
+
+            {r.status === "pending" && r.user_id !== String(user?.id) && (
               <div className="grid grid-cols-2 gap-2">
                 <Button onClick={() => updateStatus(r.id, "approved")} className="h-11"><Check className="h-4 w-4" />Schválit</Button>
                 <Button onClick={() => updateStatus(r.id, "rejected")} variant="outline" className="h-11">
@@ -200,13 +207,13 @@ function ManageEventContent() {
               </div>
             )}
 
-            {r.status === "approved" && !started && r.role === "volunteer" && !isCreator && (
+            {r.status === "approved" && !started && r.role === "volunteer" && !isCreator && r.user_id !== String(user?.id) && (
               <p className="text-sm text-muted-foreground">
                 O dobrovolnících rozhoduje jen pořadatel, který akci založil.
               </p>
             )}
 
-            {r.status === "approved" && !started && (r.role !== "volunteer" || isCreator) && (
+            {r.status === "approved" && !started && (r.role !== "volunteer" || isCreator) && r.user_id !== String(user?.id) && (
               <Button
                 onClick={() => setRemoving(r)}
                 variant="outline"

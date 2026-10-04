@@ -10,7 +10,7 @@ import type {
 import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
-import { eventOrganizerIds, isEventCreator } from './Events'
+import { isEventCreator } from './Events'
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleParticipantReminder } from './shared/reminders'
 import { notDeleted } from './shared/softDelete'
@@ -79,6 +79,9 @@ type EventForInvitation = {
   isVolunteering?: boolean | null
   organizer: unknown
   coOrganizers?: unknown[] | null
+  organization?: unknown
+  coOrganizations?: unknown[] | null
+  municipality?: unknown
 }
 
 /** What already stands between this volunteer and this event — a registration, or another
@@ -204,7 +207,9 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
       400,
     )
   }
-  if (eventOrganizerIds(event).includes(volunteerId!)) {
+  // Whoever runs the event — the obec's admins too, when the obec runs or co-organizes it — takes
+  // part in it automatically (Events releasePlacesOfTeam).
+  if ((await getEventTeamUserIds(payload, event, { req })).includes(volunteerId!)) {
     throw new APIError(
       application ? 'Tuhle akci pořádáte — dobrovolníkem na ní být nemůžete.' : 'Pořadatel akce na ni dobrovolníkem být nemůže — pořádá ji.',
       400,

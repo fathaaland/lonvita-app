@@ -86,7 +86,15 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
 }) => {
   // Seeded demo registrations (src/lib/seed/run.ts) mustn't mail anyone or queue reminders; a
   // volunteer's comes from an accepted invitation, which tells everyone itself (VolunteerInvitations).
-  if (context?.skipNotifications || context?.volunteerInvitation || context?.leavingVolunteerPool) return doc
+  // Nor one cancelled because its holder now runs the event (Events releaseOrganizersPlaces).
+  if (
+    context?.skipNotifications ||
+    context?.volunteerInvitation ||
+    context?.leavingVolunteerPool ||
+    context?.joiningAsOrganizer
+  ) {
+    return doc
+  }
   try {
     const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
     const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
@@ -301,7 +309,9 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
  * past the organizer. Approving, rejecting and taking an approved participant back off the event is
  * for whoever runs it: the pořadatel, every spolupořadatel and the obec's admins — though not once
  * their attendance is confirmed, the record of what actually happened. A volunteer is the creator's
- * alone (like inviting them, VolunteerInvitations): nobody else takes one off. Like lockAttendanceOnceMarked,
+ * alone (like inviting them, VolunteerInvitations): nobody else takes one off. Nobody decides about
+ * their own registration, though: an obec's admin signed up for a club's event in their obec is
+ * there as themselves, a participant like any other. Like lockAttendanceOnceMarked,
  * only when access control applies (every REST request); a platform admin may always.
  */
 const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
@@ -321,22 +331,25 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
     .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
   const volunteer = current.role === 'volunteer'
+  const own = String(relId(current.user)) === String(req.user.id)
   const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(relId(u))) : []
   // The event's volunteers are its creator's alone — not a spolupořadatel's, not the obec's.
   const manages =
     event !== null &&
+    !own &&
     (volunteer
       ? String(relId(event.organizer)) === String(req.user.id)
       : organizerIds.includes(String(req.user.id)) ||
         (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(relId(event.municipality))))
 
   if (!manages) {
-    const own = String(relId(current.user)) === String(req.user.id)
     if (data.status !== 'cancelled' || !own) {
       throw new APIError(
         volunteer
           ? 'O dobrovolnících na akci rozhoduje jen pořadatel, který ji založil.'
-          : 'Přihlášky schvaluje a zamítá jen pořadatel akce.',
+          : own
+            ? 'O vlastní přihlášce nerozhodujete — schvaluje ji pořadatel akce, vy ji můžete jen zrušit.'
+            : 'Přihlášky schvaluje a zamítá jen pořadatel akce.',
         403,
       )
     }
@@ -582,11 +595,19 @@ export const Registrations: CollectionConfig = {
             String(typeof u === 'object' ? u.id : u),
           )
 
-          // The organizer (and co-organizers) take part in their own event automatically — a
-          // registration would only use up one of the participants' spots.
+          // Whoever runs the event takes part in it automatically — the pořadatel, every
+          // spolupořadatel and, whenever the obec runs or co-organizes it, each of its admins. A
+          // registration would only use up one of the participants' spots. On anyone else's event
+          // they sign up like everyone else — as themselves, never for their organization or obec.
           if (organizerIds.includes(String(data.user))) {
             throw new APIError(
               'Tuto akci pořádáte — na vlastní akci se nepřihlašujete, počítá se s vámi automaticky a nezabíráte místo účastníkům.',
+              400,
+            )
+          }
+          if ((await getEventTeamUserIds(req.payload, event, { req })).includes(String(data.user))) {
+            throw new APIError(
+              'Tuto akci pořádá vaše obec — jako její admin se na ni nepřihlašujete, počítá se s vámi automaticky a nezabíráte místo účastníkům.',
               400,
             )
           }

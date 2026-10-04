@@ -131,6 +131,8 @@ describe('Co-organizing between organizations takes the invited one’s consent'
   afterAll(async () => {
     const userIds = [pub.id, club.id, bakery.id, outsider.id, resident.id]
     await payload.delete({ collection: 'co-organizing-requests', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'volunteer-invitations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
+    await payload.delete({ collection: 'registrations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'events', where: { id: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'organizations', where: { owner: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
@@ -186,6 +188,34 @@ describe('Co-organizing between organizations takes the invited one’s consent'
     await decide(next.id, 'approved', bakery)
     expect((await coOrganizationsOf(event.id)).sort()).toEqual([orgOf(club), orgOf(bakery)].sort())
     expect((await editAs(event.id, bakery, 'Upraveno pekárnou')).title).toBe('Upraveno pekárnou')
+  })
+
+  it('a spolupořadatel takes part automatically — joining frees their own place, and they can’t sign up again', async () => {
+    const event = await createEvent(pub)
+    await payload.update({ collection: 'events', id: event.id, data: { capacity: 1 }, overrideAccess: true })
+    const registration = await payload.create({
+      collection: 'registrations',
+      data: { event: event.id, user: club.id, status: 'approved' } as never,
+      overrideAccess: true,
+    })
+    expect((await payload.findByID({ collection: 'events', id: event.id, overrideAccess: true })).status).toBe('full')
+
+    const invitation = await invite(event.id, orgOf(club), pub)
+    await decide(invitation.id, 'approved', club)
+
+    const cancelled = await payload.findByID({ collection: 'registrations', id: registration.id, overrideAccess: true })
+    expect(cancelled.status).toBe('cancelled')
+    // Their spot goes back to the participants.
+    expect((await payload.findByID({ collection: 'events', id: event.id, overrideAccess: true })).status).toBe('active')
+
+    await expect(
+      payload.create({
+        collection: 'registrations',
+        data: { event: event.id, user: club.id } as never,
+        user: club,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow(/počítá se s vámi automaticky/)
   })
 
   it('a declined invitation leaves the event alone, and a decision is final', async () => {
