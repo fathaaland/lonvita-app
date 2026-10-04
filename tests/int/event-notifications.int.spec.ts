@@ -78,7 +78,6 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       context: { skipNotifications: true },
       overrideAccess: true,

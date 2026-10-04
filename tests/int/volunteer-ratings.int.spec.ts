@@ -118,7 +118,6 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
         status: 'finished',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
         organization: orgOf(pub),
         coOrganizations: [orgOf(club), obecOrg],
         coOrganizers: [club.id],

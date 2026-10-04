@@ -9,6 +9,8 @@ import type {
 } from 'payload'
 import { APIError } from 'payload'
 
+import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
+
 import { getAdministeredMunicipalityIds } from './access/shared'
 import { isEventCreator } from './Events'
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
@@ -181,6 +183,14 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
   }
   if (application) {
     if (!event.isVolunteering) throw new APIError('Na tuhle akci pořadatel dobrovolníky nehledá.', 400)
+    // Like signing up as a participant (Registrations guardRegistrationWindow) — offering help closes
+    // REGISTRATION_CUTOFF_HOURS before the start; after that it's a call or e-mail to the organizer.
+    if (!isRegistrationOpen(event.dateTime)) {
+      throw new APIError(
+        `Pomoc lze nabídnout nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce — zavolejte nebo napište pořadateli.`,
+        400,
+      )
+    }
   } else if (!isEventCreator(user, event)) {
     throw new APIError('Dobrovolníky na akci může zvát jen ten, kdo ji založil.', 403)
   }

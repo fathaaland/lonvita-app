@@ -44,7 +44,6 @@ describe("An organization's feedback summary (GET /api/organizations/:id/feedbac
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       // A trusted write: co-organizers otherwise join only by accepting an invitation.
       overrideAccess: true,

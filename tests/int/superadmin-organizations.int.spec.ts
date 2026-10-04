@@ -63,7 +63,6 @@ describe('Superadmin manages organizations', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       overrideAccess: true,
     })

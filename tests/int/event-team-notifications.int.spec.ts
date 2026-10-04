@@ -52,7 +52,6 @@ const createTeamEvent = async ({ withObec = false } = {}) => {
       status: 'active',
       isPaid: false,
       registrationApprovalMode: 'manual',
-      cancellationPolicy: 'none',
     },
     context: { skipNotifications: true },
     overrideAccess: true,

@@ -59,7 +59,6 @@ const createEvent = async (startsIn: number, endsIn: number | null = null) => {
       status: 'active',
       isPaid: false,
       registrationApprovalMode: 'manual',
-      cancellationPolicy: 'none',
       coOrganizations: [coOrganizationId],
       coOrganizers: [coOrganizer.id],
     },

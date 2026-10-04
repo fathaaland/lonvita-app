@@ -38,7 +38,6 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'auto',
-        cancellationPolicy: 'none',
       },
       user: organizer,
       overrideAccess: false,

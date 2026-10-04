@@ -67,7 +67,6 @@ describe('Attendance reminder checked by the worker', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       overrideAccess: true,
     })
@@ -162,7 +161,6 @@ describe('Attendance reminder checked by the worker', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       overrideAccess: true,
     })

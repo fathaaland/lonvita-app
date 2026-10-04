@@ -175,7 +175,6 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       context: { skipNotifications: true },
       overrideAccess: true,

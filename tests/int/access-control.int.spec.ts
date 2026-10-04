@@ -79,7 +79,6 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
       status: 'active' as const,
       isPaid: false,
       registrationApprovalMode: 'manual' as const,
-      cancellationPolicy: 'none' as const,
     }
     eventInA = await payload.create({
       collection: 'events',
@@ -197,7 +196,6 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
           status: 'active',
           isPaid: false,
           registrationApprovalMode: 'manual',
-          cancellationPolicy: 'none',
         },
         user: adminOfA,
         overrideAccess: false,
@@ -524,7 +522,6 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
     status: 'active' as const,
     isPaid: false,
     registrationApprovalMode: 'manual' as const,
-    cancellationPolicy: 'none' as const,
   })
 
   beforeAll(async () => {
@@ -737,7 +734,6 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
     status: 'active' as const,
     isPaid: false,
     registrationApprovalMode: 'manual' as const,
-    cancellationPolicy: 'none' as const,
   })
 
   beforeAll(async () => {

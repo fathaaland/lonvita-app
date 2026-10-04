@@ -636,7 +636,6 @@ const ORGANIZER_EDIT_FIELDS: Record<string, string> = {
   imagePositionX: 'fotka',
   imagePositionY: 'fotka',
   isVolunteering: 'dobrovolnictví',
-  cancellationPolicy: 'storno podmínky',
 }
 
 type ObecAction = 'edited' | 'cancelled' | 'deleted'
@@ -1158,18 +1157,6 @@ export const Events: CollectionConfig = {
           'Price in the smallest currency unit (e.g. haléře). Informational only — the app does not process payment; the organizer handles it outside the app (brief §4).',
         condition: (data) => Boolean(data?.isPaid),
       },
-    },
-    {
-      name: 'cancellationPolicy',
-      type: 'select',
-      required: true,
-      defaultValue: 'cancel_48h',
-      options: [
-        { label: 'No cancellation', value: 'none' },
-        { label: 'Up to 24h before', value: 'cancel_24h' },
-        { label: 'Up to 48h before', value: 'cancel_48h' },
-        { label: 'Up to 7 days before', value: 'cancel_7d' },
-      ],
     },
     {
       name: 'deletedAt',

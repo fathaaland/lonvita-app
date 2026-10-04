@@ -47,7 +47,6 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       // Set up as a trusted write: co-organizers otherwise join only by accepting an invitation
       // (co-organizing-invitations.int.spec.ts covers that).

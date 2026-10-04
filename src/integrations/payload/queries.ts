@@ -125,7 +125,6 @@ export type EventRow = {
   is_paid?: boolean;
   price_cents?: number | null;
   is_volunteering?: boolean;
-  cancellation_policy: "none" | "cancel_24h" | "cancel_48h" | "cancel_7d";
   /** The viewer organizes an event the obec takes part in — may help with attendees, not edit/cancel. */
   locked_for_viewer: boolean;
   /** The viewer runs it with other organizers — deleting needs their consent (requestEventDeletion). */
@@ -170,7 +169,6 @@ type PayloadEvent = {
   isPaid?: boolean;
   priceCents?: number | null;
   isVolunteering?: boolean;
-  cancellationPolicy?: EventRow["cancellation_policy"];
   lockedForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
   obecLeftAt?: string | null;
@@ -213,7 +211,6 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   is_paid: e.isPaid,
   price_cents: e.priceCents ?? null,
   is_volunteering: e.isVolunteering,
-  cancellation_policy: e.cancellationPolicy ?? "cancel_48h",
   locked_for_viewer: Boolean(e.lockedForViewer),
   deletion_needs_consent: Boolean(e.deletionNeedsConsent),
   obec_left: Boolean(e.obecLeftAt),
@@ -314,7 +311,6 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     isPaid: input.isPaid ?? false,
     priceCents: input.isPaid ? input.priceCents : undefined,
     isVolunteering: input.isVolunteering ?? false,
-    cancellationPolicy: "cancel_48h",
   });
   return mapEvent(doc);
 }
@@ -346,6 +342,7 @@ type PayloadRegistration = {
   status: RegistrationRow["status"];
   role?: RegistrationRole | null;
   attendanceStatus?: AttendanceStatus;
+  excuseMessage?: string | null;
 };
 
 const mapRegistration = (r: PayloadRegistration): RegistrationRow => ({
@@ -385,8 +382,18 @@ export async function createRegistration(eventId: string, userId: string): Promi
   return mapRegistration(doc);
 }
 
-export async function cancelRegistration(registrationId: string): Promise<void> {
-  await patch(`/registrations/${registrationId}`, { status: "cancelled" });
+/** Cancels the viewer's own registration — with an excuse to the organizer while there's still
+ * time for one (Registrations guardOwnCancellation, REGISTRATION_CUTOFF_HOURS before the start). */
+export async function cancelRegistration(registrationId: string, excuseMessage?: string): Promise<void> {
+  const excuse = excuseMessage?.trim();
+  await patch(`/registrations/${registrationId}`, excuse ? { status: "cancelled", excuseMessage: excuse } : { status: "cancelled" });
+}
+
+export type OrganizerContact = { name: string | null; email: string | null; phone: string | null };
+
+/** How to reach the event's pořadatel — only for someone signed up for it (/api/events/:id/organizer-contact). */
+export async function getOrganizerContact(eventId: string): Promise<OrganizerContact> {
+  return get<OrganizerContact>(`/events/${eventId}/organizer-contact`);
 }
 
 export async function updateRegistrationStatus(
@@ -549,6 +556,8 @@ export type ManageRegistrationRow = {
   full_name: string;
   phone: string | null;
   avatar_url: string | null;
+  /** The registrant's excuse, sent with cancelling their registration. */
+  excuse_message: string | null;
 };
 
 /** For ManageEvent.tsx — every registration for one event (any status), with name+phone. */
@@ -585,6 +594,7 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
       full_name: info?.fullName ?? "Účastník",
       phone: info?.phone ?? null,
       avatar_url: avatarByUser.get(uid) ?? null,
+      excuse_message: r.excuseMessage ?? null,
     };
   });
 }

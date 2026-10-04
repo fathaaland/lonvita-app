@@ -522,7 +522,6 @@ async function seedDemoData(payload: Payload, categoryIds: Map<string, number>):
           status: 'active',
           isPaid: Boolean(event.priceCzk),
           priceCents: event.priceCzk ? event.priceCzk * 100 : undefined,
-          cancellationPolicy: 'cancel_48h',
         },
         context: { skipNotifications: true },
         overrideAccess: true,

@@ -191,6 +191,10 @@ function ManageEventContent() {
               )}
             </div>
 
+            {r.status === "cancelled" && r.excuse_message && (
+              <p className="text-sm whitespace-pre-line"><span className="font-semibold">Omluvenka:</span> „{r.excuse_message}“</p>
+            )}
+
             {/* Signed up as themselves (an obec's admin on a club's event) — the pořadatel decides. */}
             {r.user_id === String(user?.id) && !started && (r.status === "pending" || r.status === "approved") && (
               <p className="text-sm text-muted-foreground">

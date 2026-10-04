@@ -56,7 +56,6 @@ const createEvent = async (owner: TestUser, { withObec = false, coOrganized = tr
       status: 'active',
       isPaid: false,
       registrationApprovalMode: 'manual',
-      cancellationPolicy: 'none',
     },
     context: { skipNotifications: true },
     overrideAccess: true,

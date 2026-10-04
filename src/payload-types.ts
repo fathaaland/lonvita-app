@@ -482,7 +482,6 @@ export interface Event {
    * Price in the smallest currency unit (e.g. haléře). Informational only — the app does not process payment; the organizer handles it outside the app (brief §4).
    */
   priceCents?: number | null;
-  cancellationPolicy: 'none' | 'cancel_24h' | 'cancel_48h' | 'cancel_7d';
   /**
    * Soft-delete marker — preserves attendance history when an event is removed.
    */
@@ -532,6 +531,11 @@ export interface Registration {
    * A volunteer helps run the event (an accepted VolunteerInvitation) — approved straight away, and not counted against capacity.
    */
   role?: ('participant' | 'volunteer') | null;
+  /**
+   * Omluvenka — sent by the registrant when cancelling, at the latest 3 hours before the event.
+   */
+  excuseMessage?: string | null;
+  cancelledAt?: string | null;
   /**
    * What actually happened — set by the organizer after the event, on the manage-event page.
    */
@@ -1243,7 +1247,6 @@ export interface EventsSelect<T extends boolean = true> {
   isVolunteering?: T;
   isPaid?: T;
   priceCents?: T;
-  cancellationPolicy?: T;
   deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1257,6 +1260,8 @@ export interface RegistrationsSelect<T extends boolean = true> {
   user?: T;
   status?: T;
   role?: T;
+  excuseMessage?: T;
+  cancelledAt?: T;
   attendanceStatus?: T;
   attendanceMarkedAt?: T;
   attendanceMarkedBy?: T;

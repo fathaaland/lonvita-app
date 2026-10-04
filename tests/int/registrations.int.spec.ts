@@ -61,7 +61,6 @@ describe('Registrations & EventFeedback', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       overrideAccess: true,
     })

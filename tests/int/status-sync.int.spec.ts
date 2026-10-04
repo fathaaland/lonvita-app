@@ -57,7 +57,6 @@ describe('Finished/expired status sync (worker cron)', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       context: { skipNotifications: true },
       overrideAccess: true,

@@ -29,7 +29,6 @@ const createEventStartingIn = async (ms: number) => {
       status: 'active',
       isPaid: false,
       registrationApprovalMode: 'manual',
-      cancellationPolicy: 'none',
     },
     context: { skipNotifications: true },
     overrideAccess: true,

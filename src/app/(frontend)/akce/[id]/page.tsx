@@ -11,7 +11,6 @@ import {
   getRegistrationCounts,
   getMyAdministeredMunicipalityIds,
   createRegistration,
-  cancelRegistration,
   decideVolunteerInvitation,
   getMyVolunteerRequestForEvent,
   offerVolunteerHelp,
@@ -25,6 +24,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
 import { CancelEventButton } from "@/components/CancelEventButton";
+import { CancelRegistrationDialog } from "@/components/CancelRegistrationDialog";
+import { OrganizerContactCard } from "@/components/OrganizerContactCard";
 import { EventDeletionConsent } from "@/components/EventDeletionConsent";
 import { ObecLeaveCoOrganizing } from "@/components/ObecLeaveCoOrganizing";
 import { isMunicipalityOrganization } from "@/lib/organizations";
@@ -36,7 +37,8 @@ import { VolunteeringCard } from "@/components/VolunteeringCard";
 import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { toast } from "sonner";
 import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart } from "lucide-react";
-import { formatEventDate, formatEventTime } from "@/lib/date";
+import { formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/date";
+import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS, registrationDeadline } from "@/lib/registrationCutoff";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
@@ -151,6 +153,9 @@ function EventDetailContent() {
   const canSeeAttendees = canManage || isSuperAdmin;
   // Someone from the volunteer pool may offer to help on an event that looks for volunteers — its
   // creator answers (VolunteerInvitations, kind "application").
+  // Signing up (and offering help) closes REGISTRATION_CUTOFF_HOURS before the start — after that
+  // it's a call or e-mail to the organizer (Registrations guardRegistrationWindow).
+  const registrationOpen = !!event && isRegistrationOpen(event.date_time);
   const canOfferHelp =
     !!user &&
     !!event &&
@@ -158,7 +163,7 @@ function EventDetailContent() {
     Boolean(profile?.is_volunteer) &&
     !takesPartAutomatically &&
     event.status !== "cancelled" &&
-    new Date(event.date_time).getTime() > Date.now();
+    isRegistrationOpen(event.date_time);
   const pendingOffer = volunteerRequest?.status === "pending" && volunteerRequest.kind === "application" ? volunteerRequest : null;
   const pendingInvitation =
     volunteerRequest?.status === "pending" && volunteerRequest.kind === "invitation" ? volunteerRequest : null;
@@ -232,22 +237,6 @@ function EventDetailContent() {
           ? error.message
           : "Nepodařilo se přihlásit. Zkuste to prosím znovu.",
       );
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!myReg || submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    try {
-      await cancelRegistration(myReg.id);
-      toast.success("Přihláška zrušena.");
-      load();
-    } catch {
-      toast.error("Nepodařilo se zrušit přihlášku.");
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -525,9 +514,7 @@ function EventDetailContent() {
                 <><Clock className="h-5 w-5 text-warning" /> <span className="text-warning">Čeká na schválení pořadatelem</span></>
               )}
             </div>
-            <Button onClick={handleCancel} disabled={submitting} variant="outline" className="w-full h-12 text-base">
-              {myReg.role === "volunteer" ? "Zrušit účast" : "Zrušit přihlášku"}
-            </Button>
+            <CancelRegistrationDialog registration={myReg} event={event} onCancelled={load} />
           </div>
         ) : pendingOffer ? (
           <div className="space-y-2">
@@ -555,12 +542,35 @@ function EventDetailContent() {
               </Button>
             </div>
           </div>
+        ) : !registrationOpen ? (
+          hasEnded ? (
+            <p className="py-3 text-center text-sm font-semibold text-muted-foreground">Akce už proběhla.</p>
+          ) : (
+            <div className="space-y-2">
+              {user ? (
+                <OrganizerContactCard eventId={event.id} />
+              ) : (
+                <Button asChild variant="outline" className="w-full h-12 text-base">
+                  <Link href="/auth">Přihlaste se do aplikace a uvidíte kontakt</Link>
+                </Button>
+              )}
+              <p className="text-center text-sm text-muted-foreground">
+                Přihlašování skončilo {REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce. Chcete-li přesto přijít,
+                zavolejte nebo napište pořadateli.
+              </p>
+            </div>
+          )
         ) : isFull && !canOfferHelp ? (
           <Button disabled className="w-full h-14 text-base font-semibold">Akce je plná</Button>
         ) : (
-          <Button onClick={handleJoinClick} disabled={submitting} className="w-full h-14 text-base font-semibold">
-            {isFull ? "Nabídnout pomoc" : "Přihlásit se"}
-          </Button>
+          <div className="space-y-1.5">
+            <Button onClick={handleJoinClick} disabled={submitting} className="w-full h-14 text-base font-semibold">
+              {isFull ? "Nabídnout pomoc" : "Přihlásit se"}
+            </Button>
+            <p className="text-center text-sm text-muted-foreground">
+              Přihlásit se lze do {formatEventDateTime(registrationDeadline(event.date_time).toISOString())}.
+            </p>
+          </div>
         )}
       </div>
 

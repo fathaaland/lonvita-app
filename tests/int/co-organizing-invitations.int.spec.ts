@@ -42,7 +42,6 @@ describe('Co-organizing between organizations takes the invited one’s consent'
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       user: organizer,
       overrideAccess: false,

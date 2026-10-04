@@ -10,6 +10,7 @@ import type {
 import { APIError } from 'payload'
 
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
+import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
 import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
@@ -143,22 +144,29 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
 
     // Task 9: a cancelled registration tells everyone running the event (pořadatel,
     // spolupořadatelé, the obec when it takes part) who it was — name and e-mail, so they can
-    // reach them. Whoever cancelled it isn't told about their own doing.
+    // reach them. Whoever cancelled it isn't told about their own doing. An excuse
+    // (guardOwnCancellation) carries the participant's own words.
     if (doc.status === 'cancelled') {
       const recipients = await getEventTeamUserIds(req.payload, event, { exclude: [req.user?.id, userId] })
       if (recipients.length > 0) {
         const volunteer = doc.role === 'volunteer'
         const who = await describeUser(req.payload, userId)
-        const message = volunteer
-          ? `Dobrovolník ${who} už na akci „${event.title}“ nepomůže — jeho účast byla zrušena.`
-          : `${who} už na akci „${event.title}“ nepřijde — přihláška byla zrušena.`
+        const excuse = doc.excuseMessage?.trim()
+        const base = excuse
+          ? volunteer
+            ? `Dobrovolník ${who} se omlouvá — na akci „${event.title}“ nepomůže.`
+            : `${who} se omlouvá — na akci „${event.title}“ nepřijde.`
+          : volunteer
+            ? `Dobrovolník ${who} už na akci „${event.title}“ nepomůže — jeho účast byla zrušena.`
+            : `${who} už na akci „${event.title}“ nepřijde — přihláška byla zrušena.`
+        const message = `${base}${excuse ? ` Omluvenka: „${excuse}“` : ''}`
         await sendNotificationToMany(req.payload, recipients, {
-          title: volunteer ? 'Dobrovolník nepřijde' : 'Přihláška zrušena',
+          title: excuse ? 'Omluvenka z akce' : volunteer ? 'Dobrovolník nepřijde' : 'Přihláška zrušena',
           message,
           link: `/spravovat/${eventId}`,
           email: {
-            subject: `Zrušená přihláška: ${event.title}`,
-            body: `<p>${escapeHtml(message)}</p>`,
+            subject: `${excuse ? 'Omluvenka' : 'Zrušená přihláška'}: ${event.title}`,
+            body: `<p>${escapeHtml(base)}</p>${excuse ? `<blockquote>${escapeHtml(excuse)}</blockquote>` : ''}`,
           },
         })
       }
@@ -361,6 +369,84 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
   return args
 }
 
+/**
+ * Cancelling one's own registration — optionally with an excuse to the organizer — closes
+ * REGISTRATION_CUTOFF_HOURS before the start, just like signing up (guardRegistrationWindow): after that
+ * the organizer may no longer be watching the app, so whoever can't come calls or e-mails them. The
+ * excuse only ever rides along the registrant's own cancellation. Like guardStatusChange, only when
+ * access control applies; internal cancellations (leaving the volunteer pool, organizers joining the
+ * team) and the event's organizers taking someone off pass.
+ */
+const guardOwnCancellation: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'update') return args
+  const { data, id, overrideAccess } = args as {
+    data?: { status?: unknown; excuseMessage?: unknown }
+    id?: number | string
+    overrideAccess?: boolean
+  }
+  if (overrideAccess !== false || id === undefined || !req.user) return args
+  const excuse = typeof data?.excuseMessage === 'string' ? data.excuseMessage.trim() : ''
+  if (data?.status !== 'cancelled' && !excuse) return args
+
+  const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
+  const cancelling = data?.status === 'cancelled' && current.status !== 'cancelled'
+  const own = String(relId(current.user)) === String(req.user.id)
+  if (excuse && (!cancelling || !own)) {
+    throw new APIError('Omluvenku posílá jen přihlášený sám, spolu se zrušením své přihlášky.', 400)
+  }
+  if (!cancelling || !own) return args
+
+  const event = await req.payload
+    .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
+    .catch(() => null)
+  if (event && !isRegistrationOpen(event.dateTime) && req.user.role !== 'admin') {
+    throw new APIError(
+      `Odhlásit se z akce lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
+      400,
+    )
+  }
+  return args
+}
+
+/**
+ * Signing up closes REGISTRATION_CUTOFF_HOURS before the start — whoever still wants to come calls or
+ * e-mails the organizer, who may have stopped watching the app by then. Like guardStatusChange, only
+ * when access control applies (every REST request); a volunteer joining through an accepted
+ * invitation, arranged with the organizer, passes.
+ */
+const guardRegistrationWindow: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'create') return args
+  const { data, overrideAccess } = args as { data?: { event?: unknown }; overrideAccess?: boolean }
+  if (overrideAccess !== false || !data?.event || !req.user || req.user.role === 'admin') return args
+
+  const event = await req.payload
+    .findByID({ collection: 'events', id: relId(data.event), depth: 0, overrideAccess: true, req })
+    .catch(() => null)
+  if (event && !isRegistrationOpen(event.dateTime)) {
+    throw new APIError(
+      `Přihlásit se na akci lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
+      400,
+    )
+  }
+  return args
+}
+
+/**
+ * When a registration was cancelled — set here, never taken from the client. The excuse is written
+ * once, with the cancellation, and stays as it was.
+ */
+const stampCancellation: CollectionBeforeChangeHook = ({ data, originalDoc, operation }) => {
+  if (operation !== 'update' || !data || !originalDoc) return data
+  if (data.status !== 'cancelled' || originalDoc.status === 'cancelled') {
+    data.excuseMessage = originalDoc.excuseMessage ?? null
+    return data
+  }
+
+  data.cancelledAt = new Date().toISOString()
+  data.excuseMessage = typeof data.excuseMessage === 'string' ? data.excuseMessage.trim() || null : null
+  return data
+}
+
 /** The obec's admins may hard-delete registrations in their obec — but not a volunteer's, which is
  * the event creator's alone (guardStatusChange). Like guardStatusChange, only when access control
  * applies — trusted internal deletes (a consented event deletion, an account deletion) pass. */
@@ -408,6 +494,9 @@ const stampAttendance: CollectionBeforeChangeHook = ({ data, originalDoc, operat
 const isPlatformAdminField: FieldAccess = ({ req }) => req.user?.role === 'admin'
 
 const attendanceAccess = { create: isPlatformAdminField, update: canMarkAttendance }
+
+const isOwnRegistrationField: FieldAccess = ({ req, doc }) =>
+  Boolean(req.user && doc?.user && String(relId(doc.user)) === String(req.user.id))
 
 /** Registrations a user may act on: their own (to register/cancel), or any belonging to an
  * event they organize/co-organize or whose municipality they administer (to approve/reject
@@ -516,6 +605,22 @@ export const Registrations: CollectionConfig = {
         description:
           'A volunteer helps run the event (an accepted VolunteerInvitation) — approved straight away, and not counted against capacity.',
       },
+    },
+    {
+      name: 'excuseMessage',
+      type: 'textarea',
+      maxLength: 1000,
+      // The registrant's own words, sent along with cancelling their registration (guardOwnCancellation).
+      access: { create: isPlatformAdminField, update: isOwnRegistrationField },
+      admin: {
+        description: `Omluvenka — sent by the registrant when cancelling, at the latest ${REGISTRATION_CUTOFF_HOURS} hours before the event.`,
+      },
+    },
+    {
+      name: 'cancelledAt',
+      type: 'date',
+      access: { create: isPlatformAdminField, update: isPlatformAdminField },
+      admin: { position: 'sidebar', readOnly: true },
     },
     {
       name: 'attendanceStatus',
@@ -634,8 +739,14 @@ export const Registrations: CollectionConfig = {
         return data
       },
     ],
-    beforeOperation: [guardStatusChange, lockAttendanceOnceMarked, guardVolunteerDelete],
-    beforeChange: [stampAttendance],
+    beforeOperation: [
+      guardRegistrationWindow,
+      guardStatusChange,
+      guardOwnCancellation,
+      lockAttendanceOnceMarked,
+      guardVolunteerDelete,
+    ],
+    beforeChange: [stampAttendance, stampCancellation],
     afterChange: [
       notifyOnRegistrationChange,
       broadcastCapacityChange,

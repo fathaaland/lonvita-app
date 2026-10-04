@@ -146,7 +146,6 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
         status: 'finished',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
         organization: pubOrgId,
         coOrganizations: [orgOf(club)],
         coOrganizers: [club.id],

@@ -53,7 +53,6 @@ const eventData = (organizerId: number, municipalityId: number) => ({
   status: 'active' as const,
   isPaid: false,
   registrationApprovalMode: 'manual' as const,
-  cancellationPolicy: 'none' as const,
 })
 
 describe('Superadmin restrictions', () => {

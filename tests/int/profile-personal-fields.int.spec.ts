@@ -173,7 +173,6 @@ describe('A profile’s personal details stay with its owner', () => {
         status: 'active',
         isPaid: false,
         registrationApprovalMode: 'manual',
-        cancellationPolicy: 'none',
       },
       context: { skipNotifications: true },
       overrideAccess: true,
