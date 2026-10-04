@@ -300,7 +300,8 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
  * update access lets them touch it for that, so without this they could PATCH themselves "approved"
  * past the organizer. Approving, rejecting and taking an approved participant back off the event is
  * for whoever runs it: the pořadatel, every spolupořadatel and the obec's admins — though not once
- * their attendance is confirmed, the record of what actually happened. Like lockAttendanceOnceMarked,
+ * their attendance is confirmed, the record of what actually happened. A volunteer is the creator's
+ * alone (like inviting them, VolunteerInvitations): nobody else takes one off. Like lockAttendanceOnceMarked,
  * only when access control applies (every REST request); a platform admin may always.
  */
 const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
@@ -319,20 +320,66 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
   const event = await req.payload
     .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
+  const volunteer = current.role === 'volunteer'
   const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(relId(u))) : []
+  // The event's volunteers are its creator's alone — not a spolupořadatel's, not the obec's.
   const manages =
     event !== null &&
-    (organizerIds.includes(String(req.user.id)) ||
-      (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(relId(event.municipality))))
+    (volunteer
+      ? String(relId(event.organizer)) === String(req.user.id)
+      : organizerIds.includes(String(req.user.id)) ||
+        (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(relId(event.municipality))))
 
   if (!manages) {
-    if (data.status !== 'cancelled') throw new APIError('Přihlášky schvaluje a zamítá jen pořadatel akce.', 403)
+    const own = String(relId(current.user)) === String(req.user.id)
+    if (data.status !== 'cancelled' || !own) {
+      throw new APIError(
+        volunteer
+          ? 'O dobrovolnících na akci rozhoduje jen pořadatel, který ji založil.'
+          : 'Přihlášky schvaluje a zamítá jen pořadatel akce.',
+        403,
+      )
+    }
     return args
   }
   if (current.status === 'approved' && current.attendanceStatus && current.attendanceStatus !== 'not_marked') {
     throw new APIError('Docházka je už potvrzená — z akce ho odebrat nejde.', 409)
   }
   return args
+}
+
+/** The obec's admins may hard-delete registrations in their obec — but not a volunteer's, which is
+ * the event creator's alone (guardStatusChange). Like guardStatusChange, only when access control
+ * applies — trusted internal deletes (a consented event deletion, an account deletion) pass. */
+const guardVolunteerDelete: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'delete') return args
+  const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
+  if (overrideAccess !== false || !req.user || req.user.role === 'admin') return args
+
+  const volunteers = await req.payload.find({
+    collection: 'registrations',
+    where: { and: [id !== undefined ? { id: { equals: id } } : (where ?? {}), { role: { equals: 'volunteer' } }] },
+    select: { event: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  const eventIds = [...new Set(volunteers.docs.map((r) => relId(r.event)))]
+  if (eventIds.length === 0) return args
+  const events = await req.payload.find({
+    collection: 'events',
+    where: { id: { in: eventIds } },
+    select: { organizer: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  if (events.docs.length === eventIds.length && events.docs.every((e) => String(relId(e.organizer)) === String(req.user!.id))) {
+    return args
+  }
+  throw new APIError('O dobrovolnících na akci rozhoduje jen pořadatel, který ji založil.', 403)
 }
 
 /** Who marked attendance and when — set here, never taken from the client. */
@@ -566,7 +613,7 @@ export const Registrations: CollectionConfig = {
         return data
       },
     ],
-    beforeOperation: [guardStatusChange, lockAttendanceOnceMarked],
+    beforeOperation: [guardStatusChange, lockAttendanceOnceMarked, guardVolunteerDelete],
     beforeChange: [stampAttendance],
     afterChange: [
       notifyOnRegistrationChange,

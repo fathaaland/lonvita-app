@@ -223,7 +223,7 @@ describe('Volunteering on an event is its creator’s alone', () => {
     expect(await flagOf(event.id)).toBe(true)
   })
 
-  it('a spolupořadatel can’t take it off; the creator and the obec can', async () => {
+  it('only the creator takes it off — not a spolupořadatel, not the obec', async () => {
     const event = await createEvent(creator)
     await payload.update({
       collection: 'events',
@@ -234,6 +234,8 @@ describe('Volunteering on an event is its creator’s alone', () => {
     await setVolunteering(event.id, coOrganizer, false)
     expect(await flagOf(event.id)).toBe(true)
     await setVolunteering(event.id, obecAdmin, false)
+    expect(await flagOf(event.id)).toBe(true)
+    await setVolunteering(event.id, creator, false)
     expect(await flagOf(event.id)).toBe(false)
   })
 
@@ -290,6 +292,26 @@ describe('Volunteering on an event is its creator’s alone', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect(await notificationsFor(volunteer, 'Pořadatel přijal vaši pomoc')).toHaveLength(1)
+  })
+
+  it('only the creator takes a volunteer off the event — not a spolupořadatel, not the obec co-organizing it', async () => {
+    const event = await createVolunteeringEvent(creator, { withObec: true })
+    const accepted = await decide((await offerHelp(event.id, volunteer)).id, 'accepted', creator)
+    const registrationId = typeof accepted.registration === 'object' ? accepted.registration!.id : accepted.registration!
+    const setStatus = (user: TestUser, status: 'rejected' | 'cancelled') =>
+      payload.update({ collection: 'registrations', id: registrationId, data: { status }, user, overrideAccess: false })
+
+    for (const user of [coOrganizer, obecAdmin]) {
+      await expect(setStatus(user, 'rejected')).rejects.toThrow(/založil/)
+      await expect(setStatus(user, 'cancelled')).rejects.toThrow(/založil/)
+    }
+    // The obec's admins may hard-delete registrations in their obec — not a volunteer's.
+    await expect(
+      payload.delete({ collection: 'registrations', id: registrationId, user: obecAdmin, overrideAccess: false }),
+    ).rejects.toThrow(/založil/)
+
+    const removed = await setStatus(creator, 'rejected')
+    expect(removed).toMatchObject({ role: 'volunteer', status: 'rejected' })
   })
 
   it('the volunteer may withdraw their offer; the creator may decline one', async () => {

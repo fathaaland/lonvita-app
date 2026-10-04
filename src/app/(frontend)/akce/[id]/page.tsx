@@ -26,6 +26,7 @@ import { Loading } from "@/components/Loading";
 import { PageHeader } from "@/components/PageHeader";
 import { CancelEventButton } from "@/components/CancelEventButton";
 import { EventDeletionConsent } from "@/components/EventDeletionConsent";
+import { ObecLeaveCoOrganizing } from "@/components/ObecLeaveCoOrganizing";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -495,6 +496,10 @@ function EventDetailContent() {
               </>
             )}
           </div>
+        )}
+        {/* The obec steps off an event it co-organizes on its own — no one's consent, and for good. */}
+        {obecCoOrganizes && isAdminOfEventMunicipality && !hasEnded && event.status !== "cancelled" && (
+          <ObecLeaveCoOrganizing eventId={event.id} title={event.title} onLeft={load} />
         )}
       </div>
 

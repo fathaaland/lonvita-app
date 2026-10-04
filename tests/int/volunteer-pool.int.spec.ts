@@ -29,6 +29,8 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
   let emailOnly: TestUser
   let phoneOnly: TestUser
   let resident: TestUser
+  let category: { id: number } | undefined
+  let eventId: number | undefined
 
   const tokenOf = async (user: TestUser) =>
     (await payload.login({ collection: 'users', data: { email: user.email, password: 'test1234' } })).token
@@ -106,6 +108,11 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
 
   afterAll(async () => {
     const userIds = [adminA.id, organizerB.id, emailOnly.id, phoneOnly.id, resident.id]
+    if (eventId) {
+      await payload.delete({ collection: 'registrations', where: { event: { equals: eventId } }, overrideAccess: true }).catch(() => {})
+      await payload.delete({ collection: 'events', id: eventId, overrideAccess: true }).catch(() => {})
+    }
+    if (category) await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'organizations', where: { owner: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
@@ -139,13 +146,58 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
     expect((await postAs(adminA, { userId: resident.id, isVolunteer: true })).status).toBe(400)
   })
 
-  it("an obec's admin takes off only people who help in their obec", async () => {
+  it("an obec's admin takes off only people who help in their obec — and not while they help on an event", async () => {
     const rows = ((await (await listAs(adminA)).json()) as { docs: PoolRow[] }).docs
     expect(rowOf(rows, emailOnly)?.can_remove).toBe(true)
     expect(rowOf(rows, phoneOnly)?.can_remove).toBe(false)
 
     expect((await postAs(adminA, { userId: phoneOnly.id, isVolunteer: false })).status).toBe(403)
     expect((await postAs(organizerB, { userId: emailOnly.id, isVolunteer: false })).status).toBe(403)
+
+    // Helping on an upcoming event, they're its creator's to decide about — the obec leaves them be.
+    category = await payload.create({
+      collection: 'event-categories',
+      data: { name: `Test Pool Category ${STAMP}` },
+      overrideAccess: true,
+    })
+    const event = await payload.create({
+      collection: 'events',
+      data: {
+        title: `Pool Event ${STAMP}`,
+        dateTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        locationText: 'Test location',
+        lat: 49.5661,
+        lng: 15.9403,
+        capacity: 10,
+        organizer: organizerB.id,
+        municipality: muniB.id,
+        categories: [category.id],
+        status: 'active',
+        isPaid: false,
+        registrationApprovalMode: 'manual',
+        cancellationPolicy: 'none',
+      },
+      context: { skipNotifications: true },
+      overrideAccess: true,
+    })
+    eventId = event.id
+    const registration = await payload.create({
+      collection: 'registrations',
+      data: { event: event.id, user: emailOnly.id, role: 'volunteer', status: 'approved' },
+      context: { skipNotifications: true },
+      overrideAccess: true,
+    })
+    const helping = ((await (await listAs(adminA)).json()) as { docs: PoolRow[] }).docs
+    expect(rowOf(helping, emailOnly)?.can_remove).toBe(false)
+    expect((await postAs(adminA, { userId: emailOnly.id, isVolunteer: false })).status).toBe(409)
+
+    await payload.update({
+      collection: 'registrations',
+      id: registration.id,
+      data: { status: 'cancelled' },
+      context: { skipNotifications: true },
+      overrideAccess: true,
+    })
     expect((await postAs(adminA, { userId: emailOnly.id, isVolunteer: false })).status).toBe(200)
 
     const after = ((await (await listAs(adminA)).json()) as { docs: PoolRow[] }).docs

@@ -53,7 +53,7 @@ function ManageEventContent() {
   const [organizerName, setOrganizerName] = useState<string | null>(null);
   const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
   const [startsAt, setStartsAt] = useState<string | null>(null);
-  // Attendance and volunteer ratings are filled in by the pořadatel who founded the event alone —
+  // Attendance, the volunteers and their ratings are the pořadatel who founded the event's alone —
   // not its spolupořadatelé, not the obec co-organizing it (Registrations canMarkAttendance).
   const [isCreator, setIsCreator] = useState(false);
   // Attendance picked on the page but not yet confirmed — nothing reaches the participant
@@ -62,7 +62,8 @@ function ManageEventContent() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [volunteerRatings, setVolunteerRatings] = useState<Map<string, VolunteerRatingRow>>(new Map());
-  // An approved participant the pořadatel (or any spolupořadatel) is about to take off the event.
+  // An approved participant the pořadatel (or any spolupořadatel) is about to take off the event —
+  // a volunteer only the pořadatel who founded it (Registrations guardStatusChange).
   const [removing, setRemoving] = useState<ManageRegistrationRow | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
 
@@ -199,7 +200,13 @@ function ManageEventContent() {
               </div>
             )}
 
-            {r.status === "approved" && !started && (
+            {r.status === "approved" && !started && r.role === "volunteer" && !isCreator && (
+              <p className="text-sm text-muted-foreground">
+                O dobrovolnících rozhoduje jen pořadatel, který akci založil.
+              </p>
+            )}
+
+            {r.status === "approved" && !started && (r.role !== "volunteer" || isCreator) && (
               <Button
                 onClick={() => setRemoving(r)}
                 variant="outline"

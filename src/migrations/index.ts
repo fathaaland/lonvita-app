@@ -26,6 +26,7 @@ import * as migration_20261003_103017_organization_description from './20261003_
 import * as migration_20261003_121542_review_complaints from './20261003_121542_review_complaints';
 import * as migration_20261003_130458_remove_volunteer_flag_requests from './20261003_130458_remove_volunteer_flag_requests';
 import * as migration_20261004_081355_co_organizer_removal from './20261004_081355_co_organizer_removal';
+import * as migration_20261004_142135_obec_left_at from './20261004_142135_obec_left_at';
 
 export const migrations = [
   {
@@ -166,6 +167,11 @@ export const migrations = [
   {
     up: migration_20261004_081355_co_organizer_removal.up,
     down: migration_20261004_081355_co_organizer_removal.down,
-    name: '20261004_081355_co_organizer_removal'
+    name: '20261004_081355_co_organizer_removal',
+  },
+  {
+    up: migration_20261004_142135_obec_left_at.up,
+    down: migration_20261004_142135_obec_left_at.down,
+    name: '20261004_142135_obec_left_at'
   },
 ];

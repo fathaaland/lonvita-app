@@ -414,8 +414,7 @@ function OrganizationContent() {
                 profiles={[]}
                 onDeleted={() => loadData(organization.id)}
                 tagFor={(e) => (coOrganizedIds.has(e.id) ? "Spolupořádáte" : null)}
-                // The flag is its creator's — or, on the obec's own page, its admin's.
-                canRemoveVolunteering={(e) => obec || e.organizer_id === String(user!.id)}
+                viewerId={String(user!.id)}
               />
             </section>
 

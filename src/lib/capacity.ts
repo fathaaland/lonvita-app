@@ -5,6 +5,6 @@
  * comparison (`registrations_count < capacity`, fill-rate, etc.) keeps working unchanged; only
  * display spots need to special-case it to show "Neomezená kapacita" instead of the raw number.
  */
-export const UNLIMITED_CAPACITY = 999999
+export const UNLIMITED_CAPACITY = 999999999
 
 export const isUnlimitedCapacity = (capacity: number): boolean => capacity >= UNLIMITED_CAPACITY

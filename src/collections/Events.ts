@@ -291,27 +291,19 @@ const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } |
 
 /**
  * The volunteering flag is the event creator's (`organizer`) alone — they mark their event as one
- * for volunteers themselves, no obec approval needed. Not a spolupořadatel's, not the obec's when it
- * merely co-organizes or oversees the event. A platform admin may always, and so may trusted
- * internal writes (no user). Anyone else's attempt is dropped. Taking the flag off is the creator's
- * too — and the obec's, which oversees every event in it (its dashboard).
+ * for volunteers themselves, no obec approval needed, and take the mark off again. Not a
+ * spolupořadatel's, not the obec's — whether it co-organizes the event or merely oversees it. A
+ * platform admin may always, and so may trusted internal writes (no user). Anyone else's attempt is
+ * dropped.
  */
-const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, originalDoc }) => {
+const guardIsVolunteering: CollectionBeforeChangeHook = ({ data, req, originalDoc }) => {
   if (!data || data.isVolunteering === undefined) return data
-  const adding = data.isVolunteering === true && originalDoc?.isVolunteering !== true
-  const removing = data.isVolunteering === false && originalDoc?.isVolunteering === true
-  if (!adding && !removing) return data
+  if (data.isVolunteering === Boolean(originalDoc?.isVolunteering)) return data
 
   const { user } = req
   if (!user || user.role === 'admin') return data
 
-  const isCreator = relationId(data.organizer ?? originalDoc?.organizer) === String(user.id)
-  const municipalityId = relationId(data.municipality ?? originalDoc?.municipality)
-  const administersObec = municipalityId !== null && (await administeredIdsFor(req, user.id)).includes(municipalityId)
-  // On: the creator. Off: the creator, or the obec overseeing its events.
-  const allowed = adding ? isCreator : isCreator || administersObec
-
-  if (!allowed) {
+  if (relationId(data.organizer ?? originalDoc?.organizer) !== String(user.id)) {
     data.isVolunteering = originalDoc?.isVolunteering ?? false
   }
 
@@ -388,7 +380,8 @@ const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, ope
  *   lockedEventIds, deletion consent, Registrations) works with. The obec's organization has no
  *   owner; its admins get at the event through their obec anyway.
  * Only newly added organizations are checked (all of them, if the event moves to another obec), so
- * editing an event whose spolupořadatel has since lost the role keeps working.
+ * editing an event whose spolupořadatel has since lost the role keeps working. Once the obec has
+ * stepped off the event (`obecLeftAt`), it never comes back to it.
  */
 const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
   if (!data) return data
@@ -435,6 +428,15 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
       : []
   const byId = new Map(organizations.map((o) => [String(o.id), o]))
 
+  // The obec stepping off the event (ObecLeave route, or its admin in the form) is for good.
+  if (operation === 'update' && !municipalityChanged && !originalDoc?.obecLeftAt) {
+    const obecOrganizationId = (await municipalityOrganizationIds(req, [municipalityId])).get(municipalityId)
+    if (obecOrganizationId && previousIds.has(obecOrganizationId) && !ids.includes(obecOrganizationId)) {
+      data.obecLeftAt = new Date().toISOString()
+    }
+  }
+  const obecLeft = !municipalityChanged && Boolean(data.obecLeftAt ?? originalDoc?.obecLeftAt)
+
   const addedOwnerIds: string[] = []
   for (const id of ids) {
     const organization = byId.get(id)
@@ -445,6 +447,9 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
     if (organization.type === MUNICIPALITY_ORGANIZATION_TYPE) {
       if (id === eventOrganizationId) {
         throw new APIError('Akci už pořádá obec — za spolupořadatele ji přidat nejde.', 400)
+      }
+      if (added && obecLeft) {
+        throw new APIError('Obec spolupořádání téhle akce ukončila — vrátit se k ní už nejde.', 400)
       }
     } else {
       const ownerId = relationId(organization.owner)!
@@ -961,6 +966,18 @@ export const Events: CollectionConfig = {
         readOnly: true,
         description:
           "The owners of coOrganizations — what access checks, deletion consent and the co-organizers' dashboards key on.",
+      },
+    },
+    {
+      // Set once (resolveOrganizations) — never by the client.
+      name: 'obecLeftAt',
+      type: 'date',
+      access: { create: () => false, update: () => false },
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description:
+          'When the obec stepped off co-organizing the event (its own decision, no consent needed). It can never co-organize it again.',
       },
     },
     {

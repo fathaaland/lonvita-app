@@ -130,6 +130,8 @@ export type EventRow = {
   locked_for_viewer: boolean;
   /** The viewer runs it with other organizers — deleting needs their consent (requestEventDeletion). */
   deletion_needs_consent: boolean;
+  /** The obec stopped co-organizing it — it can never come back to it (leaveCoOrganizingAsObec). */
+  obec_left: boolean;
 };
 
 type PayloadMedia = { id: number; url?: string | null; sizes?: { avatar?: { url?: string | null } } };
@@ -171,6 +173,7 @@ type PayloadEvent = {
   cancellationPolicy?: EventRow["cancellation_policy"];
   lockedForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
+  obecLeftAt?: string | null;
 };
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
@@ -213,6 +216,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   cancellation_policy: e.cancellationPolicy ?? "cancel_48h",
   locked_for_viewer: Boolean(e.lockedForViewer),
   deletion_needs_consent: Boolean(e.deletionNeedsConsent),
+  obec_left: Boolean(e.obecLeftAt),
 });
 
 /** Upcoming (not cancelled) events for a municipality — or, with `null`, across every
@@ -1189,6 +1193,11 @@ export async function decideEventDeletion(
 /** After a spolupořadatel refused, the requester asks the obec to take them off the event. */
 export async function escalateEventDeletion(requestId: string): Promise<void> {
   await post(`/events/deletion-requests/${requestId}/escalate`, {});
+}
+
+/** The obec's admin stops the obec co-organizing the event — no one's consent needed, and for good. */
+export async function leaveCoOrganizingAsObec(eventId: string): Promise<void> {
+  await post(`/events/${eventId}/obec-leave`, {});
 }
 
 /** The creator marks their event as one for volunteers, or takes the mark off — no obec approval.

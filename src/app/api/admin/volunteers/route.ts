@@ -4,7 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
-import { organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
+import { helpingOnEvents, organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
 
 type Body = {
   userId?: number
@@ -42,7 +42,8 @@ export async function GET(request: Request) {
 
 /**
  * Takes someone off the pool — a platform admin anyone, an obec admin people who help in their obec
- * (misuse, someone who asked by phone). Nobody is put into the pool but by themselves: joining is
+ * (misuse, someone who asked by phone) as long as they have no role on any event (helpingOnEvents).
+ * Nobody is put into the pool but by themselves: joining is
  * the volunteer's own consent, so this endpoint only ever removes.
  */
 export async function POST(request: Request) {
@@ -81,6 +82,13 @@ export async function POST(request: Request) {
     const administeredIds = await getAdministeredMunicipalityIds(payload, actor.id)
     if (municipalityId == null || !administeredIds.includes(String(municipalityId))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    // Someone helping on an event is its creator's to decide about — not the obec's.
+    if ((await helpingOnEvents(payload, [userId])).size > 0) {
+      return NextResponse.json(
+        { error: 'Dobrovolník teď pomáhá na akci — z poolu ho obec odebrat nemůže.' },
+        { status: 409 },
+      )
     }
   }
 

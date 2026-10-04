@@ -21,9 +21,9 @@ interface Props {
   onDeleted?: () => void;
   /** A short note on the row, e.g. which events the organization only co-organizes. */
   tagFor?: (event: EventRow) => string | null;
-  /** Who may take the volunteering flag off a row — the event's creator or the obec's admin
-   * (Events guardIsVolunteering). Everyone, by default: the obec's dashboard. */
-  canRemoveVolunteering?: (event: EventRow) => boolean;
+  /** The viewer — the volunteering flag is taken off only by the event's creator (Events
+   * guardIsVolunteering), not a spolupořadatel, not the obec. */
+  viewerId: string;
 }
 
 type Filter = "upcoming" | "past" | "all";
@@ -35,14 +35,14 @@ export function EventsTable({
   profiles,
   onDeleted,
   tagFor,
-  canRemoveVolunteering = () => true,
+  viewerId,
 }: Props) {
   const router = useRouter();
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [busyVolunteerId, setBusyVolunteerId] = useState<string | null>(null);
 
   // A held event is history — its flag stays as it was (Events canUpdateEvent).
-  const mayRemoveVolunteering = (e: EventRow) => e.status !== "finished" && canRemoveVolunteering(e);
+  const mayRemoveVolunteering = (e: EventRow) => e.status !== "finished" && e.organizer_id === viewerId;
 
   const handleRemoveVolunteering = async (eventId: string) => {
     setBusyVolunteerId(eventId);

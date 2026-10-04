@@ -5,6 +5,7 @@ import Link from "next/link";
 import { HandHeart, Mail, MapPinned, Phone, Search, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { getVolunteers, VolunteerRow, removeVolunteer } from "@/integrations/payload/queries";
+import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -49,8 +50,10 @@ export function VolunteersTable() {
       await removeVolunteer(row.user_id);
       toast.success("Dobrovolník odebrán z poolu.");
       setRows((prev) => prev.filter((r) => r.id !== row.id));
-    } catch {
-      toast.error("Nepodařilo se odebrat dobrovolníka.");
+    } catch (error) {
+      toast.error(
+        error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se odebrat dobrovolníka.",
+      );
     } finally {
       setBusyId(null);
     }

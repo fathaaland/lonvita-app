@@ -213,6 +213,7 @@ function AdminContent() {
                 categories={categories}
                 profiles={profiles}
                 onDeleted={load}
+                viewerId={String(user?.id ?? "")}
               />
             </TabsContent>
 

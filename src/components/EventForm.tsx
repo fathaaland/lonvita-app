@@ -455,13 +455,29 @@ export function EventForm({
           onChange={(value) => setCoOrganizations(value.filter((o) => !pendingIds.includes(o.id)))}
           excludeIds={initial?.organization ? [initial.organization.id] : []}
           excludeOwnerId={initial ? undefined : userId}
-          excludeObec={runsAsObec}
+          // The obec never puts itself on an event (its pořadatel invites it), and once it has left
+          // one it doesn't come back (CoOrganizingRequests).
+          excludeObec={runsAsObec || isObecAdmin || Boolean(initial?.obec_left)}
           pendingIds={pendingIds}
           // Only the obec admin takes an organization off; an organizer — even their own — leaves only
-          // through a deletion request (Events guardCoOrganizedChanges). A sent invitation stays until
-          // it's answered or lapses.
-          fixedIds={[...pendingIds, ...(initial && !isObecAdmin ? initial.co_organizations.map((o) => o.id) : [])]}
+          // through a deletion request (Events guardCoOrganizedChanges). The obec itself leaves through
+          // "Ukončit spolupořádání" in the event detail, which asks first. A sent invitation stays
+          // until it's answered or lapses.
+          fixedIds={[
+            ...pendingIds,
+            ...(initial
+              ? initial.co_organizations
+                  .filter((o) => !isObecAdmin || o.type === MUNICIPALITY_ORGANIZATION_TYPE)
+                  .map((o) => o.id)
+              : []),
+          ]}
         />
+        {initial && isObecAdmin && initial.co_organizations.some((o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE) && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Spolupořádání obce ukončíte v detailu akce tlačítkem „Ukončit spolupořádání“ — obec se pak k akci už vrátit
+            nemůže.
+          </p>
+        )}
         {initial && !isObecAdmin && initial.co_organizations.length > 0 && (
           <p className="text-sm text-muted-foreground mt-2">
             Spolupořadatele odebrat nejde. Kdo akci pořádat nechce, požádá v detailu akce o její smazání — ostatní ho

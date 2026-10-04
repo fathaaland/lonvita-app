@@ -67,8 +67,9 @@ async function answersFor(
  * user — the client only names the first two. Whoever may edit the event invites (with the obec on
  * it, that's only the obec's admins — see Events lockedEventIds); the organization has to be one of
  * the obec's, not on the event yet, and — unless it's the obec's own — still organizing there.
- * Someone answering for the invited organization themselves (the obec's admin inviting the obec)
- * has consented by inviting, so theirs is approved on the spot.
+ * Someone answering for the invited organization themselves has consented by inviting, so theirs is
+ * approved on the spot — except the obec: it never puts itself on someone's event, its pořadatel
+ * has to invite it. And an obec that has stepped off the event (Events obecLeftAt) isn't invited back.
  */
 const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (operation !== 'create' || !data) return data
@@ -105,6 +106,13 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   if ((event.coOrganizations ?? []).map(relationId).includes(String(organization.id))) {
     throw new APIError(isObec ? 'Obec už akci spolupořádá.' : 'Tahle organizace už akci spolupořádá.', 400)
   }
+  const answers = await answersFor(req, user, organization)
+  if (isObec && answers && user.role !== 'admin') {
+    throw new APIError('Obec se ke spolupořádání akce přidat sama nemůže — pozvat ji musí pořadatel akce.', 403)
+  }
+  if (isObec && event.obecLeftAt) {
+    throw new APIError('Obec spolupořádání téhle akce ukončila — vrátit se k ní už nejde.', 400)
+  }
 
   const pending = await payload.find({
     collection: 'co-organizing-requests',
@@ -138,7 +146,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
     organizationName: organization.name,
     organizationOwner: isObec ? null : Number(relationId(organization.owner)),
     requestedBy: user.id,
-    status: (await answersFor(req, user, organization)) ? 'approved' : 'pending',
+    status: answers ? 'approved' : 'pending',
     expiresAt: new Date(expiresAt).toISOString(),
   }
 }
@@ -202,8 +210,8 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
   const ownerId = relationId(doc.organizationOwner)
   const title = escapeHtml(doc.eventTitle)
 
-  // The obec's admin inviting the obec has consented by inviting (prepareRequest) — still news to
-  // everyone else on the event, who from now on can't edit it (Events lockedEventIds).
+  // An owner inviting their own organization has consented by inviting (prepareRequest) — still
+  // news to everyone else on the event.
   const approvedOnCreate = operation === 'create' && doc.status === 'approved'
   if (operation === 'create' && !approvedOnCreate) {
     const requester = await req.payload.find({

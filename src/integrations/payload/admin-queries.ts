@@ -125,9 +125,11 @@ export async function deleteEvent(eventId: string): Promise<void> {
   await patch(`/events/${eventId}`, { deletedAt: new Date().toISOString(), status: "cancelled" });
 }
 
-/** The obec takes the "Dobrovolnictví" flag off an event in it (US-A-09) — its creator sets it. */
+/** The event's creator takes the "Dobrovolnictví" flag off their event — nobody else may (Events
+ * guardIsVolunteering). */
 export async function removeVolunteeringFlag(eventId: string): Promise<void> {
-  await patch(`/events/${eventId}`, { isVolunteering: false });
+  // Its own endpoint — works even when the obec co-organizing the event locks the creator out of editing.
+  await post(`/events/${eventId}/volunteering`, { isVolunteering: false });
 }
 
 // --- Žádosti: role organizátora ---------------------------------

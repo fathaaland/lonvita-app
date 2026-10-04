@@ -446,6 +446,10 @@ export interface Event {
    * The owners of coOrganizations — what access checks, deletion consent and the co-organizers' dashboards key on.
    */
   coOrganizers?: (number | User)[] | null;
+  /**
+   * When the obec stepped off co-organizing the event (its own decision, no consent needed). It can never co-organize it again.
+   */
+  obecLeftAt?: string | null;
   lockedForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
@@ -1227,6 +1231,7 @@ export interface EventsSelect<T extends boolean = true> {
   organization?: T;
   coOrganizations?: T;
   coOrganizers?: T;
+  obecLeftAt?: T;
   lockedForViewer?: T;
   deletionNeedsConsent?: T;
   status?: T;

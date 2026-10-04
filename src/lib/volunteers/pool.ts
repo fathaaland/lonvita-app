@@ -32,7 +32,8 @@ export type VolunteerCard = {
   volunteer_note: string | null
   volunteer_since: string | null
   rating: { average: number; count: number } | null
-  /** The viewer may take them off the pool (a platform admin, or an admin of the obec they help in). */
+  /** The viewer may take them off the pool — a platform admin, or an admin of the obec they help in
+   * while they have no role on any event (helpingOnEvents). */
   can_remove: boolean
 }
 
@@ -72,12 +73,59 @@ export async function ratingsByVolunteer(
   return result
 }
 
+/** Of `userIds`, who has a role on an event right now — a volunteer place (pending or approved) on
+ * one that hasn't ended and wasn't cancelled. Such a volunteer is the event creator's to decide
+ * about, so the obec doesn't take them off the pool meanwhile. */
+export async function helpingOnEvents(payload: Payload, userIds: (number | string)[]): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const registrations = await payload.find({
+    collection: 'registrations',
+    where: {
+      and: [
+        { user: { in: userIds } },
+        { role: { equals: 'volunteer' } },
+        { status: { in: ['pending', 'approved'] } },
+        { deletedAt: { exists: false } },
+      ],
+    },
+    select: { user: true, event: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  if (registrations.docs.length === 0) return new Set()
+  const now = new Date().toISOString()
+  const events = await payload.find({
+    collection: 'events',
+    where: {
+      and: [
+        { id: { in: [...new Set(registrations.docs.map((r) => relId(r.event)))] } },
+        { status: { not_equals: 'cancelled' } },
+        notDeleted,
+        {
+          or: [
+            { endDateTime: { greater_than_equal: now } },
+            { and: [{ endDateTime: { exists: false } }, { dateTime: { greater_than_equal: now } }] },
+          ],
+        },
+      ],
+    },
+    select: { status: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  const ongoing = new Set(events.docs.map((e) => e.id))
+  return new Set(registrations.docs.filter((r) => ongoing.has(relId(r.event)!)).map((r) => String(relId(r.user))))
+}
+
 /** Profiles read at depth 1 (avatar, volunteerMunicipality populated) → the volunteers' cards. */
 export async function toVolunteerCards(payload: Payload, profiles: Profile[], viewer: Viewer): Promise<VolunteerCard[]> {
   const userIds = profiles.map((p) => relId(p.user)!)
-  const [ratings, administeredIds] = await Promise.all([
+  const [ratings, administeredIds, helping] = await Promise.all([
     ratingsByVolunteer(payload, userIds),
     viewer.role === 'admin' ? Promise.resolve([] as string[]) : getAdministeredMunicipalityIds(payload, viewer.id),
+    viewer.role === 'admin' ? Promise.resolve(new Set<string>()) : helpingOnEvents(payload, userIds),
   ])
 
   return profiles.map((p) => {
@@ -95,7 +143,9 @@ export async function toVolunteerCards(payload: Payload, profiles: Profile[], vi
       volunteer_note: p.volunteerNote ?? null,
       volunteer_since: p.volunteerSince ?? null,
       rating: ratings.get(userId) ?? null,
-      can_remove: viewer.role === 'admin' || (place !== null && administeredIds.includes(String(place.id))),
+      can_remove:
+        viewer.role === 'admin' ||
+        (place !== null && administeredIds.includes(String(place.id)) && !helping.has(String(userId))),
     }
   })
 }
