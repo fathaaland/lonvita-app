@@ -4,8 +4,9 @@ import config from '@/payload.config'
 import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 
 // What the /superadmin panel is allowed to do, enforced where it counts — in the collections,
-// not just in the panel's UI. Covers: deleting an account the panel itself provisioned, handing
-// out the platform role, and making someone a pořadatel without the obec role.
+// not just in the panel's UI. Covers: hard-deleting an account (scripts only — the panel anonymizes,
+// see account-anonymization.int.spec.ts), handing out the platform role, and making someone a
+// pořadatel without the obec role.
 
 let payload: Payload
 
@@ -104,16 +105,21 @@ describe('Superadmin restrictions', () => {
     await payload.delete({ collection: 'municipalities', id: otherMunicipality.id, overrideAccess: true }).catch(() => {})
   })
 
-  describe('deleting an account', () => {
-    it('deletes an account the panel provisioned, together with its profile and roles', async () => {
+  describe('hard-deleting an account', () => {
+    it('is closed over the API, even to the superadmin — the panel anonymizes instead', async () => {
+      const user = await provisionFromPanel('rest-delete')
+      await expect(
+        payload.delete({ collection: 'users', id: user.id, user: superadmin, overrideAccess: false }),
+      ).rejects.toThrow()
+      const stillThere = await payload.findByID({ collection: 'users', id: user.id, overrideAccess: true })
+      expect(stillThere.id).toBe(user.id)
+      await payload.delete({ collection: 'users', id: user.id, overrideAccess: true })
+    })
+
+    it('a script deletes an account the panel provisioned, together with its profile and roles', async () => {
       const user = await provisionFromPanel('provisioned')
 
-      const deleted = await payload.delete({
-        collection: 'users',
-        id: user.id,
-        user: superadmin,
-        overrideAccess: false,
-      })
+      const deleted = await payload.delete({ collection: 'users', id: user.id, overrideAccess: true })
       expect(deleted.id).toBe(user.id)
 
       const profiles = await payload.find({
@@ -130,7 +136,7 @@ describe('Superadmin restrictions', () => {
       expect(roles.totalDocs).toBe(0)
     })
 
-    it("deletes an account's registrations and notifications along with it", async () => {
+    it("a script deletes an account's registrations and notifications along with it", async () => {
       const organizer = await createAccount('reg-organizer')
       await payload.create({
         collection: 'user-roles',
@@ -156,7 +162,7 @@ describe('Superadmin restrictions', () => {
         overrideAccess: true,
       })
 
-      await payload.delete({ collection: 'users', id: participant.id, user: superadmin, overrideAccess: false })
+      await payload.delete({ collection: 'users', id: participant.id, overrideAccess: true })
 
       const registrations = await payload.find({
         collection: 'registrations',
@@ -187,7 +193,7 @@ describe('Superadmin restrictions', () => {
       })
 
       await expect(
-        payload.delete({ collection: 'users', id: organizer.id, user: superadmin, overrideAccess: false }),
+        payload.delete({ collection: 'users', id: organizer.id, overrideAccess: true }),
       ).rejects.toThrow(/pořadatelem/)
 
       const stillThere = await payload.findByID({ collection: 'users', id: organizer.id, overrideAccess: true })

@@ -5,6 +5,7 @@ import type { Payload } from 'payload'
 import config from '@payload-config'
 import type { VolunteerRating } from '@/payload-types'
 import { notDeleted } from '@/collections/shared/softDelete'
+import { isUnlimitedCapacity } from '@/lib/capacity'
 import { organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
 import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
 
@@ -93,7 +94,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
       ? await payload.find({
           collection: 'events',
           where: { and: [{ id: { in: eventIds } }, { status: { not_equals: 'cancelled' } }, notDeleted] },
-          select: { title: true, dateTime: true, locationText: true },
+          select: { title: true, dateTime: true, locationText: true, capacity: true },
           sort: '-dateTime',
           depth: 0,
           pagination: false,
@@ -131,7 +132,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
       date_time: e.dateTime,
       location_text: e.locationText ?? null,
       upcoming: new Date(e.dateTime).getTime() > now,
-      attended: attendedEventIds.has(e.id),
+      // An event with unlimited capacity keeps no attendance — being on it as a volunteer is it.
+      attended: attendedEventIds.has(e.id) || isUnlimitedCapacity(e.capacity),
     })),
   })
 }

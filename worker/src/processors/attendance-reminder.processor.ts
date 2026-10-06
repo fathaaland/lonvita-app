@@ -1,4 +1,5 @@
 import { escapeHtml } from '@/collections/shared/notify'
+import { isUnlimitedCapacity } from '@/lib/capacity'
 import { logger } from '@/lib/logger'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -17,9 +18,9 @@ const relId = (value: unknown): number | string =>
 /**
  * E-mails the organizer the "vyplňte docházku" nudge scheduled by `scheduleAttendanceReminder` —
  * unless, by the time it fires, there's nothing to fill in: the event was cancelled or deleted,
- * moved later (a fresh job exists for the new time), nobody was approved for it, or the organizer
- * already marked every approved participant. Email-only on purpose: it's a "did you remember"
- * nudge, not something to keep in the in-app list.
+ * moved later (a fresh job exists for the new time), it has unlimited capacity (no attendance is kept
+ * there), nobody was approved for it, or the organizer already marked every approved participant.
+ * Email-only on purpose: it's a "did you remember" nudge, not something to keep in the in-app list.
  */
 export const processAttendanceReminderJob = async (
   data: AttendanceReminderJobData,
@@ -36,6 +37,8 @@ export const processAttendanceReminderJob = async (
     .catch(() => null)
   if (!event || event.deletedAt || event.status === 'cancelled') return skip('event_gone')
   if (new Date(event.endDateTime ?? event.dateTime).getTime() > Date.now()) return skip('event_not_over')
+  // Checked when it fires, not when it's queued — the capacity may change in between.
+  if (isUnlimitedCapacity(event.capacity)) return skip('unlimited_capacity')
 
   const [approved, unmarked] = await Promise.all([
     payload.count({

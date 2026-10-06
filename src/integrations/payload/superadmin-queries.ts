@@ -111,7 +111,10 @@ type PayloadUserRoleRaw = { id: number; user: number | { id: number }; municipal
 
 export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
   const [usersRes, profilesRes, rolesRes, munisRes] = await Promise.all([
-    get<PayloadListResponse<PayloadUserRaw>>("/users?sort=email&depth=0&limit=1000"),
+    // A deleted (anonymized) account is nobody any more — it isn't listed.
+    get<PayloadListResponse<PayloadUserRaw>>(
+      `/users?${buildWhereParams({ anonymizedAt: { exists: false } })}&sort=email&depth=0&limit=1000`,
+    ),
     get<PayloadListResponse<PayloadProfileRaw>>("/profiles?depth=0&limit=1000"),
     get<PayloadListResponse<PayloadUserRoleRaw>>("/user-roles?depth=0&limit=2000"),
     get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
@@ -207,8 +210,10 @@ export async function updateUserAsSuperAdmin(
   });
 }
 
+/** "Smazat účet" — anonymizes it rather than deleting it, so the obec's and the organizers'
+ * overviews keep what the person took part in (shared/anonymizeUser). */
 export async function deleteUserAsSuperAdmin(userId: string): Promise<void> {
-  await del(`/users/${userId}`);
+  await post(`/superadmin/users/${userId}/anonymize`);
 }
 
 // --- Events -------------------------------------------------------------------------------

@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { EventFeedbackDialog, FeedbackTarget } from "@/components/EventFeedbackCard";
 import { CalendarHeart, Clock, Megaphone, Star } from "lucide-react";
 import { toast } from "sonner";
+import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isPast } from "@/lib/date";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 
@@ -62,7 +63,8 @@ function RatingRow({ item, onRate }: { item: Item; onRate: () => void }) {
       </Button>
     );
   }
-  if (reg.attendance === "not_marked") {
+  // An event with unlimited capacity keeps no attendance, so nothing ever unlocks rating it.
+  if (reg.attendance === "not_marked" && !isUnlimitedCapacity(item.event.capacity)) {
     return <p className="mt-2 px-1 text-sm text-muted-foreground">Ohodnotit půjde, až pořadatel potvrdí vaši účast.</p>;
   }
   return null;

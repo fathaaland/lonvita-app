@@ -9,6 +9,7 @@ import type {
 } from 'payload'
 import { APIError } from 'payload'
 
+import { isUnlimitedCapacity } from '@/lib/capacity'
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
 import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
@@ -148,6 +149,17 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
     // (guardOwnCancellation) carries the participant's own words.
     if (doc.status === 'cancelled') {
       const recipients = await getEventTeamUserIds(req.payload, event, { exclude: [req.user?.id, userId] })
+      // Cancelled because they deleted their account (shared/anonymizeUser) — said without a name.
+      if (recipients.length > 0 && context?.accountDeleted) {
+        const message = `${doc.role === 'volunteer' ? 'Dobrovolník' : 'Účastník'} si smazal(a) účet — na akci „${event.title}“ nepřijde.`
+        await sendNotificationToMany(req.payload, recipients, {
+          title: 'Přihláška zrušena',
+          message,
+          link: `/spravovat/${eventId}`,
+          email: { subject: `Zrušená přihláška: ${event.title}`, body: `<p>${escapeHtml(message)}</p>` },
+        })
+        return doc
+      }
       if (recipients.length > 0) {
         const volunteer = doc.role === 'volunteer'
         const who = await describeUser(req.payload, userId)
@@ -180,10 +192,10 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
         userId,
         link: `/akce/${eventId}`,
         title: 'Pořadatel vás z akce odhlásil',
-        message: `Pořadatel vás odhlásil z akce „${event.title}“ — už s vámi na ní nepočítá.`,
+        message: `Pořadatel vás odhlásil z akce „${event.title}“ — už s vámi na ní nepočítá. Znovu se přihlásit nejde.`,
         email: {
           subject: `Odhlášení z akce: ${event.title}`,
-          body: `<p>Pořadatel vás odhlásil z akce <strong>${escapeHtml(event.title)}</strong> — už s vámi na ní nepočítá.</p>`,
+          body: `<p>Pořadatel vás odhlásil z akce <strong>${escapeHtml(event.title)}</strong> — už s vámi na ní nepočítá. Znovu se přihlásit nejde.</p>`,
         },
       })
       return doc
@@ -259,11 +271,12 @@ const scheduleFeedbackOnAttendance: CollectionAfterChangeHook = async ({ doc, pr
  * the event's own pořadatel (who founded it) fills it in — not its spolupořadatelé, not the obec when
  * it co-organizes — so there's one person answerable for it. Collection-level update access also lets
  * a participant update their own registration (to cancel it), so without this they could PATCH
- * themselves to "attended". Looked up once per request, not once per attendance field. */
+ * themselves to "attended". An event with unlimited capacity keeps no attendance at all — nobody's
+ * counted at the door; its volunteers are rated without it (VolunteerRatings). Looked up once per
+ * request, not once per attendance field. */
 const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
   if (!req.user) return false
-  if (req.user.role === 'admin') return true
-  if (!doc?.event) return false
+  if (!doc?.event) return req.user.role === 'admin'
   const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
   const cacheKey = `canMarkAttendance:${eventId}`
   if (typeof req.context[cacheKey] === 'boolean') return req.context[cacheKey]
@@ -272,7 +285,10 @@ const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
     .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     .catch(() => null)
   const organizerId = event ? (typeof event.organizer === 'object' ? event.organizer.id : event.organizer) : null
-  const allowed = organizerId !== null && String(organizerId) === String(req.user.id)
+  const allowed =
+    event !== null &&
+    !isUnlimitedCapacity(event.capacity) &&
+    (req.user.role === 'admin' || String(organizerId) === String(req.user.id))
   req.context[cacheKey] = allowed
   return allowed
 }
@@ -284,7 +300,8 @@ const relId = (value: unknown) => (value && typeof value === 'object' ? (value a
  * prompt and the volunteer rating hang off it. Field access (canMarkAttendance) is what actually
  * keeps anyone else out, but Payload drops such a field silently; this runs first (beforeOperation
  * precedes every field pass) purely to answer with a real error instead of a 200 that changed
- * nothing. Only when access control applies (every REST request); a platform admin may still correct.
+ * nothing. Only when access control applies (every REST request); a platform admin may still correct
+ * — except on an event with unlimited capacity, which keeps no attendance (canMarkAttendance).
  */
 const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'update') return args
@@ -295,13 +312,17 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
   }
   // No id = a bulk update by `where`; field access still strips the field there.
   if (overrideAccess !== false || data?.attendanceStatus === undefined || id === undefined) return args
-  if (!req.user || req.user.role === 'admin') return args
+  if (!req.user) return args
 
   const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
   if (current.attendanceStatus === data.attendanceStatus) return args
   const event = await req.payload
     .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
+  if (event && isUnlimitedCapacity(event.capacity)) {
+    throw new APIError('U akce s neomezenou kapacitou se docházka nevyplňuje — dobrovolníky ohodnotíte rovnou.', 400)
+  }
+  if (req.user.role === 'admin') return args
   if (!event || String(relId(event.organizer)) !== String(req.user.id)) {
     throw new APIError('Docházku zapisuje jen pořadatel, který akci založil.', 403)
   }
@@ -672,7 +693,9 @@ export const Registrations: CollectionConfig = {
 
         // A cancelled registration doesn't block re-registering — both rows stay in
         // history (cancel + re-register), which matches append-only event tracking (brief §A2)
-        // better than the old hard-delete-and-recreate flow did.
+        // better than the old hard-delete-and-recreate flow did. A rejected one does, for good:
+        // whoever runs the event turned them down or took them off it (guardStatusChange), and
+        // there's nobody to appeal to — the same as offering help (VolunteerInvitations).
         const existing = await req.payload.find({
           collection: 'registrations',
           where: {
@@ -685,8 +708,11 @@ export const Registrations: CollectionConfig = {
           limit: 1,
         })
 
+        if (existing.docs[0]?.status === 'rejected') {
+          throw new APIError('Pořadatel vaši účast na téhle akci zrušil — znovu se přihlásit nejde.', 400)
+        }
         if (existing.docs.length > 0) {
-          throw new Error('This user is already registered for this event.')
+          throw new APIError('Na akci už jste přihlášení.', 400)
         }
 
         if (operation === 'create') {

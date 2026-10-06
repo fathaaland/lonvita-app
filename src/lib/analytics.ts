@@ -44,6 +44,8 @@ export interface ProfileRow {
   full_name: string;
   created_at: string;
   date_of_birth?: string | null;
+  /** A deleted (anonymized) account keeps only this in place of its date of birth. */
+  over_50?: boolean;
 }
 
 export interface FeedbackRow {
@@ -51,6 +53,12 @@ export interface FeedbackRow {
   registration_id: string;
   satisfaction_rating: number;
   felt_welcome_rating: number | null;
+}
+
+/** Counted among the residents aged 50+ (Datavita) — by the date of birth, or for a deleted account
+ * by what was kept of it. */
+export function isAged50Plus(profile: Pick<ProfileRow, "date_of_birth" | "over_50">, on: Date): boolean {
+  return profile.date_of_birth ? ageOn(profile.date_of_birth, on) >= 50 : Boolean(profile.over_50);
 }
 
 /** Age on a given date from an ISO date-of-birth string — shared by the Datavita calc and the report. */
@@ -344,7 +352,7 @@ export function datavitaSeries(
   const today = startOfWeek(new Date());
   const now = new Date();
   const profiles50Plus = new Set(
-    profiles.filter((p) => p.date_of_birth && ageOn(p.date_of_birth, now) >= 50).map((p) => p.id),
+    profiles.filter((p) => isAged50Plus(p, now)).map((p) => p.id),
   );
   const approved = regs.filter((r) => r.status === "approved");
 

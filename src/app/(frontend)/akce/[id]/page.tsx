@@ -11,6 +11,7 @@ import {
   getRegistrationCounts,
   getMyAdministeredMunicipalityIds,
   createRegistration,
+  wasTurnedAwayFromEvent,
   decideVolunteerInvitation,
   getMyVolunteerRequestForEvent,
   offerVolunteerHelp,
@@ -36,7 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { VolunteeringCard } from "@/components/VolunteeringCard";
 import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart, XCircle } from "lucide-react";
 import { formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/date";
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS, registrationDeadline } from "@/lib/registrationCutoff";
 import { getCategoryIcon } from "@/lib/icons";
@@ -70,14 +71,18 @@ function EventDetailContent() {
   const [submitting, setSubmitting] = useState(false);
   // The viewer's pending invitation/offer to help on the event (or their last declined offer).
   const [volunteerRequest, setVolunteerRequest] = useState<MyVolunteerRequest | null>(null);
+  // Whoever runs the event turned the viewer down or took them off it — signing up again is refused.
+  const [turnedAway, setTurnedAway] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
 
   const refreshRegistrations = async (eventId: string) => {
-    const [regRows, countRows] = await Promise.all([
+    const [regRows, countRows, rejected] = await Promise.all([
       user ? getEventRegistrationsWithNames(eventId) : Promise.resolve([]),
       getRegistrationCounts([eventId]),
+      user ? wasTurnedAwayFromEvent(eventId, String(user.id)).catch(() => false) : Promise.resolve(false),
     ]);
     setRegs(regRows);
+    setTurnedAway(rejected);
     setCounts(countRows.get(eventId) ?? { approved: 0, pending: 0 });
   };
 
@@ -515,6 +520,10 @@ function EventDetailContent() {
               )}
             </div>
             <CancelRegistrationDialog registration={myReg} event={event} onCancelled={load} />
+          </div>
+        ) : turnedAway ? (
+          <div className="flex items-center justify-center gap-2 py-3 text-center text-sm font-semibold text-muted-foreground">
+            <XCircle className="h-5 w-5 shrink-0" /> Pořadatel vaši účast na akci zrušil — znovu se přihlásit nejde.
           </div>
         ) : pendingOffer ? (
           <div className="space-y-2">

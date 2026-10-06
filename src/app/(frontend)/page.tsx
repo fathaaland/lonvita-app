@@ -21,6 +21,7 @@ import { Sparkles, MapPin, ChevronDown, Globe2 } from "lucide-react";
 import { isToday, isThisWeek, isPast } from "@/lib/date";
 import { getCategoryIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 // Brief §2 "Nepřihlášený návštěvník má mít možnost prohlédnout si přehled akcí v obci" + brief
 // §"uživatel není vázaný lokací... může se přepínat mezi městy" — which municipality's events
@@ -132,6 +133,16 @@ function IndexContent() {
   useEffect(() => {
     setCategoryId(searchParams.get("kategorie"));
   }, [searchParams]);
+
+  // Landed here from the profile's "Smazat účet" (DeleteAccountCard) — say it worked, once.
+  useEffect(() => {
+    if (searchParams.get("ucet-smazan") !== "1") return;
+    toast.success("Účet byl smazán. Děkujeme, že jste byli s námi.");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("ucet-smazan");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [searchParams, pathname, router]);
 
   const updateCategory = (next: string | null) => {
     setCategoryId(next);

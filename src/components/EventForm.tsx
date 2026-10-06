@@ -417,6 +417,11 @@ export function EventForm({
           />
           <span>Neomezená kapacita.</span>
         </label>
+        {unlimitedCapacity && (
+          <p className="text-xs text-muted-foreground mt-1.5">
+            U akce bez omezení kapacity se nevyplňuje docházka — po akci jen ohodnotíte dobrovolníky.
+          </p>
+        )}
       </div>
 
       <div>

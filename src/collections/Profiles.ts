@@ -262,6 +262,14 @@ export const Profiles: CollectionConfig = {
       access: { read: canReadDateOfBirth },
     },
     {
+      // Set by shared/anonymizeUser in place of the date of birth, which goes — the obec's overview
+      // keeps counting its residents aged 50+ (Datavita) without knowing anyone's birthday.
+      name: 'over50',
+      type: 'checkbox',
+      access: { read: canReadDateOfBirth, create: () => false, update: () => false },
+      admin: { readOnly: true, position: 'sidebar' },
+    },
+    {
       name: 'gender',
       type: 'select',
       access: { read: canReadOwnProfileField },

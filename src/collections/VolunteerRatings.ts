@@ -2,6 +2,7 @@ import type { Access, CollectionBeforeValidateHook, CollectionConfig, Where } fr
 import { APIError } from 'payload'
 
 import { deletedAtField, notDeleted } from './shared/softDelete'
+import { isUnlimitedCapacity } from '@/lib/capacity'
 
 const relationId = (value: unknown): string | null => {
   if (value == null) return null
@@ -28,9 +29,10 @@ const canReadRating: Access = async ({ req: { user, payload } }) => {
 
 /**
  * Everything but the stars and the comment is derived from the registration. Only for a volunteer
- * marked as attended, once the event has started — and only by the event's own pořadatel, whoever
- * else co-organizes it (the obec included): the same person who fills in its attendance. Once, and
- * for good: a rating can't be changed afterwards (the pořadatel confirms it first).
+ * marked as attended — on an event with unlimited capacity, which keeps no attendance, any volunteer
+ * still on it — once the event has started, and only by the event's own pořadatel, whoever else
+ * co-organizes it (the obec included): the same person who fills in its attendance. Once, and for
+ * good: a rating can't be changed afterwards (the pořadatel confirms it first).
  */
 const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (!data) return data
@@ -49,12 +51,16 @@ const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operatio
   if (!registration || registration.role !== 'volunteer') {
     throw new APIError('Hodnotit jde jen dobrovolníka na akci.', 400)
   }
-  if (registration.attendanceStatus !== 'attended') {
-    throw new APIError('Dobrovolníka ohodnotíte, až ho v docházce označíte jako přítomného.', 400)
-  }
 
   const eventId = relationId(registration.event)!
   const event = await payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
+  if (isUnlimitedCapacity(event.capacity)) {
+    if (registration.status !== 'approved') {
+      throw new APIError('Dobrovolník na akci nakonec nebyl — hodnotit ho nejde.', 400)
+    }
+  } else if (registration.attendanceStatus !== 'attended') {
+    throw new APIError('Dobrovolníka ohodnotíte, až ho v docházce označíte jako přítomného.', 400)
+  }
   if (new Date(event.dateTime).getTime() > Date.now()) {
     throw new APIError('Dobrovolníka ohodnotíte po akci.', 400)
   }

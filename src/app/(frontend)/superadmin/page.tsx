@@ -468,9 +468,9 @@ function SuperAdminContent() {
   };
 
   /** Taking away someone's only remaining obec role leaves an account that belongs nowhere, so
-   * it goes with the role. Deleting the user is enough on its own — Users' beforeDelete hook
-   * clears their user-roles row (and the rest of their data) in the same transaction, so there's
-   * no window where the role is gone but the account isn't. */
+   * it goes with the role. Deleting the account is enough on its own — the anonymization takes
+   * every role with it in the same transaction, so there's no window where the role is gone but
+   * the account isn't. */
   const handleDeleteWithLastRole = async () => {
     if (!lastRoleRevoke) return;
     setDeletingLastRole(true);
@@ -934,7 +934,7 @@ function SuperAdminContent() {
                     </Button>
                     <ConfirmDeleteButton
                       title={`Smazat uživatele „${u.fullName ?? u.email}“?`}
-                      description="Smazání účtu nejde vrátit zpět. Smaže se i profil, role, přihlášky na akce a oznámení."
+                      description="Smazání účtu nejde vrátit zpět. Jméno, kontakty a role se smažou, z budoucích akcí se odhlásí. Účast na proběhlých akcích a hodnocení zůstanou obci jako anonymní statistika."
                       onConfirm={() => handleDeleteUser(u.id)}
                       errorMessage="Uživatele se nepodařilo smazat."
                     />
@@ -1244,7 +1244,8 @@ function SuperAdminContent() {
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     Tohle je jediná role, kterou uživatel má. Bez role by účet nepatřil do žádné obce, takže se
-                    spolu s rolí smaže i on — včetně profilu, přihlášek na akce a oznámení. Nejde to vrátit zpět.
+                    spolu s rolí smaže i on — jméno a kontakty zmizí, z budoucích akcí se odhlásí a účast na
+                    proběhlých akcích zůstane obci jen jako anonymní statistika. Nejde to vrátit zpět.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

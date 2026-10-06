@@ -99,7 +99,8 @@ export async function describeUser(payload: Payload, userId: number | string): P
     payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }).catch(() => null),
   ])
   const name = profile.docs[0]?.fullName?.trim()
-  const email = user?.email
+  // A deleted (anonymized) account's address is a placeholder nobody reads — just "Anonymní uživatel".
+  const email = user?.anonymizedAt ? undefined : user?.email
   if (name && email) return `${name} (${email})`
   return name || email || 'Účastník'
 }

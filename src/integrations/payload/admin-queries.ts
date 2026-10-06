@@ -103,7 +103,7 @@ export async function getAllCategoriesForAdmin(): Promise<CategoryRow[]> {
   return result.docs.map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
 }
 
-type PayloadProfileAdmin = { id: number; fullName: string; createdAt: string; dateOfBirth?: string | null };
+type PayloadProfileAdmin = { id: number; fullName: string; createdAt: string; dateOfBirth?: string | null; over50?: boolean | null };
 
 export async function getMunicipalityProfilesForAdmin(municipalityId: string): Promise<ProfileWithDob[]> {
   const where = buildWhereParams({ municipality: { equals: municipalityId } });
@@ -114,6 +114,7 @@ export async function getMunicipalityProfilesForAdmin(municipalityId: string): P
     full_name: p.fullName,
     created_at: p.createdAt,
     date_of_birth: p.dateOfBirth ?? null,
+    over_50: Boolean(p.over50),
   })) as ProfileWithDob[];
 }
 

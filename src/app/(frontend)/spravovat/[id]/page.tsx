@@ -35,6 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isPast } from "@/lib/date";
 import { toast } from "sonner";
 
@@ -56,6 +57,8 @@ function ManageEventContent() {
   // Attendance, the volunteers and their ratings are the pořadatel who founded the event's alone —
   // not its spolupořadatelé, not the obec co-organizing it (Registrations canMarkAttendance).
   const [isCreator, setIsCreator] = useState(false);
+  // An event with unlimited capacity keeps no attendance — its volunteers are rated straight away.
+  const [unlimited, setUnlimited] = useState(false);
   // Attendance picked on the page but not yet confirmed — nothing reaches the participant
   // (and nobody can rate the event) until "Potvrdit docházku" saves it, for good.
   const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({});
@@ -79,6 +82,7 @@ function ManageEventContent() {
     setLoading(false);
     if (ev) {
       setStartsAt(ev.date_time);
+      setUnlimited(isUnlimitedCapacity(ev.capacity));
       setIsCreator(Boolean(user) && ev.organizer_id === String(user!.id));
       const orgName = ev.organization
         ? ev.organization.name
@@ -227,7 +231,7 @@ function ManageEventContent() {
               </Button>
             )}
 
-            {r.status === "approved" && started && (
+            {r.status === "approved" && started && !unlimited && (
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">Docházka</p>
                 {r.attendance_status !== "not_marked" ? (
@@ -259,8 +263,9 @@ function ManageEventContent() {
               </div>
             )}
 
-            {/* A volunteer who came is rated by the pořadatel — it builds their card in the pool. */}
-            {r.role === "volunteer" && r.status === "approved" && started && r.attendance_status === "attended" && (
+            {/* A volunteer who came is rated by the pořadatel — it builds their card in the pool. Without
+                attendance (unlimited capacity), any volunteer still on the event. */}
+            {r.role === "volunteer" && r.status === "approved" && started && (unlimited || r.attendance_status === "attended") && (
               <RateVolunteer
                 registrationId={r.id}
                 name={r.full_name}
@@ -272,12 +277,19 @@ function ManageEventContent() {
           </CardContent></Card>
         ))}
 
-        {hasApproved && !started && (
+        {hasApproved && unlimited && (
+          <p className="text-sm text-muted-foreground">
+            U akce s neomezenou kapacitou se docházka nevyplňuje.
+            {isCreator && !started && regs.some((r) => r.role === "volunteer" && r.status === "approved") &&
+              " Dobrovolníky ohodnotíte, až akce začne."}
+          </p>
+        )}
+        {hasApproved && !unlimited && !started && (
           <p className="text-sm text-muted-foreground">
             {isCreator ? "Docházku vyplníte, až akce začne." : "Docházku vyplní pořadatel, který akci založil, až akce začne."}
           </p>
         )}
-        {isCreator && started && unmarked.length > 0 && (
+        {isCreator && started && !unlimited && unmarked.length > 0 && (
           <div className="space-y-2 pt-2">
             <Button onClick={() => setConfirmOpen(true)} disabled={changeCount === 0} size="lg" className="h-12 w-full">
               <Check className="h-4 w-4" />

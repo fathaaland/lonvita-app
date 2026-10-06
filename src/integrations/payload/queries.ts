@@ -9,6 +9,7 @@ import type { PayloadListResponse } from "./client";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 import type { OrganizationFeedbackSummary } from "@/lib/organization-stats";
+import { ACCOUNT_DELETION_CONFIRMATION, type AccountDeletionBlockingEvent } from "@/lib/accountDeletion";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -539,6 +540,18 @@ export async function getEventRegistrationsWithNames(
     full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
     avatar_url: avatarByUser.get(toId(r.user) ?? "") ?? null,
   }));
+}
+
+/** Whoever runs the event turned this user down or took them off it — for good: signing up again
+ * is refused (Registrations), so the detail page says so instead of offering "Přihlásit se". */
+export async function wasTurnedAwayFromEvent(eventId: string, userId: string): Promise<boolean> {
+  const where = buildWhereParams({
+    event: { equals: eventId },
+    user: { equals: userId },
+    status: { equals: "rejected" },
+  });
+  const result = await get<PayloadListResponse<PayloadRegistration>>(`/registrations?${where}&depth=0&limit=1`);
+  return result.docs.length > 0;
 }
 
 export async function getOrganizerName(userId: string): Promise<string | null> {
@@ -1388,6 +1401,19 @@ const CONSENT_VERSION = "1.0";
 type PayloadConsent = { id: number; type: string; revokedAt?: string | null };
 
 /** Whether the user currently has an active (non-revoked) marketing consent. */
+// --- Deleting one's own account ---------------------------------------------------------
+
+/** The events ahead the signed-in user still runs or co-organizes — the account can't be deleted
+ * until they're cancelled or left (GET /api/account/delete). */
+export async function getAccountDeletionBlockers(): Promise<AccountDeletionBlockingEvent[]> {
+  return (await get<{ blockingEvents: AccountDeletionBlockingEvent[] }>("/account/delete")).blockingEvents;
+}
+
+/** Deletes (anonymizes) the signed-in user's account and drops their session cookie. */
+export async function deleteMyAccount(): Promise<void> {
+  await post("/account/delete", { confirm: ACCOUNT_DELETION_CONFIRMATION });
+}
+
 export async function getMarketingConsent(userId: string): Promise<boolean> {
   const where = buildWhereParams({ user: { equals: userId }, type: { equals: "marketing" } });
   const query = buildQuery({ sort: "-createdAt", limit: 1, depth: 0 });

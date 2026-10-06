@@ -90,7 +90,7 @@ describe('Registrations & EventFeedback', () => {
           data: { event: event.id, user: participant.id, status: 'pending' },
           overrideAccess: true,
         }),
-      ).rejects.toThrow(/already registered/)
+      ).rejects.toThrow(/už jste přihlášení/)
 
       await payload.delete({ collection: 'registrations', id: first.id, overrideAccess: true })
     })
@@ -422,6 +422,26 @@ describe('Registrations & EventFeedback', () => {
         overrideAccess: true,
       })
       expect(notifications.docs[0]?.title).toBe('Pořadatel vás z akce odhlásil')
+    })
+
+    it('for good — they cannot sign up for it again, and are told so', async () => {
+      const reg = await approvedRegistration()
+      await payload.update({
+        collection: 'registrations',
+        id: reg.id,
+        data: { status: 'rejected' },
+        user: organizer,
+        overrideAccess: false,
+      })
+
+      const again = payload.create({
+        collection: 'registrations',
+        data: { event: event.id, user: participant.id },
+        user: participant,
+        overrideAccess: false,
+      })
+      await expect(again).rejects.toThrow(/znovu se přihlásit nejde/)
+      await expect(again).rejects.toMatchObject({ status: 400 })
     })
 
     it('drops their 24h reminder', async () => {

@@ -28,6 +28,7 @@ import * as migration_20261003_130458_remove_volunteer_flag_requests from './202
 import * as migration_20261004_081355_co_organizer_removal from './20261004_081355_co_organizer_removal';
 import * as migration_20261004_142135_obec_left_at from './20261004_142135_obec_left_at';
 import * as migration_20261004_194744_registration_cutoff from './20261004_194744_registration_cutoff';
+import * as migration_20261005_153854_account_anonymization from './20261005_153854_account_anonymization';
 
 export const migrations = [
   {
@@ -178,6 +179,11 @@ export const migrations = [
   {
     up: migration_20261004_194744_registration_cutoff.up,
     down: migration_20261004_194744_registration_cutoff.down,
-    name: '20261004_194744_registration_cutoff'
+    name: '20261004_194744_registration_cutoff',
+  },
+  {
+    up: migration_20261005_153854_account_anonymization.up,
+    down: migration_20261005_153854_account_anonymization.down,
+    name: '20261005_153854_account_anonymization'
   },
 ];

@@ -8,7 +8,7 @@ import type {
   RegistrationRow,
   ProfileRow,
 } from "./analytics";
-import { ageOn, computeDatavitaWindow } from "./analytics";
+import { computeDatavitaWindow, isAged50Plus } from "./analytics";
 
 export interface ProfileWithDob extends ProfileRow {
   date_of_birth?: string | null;
@@ -154,7 +154,7 @@ export function computeReportMetrics(
 
   const profiles50Plus = new Set(
     profiles
-      .filter((p) => p.date_of_birth && ageOn(p.date_of_birth, now) >= 50)
+      .filter((p) => isAged50Plus(p, now))
       .map((p) => p.id),
   );
 

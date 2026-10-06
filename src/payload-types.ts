@@ -169,6 +169,10 @@ export interface User {
    * Platform-level role — controls Payload admin access, not community roles. Not editable through the app: grant it from a seed/script (Local API) only.
    */
   role: 'admin' | 'user';
+  /**
+   * When the account was deleted. Its personal data is gone; the row stays so the registrations, attendance and ratings hanging off it keep counting in the overviews.
+   */
+  anonymizedAt?: string | null;
   tenants?:
     | {
         tenant: number | Municipality;
@@ -314,6 +318,7 @@ export interface Profile {
    */
   notifyInApp?: boolean | null;
   dateOfBirth?: string | null;
+  over50?: boolean | null;
   gender?: ('zena' | 'muz' | 'jine' | 'neuvedeno') | null;
   interests?: (number | EventCategory)[] | null;
   /**
@@ -1079,6 +1084,7 @@ export interface PayloadMigration {
  */
 export interface UsersSelect<T extends boolean = true> {
   role?: T;
+  anonymizedAt?: T;
   tenants?:
     | T
     | {
@@ -1185,6 +1191,7 @@ export interface ProfilesSelect<T extends boolean = true> {
   notifyEmail?: T;
   notifyInApp?: T;
   dateOfBirth?: T;
+  over50?: T;
   gender?: T;
   interests?: T;
   homeArea?: T;

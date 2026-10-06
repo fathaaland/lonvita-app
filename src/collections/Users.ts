@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 
 import type {
   CollectionBeforeDeleteHook,
+  CollectionBeforeLoginHook,
   CollectionBeforeOperationHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
@@ -66,6 +67,14 @@ const lockPlatformRole: CollectionBeforeOperationHook = async ({ args, operation
   }
 
   return args
+}
+
+/** An anonymized account (shared/anonymizeUser) has a random password nobody knows and no
+ * sessions left — this answers a sign-in attempt with a real reason, and is the last word should
+ * one of those ever slip. */
+const refuseAnonymizedLogin: CollectionBeforeLoginHook = ({ user }) => {
+  if (user.anonymizedAt) throw new APIError('Tento účet byl smazán.', 401)
+  return user
 }
 
 /** Collections holding a row that points at a user through a NOT NULL column, in the order they
@@ -159,7 +168,11 @@ export const Users: CollectionConfig = {
     // Only a platform superadmin may edit a user's record. `role` itself is off-limits to
     // everyone over the API — see the field's own access below.
     update: ({ req: { user } }) => user?.role === 'admin',
-    delete: ({ req: { user } }) => user?.role === 'admin',
+    // Deleting an account anonymizes it (POST /api/account/delete, or the superadmin's
+    // …/users/:id/anonymize) — its registrations, attendance and ratings stay in the obec's and the
+    // organizers' overviews. A hard delete would take them along, so it's left to scripts on the
+    // Local API (overrideAccess), where cleanupUserRelations still makes room for it.
+    delete: () => false,
   },
   auth: {
     tokenExpiration: 7200, // 2 hours
@@ -194,8 +207,21 @@ export const Users: CollectionConfig = {
           'Platform-level role — controls Payload admin access, not community roles. Not editable through the app: grant it from a seed/script (Local API) only.',
       },
     },
+    {
+      // Set once by shared/anonymizeUser — never by a client.
+      name: 'anonymizedAt',
+      type: 'date',
+      access: { create: () => false, update: () => false },
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description:
+          'When the account was deleted. Its personal data is gone; the row stays so the registrations, attendance and ratings hanging off it keep counting in the overviews.',
+      },
+    },
   ],
   hooks: {
+    beforeLogin: [refuseAnonymizedLogin],
     beforeOperation: [lockPlatformRole],
     beforeValidate: [setGeneratedPasswordIfMissing],
     beforeDelete: [cleanupUserRelations],

@@ -22,6 +22,7 @@ import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { PersonalDetailsCard } from "@/components/PersonalDetailsCard";
+import { DeleteAccountCard } from "@/components/DeleteAccountCard";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
 import { Loading } from "@/components/Loading";
@@ -170,6 +171,9 @@ function ProfileContent() {
             <LogOut className="h-5 w-5" /> Odhlásit se
           </Button>
         </SignOutButton>
+
+        {/* A platform admin's account can't be deleted through the app (shared/anonymizeUser). */}
+        {!isSuperAdmin && <DeleteAccountCard />}
       </div>
     </div>
   );

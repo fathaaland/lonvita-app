@@ -105,6 +105,7 @@ export async function loadMunicipalityExportData(
       full_name: p.fullName,
       created_at: p.createdAt,
       date_of_birth: p.dateOfBirth ?? null,
+      over_50: Boolean(p.over50),
     })),
     categories,
   }

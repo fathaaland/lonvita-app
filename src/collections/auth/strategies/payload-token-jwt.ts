@@ -36,7 +36,8 @@ const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFun
       overrideAccess: true,
     })
 
-    if (!user) return null
+    // A deleted (anonymized) account — a token minted before still verifies, but nobody is behind it.
+    if (!user || (user as { anonymizedAt?: string | null }).anonymizedAt) return null
 
     const u = user as unknown as AuthenticatedUser
     u.collection = decoded.collection as string
