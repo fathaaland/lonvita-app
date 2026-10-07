@@ -133,6 +133,8 @@ export type EventRow = {
   deletion_needs_consent: boolean;
   /** The obec stopped co-organizing it — it can never come back to it (leaveCoOrganizingAsObec). */
   obec_left: boolean;
+  /** Versions the generated share images (eventShareImagePath), so an edit shows up in them. */
+  updated_at: string | null;
 };
 
 type PayloadMedia = { id: number; url?: string | null; sizes?: { avatar?: { url?: string | null } } };
@@ -174,6 +176,7 @@ type PayloadEvent = {
   lockedForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
   obecLeftAt?: string | null;
+  updatedAt?: string;
 };
 
 const toId = (value: number | { id: number } | null | undefined): string | null => {
@@ -216,6 +219,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   locked_for_viewer: Boolean(e.lockedForViewer),
   deletion_needs_consent: Boolean(e.deletionNeedsConsent),
   obec_left: Boolean(e.obecLeftAt),
+  updated_at: e.updatedAt ?? null,
 });
 
 /** Upcoming (not cancelled) events for a municipality — or, with `null`, across every

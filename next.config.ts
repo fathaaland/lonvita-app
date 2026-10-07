@@ -13,6 +13,11 @@ const nextConfig: NextConfig = {
     // downscaled client-side (src/lib/image.ts); this is headroom for anything that isn't.
     proxyClientMaxBodySize: '25mb',
   },
+  // The event share images read these from disk at runtime (src/lib/share/eventShareImage.tsx) —
+  // no import for the tracer to follow, so the deployment has to be told to keep them.
+  outputFileTracingIncludes: {
+    '/api/events/[id]/share-image': ['./src/lib/exports/fonts/NotoSans-*.ttf', './src/assets/lonvita-symbol.png'],
+  },
   images: {
     localPatterns: [
       {

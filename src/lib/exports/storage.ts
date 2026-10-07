@@ -1,24 +1,15 @@
 import { randomUUID } from 'node:crypto'
 
-import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-import { s3ClientConfig } from '@/lib/s3/client'
+import { getS3Client as getClient, s3Bucket as bucket } from '@/lib/s3/client'
 
 /** Same bucket as the media uploads, under its own prefix — nothing to provision for it. */
 const EXPORTS_PREFIX = 'exports'
 
 /** Only has to outlive the redirect it's handed out in — the durable link is /api/exports/:id/download. */
 const DOWNLOAD_URL_TTL_SECONDS = 5 * 60
-
-let client: S3Client | undefined
-
-const getClient = (): S3Client => {
-  client ??= new S3Client(s3ClientConfig)
-  return client
-}
-
-const bucket = (): string => process.env.S3_BUCKET!
 
 /** The random segment matters: the bucket may be publicly readable (it serves the event photos),
  * and "exports/<sequential id>/<predictable name>" would let anyone fetch a report straight from

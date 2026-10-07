@@ -87,7 +87,7 @@ function CreateEventContent() {
 
       const sent = await sendFollowUpRequests(created.id, values.inviteOrganizationIds);
       toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena!");
-      router.push(`/akce/${created.id}`);
+      router.push(`/akce/${created.id}?sdilet=1`);
     } catch (error) {
       // e.g. the location-radius or past-date checks in Events.ts — their messages are user-facing.
       toast.error(

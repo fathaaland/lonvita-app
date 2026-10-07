@@ -44,6 +44,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!admin|trpc|_vercel|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // The event share images stay out like the other images: the correlation cookie set here would
+    // keep Vercel's CDN from caching them (it doesn't cache a response that sets a cookie).
+    '/((?!admin|trpc|_vercel|_next/static|_next/image|favicon.ico|api/events/[^/]+/share-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

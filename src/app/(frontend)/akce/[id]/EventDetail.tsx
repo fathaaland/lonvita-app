@@ -1,0 +1,655 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  getEvent,
+  getEventCategories,
+  getOrganizerName,
+  getEventRegistrationsWithNames,
+  getRegistrationCounts,
+  getMyAdministeredMunicipalityIds,
+  createRegistration,
+  wasTurnedAwayFromEvent,
+  decideVolunteerInvitation,
+  getMyVolunteerRequestForEvent,
+  getMyReliability,
+  offerVolunteerHelp,
+  withdrawVolunteerOffer,
+  MyVolunteerRequest,
+  CategoryRow,
+  RegistrationCountRow,
+} from "@/integrations/payload/queries";
+import { PayloadApiError } from "@/integrations/payload/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { Loading } from "@/components/Loading";
+import { PageHeader } from "@/components/PageHeader";
+import { CancelEventButton } from "@/components/CancelEventButton";
+import { CancelRegistrationDialog } from "@/components/CancelRegistrationDialog";
+import { OrganizerContactCard } from "@/components/OrganizerContactCard";
+import { EventDeletionConsent } from "@/components/EventDeletionConsent";
+import { ObecLeaveCoOrganizing } from "@/components/ObecLeaveCoOrganizing";
+import { isMunicipalityOrganization } from "@/lib/organizations";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { UserAvatar } from "@/components/UserAvatar";
+import { Badge } from "@/components/ui/badge";
+import { VolunteeringCard } from "@/components/VolunteeringCard";
+import { JoinEventDialog } from "@/components/JoinEventDialog";
+import { ShareEventDialog } from "@/components/ShareEventDialog";
+import { toast } from "sonner";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart, XCircle, Share2 } from "lucide-react";
+import { formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/date";
+import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS, registrationDeadline } from "@/lib/registrationCutoff";
+import { getCategoryIcon } from "@/lib/icons";
+import { formatCzk } from "@/lib/money";
+import { isUnlimitedCapacity } from "@/lib/capacity";
+import { isEventShareable } from "@/lib/eventShare";
+
+interface Reg { id: string; user_id: string; status: string; role: "participant" | "volunteer"; full_name: string; avatar_url: string | null }
+
+const ACCESSIBILITY_LABELS: Record<string, string> = {
+  wheelchair_access: "Bezbariérový přístup",
+  induction_loop: "Indukční smyčka",
+  seating: "Možnost sezení",
+  accessible_wc: "WC pro invalidy",
+};
+
+function EventDetailContent() {
+  const params = useParams<{ id: string }>();
+  const id = params.id;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user, profile, isSuperAdmin } = useAuth();
+  const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
+  const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
+  const [organizerName, setOrganizerName] = useState<string | null>(null);
+  // Registrations the viewer may read: all of them for the organizer / obec admin, otherwise
+  // just their own (Registrations.access.read) — used for "Kdo dále jde" and the viewer's status.
+  const [regs, setRegs] = useState<Reg[]>([]);
+  const [counts, setCounts] = useState<RegistrationCountRow>({ approved: 0, pending: 0 });
+  const [administeredMunicipalityIds, setAdministeredMunicipalityIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // The viewer's pending invitation/offer to help on the event (or their last declined offer).
+  const [volunteerRequest, setVolunteerRequest] = useState<MyVolunteerRequest | null>(null);
+  // Whoever runs the event turned the viewer down or took them off it — signing up again is refused.
+  const [turnedAway, setTurnedAway] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  // Too many no-shows lately — the viewer's sign-up waits for the organizer even here (lib/reliability).
+  const [signUpHeld, setSignUpHeld] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  // Opened by "Vytvořit akci" (?sdilet=1) — the dialog greets the organizer differently.
+  const [shareAfterCreate, setShareAfterCreate] = useState(false);
+
+  const refreshRegistrations = async (eventId: string) => {
+    const [regRows, countRows, rejected] = await Promise.all([
+      user ? getEventRegistrationsWithNames(eventId) : Promise.resolve([]),
+      getRegistrationCounts([eventId]),
+      user ? wasTurnedAwayFromEvent(eventId, String(user.id)).catch(() => false) : Promise.resolve(false),
+    ]);
+    setRegs(regRows);
+    setTurnedAway(rejected);
+    setCounts(countRows.get(eventId) ?? { approved: 0, pending: 0 });
+  };
+
+  const refreshVolunteerRequest = async (eventId: string) => {
+    setVolunteerRequest(user ? await getMyVolunteerRequestForEvent(eventId, String(user.id)).catch(() => null) : null);
+  };
+
+  const load = async () => {
+    if (!id) return;
+    setLoading(true);
+    setNotFound(false);
+
+    const ev = await getEvent(id);
+    if (!ev) {
+      setNotFound(true);
+      setLoading(false);
+      return;
+    }
+    setEvent(ev);
+
+    const [cats, orgName, adminIds] = await Promise.all([
+      ev.category_ids.length > 0 ? getEventCategories() : Promise.resolve([]),
+      ev.organizer_id ? getOrganizerName(ev.organizer_id).catch(() => null) : Promise.resolve(null),
+      user ? getMyAdministeredMunicipalityIds(String(user.id)).catch(() => []) : Promise.resolve([]),
+      refreshRegistrations(ev.id),
+      refreshVolunteerRequest(ev.id),
+      user
+        ? getMyReliability().then((r) => setSignUpHeld(r.restrictedUntil !== null)).catch(() => setSignUpHeld(false))
+        : Promise.resolve(setSignUpHeld(false)),
+    ]);
+    setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
+    // Run as an organization ("Kavárna NMNM", or the obec itself) — the person's name only as a fallback.
+    setOrganizerName(ev.organization?.name ?? orgName);
+    setAdministeredMunicipalityIds(adminIds);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id]);
+
+  // Brief §8 live "Přihlásit se"/"Akce je plná" button — re-pull counts and the readable
+  // registrations whenever the server says the approved count changed. Deliberately doesn't
+  // touch `loading` — this is a quiet background refresh, not a page reload.
+  useEffect(() => {
+    if (!id) return;
+    const source = new EventSource(`/api/events/${id}/capacity-stream`);
+    source.onmessage = () => {
+      refreshRegistrations(id).catch(() => {});
+    };
+    return () => source.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, user?.id]);
+
+  const shareable =
+    !!event &&
+    isEventShareable({
+      status: event.status,
+      isHidden: event.is_hidden,
+      dateTime: event.date_time,
+      endDateTime: event.end_date_time,
+    });
+
+  // Straight after creating the event, offer to share it — once: the flag leaves the URL, so going
+  // back or reloading doesn't pop the dialog up again.
+  useEffect(() => {
+    if (!event || searchParams.get("sdilet") !== "1") return;
+    if (shareable) {
+      setShareAfterCreate(true);
+      setShareOpen(true);
+    }
+    router.replace(`/akce/${event.id}`, { scroll: false });
+  }, [event, searchParams, shareable, router]);
+
+  const myReg = regs.find((r) => r.user_id === String(user?.id));
+  const approvedCount = counts.approved;
+  const isFull = approvedCount >= (event?.capacity ?? 0);
+  const isPaidEvent = !!event?.is_paid;
+  const isEventOrganizer =
+    !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
+  // Who founded it — the one who decides about its volunteering (the flag, inviting volunteers).
+  const isCreator = !!user && !!event && event.organizer_id === String(user.id);
+  const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
+  const canManage = isEventOrganizer || isAdminOfEventMunicipality;
+  // A co-organizer of the obec admin's own event helps run it (Spravovat) but can't edit or cancel it.
+  // Once it has taken place, nobody edits it any more (Events canUpdateEvent).
+  const hasEnded = event?.status === "finished";
+  const canEdit = canManage && !event?.locked_for_viewer && !hasEnded;
+  const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
+  // Whoever runs the event takes part in it automatically — the obec's admins too whenever the obec
+  // runs or co-organizes it. Anywhere else they sign up as themselves, like everyone (Registrations).
+  const runsItForObec = isAdminOfEventMunicipality && (isMunicipalityOrganization(event?.organization) || obecCoOrganizes);
+  const takesPartAutomatically = isEventOrganizer || runsItForObec;
+  // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
+  const canSeeAttendees = canManage || isSuperAdmin;
+  // Someone from the volunteer pool may offer to help on an event that looks for volunteers — its
+  // creator answers (VolunteerInvitations, kind "application").
+  // Signing up (and offering help) closes REGISTRATION_CUTOFF_HOURS before the start — after that
+  // it's a call or e-mail to the organizer (Registrations guardRegistrationWindow).
+  const registrationOpen = !!event && isRegistrationOpen(event.date_time);
+  const canOfferHelp =
+    !!user &&
+    !!event &&
+    Boolean(event.is_volunteering) &&
+    Boolean(profile?.is_volunteer) &&
+    !takesPartAutomatically &&
+    event.status !== "cancelled" &&
+    isRegistrationOpen(event.date_time);
+  const pendingOffer = volunteerRequest?.status === "pending" && volunteerRequest.kind === "application" ? volunteerRequest : null;
+  const pendingInvitation =
+    volunteerRequest?.status === "pending" && volunteerRequest.kind === "invitation" ? volunteerRequest : null;
+
+  // A ref guard (checked synchronously, before the first await) closes the window a fast
+  // double-click/double-tap leaves open with `submitting` state alone — React doesn't
+  // repaint the disabled button until the next render, so two clicks in the same tick can
+  // both get through and fire two requests (the DB has its own constraint as a backstop).
+  const submittingRef = useRef(false);
+
+  const handleJoinClick = () => {
+    if (canOfferHelp) setJoinOpen(true);
+    else handleJoinFree();
+  };
+
+  const runVolunteerAction = async (action: () => Promise<void>, success: string, fallback: string) => {
+    if (!event || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await action();
+      toast.success(success);
+      setJoinOpen(false);
+      load();
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : fallback);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  const handleOfferHelp = (message: string) =>
+    runVolunteerAction(
+      () => offerVolunteerHelp(event!.id, message),
+      "Nabídka pomoci odeslána. Pořadatel vám dá vědět.",
+      "Nabídku se nepodařilo odeslat.",
+    );
+
+  const handleWithdrawOffer = () =>
+    pendingOffer &&
+    runVolunteerAction(() => withdrawVolunteerOffer(pendingOffer.id), "Nabídka pomoci stažena.", "Nabídku se nepodařilo stáhnout.");
+
+  const handleDecideInvitation = (accept: boolean) =>
+    pendingInvitation &&
+    runVolunteerAction(
+      () => decideVolunteerInvitation(pendingInvitation.id, accept),
+      accept ? "Pomáháte na akci jako dobrovolník." : "Pozvánka odmítnuta.",
+      "Rozhodnutí se nepodařilo uložit.",
+    );
+
+  const handleJoinFree = async () => {
+    if (!user) {
+      // US-H-08: make it explicit *why* they're being sent away, not just a silent redirect.
+      // The auth page doesn't support a return-redirect yet — just get them logged in.
+      toast.info("Pro přihlášení na akci si nejprve vytvořte účet.");
+      router.push("/auth?mode=signup");
+      return;
+    }
+    if (!event || submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      const reg = await createRegistration(event.id, String(user.id));
+      toast.success(reg.status === "approved" ? "Jste přihlášeni na akci." : "Přihláška odeslána pořadateli ke schválení.");
+      setJoinOpen(false);
+      load();
+    } catch (error) {
+      toast.error(
+        error instanceof PayloadApiError && error.status === 400
+          ? error.message
+          : "Nepodařilo se přihlásit. Zkuste to prosím znovu.",
+      );
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) return <Loading />;
+  if (notFound || !event) return (
+    <div className="animate-fade-in">
+      <PageHeader title="Detail akce" back />
+      <div className="p-6 text-center text-muted-foreground">Akce nebyla nalezena.</div>
+    </div>
+  );
+
+  const Icon = getCategoryIcon(eventCategories[0]?.icon);
+  const navUrl = event.lat && event.lng
+    ? `https://www.google.com/maps/dir/?api=1&destination=${event.lat},${event.lng}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location_text)}`;
+  const mapEmbed = event.lat && event.lng
+    ? `https://www.google.com/maps?q=${event.lat},${event.lng}&z=15&output=embed`
+    : `https://www.google.com/maps?q=${encodeURIComponent(event.location_text)}&output=embed`;
+  const approvedAttendees = regs.filter((r) => r.status === "approved" && r.role !== "volunteer");
+  const volunteers = regs.filter((r) => r.status === "approved" && r.role === "volunteer");
+
+  return (
+    <article className="animate-fade-in pb-6 sm:mx-auto sm:max-w-3xl">
+      <PageHeader title="Detail akce" back right={
+        canManage || shareable ? (
+          <div className="flex gap-2">
+            {shareable && (
+              <Button variant="outline" size="sm" className="h-10" onClick={() => setShareOpen(true)} aria-label="Sdílet akci">
+                <Share2 className="h-4 w-4" /><span className="hidden sm:inline">Sdílet</span>
+              </Button>
+            )}
+            {canEdit && (
+              <Button asChild variant="outline" size="sm" className="h-10">
+                <Link href={`/upravit/${event.id}`}><Pencil className="h-4 w-4" />Upravit</Link>
+              </Button>
+            )}
+            {canManage && (
+              <Button asChild variant="outline" size="sm" className="h-10">
+                <Link href={`/spravovat/${event.id}`}><Settings className="h-4 w-4" />Spravovat</Link>
+              </Button>
+            )}
+          </div>
+        ) : null
+      } />
+
+      {event.image_url && (
+        // Full-bleed on a phone; from sm up a contained, centred, rounded photo with a side gutter —
+        // at full desktop width the 16:10 frame was nearly a screen tall. The 16:10 ratio itself
+        // stays, so the organizer's chosen framing (imagePositionX/Y) matches the event cards.
+        <div className="aspect-[16/10] overflow-hidden bg-muted sm:mx-auto sm:mt-4 sm:w-[calc(100%_-_2rem)] sm:max-w-3xl sm:rounded-2xl">
+          <img
+            src={event.image_url}
+            alt={event.title}
+            className="w-full h-full object-cover"
+            style={{ objectPosition: `${event.image_position.x}% ${event.image_position.y}%` }}
+            width={512}
+            height={320}
+          />
+        </div>
+      )}
+
+      <div className="px-4 py-5 space-y-5">
+        <div className="flex items-center gap-2 flex-wrap">
+          {eventCategories.map((category) => (
+            <Badge
+              key={category.id}
+              variant="outline"
+              className="text-xs font-semibold gap-1 border-0"
+              style={{ backgroundColor: `hsl(${category.color} / 0.15)`, color: `hsl(${category.color})` }}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {category.name}
+            </Badge>
+          ))}
+          {event.is_volunteering && (
+            <Badge variant="outline" className="border-0 bg-primary-soft text-primary gap-1 font-semibold">
+              <HandHeart className="h-3.5 w-3.5" aria-hidden /> Dobrovolnictví
+            </Badge>
+          )}
+          {isPaidEvent ? (
+            <Badge className="bg-accent text-accent-foreground gap-1">
+              <Tag className="h-3 w-3" /> {event.price_cents ? formatCzk(event.price_cents) : "Placená akce"}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="border-success/40 text-success">Zdarma</Badge>
+          )}
+        </div>
+        {isPaidEvent && (
+          <p className="text-sm text-muted-foreground -mt-3">
+            Platbu si domlouváte přímo s pořadatelem — aplikace platby nezpracovává.
+          </p>
+        )}
+        <h1 className="text-2xl font-extrabold leading-tight">{event.title}</h1>
+
+        <div className="space-y-3 bg-secondary rounded-2xl p-4">
+          <div className="flex items-start gap-3">
+            <Calendar className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+            <div>
+              <p className="font-semibold capitalize">{formatEventDate(event.date_time)}</p>
+              <p className="text-sm text-muted-foreground">
+                {event.end_date_time
+                  ? `${formatEventTime(event.date_time)} – ${formatEventDate(event.end_date_time)} ${formatEventTime(event.end_date_time)}`
+                  : `začátek v ${formatEventTime(event.date_time)}`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <MapPin className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold">{event.location_text}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <Users className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+            <p className="font-semibold">
+              {isUnlimitedCapacity(event.capacity) ? `${approvedCount} přihlášených · neomezená kapacita` : `${approvedCount} / ${event.capacity} přihlášených`}
+              {counts.pending > 0 && (
+                <span className="text-muted-foreground font-normal"> · {counts.pending} čeká</span>
+              )}
+            </p>
+          </div>
+          {organizerName && (
+            <div className="flex items-start gap-3">
+              <UserIcon className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+              <p className="font-semibold">
+                Pořadatel: {organizerName}
+                {event.co_organizations.length > 0 && (
+                  <span className="text-muted-foreground font-normal"> · spolu s {event.co_organizations.map((o) => o.name).join(", ")}</span>
+                )}
+              </p>
+            </div>
+          )}
+          {event.accessibility_tags.length > 0 && (
+            <div className="flex items-start gap-3">
+              <Accessibility className="h-5 w-5 mt-0.5 text-primary shrink-0" />
+              <p className="font-semibold">
+                {event.accessibility_tags.map((t) => ACCESSIBILITY_LABELS[t] ?? t).join(", ")}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h2 className="text-lg font-bold mb-2">Popis akce</h2>
+          <p className="text-base leading-relaxed whitespace-pre-line text-foreground/90">{event.description}</p>
+        </div>
+
+        <div>
+          <h2 className="text-lg font-bold mb-2">Místo konání</h2>
+          <div className="rounded-2xl overflow-hidden border border-border">
+            <iframe
+              title="Mapa"
+              src={mapEmbed}
+              className="w-full h-72 sm:h-[28rem] border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+          <Button asChild variant="outline" className="w-full h-12 mt-3 text-base">
+            <a href={navUrl} target="_blank" rel="noreferrer">
+              <Navigation className="h-5 w-5" />
+              Navigovat
+            </a>
+          </Button>
+        </div>
+
+        {canSeeAttendees && (
+          <div>
+            <h2 className="text-lg font-bold mb-2">Kdo dále jde</h2>
+            {approvedAttendees.length === 0 ? (
+              <Card className="bg-muted/50 border-dashed">
+                <CardContent className="py-4 text-center text-sm text-muted-foreground">
+                  Zatím nikdo není potvrzen.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {approvedAttendees.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2 bg-secondary rounded-full pl-1 pr-3 py-1">
+                    <UserAvatar
+                      name={r.full_name}
+                      src={r.avatar_url}
+                      className="h-7 w-7"
+                      fallbackClassName="text-xs bg-primary text-primary-foreground"
+                    />
+                    <span className="text-sm font-medium">{r.full_name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {volunteers.length > 0 && (
+              <>
+                <h3 className="text-base font-bold mt-4 mb-2 flex items-center gap-1.5">
+                  <HandHeart className="h-4 w-4 text-primary" aria-hidden /> Dobrovolníci
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {volunteers.map((r) => (
+                    <div key={r.id} className="flex items-center gap-2 bg-primary-soft rounded-full pl-1 pr-3 py-1">
+                      <UserAvatar
+                        name={r.full_name}
+                        src={r.avatar_url}
+                        className="h-7 w-7"
+                        fallbackClassName="text-xs bg-primary text-primary-foreground"
+                      />
+                      <span className="text-sm font-medium">{r.full_name}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {/* The obec co-organizing it locks its creator out of editing — but not out of its volunteering. */}
+        {isCreator && event.locked_for_viewer && !hasEnded && (
+          <VolunteeringCard
+            eventId={event.id}
+            isVolunteering={Boolean(event.is_volunteering)}
+            onChanged={(isVolunteering) => setEvent((ev) => (ev ? { ...ev, is_volunteering: isVolunteering } : ev))}
+          />
+        )}
+        {(canEdit || (isSuperAdmin && !hasEnded)) && (
+          <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">
+            <div>
+              <h2 className="text-lg font-bold">{event.deletion_needs_consent ? "Smazání akce" : "Zrušení akce"}</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {event.deletion_needs_consent
+                  ? `Akci pořádáte ${obecCoOrganizes ? "s obcí" : "se spolupořadateli"} — smazat ji jde jen s jejich souhlasem.`
+                  : "Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci."}
+              </p>
+            </div>
+            {event.deletion_needs_consent && user ? (
+              <EventDeletionConsent
+                eventId={event.id}
+                title={event.title}
+                dateTime={event.date_time}
+                userId={String(user.id)}
+                organizerId={event.organizer_id}
+                obecCoOrganizes={obecCoOrganizes}
+                onOrganizersChanged={load}
+              />
+            ) : (
+              <>
+                {/* A pořadatel may be asking the obec's consent to delete it — its admin answers here. */}
+                {obecCoOrganizes && isAdminOfEventMunicipality && user && (
+                  <EventDeletionConsent
+                    eventId={event.id}
+                    title={event.title}
+                    dateTime={event.date_time}
+                    userId={String(user.id)}
+                    forObec
+                  />
+                )}
+                <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
+              </>
+            )}
+          </div>
+        )}
+        {/* The obec steps off an event it co-organizes on its own — no one's consent, and for good. */}
+        {obecCoOrganizes && isAdminOfEventMunicipality && !hasEnded && event.status !== "cancelled" && (
+          <ObecLeaveCoOrganizing eventId={event.id} title={event.title} onLeft={load} />
+        )}
+      </div>
+
+      <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur border-t border-border px-4 py-3 -mb-2">
+        {takesPartAutomatically ? (
+          // Whoever runs it takes part automatically and doesn't use up a participant's spot.
+          <div className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-primary">
+            <CheckCircle2 className="h-5 w-5" />{" "}
+            {isEventOrganizer ? "Tuto akci pořádáte" : "Akci pořádá vaše obec"} — počítá se s vámi automaticky
+          </div>
+        ) : myReg ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold">
+              {myReg.role === "volunteer" ? (
+                <><HandHeart className="h-5 w-5 text-primary" /> <span className="text-primary">Pomáháte jako dobrovolník</span></>
+              ) : myReg.status === "approved" ? (
+                <><CheckCircle2 className="h-5 w-5 text-success" /> <span className="text-success">Jste přihlášen/a</span></>
+              ) : (
+                <><Clock className="h-5 w-5 text-warning" /> <span className="text-warning">Čeká na schválení pořadatelem</span></>
+              )}
+            </div>
+            <CancelRegistrationDialog registration={myReg} event={event} onCancelled={load} />
+          </div>
+        ) : turnedAway ? (
+          <div className="flex items-center justify-center gap-2 py-3 text-center text-sm font-semibold text-muted-foreground">
+            <XCircle className="h-5 w-5 shrink-0" /> Pořadatel vaši účast na akci zrušil — znovu se přihlásit nejde.
+          </div>
+        ) : pendingOffer ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold text-warning">
+              <Clock className="h-5 w-5" /> Vaše nabídka pomoci čeká na pořadatele
+            </div>
+            <Button onClick={handleWithdrawOffer} disabled={submitting} variant="outline" className="w-full h-12 text-base">
+              Stáhnout nabídku
+            </Button>
+          </div>
+        ) : pendingInvitation ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold text-primary">
+              <HandHeart className="h-5 w-5" /> Pořadatel vás zve jako dobrovolníka
+            </div>
+            {pendingInvitation.message && (
+              <p className="text-center text-sm text-muted-foreground">„{pendingInvitation.message}“</p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Button onClick={() => handleDecideInvitation(true)} disabled={submitting} className="h-12 text-base">
+                Pomůžu
+              </Button>
+              <Button onClick={() => handleDecideInvitation(false)} disabled={submitting} variant="outline" className="h-12 text-base">
+                Odmítnout
+              </Button>
+            </div>
+          </div>
+        ) : !registrationOpen ? (
+          hasEnded ? (
+            <p className="py-3 text-center text-sm font-semibold text-muted-foreground">Akce už proběhla.</p>
+          ) : (
+            <div className="space-y-2">
+              {user ? (
+                <OrganizerContactCard eventId={event.id} />
+              ) : (
+                <Button asChild variant="outline" className="w-full h-12 text-base">
+                  <Link href="/auth">Přihlaste se do aplikace a uvidíte kontakt</Link>
+                </Button>
+              )}
+              <p className="text-center text-sm text-muted-foreground">
+                Přihlašování skončilo {REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce. Chcete-li přesto přijít,
+                zavolejte nebo napište pořadateli.
+              </p>
+            </div>
+          )
+        ) : isFull && !canOfferHelp ? (
+          <Button disabled className="w-full h-14 text-base font-semibold">Akce je plná</Button>
+        ) : (
+          <div className="space-y-1.5">
+            <Button onClick={handleJoinClick} disabled={submitting} className="w-full h-14 text-base font-semibold">
+              {isFull ? "Nabídnout pomoc" : "Přihlásit se"}
+            </Button>
+            <p className="text-center text-sm text-muted-foreground">
+              Přihlásit se lze do {formatEventDateTime(registrationDeadline(event.date_time).toISOString())}.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {shareable && event && (
+        <ShareEventDialog
+          open={shareOpen}
+          onOpenChange={(open) => {
+            setShareOpen(open);
+            if (!open) setShareAfterCreate(false);
+          }}
+          event={event}
+          justCreated={shareAfterCreate}
+        />
+      )}
+
+      {event && (
+        <JoinEventDialog
+          open={joinOpen}
+          onOpenChange={setJoinOpen}
+          full={isFull}
+          needsApproval={event.registration_approval_mode === "manual" || signUpHeld}
+          lastOfferDeclined={volunteerRequest?.kind === "application" && volunteerRequest.status === "declined"}
+          busy={submitting}
+          onJoin={handleJoinFree}
+          onOffer={handleOfferHelp}
+        />
+      )}
+    </article>
+  );
+}
+
+export function EventDetail() {
+  return <EventDetailContent />;
+}
