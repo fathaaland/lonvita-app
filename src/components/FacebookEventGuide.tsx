@@ -56,6 +56,7 @@ export function FacebookEventGuide({
   locationText,
   description,
   cover,
+  onPhone,
   onBack,
 }: {
   title: string;
@@ -66,6 +67,8 @@ export function FacebookEventGuide({
   description: string;
   /** The link-preview image, 1.91:1 like Facebook's event cover; null while it's still loading. */
   cover: File | null;
+  /** On a phone the link opens Facebook's app only if it's installed and lets it (iOS, from a tap). */
+  onPhone: boolean;
   onBack: () => void;
 }) {
   const when = formatPragueEventWhen(dateTime, endDateTime);
@@ -81,6 +84,12 @@ export function FacebookEventGuide({
               Otevřít Facebook – nová událost
             </a>
           </Button>
+          {onPhone && (
+            <p className="text-xs text-muted-foreground">
+              Když se místo aplikace otevře jen web, založte událost přímo v aplikaci Facebook: v nabídce Události →
+              Vytvořit. Údaje níže si zkopírujete stejně.
+            </p>
+          )}
         </li>
         <li className="space-y-2">
           <p className="text-sm font-semibold">2. Nahrajte titulní fotku</p>
