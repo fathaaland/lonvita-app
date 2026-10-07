@@ -1,34 +1,40 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Check, Copy, Share2 } from "lucide-react";
+import { ArrowLeft, Check, Copy, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { copyToClipboard } from "@/lib/browserShare";
 
 /**
- * Sharing to Facebook or Instagram on a phone, as two taps: the text to the clipboard, then the
- * phone's share sheet (where the apps are). One tap can't do both reliably — Safari lets
- * navigator.share() through only straight from a tap and spends the tap on it, so the share sheet
- * gets a tap of its own with nothing else in it.
+ * Sharing to Facebook or Instagram on a phone, step by step: save the image (Instagram takes no
+ * image from the web — it's picked from the gallery), copy the text, open the app. The app opens
+ * from a real link the person taps: iOS (and Android) hand facebook.com / instagram.com links to the
+ * installed app only then — never from script, and the share sheet didn't reliably get there.
  */
 export function MobileShareSteps({
   appName,
+  image,
+  onSaveImage,
   copyWhat,
   copyText,
+  openHref,
   hints,
-  onShare,
   onBack,
 }: {
-  /** "Facebook" / "Instagram" — named on the share button. */
+  /** "Facebook" / "Instagram". */
   appName: string;
-  /** What step 1 copies: "text příspěvku" or "odkaz na akci". */
+  /** The generated image to save to the phone first (Instagram), if any. */
+  image?: { src: string; alt: string };
+  /** Saves `image` — the share sheet's "Uložit obrázek", or a download. */
+  onSaveImage?: () => void;
+  /** What gets copied: "text příspěvku" or "odkaz na akci". */
   copyWhat: string;
   copyText: string;
+  /** A facebook.com / instagram.com address — the app takes it over when the link is tapped. */
+  openHref: string;
   /** What to do once the app is open. */
   hints: string[];
-  /** Opens the share sheet — called straight from the tap. */
-  onShare: () => void;
   onBack: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -37,25 +43,48 @@ export function MobileShareSteps({
     if (await copyToClipboard(copyText)) {
       setCopied(true);
     } else {
-      toast.error("Nepodařilo se zkopírovat — v kroku 2 to přesto půjde, text pak napište ručně.");
+      toast.error("Nepodařilo se zkopírovat — text pak napište ručně.");
     }
   };
+
+  let step = 0;
 
   return (
     <div className="space-y-4">
       <ol className="space-y-4">
+        {image && (
+          <li className="space-y-2">
+            <p className="text-sm font-semibold">{++step}. Uložte obrázek do telefonu</p>
+            <img src={image.src} alt={image.alt} className="mx-auto max-h-64 w-auto rounded-lg border border-border" />
+            <p className="text-xs text-muted-foreground">
+              Podržte na obrázku prst a zvolte „Přidat do Fotek“ (na Androidu „Stáhnout obrázek“). Nebo:
+            </p>
+            {onSaveImage && (
+              <Button variant="outline" className="h-12 w-full justify-start" onClick={onSaveImage}>
+                <Download aria-hidden />
+                Uložit obrázek
+              </Button>
+            )}
+          </li>
+        )}
         <li className="space-y-2">
-          <p className="text-sm font-semibold">1. Zkopírujte {copyWhat}</p>
+          <p className="text-sm font-semibold">
+            {++step}. Zkopírujte {copyWhat}
+          </p>
           <Button variant="outline" className="h-12 w-full justify-start" onClick={copy}>
             {copied ? <Check className="text-success" aria-hidden /> : <Copy aria-hidden />}
             {copied ? "Zkopírováno" : `Kopírovat ${copyWhat}`}
           </Button>
         </li>
         <li className="space-y-2">
-          <p className="text-sm font-semibold">2. Otevřete {appName}</p>
-          <Button className="h-12 w-full" onClick={onShare}>
-            <Share2 aria-hidden />
-            Sdílet do aplikace {appName}
+          <p className="text-sm font-semibold">
+            {++step}. Otevřete {appName}
+          </p>
+          <Button asChild className="h-12 w-full">
+            <a href={openHref} target="_blank" rel="noopener noreferrer">
+              <ExternalLink aria-hidden />
+              Otevřít {appName}
+            </a>
           </Button>
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             {hints.map((hint) => (

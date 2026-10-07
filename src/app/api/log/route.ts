@@ -35,7 +35,6 @@ const BROWSER_EVENT_LABEL: Record<string, string> = {
   window_error: 'Browser uncaught error',
   unhandled_rejection: 'Browser unhandled promise rejection',
   share_failed: 'Browser share sheet failed',
-  share_files_unsupported: 'Browser cannot share images',
 }
 
 const SESSION_COOKIE = 'payload-token'

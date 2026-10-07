@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarPlus, Copy, Facebook, ImageIcon, Instagram, Link2, Loader2, Share2 } from "lucide-react";
+import { CalendarPlus, Copy, Facebook, Instagram, Link2, Loader2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { FacebookEventGuide } from "@/components/FacebookEventGuide";
 import { MobileShareSteps } from "@/components/MobileShareSteps";
@@ -43,45 +43,37 @@ type ShareableEvent = Pick<
   | "updated_at"
 >;
 
-type Target = "facebook-link" | "facebook-image" | "instagram-post" | "instagram-story";
+type Target = "facebook-link" | "instagram-post" | "instagram-story";
 
-type App = "Facebook" | "Instagram";
+/** Instagram's address — tapped on a phone, it opens the app (Instagram hands every path to it). */
+const INSTAGRAM_URL = "https://www.instagram.com/";
 
-const SITE_URL: Record<App, string> = {
-  Facebook: "https://www.facebook.com/",
-  Instagram: "https://www.instagram.com/",
-};
-
-const saveImageHint = (app: App) =>
-  `Když ${app} v nabídce chybí, zvolte „Uložit obrázek“ a v aplikaci ${app} ho nahrajte z galerie.`;
-
-/** What each way of sharing hands over: the generated image (or, for the link, none), the text that
- * goes with it — the caption, or for a story, which has none, the link for Instagram's "Odkaz"
- * sticker — and what to do in the app. */
-const TARGETS: Record<Target, { title: string; app: App; format: ShareImageFormat | null; copies: "caption" | "link"; hints: string[] }> = {
+/** What each way of sharing hands over: the generated image to save (Instagram picks it from the
+ * gallery — it takes no image from the web), the text that goes with it — the caption, or for a
+ * story, which has none, the link for Instagram's "Odkaz" sticker — and what to do in the app. */
+const TARGETS: Record<
+  Target,
+  { title: string; app: "Facebook" | "Instagram"; format: ShareImageFormat | null; copies: "caption" | "link"; hints: string[] }
+> = {
   "facebook-link": {
     title: "Facebook – odkaz s náhledem",
     app: "Facebook",
     format: null,
     copies: "caption",
     hints: [
-      "V nabídce vyberte Facebook — příspěvek ukáže náhled akce s obrázkem.",
-      "Zkopírovaný text vložte nad náhled.",
+      "Otevře se Facebook s náhledem akce — zkopírovaný text vložte nad něj.",
+      "Když se náhled neukáže, vytvořte nový příspěvek a vložte zkopírovaný text: náhled se doplní sám z odkazu v něm.",
     ],
-  },
-  "facebook-image": {
-    title: "Facebook – příspěvek s obrázkem",
-    app: "Facebook",
-    format: "post",
-    copies: "caption",
-    hints: ["V nabídce vyberte Facebook a zkopírovaný text vložte do příspěvku.", saveImageHint("Facebook")],
   },
   "instagram-post": {
     title: "Instagram – příspěvek",
     app: "Instagram",
     format: "post",
     copies: "caption",
-    hints: ["V nabídce vyberte Instagram a zkopírovaný text vložte jako popisek.", saveImageHint("Instagram")],
+    hints: [
+      "V Instagramu klepněte na + → Příspěvek a vyberte uložený obrázek.",
+      "Zkopírovaný text vložte jako popisek.",
+    ],
   },
   "instagram-story": {
     title: "Instagram – příběh",
@@ -89,9 +81,8 @@ const TARGETS: Record<Target, { title: string; app: App; format: ShareImageForma
     format: "story",
     copies: "link",
     hints: [
-      "V nabídce vyberte Instagram a zvolte příběh.",
-      "V příběhu přidejte nálepku „Odkaz“ a vložte do ní zkopírovaný odkaz — jen tak jde na akci kliknout.",
-      "Když Instagram v nabídce chybí nebo příběh nenabídne, zvolte „Uložit obrázek“ a přidejte ho do příběhu z galerie.",
+      "V Instagramu klepněte na + → Příběh a vyberte uložený obrázek.",
+      "Přidejte nálepku „Odkaz“ a vložte do ní zkopírovaný odkaz — jen tak jde na akci kliknout.",
     ],
   },
 };
@@ -127,12 +118,12 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 /**
  * "Sdílet akci". Facebook: a link (its preview, image included, comes from the event detail's Open
- * Graph tags), the generated image as a photo post, or a hand-made Facebook event (FacebookEventGuide).
- * Instagram: the generated image (it takes no links from the web). Neither network lets a page
- * prefill the post's text, so the suggested text goes to the clipboard to paste.
+ * Graph tags), or a hand-made Facebook event (FacebookEventGuide). Instagram: the generated image (it
+ * takes no links from the web). Neither network lets a page prefill the post's text, so the suggested
+ * text goes to the clipboard to paste.
  *
- * On a phone the apps are reached through the share sheet, two taps per share (MobileShareSteps). On
- * a computer the image is downloaded and the network's website opened.
+ * On a phone it goes step by step into the app (MobileShareSteps). On a computer Facebook's share
+ * window opens, or the image is downloaded and Instagram's website opened.
  */
 export function ShareEventDialog({
   open,
@@ -151,12 +142,12 @@ export function ShareEventDialog({
   const [caption, setCaption] = useState("");
   const [files, setFiles] = useState<Partial<Record<ShareImageFormat, File>>>({});
   const [filesFailed, setFilesFailed] = useState(false);
-  // A phone (or tablet) — its share sheet is the way into the Facebook and Instagram apps.
+  // A phone (or tablet): the apps are reached step by step, through links tapped there.
   const [touch, setTouch] = useState(false);
   const [canShareFiles, setCanShareFiles] = useState(false);
   const [canShareLink, setCanShareLink] = useState(false);
-  // Facebook's and Instagram's own browser, where a shared link opens: it has no share sheet and
-  // takes no downloads — images can only go out from a real browser.
+  // Facebook's and Instagram's own browser, where a shared link opens: images can't be saved from
+  // it — they go out from a real browser.
   const [inAppBrowser, setInAppBrowser] = useState(false);
 
   useEffect(() => {
@@ -188,18 +179,8 @@ export function ShareEventDialog({
       .then((entries) => {
         if (!active) return;
         const loaded = Object.fromEntries(entries) as Record<ShareImageFormat, File>;
-        const onTouch = window.matchMedia("(pointer: coarse)").matches;
-        const filesShareable = typeof navigator.canShare === "function" && navigator.canShare({ files: [loaded.post] });
         setFiles(loaded);
-        setCanShareFiles(onTouch && filesShareable);
-        // A phone that can't hand images to the apps gets downloads instead — worth knowing which.
-        if (onTouch && !filesShareable) {
-          reportClientError({
-            event: "share_files_unsupported",
-            level: "warn",
-            message: `share=${typeof navigator.share} canShare=${typeof navigator.canShare} inApp=${/FBAN|FBAV|FB_IAB|Instagram/i.test(navigator.userAgent)}`,
-          });
-        }
+        setCanShareFiles(typeof navigator.canShare === "function" && navigator.canShare({ files: [loaded.post] }));
       })
       .catch(() => {
         if (active) setFilesFailed(true);
@@ -220,15 +201,12 @@ export function ShareEventDialog({
   };
 
   const choose = (target: Target) => {
-    const { format } = TARGETS[target];
-    const viaShareSheet = format ? canShareFiles : touch && canShareLink;
-    if (viaShareSheet) setView({ name: "phone", target });
-    else if (format) void shareImageFromComputer(target);
-    else void shareLinkFromComputer();
+    if (touch) setView({ name: "phone", target });
+    else if (target === "facebook-link") void shareLinkFromComputer();
+    else void shareImageFromComputer(target);
   };
 
-  /** Facebook's own share window — on a computer. On a phone it would open Facebook's website, not
-   * the app (iOS hands a link to the app only when it's tapped, never from window.open). */
+  /** Facebook's own share window — on a computer. */
   const shareLinkFromComputer = async () => {
     // Copied before the window opens — a document that has lost focus to it may not write to the
     // clipboard any more.
@@ -239,8 +217,9 @@ export function ShareEventDialog({
     else toast.info("Text příspěvku zkopírujte z pole níže a vložte ho do příspěvku.");
   };
 
+  /** Instagram from a computer: the image downloaded, Instagram's website opened for a post. */
   const shareImageFromComputer = async (target: Target) => {
-    const { app, format, copies } = TARGETS[target];
+    const { format, copies } = TARGETS[target];
     const file = format ? files[format] : undefined;
     if (!file) return;
     const copied = await copyToClipboard(copies === "link" ? url : caption);
@@ -256,29 +235,29 @@ export function ShareEventDialog({
       return;
     }
 
-    window.open(SITE_URL[app], "_blank", "noopener,noreferrer");
+    window.open(INSTAGRAM_URL, "_blank", "noopener,noreferrer");
     toast.success(
       copied
-        ? `Obrázek je stažený a text zkopírovaný. Na ${app}u vytvořte příspěvek, nahrajte obrázek a vložte text.`
-        : `Obrázek je stažený. Na ${app}u vytvořte příspěvek a nahrajte ho, text zkopírujte z pole níže.`,
+        ? "Obrázek je stažený a text zkopírovaný. Na Instagramu vytvořte příspěvek, nahrajte obrázek a vložte text."
+        : "Obrázek je stažený. Na Instagramu vytvořte příspěvek a nahrajte ho, text zkopírujte z pole níže.",
       { duration: 10_000 },
     );
   };
 
-  /** Step 2 of MobileShareSteps — straight from its tap, and nothing else in it. */
-  const shareFromPhone = (target: Target) => {
-    const { app, format } = TARGETS[target];
-    const file = format ? files[format] : undefined;
-    if (format && !file) return;
-    navigator.share(file ? { files: [file] } : { url }).catch((error: unknown) => {
+  /** "Uložit obrázek" on a phone: the share sheet has "Uložit obrázek" (into the photos Instagram
+   * picks from) — a plain download would land in Files on an iPhone. Without it, a download. */
+  const saveImageOnPhone = (format: ShareImageFormat) => {
+    const file = files[format];
+    if (!file) return;
+    if (!canShareFiles) {
+      downloadFile(file);
+      return;
+    }
+    toast.info("V nabídce zvolte „Uložit obrázek“.");
+    navigator.share({ files: [file] }).catch((error: unknown) => {
       if (isAbort(error)) return;
-      reportClientError({ event: "share_failed", level: "warn", message: `${target}: ${describeError(error)}` });
-      if (file) {
-        downloadFile(file);
-        toast.info(`Sdílení se nepodařilo, obrázek jsme stáhli — v aplikaci ${app} ho nahrajte z galerie.`);
-      } else {
-        toast.error("Sdílení se nepodařilo — zkopírujte odkaz a vložte ho do aplikace ručně.");
-      }
+      reportClientError({ event: "share_failed", level: "warn", message: `save ${format}: ${describeError(error)}` });
+      toast.error("Uložení se nepodařilo — podržte prst na obrázku a zvolte „Přidat do Fotek“.");
     });
   };
 
@@ -295,19 +274,30 @@ export function ShareEventDialog({
 
   if (view.name === "phone") {
     const target = TARGETS[view.target];
+    const format = target.format;
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{target.title}</DialogTitle>
-            <DialogDescription>Ve dvou krocích: nejdřív zkopírujete text, pak vyberete aplikaci.</DialogDescription>
+            <DialogDescription>
+              {format
+                ? `Tři kroky: uložit obrázek, zkopírovat ${target.copies === "link" ? "odkaz" : "text"}, otevřít Instagram.`
+                : "Dva kroky: zkopírovat text, otevřít Facebook."}
+            </DialogDescription>
           </DialogHeader>
           <MobileShareSteps
             appName={target.app}
+            image={
+              format
+                ? { src: eventShareImagePath(event.id, format, event.updated_at), alt: `Obrázek akce ${event.title}` }
+                : undefined
+            }
+            onSaveImage={format ? () => saveImageOnPhone(format) : undefined}
             copyWhat={target.copies === "link" ? "odkaz na akci" : "text příspěvku"}
             copyText={target.copies === "link" ? url : caption}
+            openHref={target.app === "Facebook" ? facebookShareUrl(url) : INSTAGRAM_URL}
             hints={target.hints}
-            onShare={() => shareFromPhone(view.target)}
             onBack={() => setView({ name: "share" })}
           />
         </DialogContent>
@@ -360,22 +350,9 @@ export function ShareEventDialog({
                 <Facebook className="text-[#1877F2]" aria-hidden />
                 Odkaz s náhledem
               </Button>
-              <Button
-                variant="outline"
-                className="h-12 justify-start"
-                disabled={!imagesReady}
-                onClick={() => choose("facebook-image")}
-              >
-                {imageIcon(<ImageIcon className="text-[#1877F2]" aria-hidden />)}
-                Příspěvek s obrázkem
-              </Button>
-              <Button
-                variant="outline"
-                className="h-12 justify-start sm:col-span-2"
-                onClick={() => setView({ name: "facebook-event" })}
-              >
+              <Button variant="outline" className="h-12 justify-start" onClick={() => setView({ name: "facebook-event" })}>
                 <CalendarPlus className="text-[#1877F2]" aria-hidden />
-                Vytvořit událost na Facebooku
+                Vytvořit událost
               </Button>
             </Section>
 
@@ -416,11 +393,11 @@ export function ShareEventDialog({
             <p className="text-xs text-muted-foreground">
               {filesFailed
                 ? "Obrázky se nepodařilo připravit. Zkuste dialog otevřít znovu."
-                : inAppBrowser && !canShareFiles
-                  ? "Jste v prohlížeči uvnitř Facebooku nebo Instagramu — obrázky odsud sdílet nejdou. Otevřete stránku v Safari nebo Chrome (menu ⋯ → Otevřít v prohlížeči)."
-                  : canShareFiles
-                    ? "Na telefonu vás provedeme dvěma kroky: zkopírování textu a výběr aplikace."
-                    : "Na počítači se obrázek stáhne a otevře se Facebook nebo Instagram. Příběh jde přidat jen z telefonu."}
+                : inAppBrowser
+                  ? "Jste v prohlížeči uvnitř Facebooku nebo Instagramu — obrázky odsud uložit nejdou. Otevřete stránku v Safari nebo Chrome (menu ⋯ → Otevřít v prohlížeči)."
+                  : touch
+                    ? "Na telefonu vás provedeme krok za krokem až do aplikace."
+                    : "Na počítači se u Instagramu obrázek stáhne a otevře se instagram.com. Příběh jde přidat jen z telefonu."}
             </p>
 
             <div className="space-y-2">
