@@ -10,6 +10,7 @@ import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations"
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 import type { OrganizationFeedbackSummary } from "@/lib/organization-stats";
 import { ACCOUNT_DELETION_CONFIRMATION, type AccountDeletionBlockingEvent } from "@/lib/accountDeletion";
+import type { ReliabilityRecord } from "@/lib/reliability";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -612,10 +613,23 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
   });
 }
 
-/** The event's pořadatel marks what actually happened, on the manage-event page — once, for good.
- * Who marked it and when the server sets itself (Registrations lockAttendanceOnceMarked). */
+/** The event's pořadatel marks what actually happened, on the manage-event page — once, for good;
+ * an admin of the obec may correct a participant's later. Who marked it and when the server sets
+ * itself (Registrations lockAttendanceOnceMarked). */
 export async function updateAttendance(registrationId: string, attendanceStatus: AttendanceStatus): Promise<void> {
   await patch(`/registrations/${registrationId}`, { attendanceStatus });
+}
+
+/** For the manage-event page — how reliably each participant signed up turns up, by user id
+ * (/api/events/:id/reliability, only for whoever runs the event). */
+export async function getEventReliability(eventId: string): Promise<Map<string, ReliabilityRecord>> {
+  const records = await get<Record<string, ReliabilityRecord>>(`/events/${eventId}/reliability`);
+  return new Map(Object.entries(records));
+}
+
+/** The viewer's own reliability — their profile's "Vaše docházka" (/api/account/reliability). */
+export async function getMyReliability(): Promise<ReliabilityRecord> {
+  return get<ReliabilityRecord>("/account/reliability");
 }
 
 // --- Profiles -----------------------------------------------------------------------

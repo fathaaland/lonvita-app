@@ -37,7 +37,8 @@ export function JoinEventDialog({
   onOpenChange: (open: boolean) => void;
   /** No participant places left. */
   full: boolean;
-  /** Participants are approved by the organizer (registrationApprovalMode "manual"). */
+  /** Participants are approved by the organizer (registrationApprovalMode "manual") — or this one is,
+   * after too many no-shows lately (lib/reliability). */
   needsApproval: boolean;
   lastOfferDeclined: boolean;
   busy: boolean;

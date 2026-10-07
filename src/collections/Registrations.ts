@@ -5,6 +5,7 @@ import type {
   CollectionBeforeOperationHook,
   CollectionConfig,
   FieldAccess,
+  PayloadRequest,
   Where,
 } from 'payload'
 import { APIError } from 'payload'
@@ -12,7 +13,9 @@ import { APIError } from 'payload'
 import { isUnlimitedCapacity } from '@/lib/capacity'
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
+import { formatRestrictedUntil, RELIABILITY_WINDOW_MONTHS } from '@/lib/reliability'
 import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
+import { reliabilityOf } from './shared/reliability'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
 import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
@@ -109,17 +112,25 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       const isSelfOrganizing = String(organizerId) === String(userId)
       if (!isSelfOrganizing) {
         const pending = doc.status === 'pending'
+        // Waiting on an event without approval — only ever their no-shows (lib/reliability), said so.
+        const held = pending && event.registrationApprovalMode === 'auto' && doc.role !== 'volunteer'
+        const { restrictedUntil, noShows } = held
+          ? await reliabilityOf(req.payload, userId, { req })
+          : { restrictedUntil: null, noShows: 0 }
+        const heldReason = restrictedUntil
+          ? ` Za posledních ${RELIABILITY_WINDOW_MONTHS} měsíců jste ${noShows}× nedorazil(a) bez omluvy, a tak vám přihlášky do ${formatRestrictedUntil(restrictedUntil)} potvrzuje pořadatel.`
+          : ''
         await sendNotification(req.payload, {
           userId,
           title: pending ? 'Přihláška odeslána' : 'Přihláška potvrzena',
           message: pending
-            ? `Vaše přihláška na akci „${event.title}“ čeká na schválení organizátorem.`
+            ? `Vaše přihláška na akci „${event.title}“ čeká na schválení organizátorem.${heldReason}`
             : `Jste přihlášeni na akci „${event.title}“.`,
           link: `/akce/${eventId}`,
           email: {
             subject: pending ? `Přihláška odeslána: ${event.title}` : `Přihláška potvrzena: ${event.title}`,
             body: pending
-              ? `<p>Vaše přihláška na akci <strong>${escapeHtml(event.title)}</strong> čeká na schválení organizátorem.</p>`
+              ? `<p>Vaše přihláška na akci <strong>${escapeHtml(event.title)}</strong> čeká na schválení organizátorem.${escapeHtml(heldReason)}</p>`
               : `<p>Jste přihlášeni na akci <strong>${escapeHtml(event.title)}</strong>.</p>`,
           },
         })
@@ -127,7 +138,11 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
         // Brief §7 "Nové přihlášení na akci → organizátor" — to everyone running it, who all
         // approve registrations (guardStatusChange); the manage page is where they do.
         const who = await describeUser(req.payload, userId)
-        const awaiting = pending ? ' Přihláška čeká na vaše schválení.' : ''
+        const awaiting = restrictedUntil
+          ? ` Přihláška čeká na vaše schválení — za posledních ${RELIABILITY_WINDOW_MONTHS} měsíců ${noShows}× nedorazil(a) bez omluvy.`
+          : pending
+            ? ' Přihláška čeká na vaše schválení.'
+            : ''
         await sendNotificationToMany(req.payload, await getEventTeamUserIds(req.payload, event, { exclude: [userId] }), {
           title: 'Nová přihláška na akci',
           message: `${who} se přihlásil(a) na vaši akci „${event.title}“.${awaiting}`,
@@ -266,39 +281,88 @@ const scheduleFeedbackOnAttendance: CollectionAfterChangeHook = async ({ doc, pr
   return doc
 }
 
+/** Marked "Nedorazil/a" — the participant hears it, kindly, with how to let the organizer know next
+ * time. Once that makes NO_SHOW_LIMIT within the window, also that their sign-ups now wait for the
+ * organizer, and until when (lib/reliability). Only on the transition into "no_show". */
+const notifyOnNoShow: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req, context }) => {
+  if (context?.skipNotifications || operation !== 'update' || doc.role === 'volunteer') return doc
+  if (doc.attendanceStatus !== 'no_show' || previousDoc?.attendanceStatus === 'no_show') return doc
+  try {
+    const userId = relId(doc.user)
+    const eventId = relId(doc.event)
+    const [event, record] = await Promise.all([
+      req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req }),
+      reliabilityOf(req.payload, userId, { req }),
+    ])
+    const base =
+      `Mrzí nás, že jste na akci „${event.title}“ nedorazil(a). Když příště nebudete moci přijít, odhlaste se ` +
+      `prosím v aplikaci (nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny předem), nebo dejte vědět pořadateli — ` +
+      `místo pak může dostat někdo jiný.`
+    const limit = record.restrictedUntil
+      ? ` Za posledních ${RELIABILITY_WINDOW_MONTHS} měsíců jste bez omluvy nedorazil(a) ${record.noShows}×, a tak vám ` +
+        `přihlášky do ${formatRestrictedUntil(record.restrictedUntil)} potvrzuje pořadatel — i na akce bez schvalování.`
+      : ''
+    const title = record.restrictedUntil ? 'Přihlášky vám teď potvrzuje pořadatel' : 'Nedorazil(a) jste na akci'
+    await sendNotification(req.payload, {
+      userId,
+      title,
+      message: `${base}${limit}`,
+      link: '/profil',
+      email: { subject: `${title}: ${event.title}`, body: `<p>${escapeHtml(base)}</p>${limit ? `<p>${escapeHtml(limit.trim())}</p>` : ''}` },
+    })
+  } catch (error) {
+    req.payload.logger.error(`Failed to notify about a no-show on registration ${doc.id}: ${error}`)
+  }
+  return doc
+}
+
 /** Attendance is the pořadatel's record of who actually came — it gates who may rate the event
  * (EventFeedback), whom the pořadatel may rate as a volunteer, and feeds the obec's analytics. Only
  * the event's own pořadatel (who founded it) fills it in — not its spolupořadatelé, not the obec when
  * it co-organizes — so there's one person answerable for it. Collection-level update access also lets
  * a participant update their own registration (to cancel it), so without this they could PATCH
  * themselves to "attended". An event with unlimited capacity keeps no attendance at all — nobody's
- * counted at the door; its volunteers are rated without it (VolunteerRatings). Looked up once per
- * request, not once per attendance field. */
+ * counted at the door; its volunteers are rated without it (VolunteerRatings). A participant's
+ * confirmed attendance the obec's admin may correct, though — a wrong "Nedorazil/a" would follow them
+ * around (lib/reliability). Looked up once per request, not once per attendance field. */
 const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
   if (!req.user) return false
   if (!doc?.event) return req.user.role === 'admin'
-  const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
-  const cacheKey = `canMarkAttendance:${eventId}`
-  if (typeof req.context[cacheKey] === 'boolean') return req.context[cacheKey]
+  const rights = await attendanceRights(req, relId(doc.event))
+  return rights.mark || (rights.correct && doc.role !== 'volunteer' && isMarked(doc.attendanceStatus))
+}
+
+type AttendanceRights = { mark: boolean; correct: boolean }
+
+/** `mark` — the event's creator (and a platform admin) fills attendance in; `correct` — an admin of
+ * the event's obec may change a participant's once it's confirmed. */
+async function attendanceRights(req: PayloadRequest, eventId: number | string): Promise<AttendanceRights> {
+  const cacheKey = `attendanceRights:${eventId}`
+  if (req.context[cacheKey]) return req.context[cacheKey] as AttendanceRights
 
   const event = await req.payload
     .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     .catch(() => null)
-  const organizerId = event ? (typeof event.organizer === 'object' ? event.organizer.id : event.organizer) : null
-  const allowed =
-    event !== null &&
-    !isUnlimitedCapacity(event.capacity) &&
-    (req.user.role === 'admin' || String(organizerId) === String(req.user.id))
-  req.context[cacheKey] = allowed
-  return allowed
+  const rights: AttendanceRights = { mark: false, correct: false }
+  if (event && !isUnlimitedCapacity(event.capacity)) {
+    rights.mark = req.user!.role === 'admin' || String(relId(event.organizer)) === String(req.user!.id)
+    rights.correct = (await getAdministeredMunicipalityIds(req.payload, req.user!.id)).includes(
+      String(relId(event.municipality)),
+    )
+  }
+  req.context[cacheKey] = rights
+  return rights
 }
+
+const isMarked = (status: unknown) => typeof status === 'string' && status !== 'not_marked'
 
 const relId = (value: unknown) => (value && typeof value === 'object' ? (value as { id: number }).id : (value as number))
 
 /**
  * Attendance is written once and stays — the pořadatel confirms it before saving, and the feedback
- * prompt and the volunteer rating hang off it. Field access (canMarkAttendance) is what actually
- * keeps anyone else out, but Payload drops such a field silently; this runs first (beforeOperation
+ * prompt and the volunteer rating hang off it. A mistake on a participant the obec's admin sets right
+ * (it counts against their reliability). Field access (canMarkAttendance) is what actually keeps
+ * anyone else out, but Payload drops such a field silently; this runs first (beforeOperation
  * precedes every field pass) purely to answer with a real error instead of a 200 that changed
  * nothing. Only when access control applies (every REST request); a platform admin may still correct
  * — except on an event with unlimited capacity, which keeps no attendance (canMarkAttendance).
@@ -323,11 +387,18 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
     throw new APIError('U akce s neomezenou kapacitou se docházka nevyplňuje — dobrovolníky ohodnotíte rovnou.', 400)
   }
   if (req.user.role === 'admin') return args
+  const marked = isMarked(current.attendanceStatus)
+  if (marked && current.role !== 'volunteer' && (await attendanceRights(req, relId(current.event))).correct) {
+    if (!isMarked(data.attendanceStatus)) {
+      throw new APIError('Docházku jde opravit na jinou, ne smazat.', 400)
+    }
+    return args
+  }
   if (!event || String(relId(event.organizer)) !== String(req.user.id)) {
     throw new APIError('Docházku zapisuje jen pořadatel, který akci založil.', 403)
   }
-  if (current.attendanceStatus && current.attendanceStatus !== 'not_marked') {
-    throw new APIError('Docházka je už potvrzená — změnit ji nejde.', 409)
+  if (marked) {
+    throw new APIError('Docházka je už potvrzená — změnit ji nejde. Chybu může opravit admin obce.', 409)
   }
   return args
 }
@@ -426,8 +497,12 @@ const guardOwnCancellation: CollectionBeforeOperationHook = async ({ args, opera
       400,
     )
   }
+  // Giving up an approved place in time is an omluva (lib/reliability) — stampCancellation records it.
+  if (current.status === 'approved') req.context[selfCancellationKey(id)] = true
   return args
 }
+
+const selfCancellationKey = (id: number | string) => `selfCancellation:${id}`
 
 /**
  * Signing up closes REGISTRATION_CUTOFF_HOURS before the start — whoever still wants to come calls or
@@ -453,10 +528,12 @@ const guardRegistrationWindow: CollectionBeforeOperationHook = async ({ args, op
 }
 
 /**
- * When a registration was cancelled — set here, never taken from the client. The excuse is written
- * once, with the cancellation, and stays as it was.
+ * When a registration was cancelled, and whether it was the registrant giving up their approved place
+ * themselves (guardOwnCancellation) rather than anything internal (deleting their account, joining
+ * the event's team) — set here, never taken from the client. The excuse is written once, with the
+ * cancellation, and stays as it was.
  */
-const stampCancellation: CollectionBeforeChangeHook = ({ data, originalDoc, operation }) => {
+const stampCancellation: CollectionBeforeChangeHook = ({ data, originalDoc, operation, req }) => {
   if (operation !== 'update' || !data || !originalDoc) return data
   if (data.status !== 'cancelled' || originalDoc.status === 'cancelled') {
     data.excuseMessage = originalDoc.excuseMessage ?? null
@@ -464,6 +541,7 @@ const stampCancellation: CollectionBeforeChangeHook = ({ data, originalDoc, oper
   }
 
   data.cancelledAt = new Date().toISOString()
+  data.selfCancelled = Boolean(req.context[selfCancellationKey(originalDoc.id)])
   data.excuseMessage = typeof data.excuseMessage === 'string' ? data.excuseMessage.trim() || null : null
   return data
 }
@@ -644,6 +722,18 @@ export const Registrations: CollectionConfig = {
       admin: { position: 'sidebar', readOnly: true },
     },
     {
+      // Set by stampCancellation — never by a client.
+      name: 'selfCancelled',
+      type: 'checkbox',
+      defaultValue: false,
+      access: { create: isPlatformAdminField, update: isPlatformAdminField },
+      admin: {
+        position: 'sidebar',
+        readOnly: true,
+        description: 'The registrant gave up their approved place themselves — an omluva in their reliability (lib/reliability).',
+      },
+    },
+    {
       name: 'attendanceStatus',
       type: 'select',
       defaultValue: 'not_marked',
@@ -758,7 +848,10 @@ export const Registrations: CollectionConfig = {
             if (activeCount.totalDocs >= event.capacity) {
               throw new Error('This event is already at full capacity.')
             }
-            data.status = 'approved'
+            // Whoever has gone NO_SHOW_LIMIT times without a word lately waits for the organizer,
+            // here too (lib/reliability) — the place is held for them meanwhile, as counted above.
+            const { restrictedUntil } = await reliabilityOf(req.payload, data.user, { req })
+            data.status = restrictedUntil ? 'pending' : 'approved'
           }
         }
 
@@ -778,6 +871,7 @@ export const Registrations: CollectionConfig = {
       broadcastCapacityChange,
       dropReminderWhenNoLongerComing,
       scheduleFeedbackOnAttendance,
+      notifyOnNoShow,
     ],
   },
   timestamps: true,

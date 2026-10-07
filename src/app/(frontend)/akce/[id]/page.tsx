@@ -14,6 +14,7 @@ import {
   wasTurnedAwayFromEvent,
   decideVolunteerInvitation,
   getMyVolunteerRequestForEvent,
+  getMyReliability,
   offerVolunteerHelp,
   withdrawVolunteerOffer,
   MyVolunteerRequest,
@@ -74,6 +75,8 @@ function EventDetailContent() {
   // Whoever runs the event turned the viewer down or took them off it — signing up again is refused.
   const [turnedAway, setTurnedAway] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  // Too many no-shows lately — the viewer's sign-up waits for the organizer even here (lib/reliability).
+  const [signUpHeld, setSignUpHeld] = useState(false);
 
   const refreshRegistrations = async (eventId: string) => {
     const [regRows, countRows, rejected] = await Promise.all([
@@ -109,6 +112,9 @@ function EventDetailContent() {
       user ? getMyAdministeredMunicipalityIds(String(user.id)).catch(() => []) : Promise.resolve([]),
       refreshRegistrations(ev.id),
       refreshVolunteerRequest(ev.id),
+      user
+        ? getMyReliability().then((r) => setSignUpHeld(r.restrictedUntil !== null)).catch(() => setSignUpHeld(false))
+        : Promise.resolve(setSignUpHeld(false)),
     ]);
     setEventCategories(cats.filter((c) => ev.category_ids.includes(c.id)));
     // Run as an organization ("Kavárna NMNM", or the obec itself) — the person's name only as a fallback.
@@ -588,7 +594,7 @@ function EventDetailContent() {
           open={joinOpen}
           onOpenChange={setJoinOpen}
           full={isFull}
-          needsApproval={event.registration_approval_mode === "manual"}
+          needsApproval={event.registration_approval_mode === "manual" || signUpHeld}
           lastOfferDeclined={volunteerRequest?.kind === "application" && volunteerRequest.status === "declined"}
           busy={submitting}
           onJoin={handleJoinFree}

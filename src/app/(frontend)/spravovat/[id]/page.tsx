@@ -9,11 +9,14 @@ import {
   updateAttendance,
   getOrganizerName,
   getVolunteerRatingsForEvent,
+  getEventReliability,
   ManageRegistrationRow,
   AttendanceStatus,
   VolunteerRatingRow,
 } from "@/integrations/payload/queries";
 import { RateVolunteer } from "@/components/RateVolunteer";
+import { ReliabilityBadge } from "@/components/ReliabilityBadge";
+import { NO_SHOW_LIMIT, RELIABILITY_WINDOW_MONTHS, type ReliabilityRecord } from "@/lib/reliability";
 import { VolunteerOffers } from "@/components/VolunteerOffers";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
@@ -48,7 +51,7 @@ const ATTENDANCE_OPTIONS: { value: AttendanceStatus; label: string; icon: typeof
 function ManageEventContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const { user } = useAuth();
+  const { user, administeredMunicipalityIds } = useAuth();
   const [regs, setRegs] = useState<ManageRegistrationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
@@ -69,21 +72,32 @@ function ManageEventContent() {
   // a volunteer only the pořadatel who founded it (Registrations guardStatusChange).
   const [removing, setRemoving] = useState<ManageRegistrationRow | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  // How reliably each participant turns up (lib/reliability), by user id.
+  const [reliability, setReliability] = useState<Map<string, ReliabilityRecord>>(new Map());
+  // A participant's confirmed attendance is the pořadatel's for good — only the obec's admin corrects
+  // a mistake, which would otherwise count against them (Registrations lockAttendanceOnceMarked).
+  const [canCorrect, setCanCorrect] = useState(false);
+  const [correctingId, setCorrectingId] = useState<string | null>(null);
+  const [correction, setCorrection] = useState<{ reg: ManageRegistrationRow; status: AttendanceStatus } | null>(null);
+  const [correctBusy, setCorrectBusy] = useState(false);
 
   const load = async () => {
     if (!id) return;
-    const [ev, rows, ratings] = await Promise.all([
+    const [ev, rows, ratings, records] = await Promise.all([
       getEvent(id),
       getEventRegistrationsForManage(id),
       getVolunteerRatingsForEvent(id).catch(() => new Map<string, VolunteerRatingRow>()),
+      getEventReliability(id).catch(() => new Map<string, ReliabilityRecord>()),
     ]);
     setRegs(rows);
     setVolunteerRatings(ratings);
+    setReliability(records);
     setLoading(false);
     if (ev) {
       setStartsAt(ev.date_time);
       setUnlimited(isUnlimitedCapacity(ev.capacity));
       setIsCreator(Boolean(user) && ev.organizer_id === String(user!.id));
+      setCanCorrect(Boolean(ev.municipality_id) && administeredMunicipalityIds.includes(ev.municipality_id!));
       const orgName = ev.organization
         ? ev.organization.name
         : ev.organizer_id
@@ -151,6 +165,22 @@ function ManageEventContent() {
     }
   };
 
+  const correctAttendance = async () => {
+    if (!correction) return;
+    setCorrectBusy(true);
+    try {
+      await updateAttendance(correction.reg.id, correction.status);
+      toast.success("Docházka opravena.");
+      setCorrection(null);
+      setCorrectingId(null);
+      load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Docházku se nepodařilo opravit.");
+    } finally {
+      setCorrectBusy(false);
+    }
+  };
+
   const started = startsAt !== null && isPast(startsAt);
   const hasApproved = regs.some((r) => r.status === "approved");
   const unmarked = regs.filter((r) => r.status === "approved" && r.attendance_status === "not_marked");
@@ -195,6 +225,10 @@ function ManageEventContent() {
               )}
             </div>
 
+            {r.role !== "volunteer" && r.user_id !== String(user?.id) && reliability.get(r.user_id) && (
+              <ReliabilityBadge record={reliability.get(r.user_id)!} />
+            )}
+
             {r.status === "cancelled" && r.excuse_message && (
               <p className="text-sm whitespace-pre-line"><span className="font-semibold">Omluvenka:</span> „{r.excuse_message}“</p>
             )}
@@ -235,8 +269,36 @@ function ManageEventContent() {
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">Docházka</p>
                 {r.attendance_status !== "not_marked" ? (
-                  // Confirmed — final, for everyone.
-                  <AttendanceResult status={r.attendance_status} />
+                  // Confirmed — final, but for a correction by the obec's admin.
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AttendanceResult status={r.attendance_status} />
+                      {canCorrect && r.role !== "volunteer" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCorrectingId(correctingId === r.id ? null : r.id)}
+                          aria-expanded={correctingId === r.id}
+                        >
+                          Opravit
+                        </Button>
+                      )}
+                    </div>
+                    {correctingId === r.id && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {ATTENDANCE_OPTIONS.filter((o) => o.value !== r.attendance_status).map(({ value, label, icon: Icon }) => (
+                          <Button
+                            key={value}
+                            variant="outline"
+                            className="h-11 text-xs px-1"
+                            onClick={() => setCorrection({ reg: r, status: value })}
+                          >
+                            <Icon className="h-4 w-4" />{label}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : isCreator ? (
                   <>
                     <div className="grid grid-cols-3 gap-2">
@@ -297,11 +359,38 @@ function ManageEventContent() {
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               Kdo je označený jako Přišel/a, dostane po potvrzení žádost o ohodnocení akce. Potvrzenou docházku už nejde
-              změnit.
+              změnit — chybu opraví jen admin obce.
             </p>
           </div>
         )}
       </div>
+
+      <AlertDialog open={correction !== null} onOpenChange={(open) => !open && !correctBusy && setCorrection(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Opravit docházku {correction?.reg.full_name} na „
+              {ATTENDANCE_OPTIONS.find((o) => o.value === correction?.status)?.label}“?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Docházka se počítá do spolehlivosti účastníka, kterou vidí pořadatelé. Opravte ji, jen když ji pořadatel
+              zapsal chybně.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={correctBusy}>Zpět</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={correctBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                correctAttendance();
+              }}
+            >
+              {correctBusy ? "Ukládám…" : "Opravit"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={removing !== null} onOpenChange={(open) => !open && !removeBusy && setRemoving(null)}>
         <AlertDialogContent>
@@ -333,8 +422,9 @@ function ManageEventContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>Potvrdit docházku?</AlertDialogTitle>
             <AlertDialogDescription>
-              Docházku pak už nepůjde změnit — ani vámi, ani ostatními pořadateli. Kdo přišel, dostane žádost o
-              ohodnocení akce.
+              Docházku pak už nepůjde změnit — ani vámi, ani ostatními pořadateli; chybu opraví jen admin obce. Kdo
+              přišel, dostane žádost o ohodnocení akce. Kdo nedorazil, dostane upozornění — po {NO_SHOW_LIMIT}{" "}
+              neomluvených absencích za {RELIABILITY_WINDOW_MONTHS} měsíců mu přihlášky na čas potvrzuje pořadatel.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <ul className="grid grid-cols-3 gap-2 text-center">

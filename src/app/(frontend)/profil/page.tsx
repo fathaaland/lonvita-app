@@ -24,6 +24,7 @@ import { NotificationPreferencesCard } from "@/components/NotificationPreference
 import { PersonalDetailsCard } from "@/components/PersonalDetailsCard";
 import { DeleteAccountCard } from "@/components/DeleteAccountCard";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
+import { AttendanceRecordCard } from "@/components/AttendanceRecordCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
 import { Loading } from "@/components/Loading";
 
@@ -114,6 +115,8 @@ function ProfileContent() {
         <NotificationPreferencesCard />
 
         <EventFeedbackCard />
+
+        {!isSuperAdmin && <AttendanceRecordCard />}
 
         <Card>
           <CardContent className="p-4">

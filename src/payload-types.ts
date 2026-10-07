@@ -542,6 +542,10 @@ export interface Registration {
   excuseMessage?: string | null;
   cancelledAt?: string | null;
   /**
+   * The registrant gave up their approved place themselves — an omluva in their reliability (lib/reliability).
+   */
+  selfCancelled?: boolean | null;
+  /**
    * What actually happened — set by the organizer after the event, on the manage-event page.
    */
   attendanceStatus?: ('not_marked' | 'attended' | 'no_show' | 'excused') | null;
@@ -1269,6 +1273,7 @@ export interface RegistrationsSelect<T extends boolean = true> {
   role?: T;
   excuseMessage?: T;
   cancelledAt?: T;
+  selfCancelled?: T;
   attendanceStatus?: T;
   attendanceMarkedAt?: T;
   attendanceMarkedBy?: T;
