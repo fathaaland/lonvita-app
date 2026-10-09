@@ -1,4 +1,24 @@
+import { consumeRateLimit, getClientIp } from '@/lib/security/rate-limit'
+
 const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org'
+
+/** Search and reverse lookups together, per client IP. A debounced search plus dragging the pin
+ * around stays well inside it. */
+const NOMINATIM_PROXY_RATE_LIMIT = { max: 60, windowSeconds: 60 }
+
+/**
+ * Both proxies are open to signed-out visitors, and everything they forward reaches Nominatim
+ * under our User-Agent — one client pushing a script through them would get the app's address
+ * search blocked for everybody. Returns the seconds to wait, or null when the call may go ahead.
+ */
+export async function nominatimProxyRetryAfter(request: Request): Promise<number | null> {
+  const result = await consumeRateLimit({
+    namespace: 'geocode',
+    identifier: getClientIp(request.headers),
+    ...NOMINATIM_PROXY_RATE_LIMIT,
+  })
+  return result.allowed ? null : result.retryAfter
+}
 
 /**
  * Fetches from OpenStreetMap Nominatim with a proper identifying User-Agent, per Nominatim's

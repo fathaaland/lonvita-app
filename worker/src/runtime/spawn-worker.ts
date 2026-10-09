@@ -3,6 +3,7 @@ import { Worker } from 'bullmq'
 import { logger, serializeError } from '@/lib/logger'
 import { runWithCorrelationId } from '@/lib/logger/correlation'
 import { QUEUE_NAME } from '@/lib/queue/contracts'
+import { workerOptions } from '@/lib/queue/options'
 import { queueConnectionOptions } from '@/lib/valkey/client'
 
 import { dispatchJobByType } from './job-dispatcher'
@@ -39,6 +40,7 @@ export const spawnQueueWorker = (): QueueWorker => {
     {
       connection: queueConnectionOptions,
       concurrency,
+      ...workerOptions,
     },
   )
 
@@ -74,7 +76,12 @@ export const spawnQueueWorker = (): QueueWorker => {
     logger.error('Queue worker error', { event: 'queue.worker_error', ...serializeError(err) })
   })
 
-  logger.info('Queue worker started', { event: 'queue.worker_started', queue: QUEUE_NAME, concurrency })
+  logger.info('Queue worker started', {
+    event: 'queue.worker_started',
+    queue: QUEUE_NAME,
+    concurrency,
+    ...workerOptions,
+  })
 
   return {
     name: worker.name,

@@ -1,9 +1,19 @@
 import type { CollectionConfig } from 'payload'
 
+import { isLoggedIn } from './access/shared'
+
 export const Media: CollectionConfig = {
   slug: 'media',
   access: {
     read: () => true,
+    // Event covers, avatars and organization logos are uploaded straight from the browser.
+    create: isLoggedIn,
+    // Spelled out because Payload's default for a missing operation is "any signed-in user" —
+    // which let anybody PATCH a new file over someone else's event photo, or DELETE it. Nothing in
+    // the app edits or removes a media row over REST: a replaced photo is a new upload, and
+    // account anonymization removes files through the Local API (overrideAccess).
+    update: ({ req: { user } }) => user?.role === 'admin',
+    delete: ({ req: { user } }) => user?.role === 'admin',
   },
   fields: [
     {

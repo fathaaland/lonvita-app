@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
+import { contentDisposition } from '@/lib/contentDisposition'
 import { getS3Client as getClient, s3Bucket as bucket } from '@/lib/s3/client'
 
 /** Same bucket as the media uploads, under its own prefix — nothing to provision for it. */
@@ -28,7 +29,7 @@ export async function presignExportDownload(key: string, fileName: string): Prom
     new GetObjectCommand({
       Bucket: bucket(),
       Key: key,
-      ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      ResponseContentDisposition: contentDisposition(fileName),
     }),
     { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
   )

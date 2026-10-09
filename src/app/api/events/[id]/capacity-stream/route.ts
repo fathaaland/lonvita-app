@@ -3,7 +3,14 @@ import config from '@payload-config'
 
 import { createCapacitySubscriber, capacityChannel } from '@/lib/realtime/eventCapacity'
 import { logger } from '@/lib/logger'
+import { consumeRateLimit, getClientIp } from '@/lib/security/rate-limit'
 import { PARTICIPANTS_ONLY } from '@/collections/Registrations'
+
+/** Every open stream holds a Redis connection of its own (a subscriber can't share one), so an
+ * unmetered public endpoint would let one client exhaust the connections the queue and the rate
+ * limiter run on. EventSource reconnects by itself, which is what a page legitimately adds up to:
+ * a few tabs, each reconnecting after a dropped network or a platform timeout. */
+const STREAM_RATE_LIMIT = { max: 30, windowSeconds: 60 }
 
 /**
  * Brief §8 "websocket bude sledovat aktivitu na backendu zdali se někdo neodhlásí, pokud ano,
@@ -18,6 +25,24 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
+  // The id becomes a Redis channel name and a query filter — only a real row id may.
+  if (!/^\d{1,12}$/.test(id)) {
+    return new Response('Not found', { status: 404 })
+  }
+
+  const rateLimit = await consumeRateLimit({
+    namespace: 'capacity-stream',
+    identifier: getClientIp(request.headers),
+    ...STREAM_RATE_LIMIT,
+  })
+  if (!rateLimit.allowed) {
+    // EventSource retries a failed connection on its own; Retry-After says when that helps.
+    return new Response('Too many requests', {
+      status: 429,
+      headers: { 'Retry-After': String(rateLimit.retryAfter) },
+    })
+  }
+
   const payload = await getPayload({ config })
 
   const encoder = new TextEncoder()

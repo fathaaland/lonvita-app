@@ -6,6 +6,14 @@ export const CORRELATION_ID_HEADER = 'x-correlation-id'
  * sentinel rather than an empty string, so "logs that lost their trace" stay filterable. */
 export const NO_CORRELATION_ID = 'no-correlation-id'
 
+/**
+ * An id that came from outside (a request header, the browser's crash report) is only taken if it
+ * looks like one: it is copied verbatim into every log line of the request, so anything longer or
+ * stranger — a newline, a megabyte of header — is replaced rather than shipped.
+ */
+export const acceptCorrelationId = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^[\w.:-]{1,200}$/.test(value) ? value : undefined
+
 const storage = new AsyncLocalStorage<{ correlationId: string }>()
 
 /**

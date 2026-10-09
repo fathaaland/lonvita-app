@@ -21,7 +21,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.replace("/auth");
+      // Back to this very page after signing in — read from window rather than useSearchParams,
+      // which would force a Suspense boundary on every page this guards.
+      // The home page carries no redirect: there, the sign-in page's role-based landing
+      // (/admin-obce, /superadmin, …) is the better destination.
+      const here = `${window.location.pathname}${window.location.search}`;
+      router.replace(here === "/" ? "/auth" : `/auth?redirect=${encodeURIComponent(here)}`);
       return;
     }
     if (needsOnboarding) {

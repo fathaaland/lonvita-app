@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { fetchNominatim } from '@/lib/geo/nominatim'
+import { fetchNominatim, nominatimProxyRetryAfter } from '@/lib/geo/nominatim'
 
 /**
  * Server-side proxy for OpenStreetMap Nominatim search (brief §12 "ROZHODNĚ NE NAPSAT
@@ -20,8 +20,14 @@ type NominatimResult = {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const q = searchParams.get('q')?.trim()
-  if (!q || q.length < 3) {
+  // No address is longer than this; anything that is isn't a search worth forwarding.
+  if (!q || q.length < 3 || q.length > 200) {
     return NextResponse.json({ results: [] })
+  }
+
+  const retryAfter = await nominatimProxyRetryAfter(request)
+  if (retryAfter !== null) {
+    return NextResponse.json({ results: [] }, { status: 429, headers: { 'Retry-After': String(retryAfter) } })
   }
 
   const data = await fetchNominatim<NominatimResult[]>(

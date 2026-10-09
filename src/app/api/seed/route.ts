@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
+
 import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 import config from '@payload-config'
@@ -5,6 +7,13 @@ import config from '@payload-config'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { runSeed } from '@/lib/seed/run'
+
+/** Compared as digests: equal length whatever was sent, and timingSafeEqual doesn't give away how
+ * much of the secret a guess got right the way `===` does. Guessing is also metered in the proxy. */
+const matchesSecret = (header: string | null, secret: string): boolean => {
+  const digest = (value: string) => createHash('sha256').update(value).digest()
+  return timingSafeEqual(digest(header ?? ''), digest(`Bearer ${secret}`))
+}
 
 // Requires Vercel Pro for 60s; on Hobby (default 10s) the seed might time out
 // if the DB is cold. Run it once after deploy, not on every request.
@@ -20,7 +29,7 @@ export async function POST(request: Request) {
   }
 
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${secret}`) {
+  if (!matchesSecret(authHeader, secret)) {
     // An unauthorised hit on the endpoint that can rewrite the whole database is worth seeing.
     logger.warn('Seed request rejected', { event: 'seed.unauthorized', correlationId })
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

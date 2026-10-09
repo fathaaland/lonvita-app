@@ -38,12 +38,24 @@ import { logger, serializeError } from './lib/logger'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
 import { withCrudLogging } from './lib/logger/collection-logger'
 import { runSeed } from './lib/seed/run'
+import { validateEnv } from './lib/env'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
 export default buildConfig({
   onInit: async (payload) => {
+    // Once per boot, in every process that builds Payload: a deployment missing a variable fails
+    // somewhere far from the cause (an e-mail that never leaves, a 500 on the first upload).
+    const env = validateEnv()
+    if (env.missing.length > 0 && process.env.NODE_ENV !== 'test') {
+      logger[env.ok ? 'warn' : 'error']('Environment variables missing', {
+        event: 'env.missing',
+        required: env.missing.filter((v) => v.required).map((v) => v.key),
+        optional: env.missing.filter((v) => !v.required).map((v) => v.key),
+      })
+    }
+
     // Every process that builds a Payload instance runs this — the Next app, `payload migrate`,
     // and now the worker (which needs Payload for the cleanup job). Only the app should seed:
     // migrations must not write rows mid-schema-change, and a second seeding process just races
@@ -124,6 +136,12 @@ export default buildConfig({
   // anyone hitting the API from a different origin, not the primary defense.
   cors: [process.env.NEXT_PUBLIC_APP_URL].filter(Boolean) as string[],
   csrf: [process.env.NEXT_PUBLIC_APP_URL].filter(Boolean) as string[],
+  upload: {
+    // Matches experimental.proxyClientMaxBodySize in next.config.ts. Photos are downscaled in the
+    // browser first (src/lib/image.ts), so this is the cap on a client that skips that step, not
+    // a size anybody legitimately reaches.
+    limits: { fileSize: 25 * 1024 * 1024 },
+  },
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },

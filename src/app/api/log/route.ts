@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import config from '@payload-config'
 import { logger } from '@/lib/logger'
-import { correlationIdFromHeaders } from '@/lib/logger/correlation'
+import { acceptCorrelationId, correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { consumeRateLimit, getClientIp } from '@/lib/security/rate-limit'
 
 /** Everything here arrives from a browser that can send whatever it likes, so the body is
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
     ...reporter,
     // The browser quotes the id the page was served with; the header is the id of *this*
     // request, which is only a fallback when the cookie was missing.
-    correlationId: correlationId || correlationIdFromHeaders(request.headers),
+    correlationId: acceptCorrelationId(correlationId) ?? correlationIdFromHeaders(request.headers),
   })
 
   return new NextResponse(null, { status: 204 })

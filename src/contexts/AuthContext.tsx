@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { getCurrentPayloadUser, PayloadUser, signOutRedirect } from "@/integrations/payload/client";
+import { getCurrentPayloadUser, PayloadUser, setSignedIn, signOutRedirect } from "@/integrations/payload/client";
 import {
   getMyProfile,
   getMyRoles,
@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!active) return;
 
       setUser(currentUser);
+      setSignedIn(Boolean(currentUser));
 
       if (currentUser) {
         await loadProfileAndRoles(String(currentUser.id));

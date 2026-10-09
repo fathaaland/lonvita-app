@@ -13,12 +13,59 @@ export type RateLimitConfig = {
 export type RateLimitResult = {
   allowed: boolean
   retryAfter: number
+  /** Set when the limiter itself could not answer and `failureMode: 'deny'` turned that away. */
+  unavailable?: boolean
 }
 
-type RateLimitStore = {
-  incr: (key: string) => Promise<number>
-  expire: (key: string, seconds: number) => Promise<number>
-  ttl: (key: string) => Promise<number>
+/** What to do when the backend can't be reached: stay usable (`allow`, the default — sign-in must
+ * not go down with Redis) or refuse (`deny`, for endpoints where an unmetered caller is worse). */
+type RateLimitFailureMode = 'allow' | 'deny'
+
+type RateLimitStore = Pick<Redis, 'eval'>
+
+/**
+ * Endpoints metered in `src/proxy.ts`, before any route code runs — for the ones whose handler
+ * isn't ours (Payload's own auth REST + GraphQL) or that should be turned away before they
+ * do any work. Keyed by pathname, POST only. Per client IP, so set with shared addresses in
+ * mind: a seniors' club signing in together from one obec Wi-Fi must not hit the login limit.
+ * Brute force on a single account is Payload's own job (Users.auth.maxLoginAttempts); this is
+ * the cap on one address trying many accounts.
+ */
+export const PROXY_RATE_LIMITS: Record<string, RateLimitConfig & { message: string }> = {
+  '/api/users/login': {
+    max: 20,
+    windowSeconds: 15 * 60,
+    message: 'Příliš mnoho pokusů o přihlášení. Zkuste to znovu za 15 minut.',
+  },
+  '/api/auth/register': {
+    max: 20,
+    windowSeconds: 60 * 60,
+    message: 'Příliš mnoho registrací z této sítě. Zkuste to znovu za hodinu.',
+  },
+  // Payload's built-in password-reset endpoints are reachable next to our own /api/auth/* ones
+  // (which carry their own limit, enforcePasswordResetRateLimit) — without this they would be
+  // an unmetered way to send reset e-mails to anybody.
+  '/api/users/forgot-password': {
+    max: 5,
+    windowSeconds: 15 * 60,
+    message: 'Příliš mnoho žádostí o obnovení hesla. Zkuste to znovu za 15 minut.',
+  },
+  '/api/users/reset-password': {
+    max: 5,
+    windowSeconds: 15 * 60,
+    message: 'Příliš mnoho pokusů o obnovení hesla. Zkuste to znovu za 15 minut.',
+  },
+  // GraphQL carries a login mutation of its own, so leaving it open would undo the login limit.
+  '/api/graphql': {
+    max: 60,
+    windowSeconds: 60,
+    message: 'Příliš mnoho požadavků. Zkuste to znovu za minutu.',
+  },
+  '/api/seed': {
+    max: 5,
+    windowSeconds: 15 * 60,
+    message: 'Příliš mnoho požadavků. Zkuste to znovu za 15 minut.',
+  },
 }
 
 const PASSWORD_RESET_ACTION_LIMIT: RateLimitConfig = {
@@ -49,6 +96,21 @@ const getRedis = (): RateLimitStore | null => {
 
 const hashIdentifier = (identifier: string): string => createHash('sha256').update(identifier).digest('hex')
 
+/**
+ * Count and expiry in one step. As two separate calls, a process dying between INCR and EXPIRE
+ * leaves a counter with no TTL — a permanent lockout for whoever it belongs to. A counter found
+ * without one (left behind exactly like that) gets its window back here instead of living on.
+ */
+const HIT_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {count, ttl}
+`
+
 export const getClientIp = (requestHeaders: { get: (name: string) => string | null }): string => {
   const forwardedFor = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim()
   return (forwardedFor || requestHeaders.get('x-real-ip')?.trim() || 'unknown').slice(0, MAX_CLIENT_IP_LENGTH)
@@ -60,33 +122,31 @@ export const consumeRateLimit = async ({
   max,
   windowSeconds,
   store = getRedis(),
+  failureMode = 'allow',
 }: {
   namespace: string
   identifier: string
   max: number
   windowSeconds: number
   store?: RateLimitStore | null
+  failureMode?: RateLimitFailureMode
 }): Promise<RateLimitResult> => {
   const retryAfter = windowSeconds
+  const unavailableResult: RateLimitResult =
+    failureMode === 'deny' ? { allowed: false, retryAfter, unavailable: true } : { allowed: true, retryAfter }
 
   if (!store) {
-    return { allowed: true, retryAfter }
+    return unavailableResult
   }
 
   const key = `ratelimit:${namespace}:${hashIdentifier(identifier)}`
 
   try {
-    const count = await store.incr(key)
-
-    if (count === 1) {
-      await store.expire(key, windowSeconds)
-    }
+    const [count, ttl] = (await store.eval(HIT_SCRIPT, 1, key, String(windowSeconds))) as [number, number]
 
     if (count <= max) {
       return { allowed: true, retryAfter }
     }
-
-    const ttl = await store.ttl(key)
 
     logger.warn('Rate limit exceeded', {
       event: 'security.rate_limit_exceeded',
@@ -101,15 +161,16 @@ export const consumeRateLimit = async ({
       retryAfter: ttl > 0 ? ttl : retryAfter,
     }
   } catch (error) {
-    // Keep authentication usable when the optional rate-limit backend is unavailable. This
-    // fails *open*, so it has to be loud: until it shows up in the log, the app silently has
-    // no rate limiting at all.
+    // By default this keeps authentication usable when the rate-limit backend is unavailable.
+    // Failing *open* has to be loud: until it shows up in the log, the app silently has no
+    // rate limiting at all.
     logger.error('Rate limit backend unavailable', {
       event: 'security.rate_limit_backend_unavailable',
       namespace,
+      failureMode,
       ...serializeError(error),
     })
-    return { allowed: true, retryAfter }
+    return unavailableResult
   }
 }
 

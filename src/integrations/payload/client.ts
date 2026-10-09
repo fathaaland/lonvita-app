@@ -26,6 +26,40 @@ function unwrapDoc<T>(body: unknown): T {
   return body as T;
 }
 
+// --- Session expiry -----------------------------------------------------------------
+
+let signedIn = false;
+let sessionExpiryHandled = false;
+
+/** Told by AuthContext whether the page believes someone is signed in — only then can a refused
+ * request mean that the session ran out underneath it. */
+export function setSignedIn(value: boolean) {
+  signedIn = value;
+}
+
+/**
+ * A session lasts two hours (Users.auth.tokenExpiration) and nothing renews it, so a page left
+ * open past that keeps showing a signed-in app whose every request now fails — Payload answers
+ * 403 "not allowed", our own routes 401 — and the user only sees one error toast after another.
+ * Either status can also be a genuine refusal, so /users/me decides: only a session that is
+ * really gone sends the user to sign in again, with the page to come back to.
+ */
+async function handleSessionExpiry(status: number): Promise<void> {
+  if (status !== 401 && status !== 403) return;
+  if (!signedIn || sessionExpiryHandled || typeof window === "undefined") return;
+
+  const me = await fetch(`${API_BASE}/users/me`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : null))
+    .catch(() => null);
+  // No answer at all says nothing about the session — leave the error to the caller.
+  if (!me || me.user) return;
+
+  sessionExpiryHandled = true;
+  const here = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  // Through the logout route, so the dead cookie goes too and the next request starts clean.
+  window.location.assign(`/api/auth/logout?reason=expired&redirect=${encodeURIComponent(here)}`);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
@@ -37,6 +71,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
+    await handleSessionExpiry(res.status);
     const body = await res.json().catch(() => null);
     const message = body?.errors?.[0]?.message ?? body?.error ?? `Request failed with status ${res.status}`;
     throw new PayloadApiError(message, res.status);
@@ -79,6 +114,7 @@ export async function uploadFile<T>(collection: string, file: File, fields?: Rec
     body: form,
   });
   if (!res.ok) {
+    await handleSessionExpiry(res.status);
     const body = await res.json().catch(() => null);
     const message = body?.errors?.[0]?.message ?? `Upload failed with status ${res.status}`;
     throw new PayloadApiError(message, res.status);

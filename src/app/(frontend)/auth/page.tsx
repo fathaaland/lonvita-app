@@ -8,7 +8,9 @@ import {
   requestPasswordReset,
   getAuthMode,
   loginWithPassword,
+  PayloadApiError,
 } from "@/integrations/payload/client";
+import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { listMunicipalities, getMyProfile, getMyRoles, MunicipalityRow } from "@/integrations/payload/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,10 +64,20 @@ function AuthPageContent() {
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Where the visitor was headed when RequireAuth or an expired session sent them here. Never
+  // back to /auth itself — that would just land them on this form again after signing in.
+  const requestedRedirect = getSafeRedirectPath(searchParams.get("redirect"), "");
+  const redirectTo = requestedRedirect.startsWith("/auth") ? "" : requestedRedirect;
 
   useEffect(() => {
     getAuthMode().then((m) => setGoogleEnabled(m.google));
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("reason") === "expired") {
+      toast.info("Vaše přihlášení vypršelo. Přihlaste se prosím znovu.");
+    }
+  }, [searchParams]);
 
   // The Google callback reports failures as a query param — it can't toast from a redirect.
   useEffect(() => {
@@ -133,23 +145,29 @@ function AuthPageContent() {
         // answer is already one request away, instead of letting the destination page redo it.
         const [roles, profile] = await Promise.all([getMyRoles(userId), getMyProfile(userId)]);
         // Full reload so AuthContext (and everything gated on it) picks up the new session.
+        // Onboarding still comes first; after that, the page they were sent here from.
         window.location.href =
           loggedInUser.role === "admin"
-            ? "/superadmin"
+            ? redirectTo || "/superadmin"
             : !profile?.onboarding_completed
               ? "/onboarding"
-              : roles.includes("municipality_admin")
-                ? "/admin-obce"
-                : "/";
-      } catch {
-        toast.error("Nesprávný e-mail nebo heslo.");
+              : redirectTo ||
+                (roles.includes("municipality_admin")
+                  ? "/admin-obce"
+                  : "/");
+      } catch (error) {
+        // Rate limiting (src/proxy.ts) says when to try again; anything else stays deliberately
+        // vague, so the form can't be used to find out which e-mails have an account.
+        toast.error(
+          error instanceof PayloadApiError && error.status === 429 ? error.message : "Nesprávný e-mail nebo heslo.",
+        );
         setLoading(false);
       }
     }
   };
 
   const signInGoogle = () => {
-    redirectToGoogle("/");
+    redirectToGoogle(redirectTo || "/");
   };
 
   const handleForgot = async () => {

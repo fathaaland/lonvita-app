@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { CURRENT_PATH_HEADER } from '@/lib/auth/redirect'
+import { acceptCorrelationId } from '@/lib/logger/correlation'
+import { consumeRateLimit, getClientIp, PROXY_RATE_LIMITS } from '@/lib/security/rate-limit'
 
 import type { NextRequest } from 'next/server'
 
@@ -19,9 +21,38 @@ const applySecurityHeaders = (response: NextResponse) => {
   return response
 }
 
+/** Answers a metered endpoint over its limit before the route runs at all — in the same
+ * `{ errors: [{ message }] }` shape Payload uses, so the client shows the message as is. */
+const rateLimited = async (request: NextRequest, correlationId: string): Promise<NextResponse | null> => {
+  if (request.method !== 'POST') return null
+
+  const { pathname } = request.nextUrl
+  const limit = PROXY_RATE_LIMITS[pathname]
+  if (!limit) return null
+
+  const result = await consumeRateLimit({
+    namespace: `route:${pathname}`,
+    identifier: getClientIp(request.headers),
+    max: limit.max,
+    windowSeconds: limit.windowSeconds,
+  })
+  if (result.allowed) return null
+
+  return NextResponse.json(
+    { errors: [{ message: limit.message }], correlationId },
+    {
+      status: 429,
+      headers: { 'Retry-After': String(result.retryAfter), 'x-correlation-id': correlationId },
+    },
+  )
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const correlationId = request.headers.get('x-correlation-id') ?? crypto.randomUUID()
+  const correlationId = acceptCorrelationId(request.headers.get('x-correlation-id')) ?? crypto.randomUUID()
+
+  const limitedResponse = await rateLimited(request, correlationId)
+  if (limitedResponse) return applySecurityHeaders(limitedResponse)
 
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-correlation-id', correlationId)
