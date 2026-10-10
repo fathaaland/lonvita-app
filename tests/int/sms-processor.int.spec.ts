@@ -13,7 +13,7 @@ const twilioAnswers = (status: number, body: unknown) => {
 }
 
 const configure = (env: Record<string, string>) => {
-  for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID', 'TWILIO_FROM']) {
+  for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_MESSAGING_SERVICE_SID', 'TWILIO_FROM', 'TWILIO_TRIAL_TEMPLATE']) {
     vi.stubEnv(name, env[name] ?? '')
   }
 }
@@ -50,6 +50,16 @@ describe('SMS go out through Twilio', () => {
     const form = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams
     expect(form.get('MessagingServiceSid')).toBe('MG1')
     expect(form.has('From')).toBe(false)
+  })
+
+  it('sends the predefined template instead of our text on a trial account', async () => {
+    configure({ TWILIO_ACCOUNT_SID: 'AC123', TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: '+15005550006', TWILIO_TRIAL_TEMPLATE: 'sms_event_notifications' })
+    const fetchMock = twilioAnswers(201, { sid: 'SM3', status: 'queued' })
+
+    await processSmsJob(job)
+
+    const form = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as URLSearchParams
+    expect(form.get('Body')).toBe('sms_event_notifications')
   })
 
   it("doesn't retry what Twilio will reject again — nor a missing configuration", async () => {

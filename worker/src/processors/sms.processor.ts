@@ -45,7 +45,10 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     attempt: (context?.attemptsMade ?? 0) + 1,
   })
 
-  const form = new URLSearchParams({ To: payload.to, Body: payload.message })
+  // A trial account only sends Twilio's own predefined templates (error 572006 otherwise), so
+  // TWILIO_TRIAL_TEMPLATE (e.g. "sms_event_notifications") replaces our text until the upgrade.
+  const trialTemplate = process.env.TWILIO_TRIAL_TEMPLATE
+  const form = new URLSearchParams({ To: payload.to, Body: trialTemplate || payload.message })
   if (messagingServiceSid) form.set('MessagingServiceSid', messagingServiceSid)
   else form.set('From', from!)
 
