@@ -41,6 +41,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     },
     overrideAccess: true,
   })
+  // An event on hold is only for those already on it (Events canReadEvent).
+  if (event.isHidden && registered.totalDocs === 0) {
+    return NextResponse.json({ error: 'Akce neexistuje nebo už byla zrušena.' }, { status: 404 })
+  }
   if (!signUpClosed && registered.totalDocs === 0) {
     return NextResponse.json(
       { error: 'Kontakt na pořadatele vidí jen přihlášení na akci, nebo všichni až po uzávěrce přihlášek.' },

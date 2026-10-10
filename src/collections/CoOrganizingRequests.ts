@@ -12,7 +12,7 @@ import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { administeredIdsFor, mayEditEvent } from './Events'
-import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
+import { escapeHtml, getEventTeamUserIds, getObecDeciders, sendNotification, sendNotificationToMany } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
@@ -223,16 +223,15 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       req,
     })
     const who = requester.docs[0]?.fullName || 'Pořadatel'
-    const recipients = ownerId
-      ? [ownerId]
-      : await getMunicipalityAdminUserIds(req.payload, relationId(doc.municipality)!)
+    const obec = ownerId ? null : await getObecDeciders(req.payload, relationId(doc.municipality)!)
+    const recipients = ownerId ? [ownerId] : obec!.userIds
     const invited = ownerId ? `vaši organizaci ${doc.organizationName}` : 'obec'
-    const where = ownerId ? 'v sekci Organizace' : 'v sekci Žádosti v adminu obce'
+    const where = ownerId ? 'v sekci Organizace' : 'v sekci Žádosti'
     for (const userId of recipients) {
       sendNotification(req.payload, {
         userId,
         title: 'Pozvánka ke spolupořádání akce',
-        link: ownerId ? '/organizace' : '/admin-obce?tab=requests',
+        link: ownerId ? '/organizace' : obec!.requestsLink,
         message: `${who} zve ${invited} ke spolupořádání akce „${doc.eventTitle}“.`,
         email: {
           subject: `Pozvánka ke spolupořádání akce: ${doc.eventTitle}`,

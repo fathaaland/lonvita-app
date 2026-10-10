@@ -52,6 +52,7 @@ export const processEventCancelledJob = async (
         subject: `Akce zrušena: ${data.title}`,
         body: `<p>Akce <strong>${escapeHtml(data.title)}</strong>, na kterou jste byli přihlášeni, byla zrušena.</p>`,
       },
+      critical: true,
     },
     { jobIdPrefix: announcementId },
   )
@@ -62,10 +63,31 @@ export const processEventCancelledJob = async (
     announcementId,
   )
 
+  // An invitation or offer that was still waiting is void now (withdrawn with the cancel) — whoever
+  // was asked, or offered, would otherwise wait for an answer about an event that's gone.
+  const volunteerUserIds = data.volunteerUserIds ?? []
+  if (volunteerUserIds.length > 0) {
+    await sendNotificationToMany(
+      payload,
+      volunteerUserIds,
+      {
+        title: 'Akce byla zrušena',
+        message: `Akce „${data.title}“, na kterou jste měli pomáhat jako dobrovolník (pozvánka nebo vaše nabídka ještě čekala), byla zrušena.`,
+        email: {
+          subject: `Akce zrušena: ${data.title}`,
+          body: `<p>Akce <strong>${escapeHtml(data.title)}</strong>, na kterou jste měli pomáhat jako dobrovolník, byla zrušena. Pozvánka ani nabídka pomoci už neplatí.</p>`,
+        },
+        critical: true,
+      },
+      { jobIdPrefix: `${announcementId}-volunteers` },
+    )
+  }
+
   logger.info('Event cancellation announced', {
     event: 'event.cancel_notified',
     eventId: data.eventId,
     registrants: data.userIds.length,
+    volunteers: volunteerUserIds.length,
     inApp: sent.inApp,
     emails: sent.emails,
     sms,

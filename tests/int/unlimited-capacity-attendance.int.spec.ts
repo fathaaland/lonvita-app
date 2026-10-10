@@ -15,6 +15,7 @@ import { UNLIMITED_CAPACITY } from '@/lib/capacity'
 
 import { processAttendanceReminderJob } from '../../worker/src/processors/attendance-reminder.processor'
 import { processEmailJob } from '../../worker/src/processors/email.processor'
+import { processFeedbackRequestJob } from '../../worker/src/processors/feedback-request.processor'
 
 let payload: Payload
 
@@ -35,6 +36,8 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
   let volunteerRegistration: { id: number }
   let leftVolunteerRegistration: { id: number }
   let participantRegistration: { id: number }
+  let leftParticipant: TestUser
+  let leftParticipantRegistration: { id: number }
   const eventIds: number[] = []
 
   const tokenOf = async (user: TestUser) =>
@@ -102,6 +105,7 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
     volunteer = await makeUser('dobrovolnik', 'participant', volunteerProfile)
     leftVolunteer = await makeUser('odhlaseny', 'participant', volunteerProfile)
     participant = await makeUser('ucastnik', 'participant')
+    leftParticipant = await makeUser('odhlaseny-ucastnik', 'participant')
 
     // An unlimited event that has already started, founded by the pub and co-organized by the club —
     // a trusted write, since a past start can't be created through the app.
@@ -147,10 +151,18 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
     volunteerRegistration = await register(volunteer, { role: 'volunteer', status: 'approved' })
     leftVolunteerRegistration = await register(leftVolunteer, { role: 'volunteer', status: 'cancelled' })
     participantRegistration = await register(participant, { status: 'approved' })
+    // Auto-approval sets a new participant's status itself — cancelled is where they end up after.
+    leftParticipantRegistration = await payload.update({
+      collection: 'registrations',
+      id: (await register(leftParticipant, {})).id,
+      data: { status: 'cancelled' },
+      overrideAccess: true,
+      context: { skipNotifications: true },
+    })
   })
 
   afterAll(async () => {
-    const userIds = [pub.id, club.id, volunteer.id, leftVolunteer.id, participant.id]
+    const userIds = [pub.id, club.id, volunteer.id, leftVolunteer.id, participant.id, leftParticipant.id]
     await payload.delete({ collection: 'volunteer-ratings', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'event-feedback', where: { registration: { in: [participantRegistration.id] } }, overrideAccess: true }).catch(() => {})
     await payload.delete({ collection: 'registrations', where: { event: { in: eventIds } }, overrideAccess: true }).catch(() => {})
@@ -182,15 +194,27 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
     await expect(rate(pub, leftVolunteerRegistration.id)).rejects.toThrow(/nebyl/)
   })
 
-  it('participants get no rating of the event — there is no attendance to unlock it', async () => {
-    await expect(
-      payload.create({
-        collection: 'event-feedback',
-        data: { registration: participantRegistration.id, satisfactionRating: 5 } as never,
-        user: participant,
-        overrideAccess: false,
-      }),
-    ).rejects.toThrow()
+  const rateEvent = (user: TestUser, registration: number) =>
+    payload.create({
+      collection: 'event-feedback',
+      data: { registration, satisfactionRating: 5 } as never,
+      user,
+      overrideAccess: false,
+    })
+
+  it('is rated by whoever stayed signed up for it — there is no attendance to wait for', async () => {
+    const feedback = await rateEvent(participant, participantRegistration.id)
+    expect(feedback.satisfactionRating).toBe(5)
+  })
+
+  it('not by someone who cancelled before it', async () => {
+    await expect(rateEvent(leftParticipant, leftParticipantRegistration.id)).rejects.toThrow(/byli přihlášení/)
+  })
+
+  it('asks a participant who stayed signed up to rate it once it is over — and nobody who cancelled', async () => {
+    await payload.delete({ collection: 'event-feedback', where: { registration: { equals: participantRegistration.id } }, overrideAccess: true })
+    expect(await processFeedbackRequestJob({ registrationId: participantRegistration.id })).toEqual({ sent: true })
+    expect((await processFeedbackRequestJob({ registrationId: leftParticipantRegistration.id })).sent).toBe(false)
   })
 
   it('the organizer is not reminded to fill in attendance', async () => {

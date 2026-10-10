@@ -10,6 +10,7 @@ import {
   loginWithPassword,
   PayloadApiError,
 } from "@/integrations/payload/client";
+import { onboardingPath } from "@/lib/auth/onboarding";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { listMunicipalities, getMyProfile, getMyRoles, MunicipalityRow } from "@/integrations/payload/queries";
 import { Button } from "@/components/ui/button";
@@ -150,7 +151,7 @@ function AuthPageContent() {
           loggedInUser.role === "admin"
             ? redirectTo || "/superadmin"
             : !profile?.onboarding_completed
-              ? "/onboarding"
+              ? onboardingPath(redirectTo)
               : redirectTo ||
                 (roles.includes("municipality_admin")
                   ? "/admin-obce"

@@ -9,7 +9,11 @@ import type { PayloadListResponse } from "./client";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 import type { OrganizationFeedbackSummary } from "@/lib/organization-stats";
-import { ACCOUNT_DELETION_CONFIRMATION, type AccountDeletionBlockingEvent } from "@/lib/accountDeletion";
+import {
+  ACCOUNT_DELETION_CONFIRMATION,
+  type AccountDeletionBlockingEvent,
+  type AccountDeletionSoleAdminObec,
+} from "@/lib/accountDeletion";
 import type { ReliabilityRecord } from "@/lib/reliability";
 
 // --- Municipalities ---------------------------------------------------------------------
@@ -415,6 +419,7 @@ type PayloadRegistrationWithEvent = {
   id: number;
   status: RegistrationRow["status"];
   attendanceStatus?: AttendanceStatus;
+  role?: RegistrationRole | null;
   event: PayloadEventWithCategory | null;
 };
 
@@ -422,6 +427,7 @@ export type RegistrationWithEventRow = {
   id: string;
   status: RegistrationRow["status"];
   attendance_status: AttendanceStatus;
+  role: RegistrationRole;
   events: (EventRow & { categories: CategoryRow[] }) | null;
 };
 
@@ -435,13 +441,14 @@ export async function getMyRegistrationsWithEvents(userId: string): Promise<Regi
 
   return result.docs.map((r) => {
     const attendance_status = r.attendanceStatus ?? "not_marked";
+    const role = r.role ?? "participant";
     if (!r.event || typeof r.event !== "object")
-      return { id: String(r.id), status: r.status, attendance_status, events: null };
+      return { id: String(r.id), status: r.status, attendance_status, role, events: null };
     const event = mapEvent(r.event);
     const categories: CategoryRow[] = (r.event.categories ?? [])
       .filter((c): c is PayloadCategoryPopulated => typeof c === "object" && "name" in c)
       .map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
-    return { id: String(r.id), status: r.status, attendance_status, events: { ...event, categories } };
+    return { id: String(r.id), status: r.status, attendance_status, role, events: { ...event, categories } };
   });
 }
 
@@ -818,6 +825,69 @@ export async function removeVolunteer(userId: string): Promise<void> {
   await post("/admin/volunteers", { userId: Number(userId), isVolunteer: false });
 }
 
+// --- Invitations into the volunteer pool (PoolInvitations) ------------------------------------
+
+export type PoolInvitationStatus = "pending" | "accepted" | "declined" | "withdrawn";
+
+export type PoolInvitationAdminRow = {
+  id: string;
+  user_id: string;
+  full_name: string;
+  status: PoolInvitationStatus;
+  created_at: string;
+};
+
+/** For the obec's admin: residents matching `q` who could be invited, and the obec's invitations. */
+export async function getPoolInvitationsForAdmin(
+  municipalityId: string,
+  q = "",
+): Promise<{ candidates: { user_id: string; full_name: string }[]; invitations: PoolInvitationAdminRow[] }> {
+  const params = new URLSearchParams({ municipality: municipalityId, q });
+  return get(`/admin/pool-invitations?${params}`);
+}
+
+export async function inviteIntoPool(userId: string, municipalityId: string, message: string): Promise<void> {
+  await post("/pool-invitations", {
+    user: Number(userId),
+    municipality: Number(municipalityId),
+    message: message.trim() || null,
+  });
+}
+
+export async function withdrawPoolInvitation(id: string): Promise<void> {
+  await patch(`/pool-invitations/${id}`, { status: "withdrawn" });
+}
+
+export type MyPoolInvitationRow = {
+  id: string;
+  municipality_id: string;
+  municipality_name: string;
+  message: string | null;
+};
+
+type PayloadPoolInvitation = {
+  id: number;
+  municipality: number | { id: number; name: string };
+  message?: string | null;
+};
+
+/** Invitations into the pool still waiting for this user's answer. */
+export async function getMyPoolInvitations(userId: string): Promise<MyPoolInvitationRow[]> {
+  const where = buildWhereParams({ user: { equals: userId }, status: { equals: "pending" } });
+  const result = await get<PayloadListResponse<PayloadPoolInvitation>>(`/pool-invitations?${where}&depth=1&limit=20`);
+  return result.docs.map((i) => ({
+    id: String(i.id),
+    municipality_id: toId(i.municipality) ?? "",
+    municipality_name: typeof i.municipality === "object" ? i.municipality.name : "",
+    message: i.message ?? null,
+  }));
+}
+
+/** Accepting is joining the pool (the profile's volunteer form) — this only says no. */
+export async function declinePoolInvitation(id: string): Promise<void> {
+  await patch(`/pool-invitations/${id}`, { status: "declined" });
+}
+
 // --- Volunteer invitations --------------------------------------------------------------------
 
 /** Asks a volunteer from the pool to help run the event — they're on it once they accept. */
@@ -932,6 +1002,39 @@ export type VolunteerOfferRow = {
   rating: { average: number; count: number } | null;
   created_at: string;
 };
+
+export type PendingVolunteerInvitationRow = { id: string; user_id: string; full_name: string; created_at: string };
+
+/** Invitations the event's creator sent that are still waiting on the volunteer — they may take one
+ * back (sent by mistake, or no longer needed). */
+export async function getPendingVolunteerInvitationsForEvent(eventId: string): Promise<PendingVolunteerInvitationRow[]> {
+  const where = buildWhereParams({
+    event: { equals: eventId },
+    kind: { equals: "invitation" },
+    status: { equals: "pending" },
+  });
+  const result = await get<PayloadListResponse<{ id: number; volunteer: number | { id: number }; createdAt: string }>>(
+    `/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`,
+  );
+  const userIds = [...new Set(result.docs.map((r) => toId(r.volunteer)).filter((v): v is string => Boolean(v)))];
+  const names = new Map<string, string>();
+  if (userIds.length > 0) {
+    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+      `/profiles?${buildWhereParams({ user: { in: userIds } })}&depth=0&limit=100`,
+    );
+    for (const p of profiles.docs) names.set(toId(p.user) ?? "", p.fullName);
+  }
+  return result.docs.map((r) => ({
+    id: String(r.id),
+    user_id: toId(r.volunteer) ?? "",
+    full_name: names.get(toId(r.volunteer) ?? "") ?? "Dobrovolník",
+    created_at: r.createdAt,
+  }));
+}
+
+export async function withdrawVolunteerInvitation(invitationId: string): Promise<void> {
+  await patch(`/volunteer-invitations/${invitationId}`, { status: "withdrawn" });
+}
 
 /** Pending offers to help on the event, oldest first — each with the volunteer's card from the pool
  * (name, photo, ratings). For everyone running it; the creator answers them. */
@@ -1138,19 +1241,30 @@ export async function getMyOrganizerRequests(userId: string): Promise<{ id: stri
 
 /** `reason` — the applicant's own words on why the obec should let them organize events there;
  * `organization` — who they'll organize as, created for them once the obec approves. */
+/** A message from the event's team to everyone signed up (POST /api/events/:id/message). */
+export async function sendEventMessage(eventId: string, message: string): Promise<{ recipients: number }> {
+  return post<{ recipients: number }>(`/events/${eventId}/message`, { message });
+}
+
+/** Takes back the signed-in user's own request while it still waits for the obec. */
+export async function withdrawOrganizerRequest(requestId: string): Promise<void> {
+  await del(`/organizer-requests/${requestId}`);
+}
+
 export async function requestOrganizerRole(
   userId: string,
   municipalityId: string,
   reason: string,
   organization: { name: string; type: OrganizationType },
-): Promise<void> {
-  await post("/organizer-requests", {
+): Promise<string> {
+  const created = await post<{ id: number }>("/organizer-requests", {
     user: Number(userId),
     municipality: Number(municipalityId),
     reason,
     organizationName: organization.name,
     organizationType: organization.type,
   });
+  return String(created.id);
 }
 
 // --- Consented deletion of a co-organized event ---------------------------------------------
@@ -1421,10 +1535,17 @@ type PayloadConsent = { id: number; type: string; revokedAt?: string | null };
 /** Whether the user currently has an active (non-revoked) marketing consent. */
 // --- Deleting one's own account ---------------------------------------------------------
 
-/** The events ahead the signed-in user still runs or co-organizes — the account can't be deleted
- * until they're cancelled or left (GET /api/account/delete). */
-export async function getAccountDeletionBlockers(): Promise<AccountDeletionBlockingEvent[]> {
-  return (await get<{ blockingEvents: AccountDeletionBlockingEvent[] }>("/account/delete")).blockingEvents;
+export type AccountDeletionBlockers = {
+  /** The events ahead the signed-in user still runs or co-organizes — cancelled or left first. */
+  blockingEvents: AccountDeletionBlockingEvent[];
+  /** The obce they're the only admin of — another admin is appointed first. */
+  soleAdminOf: AccountDeletionSoleAdminObec[];
+};
+
+/** What stands between the signed-in user and deleting their account (GET /api/account/delete). */
+export async function getAccountDeletionBlockers(): Promise<AccountDeletionBlockers> {
+  const result = await get<Partial<AccountDeletionBlockers>>("/account/delete");
+  return { blockingEvents: result.blockingEvents ?? [], soleAdminOf: result.soleAdminOf ?? [] };
 }
 
 /** Deletes (anonymizes) the signed-in user's account and drops their session cookie. */
@@ -1502,4 +1623,11 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
 
 export async function markNotificationRead(notificationId: string): Promise<void> {
   await patch(`/notifications/${notificationId}`, { readAt: new Date().toISOString() });
+}
+
+/** Every unread one, not just the 100 the page lists — older ones would otherwise hold the badge
+ * until the 90-day cleanup. Notifications' update access keeps this to the user's own. */
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  const where = buildWhereParams({ user: { equals: userId }, readAt: { exists: false } });
+  await patch(`/notifications?${where}`, { readAt: new Date().toISOString() });
 }

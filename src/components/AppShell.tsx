@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { BottomNav } from "./BottomNav";
 import { TopNav } from "./TopNav";
 import { GuestTopBar } from "./GuestTopBar";
+import { AccessibilityMenuButton } from "./AccessibilityMenuButton";
 import { PaymentTestModeBanner } from "./PaymentTestModeBanner";
 import { LonvitaLogo, BrandWave } from "./LonvitaLogo";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,6 +32,9 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
       <PaymentTestModeBanner />
       {isWide && !!user && <TopNav />}
       {isWide && !user && <GuestTopBar />}
+      {/* The sign-in screens have no top bar — someone arriving from an e-mail link still needs
+          to make the text readable before typing anything. */}
+      {isNarrow && <AccessibilityMenuButton className="fixed right-3 top-3 z-40 bg-background/80 backdrop-blur" />}
       {isNarrow ? (
         <div className="lg:grid lg:grid-cols-2 lg:min-h-screen">
           {/* Desktop/tablet-landscape only — on phones the card's own header carries the branding.

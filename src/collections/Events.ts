@@ -157,6 +157,41 @@ export async function lockedEventIds(
   )
 }
 
+/**
+ * Readable events. Everyone — signed-out visitors too — sees every published event (brief §2). One
+ * its team has put on hold (isHidden) stays with the people it concerns: its pořadatel and
+ * spolupořadatelé, the admins of its obec, a platform admin, and whoever is already signed up for it
+ * (their place is kept — they see it in Moje akce). For anyone else it doesn't exist, link or not.
+ */
+const canReadEvent: Access = async ({ req }) => {
+  const { user, payload } = req
+  if (user?.role === 'admin') return notDeleted
+  const published: Where = { isHidden: { not_equals: true } }
+  if (!user) return { and: [notDeleted, published] }
+
+  const key = `hiddenEventsReadableBy:${user.id}`
+  let or = req.context?.[key] as Where[] | undefined
+  if (!or) {
+    const [administeredIds, registrations] = await Promise.all([
+      administeredIdsFor(req, user.id),
+      payload.find({
+        collection: 'registrations',
+        where: { and: [{ user: { equals: user.id } }, { status: { in: ['pending', 'approved'] } }] },
+        select: { event: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      }),
+    ])
+    or = [published, { organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
+    if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
+    const signedUpFor = registrations.docs.map((r) => relationId(r.event)).filter((id): id is string => Boolean(id))
+    if (signedUpFor.length > 0) or.push({ id: { in: signedUpFor } })
+    if (req.context) req.context[key] = or
+  }
+  return { and: [notDeleted, { or }] }
+}
+
 /** Events that haven't taken place yet — the where-form of hasEventEnded. */
 export const notYetEnded = (): Where => {
   const now = new Date().toISOString()
@@ -605,11 +640,33 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
     req.payload.logger.error(`Failed to notify registrants of cancelled event ${doc.id}: ${error}`)
   }
 
+  // Volunteer invitations and offers still waiting on it can't be answered any more — withdrawn in
+  // the same transaction, quietly (the cancellation job above tells those volunteers).
+  const waiting = await req.payload.find({
+    collection: 'volunteer-invitations',
+    where: { and: [{ event: { equals: doc.id } }, { status: { equals: 'pending' } }] },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  for (const invitation of waiting.docs) {
+    await req.payload.update({
+      collection: 'volunteer-invitations',
+      id: invitation.id,
+      data: { status: 'withdrawn' },
+      overrideAccess: true,
+      context: { withdrawingVolunteerInvitations: true },
+      req,
+    })
+  }
+
   return doc
 }
 
 /** Brief §8 / notes "pokud se změní lokalita, čas cokoliv jiného, odešle se automaticky mail na
- * všechny přihlášené a na telefonní čísla SMS, a samozřejmě upozornění do aplikace". Only decides
+ * všechny přihlášené a na telefonní čísla SMS, a samozřejmě upozornění do aplikace" — SMS since
+ * narrowed to cancellations only (event-cancelled processor); an edit goes in-app and by e-mail. Only decides
  * *whether* — the worker re-diffs once the edit has committed, then moves the reminders and
  * tells everyone (the event-updated job). */
 const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
@@ -878,7 +935,8 @@ export const Events: CollectionConfig = {
     // Public marketplace listing — open to signed-out visitors too (brief §2 "Nepřihlášený
     // návštěvník má mít možnost prohlédnout si přehled akcí v obci"). The frontend filters by
     // municipality itself (matches the existing Index.tsx query pattern: .eq('municipality_id', muniId)).
-    read: () => notDeleted,
+    // A hidden event only for those it concerns (canReadEvent).
+    read: canReadEvent,
     // Brief §3 "Pravidla pro vznik akcí" — gated per-municipality instead of any logged-in user.
     create: canCreateEvent,
     update: canUpdateEvent,

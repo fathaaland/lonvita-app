@@ -18,6 +18,7 @@ import { RateVolunteer } from "@/components/RateVolunteer";
 import { ReliabilityBadge } from "@/components/ReliabilityBadge";
 import { NO_SHOW_LIMIT, RELIABILITY_WINDOW_MONTHS, type ReliabilityRecord } from "@/lib/reliability";
 import { VolunteerOffers } from "@/components/VolunteerOffers";
+import { EventMessageCard } from "@/components/EventMessageCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
@@ -26,7 +27,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Clock, UserCheck, UserX, UserMinus, CalendarOff, HandHeart } from "lucide-react";
+import { Check, X, Clock, UserCheck, UserX, UserMinus, CalendarOff, HandHeart, Undo2 } from "lucide-react";
+import { isRegistrationOpen } from "@/lib/registrationCutoff";
+import { hasEventEnded } from "@/lib/eventEnded";
+import { PayloadApiError } from "@/integrations/payload/client";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -57,6 +61,7 @@ function ManageEventContent() {
   const [organizerName, setOrganizerName] = useState<string | null>(null);
   const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
   const [startsAt, setStartsAt] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
   // Attendance, the volunteers and their ratings are the pořadatel who founded the event's alone —
   // not its spolupořadatelé, not the obec co-organizing it (Registrations canMarkAttendance).
   const [isCreator, setIsCreator] = useState(false);
@@ -72,6 +77,10 @@ function ManageEventContent() {
   // a volunteer only the pořadatel who founded it (Registrations guardStatusChange).
   const [removing, setRemoving] = useState<ManageRegistrationRow | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  // A pending registration about to be turned down — asked first: it can't be signed up again
+  // unless the decision is taken back ("Povolit znovu").
+  const [rejecting, setRejecting] = useState<ManageRegistrationRow | null>(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
   // How reliably each participant turns up (lib/reliability), by user id.
   const [reliability, setReliability] = useState<Map<string, ReliabilityRecord>>(new Map());
   // A participant's confirmed attendance is the pořadatel's for good — only the obec's admin corrects
@@ -95,6 +104,7 @@ function ManageEventContent() {
     setLoading(false);
     if (ev) {
       setStartsAt(ev.date_time);
+      setEnded(hasEventEnded(ev.date_time, ev.end_date_time));
       setUnlimited(isUnlimitedCapacity(ev.capacity));
       setIsCreator(Boolean(user) && ev.organizer_id === String(user!.id));
       setCanCorrect(Boolean(ev.municipality_id) && administeredMunicipalityIds.includes(ev.municipality_id!));
@@ -110,13 +120,40 @@ function ManageEventContent() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
-  const updateStatus = async (regId: string, status: "approved" | "rejected") => {
+  const approve = async (regId: string) => {
     try {
-      await updateRegistrationStatus(regId, status);
-      toast.success(status === "approved" ? "Schváleno." : "Zamítnuto.");
+      await updateRegistrationStatus(regId, "approved");
+      toast.success("Schváleno.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit změnu.");
+    }
+    load();
+  };
+
+  const reject = async () => {
+    if (!rejecting) return;
+    setRejectBusy(true);
+    try {
+      await updateRegistrationStatus(rejecting.id, "rejected");
+      toast.success("Přihláška zamítnuta.");
+      setRejecting(null);
       load();
-    } catch {
-      toast.error("Nepodařilo se uložit změnu.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit změnu.");
+    } finally {
+      setRejectBusy(false);
+    }
+  };
+
+  /** Takes back a rejection or a removal: the registration is set aside as cancelled, which no longer
+   * blocks signing up — they decide themselves whether to come after all, and are told they may. */
+  const allowAgain = async (reg: ManageRegistrationRow) => {
+    try {
+      await updateRegistrationStatus(reg.id, "cancelled");
+      toast.success(`${reg.full_name} se může znovu ${reg.role === "volunteer" ? "nabídnout" : "přihlásit"}.`);
+      load();
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit změnu.");
     }
   };
 
@@ -182,6 +219,9 @@ function ManageEventContent() {
   };
 
   const started = startsAt !== null && isPast(startsAt);
+  // Sign-up closes REGISTRATION_CUTOFF_HOURS before the start — after that the participant couldn't
+  // sign up again anyway, so a rejection isn't worth taking back.
+  const signUpOpen = startsAt !== null && isRegistrationOpen(startsAt);
   const hasApproved = regs.some((r) => r.status === "approved");
   const unmarked = regs.filter((r) => r.status === "approved" && r.attendance_status === "not_marked");
   const changeCount = Object.keys(draft).length;
@@ -199,6 +239,7 @@ function ManageEventContent() {
             {coOrganizerNames.length > 0 && <> · spolu s {coOrganizerNames.join(", ")}</>}
           </p>
         )}
+        {!ended && regs.some((r) => r.status === "pending" || r.status === "approved") && <EventMessageCard eventId={id} />}
         {!started && <VolunteerOffers eventId={id} canDecide={isCreator} onDecided={load} />}
         {regs.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">Zatím nikdo není přihlášen.</p>
@@ -218,7 +259,12 @@ function ManageEventContent() {
               {r.role === "volunteer" && r.status === "approved" ? (
                 <Badge className="bg-primary-soft text-brand-purple-dark gap-1"><HandHeart className="h-3 w-3" />Dobrovolník</Badge>
               ) : r.status === "approved" && <Badge className="bg-success text-success-foreground">Schválen</Badge>}
-              {r.status === "pending" && <Badge variant="outline" className="gap-1"><Clock className="h-3 w-3" />Čeká</Badge>}
+              {r.status === "pending" &&
+                (ended ? (
+                  <Badge variant="outline">Nevyřízeno</Badge>
+                ) : (
+                  <Badge variant="outline" className="gap-1"><Clock className="h-3 w-3" />Čeká</Badge>
+                ))}
               {r.status === "rejected" && <Badge variant="destructive">Zamítnut</Badge>}
               {r.status === "cancelled" && (
                 <Badge variant="outline">{r.role === "volunteer" ? "Zrušeno dobrovolníkem" : "Zrušeno účastníkem"}</Badge>
@@ -240,13 +286,19 @@ function ManageEventContent() {
               </p>
             )}
 
-            {r.status === "pending" && r.user_id !== String(user?.id) && (
+            {r.status === "pending" && r.user_id !== String(user?.id) && !ended && (
               <div className="grid grid-cols-2 gap-2">
-                <Button onClick={() => updateStatus(r.id, "approved")} className="h-11"><Check className="h-4 w-4" />Schválit</Button>
-                <Button onClick={() => updateStatus(r.id, "rejected")} variant="outline" className="h-11">
+                <Button onClick={() => approve(r.id)} className="h-11"><Check className="h-4 w-4" />Schválit</Button>
+                <Button onClick={() => setRejecting(r)} variant="outline" className="h-11">
                   <X className="h-4 w-4" />Zamítnout
                 </Button>
               </div>
+            )}
+
+            {r.status === "rejected" && signUpOpen && (r.role !== "volunteer" || isCreator) && (
+              <Button onClick={() => allowAgain(r)} variant="ghost" className="h-11 w-full">
+                <Undo2 className="h-4 w-4" />Povolit znovu {r.role === "volunteer" ? "nabídnout pomoc" : "přihlásit se"}
+              </Button>
             )}
 
             {r.status === "approved" && !started && r.role === "volunteer" && !isCreator && r.user_id !== String(user?.id) && (
@@ -398,7 +450,7 @@ function ManageEventContent() {
             <AlertDialogTitle>Odebrat {removing?.full_name} z akce?</AlertDialogTitle>
             <AlertDialogDescription>
               Uvolní se tím místo{removing?.role === "volunteer" ? " dobrovolníka" : ""} a dostane zprávu, že s ním na akci už
-              nepočítáte. Znovu se přihlásit nepůjde.
+              nepočítáte. Sám se znovu přihlásit nepůjde — dokud mu to tady nepovolíte zpátky.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -412,6 +464,31 @@ function ManageEventContent() {
               }}
             >
               {removeBusy ? "Odebírám…" : "Odebrat z akce"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={rejecting !== null} onOpenChange={(open) => !open && !rejectBusy && setRejecting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zamítnout přihlášku {rejecting?.full_name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dostane zprávu, že jste přihlášku zamítli, a sám se na akci znovu přihlásit nepůjde — dokud mu to tady
+              nepovolíte zpátky.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rejectBusy}>Zpět</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={rejectBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                reject();
+              }}
+            >
+              {rejectBusy ? "Zamítám…" : "Zamítnout"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -42,12 +42,17 @@ export const changedNotifiableFields = (before: Record<string, string>, doc: Rec
   Object.keys(NOTIFIABLE_EDIT_FIELDS).filter((field) => before[field] !== comparable(field, doc[field]))
 
 /** Everyone an announcement about the event concerns: the pending/approved registrants to tell
- * (the organizer excluded) and every registration, whose reminder jobs a cancellation drops. */
+ * (the organizer excluded), every registration, whose reminder jobs a cancellation drops, and the
+ * volunteers whose invitation or offer is still waiting on it. */
 export async function getEventRegistrants(
   payload: Payload,
   eventId: number | string,
   organizerId: number | string,
-): Promise<{ userIds: (number | string)[]; registrationIds: (number | string)[] }> {
+): Promise<{
+  userIds: (number | string)[]
+  registrationIds: (number | string)[]
+  volunteerUserIds: (number | string)[]
+}> {
   const regs = await payload.find({
     collection: 'registrations',
     where: { event: { equals: eventId } },
@@ -59,12 +64,28 @@ export async function getEventRegistrants(
     .filter((reg) => reg.status === 'pending' || reg.status === 'approved')
     .map((reg) => (typeof reg.user === 'object' ? reg.user.id : reg.user))
     .filter((userId) => String(userId) !== String(organizerId))
-  return { userIds: [...new Set(userIds)], registrationIds: regs.docs.map((reg) => reg.id) }
+  const waiting = await payload.find({
+    collection: 'volunteer-invitations',
+    where: { and: [{ event: { equals: eventId } }, { status: { equals: 'pending' } }] },
+    select: { volunteer: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  const registrantIds = new Set(userIds.map(String))
+  const volunteerUserIds = waiting.docs
+    .map((inv) => (typeof inv.volunteer === 'object' ? inv.volunteer.id : inv.volunteer))
+    .filter((userId) => !registrantIds.has(String(userId)))
+  return {
+    userIds: [...new Set(userIds)],
+    registrationIds: regs.docs.map((reg) => reg.id),
+    volunteerUserIds: [...new Set(volunteerUserIds)],
+  }
 }
 
 /**
  * Hands the "akce upravena" announcement to the worker — the registrants can be hundreds, and
- * each one is a notification row, an e-mail and an SMS. Only the pre-edit snapshot travels: the
+ * each one is a notification row and an e-mail. Only the pre-edit snapshot travels: the
  * worker reads the event once the edit has committed (and any quick follow-up edits with it).
  */
 export async function queueEventUpdatedNotification(

@@ -144,7 +144,8 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       overrideAccess: true,
     })
     approved = await makeUser('approved', { phone: '735 929 442' })
-    pending = await makeUser('pending', { notifyInApp: false })
+    // Has switched both channels off — a change to the event reaches them anyway.
+    pending = await makeUser('pending', { notifyInApp: false, notifyEmail: false })
     rejected = await makeUser('rejected')
   })
 
@@ -185,7 +186,7 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       expect(vi.mocked(enqueueEventUpdated)).not.toHaveBeenCalled()
     })
 
-    it('tells pending and approved registrants on their channels, the organizer and rejected nobody', async () => {
+    it('tells pending and approved registrants whatever their preferences, the organizer and rejected nobody', async () => {
       const { event } = await createEvent()
       await edit(event.id, { locationText: 'Sokolovna' })
 
@@ -196,8 +197,8 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       expect(notification.message).toContain('změna: místo konání')
       expect(notification.message).toContain('Sokolovna')
       expect(notification.link).toBe(`/akce/${event.id}`)
-      // notifyInApp: false — e-mail only.
-      expect(await notificationsFor(pending, 'Akce byla upravena')).toHaveLength(0)
+      // Both channels off, still told — the event they signed up for changed.
+      expect(await notificationsFor(pending, 'Akce byla upravena')).toHaveLength(1)
       expect(await notificationsFor(rejected, 'Akce byla upravena')).toHaveLength(0)
       expect(await notificationsFor(organizer, 'Akce byla upravena')).toHaveLength(0)
 
@@ -210,12 +211,8 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         ]),
       )
 
-      // Only the approved registrant has a phone; the Czech number is normalised to E.164.
-      expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
-      expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
-        to: '+420735929442',
-        requestId: `event-updated-${event.id}-42-${approved.id}`,
-      })
+      // SMS go out only when an event is cancelled — an edit is in-app and e-mail only.
+      expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
       // Nothing about the time changed.
       expect(vi.mocked(rescheduleEventReminders)).not.toHaveBeenCalled()
     })
@@ -274,6 +271,38 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
         message: `Lonvita: akce „${event.title}“ byla zrušena.`,
       })
+    })
+
+    it("withdraws volunteers' pending invitations and offers, and tells those volunteers too", async () => {
+      const { event } = await createEvent()
+      const volunteer = await makeUser('volunteer')
+      // Straight to the database — the invitation's own checks (pool, creator) aren't what's tested.
+      const invitation = await payload.db.create({
+        collection: 'volunteer-invitations',
+        data: {
+          kind: 'invitation',
+          event: event.id,
+          eventTitle: event.title,
+          volunteer: volunteer.id,
+          invitedBy: organizer.id,
+          status: 'pending',
+        },
+      })
+
+      await edit(event.id, { deletedAt: new Date().toISOString(), status: 'cancelled' })
+
+      const stored = await payload.findByID({ collection: 'volunteer-invitations', id: invitation.id, overrideAccess: true })
+      expect(stored.status).toBe('withdrawn')
+      const job = lastCancelledJob()
+      expect(job.volunteerUserIds?.map(Number)).toEqual([volunteer.id])
+
+      await processEventCancelledJob(job, { jobId: '8' })
+      const [notice] = await notificationsFor(volunteer, 'Akce byla zrušena')
+      expect(notice.message).toMatch(/dobrovoln/)
+
+      await payload.delete({ collection: 'notifications', where: { user: { equals: volunteer.id } }, overrideAccess: true })
+      await payload.delete({ collection: 'volunteer-invitations', id: invitation.id, overrideAccess: true })
+      await payload.delete({ collection: 'users', id: volunteer.id, overrideAccess: true })
     })
 
     it('stays quiet if the cancel never took effect', async () => {

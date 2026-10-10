@@ -2,6 +2,7 @@ import { APIError, type CollectionAfterChangeHook, type CollectionBeforeChangeHo
 
 import {
   canReadDateOfBirth,
+  canReadProfile,
   canReadOwnProfileField,
   canReadPhone,
   canReadVolunteerFields,
@@ -65,6 +66,35 @@ const notifyOnVolunteerSignup: CollectionAfterChangeHook = async ({ doc, previou
 }
 
 const relId = (value: number | { id: number }): number => (typeof value === 'object' ? value.id : value)
+
+/** Joining the pool is the answer to every invitation still waiting for one (PoolInvitations) —
+ * the obec that asked hears they said yes. */
+const acceptPoolInvitations: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
+  if (operation !== 'update' || !doc.isVolunteer || previousDoc?.isVolunteer) return doc
+  try {
+    const pending = await req.payload.find({
+      collection: 'pool-invitations',
+      where: { and: [{ user: { equals: relId(doc.user) } }, { status: { equals: 'pending' } }] },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+      req,
+    })
+    for (const invitation of pending.docs) {
+      await req.payload.update({
+        collection: 'pool-invitations',
+        id: invitation.id,
+        data: { status: 'accepted' },
+        overrideAccess: true,
+        context: { acceptingPoolInvitation: true },
+        req,
+      })
+    }
+  } catch (error) {
+    req.payload.logger.error(`Failed to accept pool invitations for profile ${doc.id}: ${error}`)
+  }
+  return doc
+}
 
 /**
  * Leaving the pool needs nobody's say-so — but the organizers counting on the volunteer must hear
@@ -182,7 +212,11 @@ export const Profiles: CollectionConfig = {
     defaultColumns: ['fullName', 'municipality', 'updatedAt'],
   },
   access: {
-    read: ({ req: { user } }) => (user ? notDeleted : false),
+    read: async (args) => {
+      const readable = await canReadProfile(args)
+      if (!readable) return false
+      return readable === true ? notDeleted : { and: [notDeleted, readable] }
+    },
     create: isLoggedIn,
     update: ({ req: { user } }) => {
       if (!user) return false
@@ -360,14 +394,14 @@ export const Profiles: CollectionConfig = {
       access: { read: canReadVolunteerFields },
       type: 'text',
       admin: {
-        description: "The number organizers call — separate from `phone`, which event change/cancellation SMS go to.",
+        description: "The number organizers call — separate from `phone`, which event cancellation SMS go to.",
       },
     },
     deletedAtField,
   ],
   hooks: {
     beforeChange: [validateVolunteerContact],
-    afterChange: [notifyOnVolunteerSignup, handleLeavingPool],
+    afterChange: [notifyOnVolunteerSignup, handleLeavingPool, acceptPoolInvitations],
   },
   timestamps: true,
 }

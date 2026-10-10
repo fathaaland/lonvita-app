@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getMyNotifications, markNotificationRead, NotificationRow } from "@/integrations/payload/queries";
+import { getMyNotifications, markAllNotificationsRead, markNotificationRead, NotificationRow } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { notifyUnreadCountChanged } from "@/hooks/useUnreadNotificationCount";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -10,7 +10,9 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { Card, CardContent } from "@/components/ui/card";
-import { Bell, BellOff, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { Bell, BellOff, CheckCheck, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function formatWhen(iso: string): string {
@@ -22,6 +24,7 @@ function NotificationsContent() {
   const router = useRouter();
   const [rows, setRows] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [markingAll, setMarkingAll] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -46,6 +49,18 @@ function NotificationsContent() {
     else if (n.link) router.push(n.link);
   };
 
+  const handleMarkAll = () => {
+    if (!user) return;
+    setMarkingAll(true);
+    markAllNotificationsRead(String(user.id))
+      .then(() => {
+        setRows((prev) => prev.map((r) => ({ ...r, read: true })));
+        notifyUnreadCountChanged();
+      })
+      .catch(() => toast.error("Oznámení se nepodařilo označit. Zkuste to prosím znovu."))
+      .finally(() => setMarkingAll(false));
+  };
+
   return (
     <div className="animate-fade-in">
       <PageHeader title="Oznámení" back />
@@ -55,6 +70,13 @@ function NotificationsContent() {
         <EmptyState icon={BellOff} title="Zatím žádná oznámení" description="Sem budou chodit důležité zprávy, např. o zrušených akcích." />
       ) : (
         <div className="px-4 py-5 space-y-3">
+          {/* The page lists only the newest 100, so this also clears older unread ones. */}
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" onClick={handleMarkAll} disabled={markingAll}>
+              <CheckCheck className="h-4 w-4" />
+              Označit vše jako přečtené
+            </Button>
+          </div>
           {rows.map((n) => (
             <Card
               key={n.id}

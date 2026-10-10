@@ -198,6 +198,13 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
       overrideAccess: true,
     })
     expect((await postAs(adminA, { userId: emailOnly.id, isVolunteer: false })).status).toBe(200)
+    // …and they're told, not just quietly never asked again.
+    const notices = await payload.find({
+      collection: 'notifications',
+      where: { user: { equals: emailOnly.id }, title: { equals: 'Už nejste v poolu dobrovolníků' } },
+      overrideAccess: true,
+    })
+    expect(notices.totalDocs).toBe(1)
 
     const after = ((await (await listAs(adminA)).json()) as { docs: PoolRow[] }).docs
     expect(rowOf(after, emailOnly)).toBeUndefined()

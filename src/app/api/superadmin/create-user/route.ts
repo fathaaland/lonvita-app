@@ -4,11 +4,10 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
+import { INVALID_PHONE_MESSAGE, isValidPhone } from '@/lib/phone'
 import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const GENDERS = ['zena', 'muz', 'jine', 'neuvedeno'] as const
-// Same lenient Czech format as the onboarding phone step.
-const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/
 
 type CreateUserBody = {
   email?: string
@@ -52,8 +51,8 @@ export async function POST(request: Request) {
   if (body.gender && !GENDERS.includes(body.gender)) {
     return NextResponse.json({ error: 'Neplatné pohlaví.' }, { status: 400 })
   }
-  if (phone && !PHONE_RE.test(phone)) {
-    return NextResponse.json({ error: 'Zadejte platné české telefonní číslo.' }, { status: 400 })
+  if (phone && !isValidPhone(phone)) {
+    return NextResponse.json({ error: INVALID_PHONE_MESSAGE }, { status: 400 })
   }
   if (body.dateOfBirth && Number.isNaN(new Date(body.dateOfBirth).getTime())) {
     return NextResponse.json({ error: 'Neplatné datum narození.' }, { status: 400 })

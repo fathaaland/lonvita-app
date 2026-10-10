@@ -6,6 +6,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Type, Contrast } from "lucide-react";
 
+const SIZE_LABELS = { normal: "Běžné písmo", large: "Větší písmo", xlarge: "Největší písmo" } as const;
+
 /** Font size + high-contrast toggle (US-H-07). Shared between the guest menu and /profil so
  * both signed-out and signed-in users reach the same controls. */
 export function AccessibilityControls() {
@@ -17,7 +19,15 @@ export function AccessibilityControls() {
         <div className="eyebrow"><Type className="h-3 w-3" /> Velikost písma</div>
         <div className="grid grid-cols-3 gap-2">
           {(["normal", "large", "xlarge"] as const).map((s) => (
-            <Button key={s} variant={size === s ? "default" : "outline"} onClick={() => setSize(s)} className="h-12">
+            <Button
+              key={s}
+              variant={size === s ? "default" : "outline"}
+              onClick={() => setSize(s)}
+              className="h-12"
+              // Each button shows just an "A" — a screen reader needs to hear which size it is.
+              aria-label={SIZE_LABELS[s]}
+              aria-pressed={size === s}
+            >
               <span className={s === "normal" ? "text-base" : s === "large" ? "text-lg" : "text-2xl"}>A</span>
             </Button>
           ))}

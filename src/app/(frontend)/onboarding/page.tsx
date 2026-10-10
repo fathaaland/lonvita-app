@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   getEventCategories,
   listMunicipalities,
@@ -21,20 +21,24 @@ import { toast } from "sonner";
 import { Loading } from "@/components/Loading";
 import { MunicipalityPicker } from "@/components/map/MunicipalityPicker";
 import { getCategoryIcon } from "@/lib/icons";
-import { ArrowRight, ArrowLeft, Check, Phone } from "lucide-react";
+import { ArrowRight, ArrowLeft, Check, LogOut, Phone } from "lucide-react";
+import { SignOutButton } from "@/components/SignOutButton";
+import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
+import { getSafeRedirectPath } from "@/lib/auth/redirect";
 
 /** The obec is picked on the map during registration — except for a Google sign-up, which
  * skips that form, so onboarding asks for it first (see /api/auth/onboarding-municipality). */
 const STEPS = ["dob", "gender", "interests", "phone"] as const;
 type StepKey = "municipality" | (typeof STEPS)[number];
-// Lenient Czech mobile format: optional +420/00420 prefix, then 9 digits (spaces allowed).
-const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
 type Gender = "zena" | "muz" | "jine" | "neuvedeno";
 type Category = { id: string; name: string; icon: string | null; color: string | null };
 
 function OnboardingContent() {
   const router = useRouter();
+  // Where they were headed before onboarding stepped in (onboardingPath) — never back to onboarding.
+  const requested = getSafeRedirectPath(useSearchParams().get("redirect"), "/");
+  const afterOnboarding = requested.startsWith("/onboarding") || requested.startsWith("/auth") ? "/" : requested;
   const { user, profile, refreshProfile, loading: authLoading } = useAuth();
   const [step, setStep] = useState(0);
   const [dob, setDob] = useState("");
@@ -75,9 +79,9 @@ function OnboardingContent() {
   // Redirect if already onboarded
   useEffect(() => {
     if (!authLoading && profile?.onboarding_completed) {
-      router.replace("/");
+      router.replace(afterOnboarding);
     }
-  }, [authLoading, profile, router]);
+  }, [authLoading, profile, router, afterOnboarding]);
 
   const steps: readonly StepKey[] = needsMunicipality ? ["municipality", ...STEPS] : STEPS;
 
@@ -101,7 +105,7 @@ function OnboardingContent() {
       });
       toast.success("Vítejte v Lonvitě!");
       await refreshProfile();
-      router.replace("/");
+      router.replace(afterOnboarding);
     } catch {
       toast.error("Nepodařilo se uložit profil.");
     } finally {
@@ -118,7 +122,8 @@ function OnboardingContent() {
     // "Raději neuvedu" is a valid answer too — only an untouched step blocks.
     (current === "gender" && gender !== null) ||
     current === "interests" ||
-    (current === "phone" && PHONE_RE.test(phone.trim()));
+    // Required: a cancelled event is announced by SMS too. It has to be a number an SMS can reach.
+    (current === "phone" && isValidPhone(phone));
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -128,6 +133,13 @@ function OnboardingContent() {
           <p className="text-xs text-muted-foreground">Pár krátkých otázek</p>
           <p className="font-extrabold">Krok {step + 1} ze {steps.length}</p>
         </div>
+        {/* Every other page leaves through the nav, which onboarding hides — and RequireAuth sends a
+            signed-in account without a finished onboarding back here from anywhere. */}
+        <SignOutButton>
+          <Button variant="ghost" size="sm" className="ml-auto h-10">
+            <LogOut className="h-4 w-4" /> Odhlásit se
+          </Button>
+        </SignOutButton>
       </div>
 
       <div className="px-2 pb-2">
@@ -260,7 +272,7 @@ function OnboardingContent() {
                 <div>
                   <h2 className="text-xl font-extrabold">Vaše telefonní číslo</h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Na tohle číslo vám pošleme SMS, pokud se akce, na kterou jste přihlášeni, zruší nebo změní.
+                    Na tohle číslo vám pošleme SMS, pokud se akce, na kterou jste přihlášeni, zruší.
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -276,8 +288,8 @@ function OnboardingContent() {
                       className="h-12 text-base pl-9"
                     />
                   </div>
-                  {phone.trim().length > 0 && !PHONE_RE.test(phone.trim()) && (
-                    <p className="text-xs text-destructive">Zadejte prosím platné české telefonní číslo.</p>
+                  {phone.trim().length > 0 && !isValidPhone(phone) && (
+                    <p className="text-xs text-destructive">{INVALID_PHONE_MESSAGE}</p>
                   )}
                 </div>
               </>
@@ -312,7 +324,9 @@ function OnboardingContent() {
 export default function OnboardingPage() {
   return (
     <RequireAuth>
-      <OnboardingContent />
+      <Suspense fallback={<Loading />}>
+        <OnboardingContent />
+      </Suspense>
     </RequireAuth>
   );
 }

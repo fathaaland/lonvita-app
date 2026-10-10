@@ -1,4 +1,5 @@
 import { escapeHtml, sendNotification } from '@/collections/shared/notify'
+import { mayRateEvent } from '@/lib/capacity'
 import { logger } from '@/lib/logger'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -29,7 +30,6 @@ export const processFeedbackRequestJob = async (data: FeedbackRequestJobData): P
     .findByID({ collection: 'registrations', id: data.registrationId, depth: 0, overrideAccess: true })
     .catch(() => null)
   if (!registration || registration.deletedAt) return skip('registration_missing')
-  if (registration.status !== 'approved' || registration.attendanceStatus !== 'attended') return skip('not_attended')
 
   const event = await payload
     .findByID({
@@ -41,6 +41,8 @@ export const processFeedbackRequestJob = async (data: FeedbackRequestJobData): P
     .catch(() => null)
   if (!event || event.deletedAt || event.status === 'cancelled') return skip('event_gone')
   if (new Date(event.endDateTime ?? event.dateTime).getTime() > Date.now()) return skip('event_not_over')
+  // Attended — or, on an event with unlimited capacity (no attendance), still signed up at its end.
+  if (!mayRateEvent(registration, event)) return skip('not_attended')
 
   const userId = relId(registration.user)
   const link = feedbackLink(registration.id)

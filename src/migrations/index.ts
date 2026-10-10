@@ -30,6 +30,7 @@ import * as migration_20261004_142135_obec_left_at from './20261004_142135_obec_
 import * as migration_20261004_194744_registration_cutoff from './20261004_194744_registration_cutoff';
 import * as migration_20261005_153854_account_anonymization from './20261005_153854_account_anonymization';
 import * as migration_20261007_145308_participant_reliability from './20261007_145308_participant_reliability';
+import * as migration_20261010_090710_pool_invitations from './20261010_090710_pool_invitations';
 
 export const migrations = [
   {
@@ -190,6 +191,11 @@ export const migrations = [
   {
     up: migration_20261007_145308_participant_reliability.up,
     down: migration_20261007_145308_participant_reliability.down,
-    name: '20261007_145308_participant_reliability'
+    name: '20261007_145308_participant_reliability',
+  },
+  {
+    up: migration_20261010_090710_pool_invitations.up,
+    down: migration_20261010_090710_pool_invitations.down,
+    name: '20261010_090710_pool_invitations'
   },
 ];

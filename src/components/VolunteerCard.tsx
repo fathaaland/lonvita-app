@@ -5,11 +5,14 @@ import Link from "next/link";
 import { CalendarCheck, Check, HandHeart, Mail, MapPin, Pencil, Phone, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import {
+  declinePoolInvitation,
   decideVolunteerInvitation,
+  getMyPoolInvitations,
   getMyVolunteerInvitations,
   getMyVolunteerShifts,
   listMunicipalities,
   updateProfile,
+  MyPoolInvitationRow,
   ProfileRow,
   VolunteerInvitationRow,
   VolunteerShiftRow,
@@ -87,6 +90,8 @@ export function VolunteerCard() {
   const [invitations, setInvitations] = useState<VolunteerInvitationRow[]>([]);
   const [shifts, setShifts] = useState<VolunteerShiftRow[]>([]);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  // An obec asking them to join (PoolInvitations) — they join through the form, or say no.
+  const [poolInvitations, setPoolInvitations] = useState<MyPoolInvitationRow[]>([]);
   const [municipalities, setMunicipalities] = useState<MunicipalityMapPoint[]>([]);
 
   useEffect(() => {
@@ -103,12 +108,14 @@ export function VolunteerCard() {
   const loadCommitments = async () => {
     if (!user) return;
     const uid = String(user.id);
-    const [inv, sh] = await Promise.all([
+    const [inv, sh, pool] = await Promise.all([
       getMyVolunteerInvitations(uid).catch(() => [] as VolunteerInvitationRow[]),
       getMyVolunteerShifts(uid).catch(() => [] as VolunteerShiftRow[]),
+      getMyPoolInvitations(uid).catch(() => [] as MyPoolInvitationRow[]),
     ]);
     setInvitations(inv);
     setShifts(sh);
+    setPoolInvitations(pool);
   };
 
   useEffect(() => {
@@ -131,9 +138,24 @@ export function VolunteerCard() {
     }
   };
 
-  const startEditing = () => {
-    setDraft(draftFrom(profile, user.email));
+  /** `municipalityId` — accepting an obec's invitation starts with that obec as where they help. */
+  const startEditing = (municipalityId?: string) => {
+    const base = draftFrom(profile, user.email);
+    setDraft(municipalityId ? { ...base, municipalityId } : base);
     setEditing(true);
+  };
+
+  const declinePool = async (invitation: MyPoolInvitationRow) => {
+    setDecidingId(invitation.id);
+    try {
+      await declinePoolInvitation(invitation.id);
+      toast.success("Pozvánka odmítnuta.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit.");
+    } finally {
+      setDecidingId(null);
+      await loadCommitments();
+    }
   };
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
@@ -199,6 +221,25 @@ export function VolunteerCard() {
           </div>
         </div>
 
+        {!inPool && !editing && poolInvitations.length > 0 && (
+          <ul className="space-y-2">
+            {poolInvitations.map((inv) => (
+              <li key={inv.id} className="rounded-lg border border-primary/30 bg-primary-soft/40 p-3 space-y-2">
+                <p className="text-sm font-semibold">Obec {inv.municipality_name} vás zve do poolu dobrovolníků.</p>
+                {inv.message && <p className="text-sm text-muted-foreground">„{inv.message}“</p>}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button className="h-10" disabled={decidingId === inv.id} onClick={() => startEditing(inv.municipality_id)}>
+                    Přidat se
+                  </Button>
+                  <Button variant="outline" className="h-10" disabled={decidingId === inv.id} onClick={() => declinePool(inv)}>
+                    Odmítnout
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {editing && draft ? (
           <VolunteerForm draft={draft} set={set} municipalities={municipalities} />
         ) : inPool ? (
@@ -232,7 +273,7 @@ export function VolunteerCard() {
           </div>
         ) : inPool ? (
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="outline" className="h-11 sm:flex-1" onClick={startEditing}>
+            <Button variant="outline" className="h-11 sm:flex-1" onClick={() => startEditing()}>
               <Pencil className="h-4 w-4" /> Upravit
             </Button>
             <Button
@@ -244,9 +285,11 @@ export function VolunteerCard() {
             </Button>
           </div>
         ) : (
-          <Button className="w-full h-11" onClick={startEditing}>
-            Chci pomáhat
-          </Button>
+          poolInvitations.length === 0 && (
+            <Button className="w-full h-11" onClick={() => startEditing()}>
+              Chci pomáhat
+            </Button>
+          )
         )}
       </CardContent>
 

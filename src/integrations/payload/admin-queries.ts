@@ -16,6 +16,26 @@ const toId = (value: number | { id: number } | null | undefined): string | null 
   return String(typeof value === "object" ? value.id : value);
 };
 
+/** Every page of a list, not just the first — the statistics must not quietly stop at a limit. */
+async function getAllDocs<T>(path: string, where: string): Promise<T[]> {
+  const docs: T[] = [];
+  for (let page = 1; ; page++) {
+    const result = await get<PayloadListResponse<T>>(`${path}?${where}&${buildQuery({ depth: 0, limit: 1000, page })}`);
+    docs.push(...result.docs);
+    if (page >= result.totalPages) return docs;
+  }
+}
+
+/** Event ids a request at a time — thousands of them in one URL outgrow the server's header limit. */
+const EVENT_ID_CHUNK = 100;
+
+async function getAllForEventIds<T>(path: string, field: string, eventIds: string[]): Promise<T[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < eventIds.length; i += EVENT_ID_CHUNK) chunks.push(eventIds.slice(i, i + EVENT_ID_CHUNK));
+  const results = await Promise.all(chunks.map((ids) => getAllDocs<T>(path, buildWhereParams({ [field]: { in: ids } }))));
+  return results.flat();
+}
+
 type PayloadEventAdmin = {
   id: number;
   title: string;
@@ -32,9 +52,8 @@ type PayloadEventAdmin = {
 
 export async function getMunicipalityEventsForAdmin(municipalityId: string): Promise<EventRow[]> {
   const where = buildWhereParams({ municipality: { equals: municipalityId } });
-  const query = buildQuery({ depth: 0, limit: 1000 });
-  const result = await get<PayloadListResponse<PayloadEventAdmin>>(`/events?${where}&${query}`);
-  return result.docs.map((e) => ({
+  const docs = await getAllDocs<PayloadEventAdmin>("/events", where);
+  return docs.map((e) => ({
     id: String(e.id),
     title: e.title,
     date_time: e.dateTime,
@@ -56,20 +75,20 @@ type PayloadRegistrationAdmin = {
   status: string;
   createdAt: string;
   attendanceStatus?: string;
+  role?: RegistrationRow["role"] | null;
 };
 
 export async function getRegistrationsForEventIds(eventIds: string[]): Promise<RegistrationRow[]> {
   if (eventIds.length === 0) return [];
-  const where = buildWhereParams({ event: { in: eventIds } });
-  const query = buildQuery({ depth: 0, limit: 5000 });
-  const result = await get<PayloadListResponse<PayloadRegistrationAdmin>>(`/registrations?${where}&${query}`);
-  return result.docs.map((r) => ({
+  const docs = await getAllForEventIds<PayloadRegistrationAdmin>("/registrations", "event", eventIds);
+  return docs.map((r) => ({
     id: String(r.id),
     event_id: toId(r.event)!,
     user_id: toId(r.user)!,
     status: r.status,
     created_at: r.createdAt,
     attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
+    role: r.role ?? "participant",
   }));
 }
 
@@ -85,10 +104,8 @@ type PayloadEventFeedbackAdmin = {
  * admin overview's average-rating KPIs (US-A-08). */
 export async function getFeedbackForEventIds(eventIds: string[]): Promise<FeedbackRow[]> {
   if (eventIds.length === 0) return [];
-  const where = buildWhereParams({ "registration.event": { in: eventIds } });
-  const query = buildQuery({ depth: 0, limit: 5000 });
-  const result = await get<PayloadListResponse<PayloadEventFeedbackAdmin>>(`/event-feedback?${where}&${query}`);
-  return result.docs.map((f) => ({
+  const docs = await getAllForEventIds<PayloadEventFeedbackAdmin>("/event-feedback", "registration.event", eventIds);
+  return docs.map((f) => ({
     id: String(f.id),
     registration_id: toId(f.registration)!,
     satisfaction_rating: f.satisfactionRating,
@@ -107,9 +124,8 @@ type PayloadProfileAdmin = { id: number; fullName: string; createdAt: string; da
 
 export async function getMunicipalityProfilesForAdmin(municipalityId: string): Promise<ProfileWithDob[]> {
   const where = buildWhereParams({ municipality: { equals: municipalityId } });
-  const query = buildQuery({ depth: 0, limit: 2000 });
-  const result = await get<PayloadListResponse<PayloadProfileAdmin>>(`/profiles?${where}&${query}`);
-  return result.docs.map((p) => ({
+  const docs = await getAllDocs<PayloadProfileAdmin>("/profiles", where);
+  return docs.map((p) => ({
     id: String(p.id),
     full_name: p.fullName,
     created_at: p.createdAt,

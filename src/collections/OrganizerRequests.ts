@@ -1,8 +1,8 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig, Where } from 'payload'
 import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared'
-import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
+import { escapeHtml, getObecDeciders, sendNotification } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
 import { ORGANIZER_REASON_MAX_LENGTH, ORGANIZER_REASON_MIN_LENGTH } from '@/lib/validation'
 import {
@@ -23,7 +23,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
   const municipalityId = typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality
 
   if (operation === 'create') {
-    const adminIds = await getMunicipalityAdminUserIds(req.payload, municipalityId)
+    const { userIds: adminIds, requestsLink } = await getObecDeciders(req.payload, municipalityId)
     const profile = await req.payload.find({
       collection: 'profiles',
       where: { user: { equals: userId } },
@@ -38,14 +38,14 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       sendNotification(req.payload, {
         userId: adminId,
         title: 'Nová žádost o roli organizátora',
-        link: '/admin-obce?tab=requests',
+        link: requestsLink,
         message: `${who} žádá o roli organizátora za „${doc.organizationName}“: „${reason}“ — vyřiďte to v sekci Žádosti.`,
         email: {
           subject: 'Nová žádost o roli organizátora',
           body:
             `<p><strong>${escapeHtml(who)}</strong> ve vaší obci požádal(a) o roli organizátora za <strong>${escapeHtml(doc.organizationName ?? '')}</strong>.</p>` +
             `<p><strong>Zdůvodnění:</strong><br/>${escapeHtml(reason).replace(/\n/g, '<br/>')}</p>` +
-            '<p>Schválit nebo zamítnout ji můžete v sekci Žádosti v adminu obce.</p>',
+            '<p>Schválit nebo zamítnout ji můžete v sekci Žádosti.</p>',
         },
       })
     }
@@ -138,7 +138,16 @@ export const OrganizerRequests: CollectionConfig = {
     read: canReadOwnOrAdministered('user'),
     create: canCreateOwnRequest,
     update: isPlatformOrMunicipalityAdmin(),
-    delete: isPlatformOrMunicipalityAdmin(),
+    // The obec's admins (and a platform admin) — or the applicant, taking back their own request
+    // while it still waits; a decided one stays as the record of the decision.
+    delete: async (args) => {
+      const admin = await isPlatformOrMunicipalityAdmin()(args)
+      if (admin === true) return true
+      const user = args.req.user
+      if (!user) return false
+      const own: Where = { and: [{ user: { equals: user.id } }, { status: { equals: 'pending' } }] }
+      return admin ? { or: [admin as Where, own] } : own
+    },
   },
   fields: [
     {
@@ -243,7 +252,7 @@ export const OrganizerRequests: CollectionConfig = {
           overrideAccess: true,
         })
         if (existing.docs.length > 0) {
-          throw new Error('You already have a pending organizer request for this municipality.')
+          throw new APIError('Vaše žádost o roli organizátora v téhle obci už čeká na vyřízení.', 400)
         }
 
         const existingRole = await req.payload.find({
@@ -259,7 +268,7 @@ export const OrganizerRequests: CollectionConfig = {
           overrideAccess: true,
         })
         if (existingRole.docs.length > 0) {
-          throw new Error('You are already an organizer in this municipality.')
+          throw new APIError('V téhle obci už roli organizátora máte.', 400)
         }
 
         return data

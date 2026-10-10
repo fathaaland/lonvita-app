@@ -51,22 +51,16 @@ const canReadInvitation: Access = async ({ req }) => {
   return where
 }
 
-/** Who may touch a pending row — the other side of it. An invitation is answered by the volunteer;
- * an application by the event's creator (`invitedBy`), and the volunteer may take theirs back.
- * applyDecision says which status each of them may set. Withdrawing an invitation is the
- * system's — when the volunteer leaves the pool (Profiles). */
+/** Who may touch a pending row — the two sides of it. An invitation is answered by the volunteer and
+ * may be taken back by whoever sent it (`invitedBy`); an application is answered by the event's
+ * creator (`invitedBy`), and the volunteer may take theirs back. applyDecision says which status each
+ * of them may set. The system withdraws the rest — leaving the pool (Profiles), a cancelled event. */
 const canDecideInvitation: Access = ({ req: { user } }) => {
   if (!user) return false
   if (user.role === 'admin') return true
   const where: Where = {
     or: [
-      { and: [{ kind: { not_equals: 'application' } }, { volunteer: { equals: user.id } }] },
-      {
-        and: [
-          { kind: { equals: 'application' } },
-          { or: [{ invitedBy: { equals: user.id } }, { volunteer: { equals: user.id } }] },
-        ],
-      },
+      { or: [{ invitedBy: { equals: user.id } }, { volunteer: { equals: user.id } }] },
     ],
   }
   return where
@@ -79,6 +73,7 @@ type EventForInvitation = {
   deletedAt?: string | null
   status?: string | null
   isVolunteering?: boolean | null
+  isHidden?: boolean | null
   organizer: unknown
   coOrganizers?: unknown[] | null
   organization?: unknown
@@ -183,11 +178,14 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
   }
   if (application) {
     if (!event.isVolunteering) throw new APIError('Na tuhle akci pořadatel dobrovolníky nehledá.', 400)
+    // On hold, it takes no sign-ups (Registrations) — nor offers from outside. Its creator may still invite.
+    if (event.isHidden) throw new APIError('Akce je teď pozastavená — pomoc na ni nabídnout nejde.', 400)
     // Like signing up as a participant (Registrations guardRegistrationWindow) — offering help closes
     // REGISTRATION_CUTOFF_HOURS before the start; after that it's a call or e-mail to the organizer.
     if (!isRegistrationOpen(event.dateTime)) {
       throw new APIError(
-        `Pomoc lze nabídnout nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce — zavolejte nebo napište pořadateli.`,
+        // `Pomoc lze nabídnout nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce — zavolejte nebo napište pořadateli.`,
+        'Pomoc lze nabídnout jen před začátkem akce — zavolejte nebo napište pořadateli.',
         400,
       )
     }
@@ -262,9 +260,15 @@ const applyDecision: CollectionBeforeChangeHook = async ({ data, req, operation,
     .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     .catch(() => null)
 
+  const byInviter = !!user && relationId(originalDoc.invitedBy) === String(user.id)
   if (!trusted) {
     if (data.status === 'withdrawn') {
-      if (!(application && byVolunteer)) throw new APIError('Pozvánku můžete jen přijmout, nebo odmítnout.', 400)
+      // Each side takes back only its own: the volunteer an offer, whoever invited an invitation.
+      if (application ? !byVolunteer : !byInviter) {
+        throw new APIError(byVolunteer ? 'Pozvánku můžete jen přijmout, nebo odmítnout.' : 'Stáhnout ji může jen ten, kdo ji poslal.', 400)
+      }
+    } else if (!application) {
+      if (!byVolunteer) throw new APIError('Na pozvánku odpovídá jen pozvaný dobrovolník.', 403)
     } else if (application) {
       if (byVolunteer) throw new APIError('Svou nabídku pomoci můžete jen stáhnout.', 400)
       if (!event || !isEventCreator(user, event)) {
@@ -439,7 +443,16 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
       })
     }
   } else {
-    if (doc.status === 'withdrawn') return doc
+    // Taken back by whoever sent it — the volunteer needn't answer any more.
+    if (doc.status === 'withdrawn') {
+      sendNotification(payload, {
+        userId: volunteerId,
+        title: 'Pořadatel pozvánku stáhl',
+        link: `/akce/${eventId}`,
+        message: `Pořadatel stáhl pozvánku k pomoci na akci „${doc.eventTitle}“ — nemusíte na ni odpovídat.`,
+      })
+      return doc
+    }
     // Whoever invited them and everyone running the event.
     const team = event ? await getEventTeamUserIds(payload, event, { exclude: [volunteerId], req }) : []
     sendNotificationToMany(payload, [...new Set([inviterId, ...team])], {

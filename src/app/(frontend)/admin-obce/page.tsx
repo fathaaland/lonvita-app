@@ -22,6 +22,7 @@ import { AnalyticsOverview } from "@/components/admin/AnalyticsOverview";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { CommunityReport } from "@/components/admin/CommunityReport";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
+import { PoolInvitationsCard } from "@/components/admin/PoolInvitationsCard";
 import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
@@ -217,8 +218,9 @@ function AdminContent() {
               />
             </TabsContent>
 
-            <TabsContent value="volunteers" className="pt-4">
+            <TabsContent value="volunteers" className="pt-4 space-y-4">
               <VolunteersTable />
+              <PoolInvitationsCard key={muniId} municipalityId={muniId} />
             </TabsContent>
 
             <TabsContent value="requests" className="pt-4">

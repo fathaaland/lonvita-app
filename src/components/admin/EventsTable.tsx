@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
 import { ChevronRight, Pencil, HandHeart, X } from "lucide-react";
 import { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
+import { isUnlimitedCapacity } from "@/lib/capacity";
 import { CancelEventButton } from "@/components/CancelEventButton";
 import { removeVolunteeringFlag } from "@/integrations/payload/admin-queries";
 import { toast } from "sonner";
@@ -59,7 +60,8 @@ export function EventsTable({
 
   const cats = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const profs = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name])), [profiles]);
-  const approved = useMemo(() => registrations.filter((r) => r.status === "approved"), [registrations]);
+  // Participants only — volunteers hold none of the places, as in Registrations' "full" status.
+  const approved = useMemo(() => registrations.filter((r) => r.status === "approved" && r.role !== "volunteer"), [registrations]);
 
   const filtered = useMemo(() => {
     const now = Date.now();
@@ -107,7 +109,8 @@ export function EventsTable({
           {filtered.map((e) => {
             const a = approved.filter((r) => r.event_id === e.id).length;
             const eventCats = e.category_ids.map((id) => cats.get(id)).filter((c): c is CategoryRow => Boolean(c));
-            const fill = e.capacity ? Math.round((a / e.capacity) * 100) : 0;
+            const unlimited = isUnlimitedCapacity(e.capacity);
+            const fill = e.capacity && !unlimited ? Math.round((a / e.capacity) * 100) : 0;
             return (
               <Card
                 key={e.id}
@@ -163,13 +166,17 @@ export function EventsTable({
                   </div>
                   <div className="text-right space-y-0.5">
                     <p className="text-sm font-bold tabular-nums">
-                      {a}/{e.capacity}
+                      {unlimited ? a : `${a}/${e.capacity}`}
                     </p>
-                    <p className={`text-[10px] font-semibold tabular-nums ${
-                      fill >= 85 ? "text-success" : fill >= 40 ? "text-primary" : "text-warning"
-                    }`}>
-                      {fill} %
-                    </p>
+                    {unlimited ? (
+                      <p className="text-[10px] font-semibold text-muted-foreground">bez limitu</p>
+                    ) : (
+                      <p className={`text-[10px] font-semibold tabular-nums ${
+                        fill >= 85 ? "text-success" : fill >= 40 ? "text-primary" : "text-warning"
+                      }`}>
+                        {fill} %
+                      </p>
+                    )}
                   </div>
                   {/* An event the obec runs or co-organizes, co-organized by this viewer — theirs to help run,
                       not to edit or cancel. Same fixed widths keep the rows aligned. */}

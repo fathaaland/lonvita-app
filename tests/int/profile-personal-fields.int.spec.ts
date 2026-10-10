@@ -38,7 +38,8 @@ const createUser = async (name: string, home: { id: number }, role = 'user'): Pr
   return { ...user, collection: 'users' } as TestUser
 }
 
-/** `viewer`'s view of `owner`'s profile — what a REST read returns them. */
+/** `viewer`'s view of `owner`'s profile — what a REST read returns them; undefined when they may
+ * not read it at all (Profiles canReadProfile). */
 const profileAs = async (owner: TestUser, viewer: TestUser) =>
   (
     await payload.find({
@@ -49,7 +50,7 @@ const profileAs = async (owner: TestUser, viewer: TestUser) =>
       user: viewer,
       overrideAccess: false,
     })
-  ).docs[0]!
+  ).docs[0]
 
 describe('A profile’s personal details stay with its owner', () => {
   beforeAll(async () => {
@@ -120,7 +121,7 @@ describe('A profile’s personal details stay with its owner', () => {
 
   it('the owner and a platform admin see everything', async () => {
     for (const viewer of [resident, platformAdmin]) {
-      const profile = await profileAs(resident, viewer)
+      const profile = (await profileAs(resident, viewer))!
       expect(profile.phone).toBe(PERSONAL.phone)
       expect(profile.dateOfBirth).toBeTruthy()
       expect(profile.gender).toBe('zena')
@@ -128,13 +129,8 @@ describe('A profile’s personal details stay with its owner', () => {
     }
   })
 
-  it('anyone else signed in sees the name, not the personal details', async () => {
-    const profile = await profileAs(resident, neighbour)
-    expect(profile.fullName).toBe('Personal resident')
-    expect(profile.phone).toBeUndefined()
-    expect(profile.dateOfBirth).toBeUndefined()
-    expect(profile.gender).toBeUndefined()
-    expect(profile.interests).toBeUndefined()
+  it("someone with no reason to doesn't read the profile at all", async () => {
+    expect(await profileAs(resident, neighbour)).toBeUndefined()
   })
 
   it('nobody but a platform admin filters profiles by them', async () => {
@@ -147,16 +143,19 @@ describe('A profile’s personal details stay with its owner', () => {
   })
 
   it('the home obec’s admin sees the date of birth (its 50+ analytics) — nothing else, and no other obec’s admin', async () => {
-    const own = await profileAs(resident, obecAdmin)
+    const own = (await profileAs(resident, obecAdmin))!
+    expect(own.fullName).toBe('Personal resident')
     expect(own.dateOfBirth).toBeTruthy()
     expect(own.gender).toBeUndefined()
     expect(own.phone).toBeUndefined()
 
-    expect((await profileAs(resident, otherObecAdmin)).dateOfBirth).toBeUndefined()
+    // Not their resident — no profile at all.
+    expect(await profileAs(resident, otherObecAdmin)).toBeUndefined()
   })
 
   it('whoever runs an event the person signed up for sees their phone', async () => {
-    expect((await profileAs(resident, organizer)).phone).toBeUndefined()
+    // Nobody they manage yet — no profile at all.
+    expect(await profileAs(resident, organizer)).toBeUndefined()
 
     const event = await payload.create({
       collection: 'events',
@@ -185,17 +184,17 @@ describe('A profile’s personal details stay with its owner', () => {
       overrideAccess: true,
     })
 
-    const seen = await profileAs(resident, organizer)
+    const seen = (await profileAs(resident, organizer))!
     expect(seen.phone).toBe(PERSONAL.phone)
     expect(seen.dateOfBirth).toBeUndefined()
     // The obec's admin manages every event in the obec — the phone with it.
-    expect((await profileAs(resident, obecAdmin)).phone).toBe(PERSONAL.phone)
-    // Not someone who merely signed up for the same event.
-    expect((await profileAs(neighbour, organizer)).phone).toBeUndefined()
+    expect((await profileAs(resident, obecAdmin))!.phone).toBe(PERSONAL.phone)
+    // Not someone who isn't signed up for it.
+    expect(await profileAs(neighbour, organizer)).toBeUndefined()
   })
 
   it('the owner changes them after onboarding', async () => {
-    const profile = await profileAs(resident, resident)
+    const profile = (await profileAs(resident, resident))!
     const updated = await payload.update({
       collection: 'profiles',
       id: profile.id,

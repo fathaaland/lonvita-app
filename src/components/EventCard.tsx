@@ -127,7 +127,8 @@ function Organizers({ organization, coOrganizations }: { organization?: CardOrga
   );
 }
 
-export function EventCard({ event, className }: { event: EventCardData; className?: string }) {
+/** `ended` — over already (Moje akce › Proběhlé): free places mean nothing any more. */
+export function EventCard({ event, className, ended }: { event: EventCardData; className?: string; ended?: boolean }) {
   const primaryCategory = event.categories?.[0];
   const Icon = getCategoryIcon(primaryCategory?.icon);
   const free = Math.max(0, event.capacity - (event.registrations_count ?? 0));
@@ -212,9 +213,13 @@ export function EventCard({ event, className }: { event: EventCardData; classNam
           ) : (
             <span className="text-sm font-bold text-success">Zdarma</span>
           )}
-          <span className={cn("text-xs font-semibold", free > 0 ? "text-muted-foreground" : "text-destructive")}>
-            {isUnlimitedCapacity(event.capacity) ? "Bez omezení kapacity" : free > 0 ? freePlacesLabel(free) : "Obsazeno"}
-          </span>
+          {ended ? (
+            <span className="text-xs font-semibold text-muted-foreground">Proběhlo</span>
+          ) : (
+            <span className={cn("text-xs font-semibold", free > 0 ? "text-muted-foreground" : "text-destructive")}>
+              {isUnlimitedCapacity(event.capacity) ? "Bez omezení kapacity" : free > 0 ? freePlacesLabel(free) : "Obsazeno"}
+            </span>
+          )}
         </div>
       </div>
     </Link>

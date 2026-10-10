@@ -4,7 +4,7 @@ import {
   changedNotifiableFields,
   getEventRegistrants,
 } from '@/collections/shared/eventNotifications'
-import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
+import { escapeHtml, sendNotificationToMany } from '@/collections/shared/notify'
 import { rescheduleEventReminders } from '@/collections/shared/reminders'
 import { formatPragueDateTime } from '@/lib/date'
 import { logger } from '@/lib/logger'
@@ -19,7 +19,8 @@ const relId = (value: unknown): number | string =>
   typeof value === 'object' && value !== null ? (value as { id: number }).id : (value as number)
 
 /**
- * "Akce byla upravena" for every registrant — in-app, e-mail and SMS. Runs a minute after the
+ * "Akce byla upravena" for every registrant — in-app and e-mail (SMS go out only when an event is
+ * cancelled — event-cancelled.processor). Runs a minute after the
  * first edit of a burst and diffs the event as it is now against that edit's starting point, so
  * a rolled-back edit, or one undone straight away, tells nobody anything.
  *
@@ -63,8 +64,7 @@ export const processEventUpdatedJob = async (
   const changedLabels = [...new Set(changedFields.map((field) => NOTIFIABLE_EDIT_FIELDS[field]))].join(', ')
   const when = formatPragueDateTime(event.dateTime)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-  const place = event.locationText.length > 60 ? `${event.locationText.slice(0, 57)}…` : event.locationText
-  // Stable across retries of this job, unique to it — see sendSmsToMany.
+  // Stable across retries of this job, unique to it — dedupes the queued e-mails.
   const announcementId = `event-updated-${event.id}-${context.jobId ?? Date.now()}`
 
   const sent = await sendNotificationToMany(
@@ -82,14 +82,9 @@ export const processEventUpdatedJob = async (
           `<p><strong>Kdy:</strong> ${when}<br/><strong>Kde:</strong> ${escapeHtml(event.locationText)}</p>` +
           `<p><a href="${appUrl}/akce/${event.id}">Zobrazit detail akce</a></p>`,
       },
+      critical: true,
     },
     { jobIdPrefix: announcementId },
-  )
-  const sms = await sendSmsToMany(
-    payload,
-    userIds,
-    `Lonvita: akce „${event.title}“ byla upravena (${changedLabels}). Nově: ${when}, ${place}.`,
-    announcementId,
   )
 
   logger.info('Event update announced', {
@@ -99,7 +94,6 @@ export const processEventUpdatedJob = async (
     registrants: userIds.length,
     inApp: sent.inApp,
     emails: sent.emails,
-    sms,
   })
   return { notified: userIds.length }
 }

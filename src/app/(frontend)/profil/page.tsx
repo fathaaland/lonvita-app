@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AccessibilityControls } from "@/components/AccessibilityControls";
-import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Building2, HandHeart } from "lucide-react";
+import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
@@ -27,6 +27,9 @@ import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 import { AttendanceRecordCard } from "@/components/AttendanceRecordCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
 import { Loading } from "@/components/Loading";
+import { mayRateEvent } from "@/lib/capacity";
+
+const HOUR_MS = 60 * 60 * 1000;
 
 function ProfileContent() {
   const router = useRouter();
@@ -57,12 +60,25 @@ function ProfileContent() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const nowIso = new Date().toISOString();
+      const now = Date.now();
       const regs = await getMyRegistrationsWithEvents(String(user.id));
       const approved = regs.filter((r) => r.status === "approved" && r.events);
-      const upcoming = approved.filter((r) => r.events!.date_time >= nowIso).length;
-      const attended = approved.filter((r) => r.events!.date_time < nowIso).length;
-      setStats({ upcoming, attended, volunteerHours: attended * 2 });
+      const endOf = (e: { date_time: string; end_date_time: string | null }) => new Date(e.end_date_time ?? e.date_time).getTime();
+      const upcoming = approved.filter((r) => endOf(r.events!) >= now).length;
+      // Where they really were — the pořadatel's attendance, or (unlimited capacity, no attendance
+      // kept) staying signed up until it was over. The same test as who may rate it.
+      const wentTo = approved.filter((r) =>
+        mayRateEvent(
+          { status: r.status, attendanceStatus: r.attendance_status },
+          { capacity: r.events!.capacity, dateTime: r.events!.date_time, endDateTime: r.events!.end_date_time },
+          now,
+        ),
+      );
+      // Hours helped as a volunteer, from the events' own length; one without an end counts as an hour.
+      const volunteerMs = wentTo
+        .filter((r) => r.role === "volunteer")
+        .reduce((sum, r) => sum + Math.max(HOUR_MS, endOf(r.events!) - new Date(r.events!.date_time).getTime()), 0);
+      setStats({ upcoming, attended: wentTo.length, volunteerHours: Math.round(volunteerMs / HOUR_MS) });
     })();
   }, [user]);
 
@@ -142,18 +158,13 @@ function ProfileContent() {
           </CardContent>
         </Card>
 
-        {!isAdmin && <OrganizerRequestCard />}
+        {/* Decides itself whether there is anything to ask for in the home obec. */}
+        <OrganizerRequestCard />
         <VolunteerCard />
 
         {isOrganizer && (
           <Button asChild variant="outline" className="w-full h-14 text-base">
             <Link href="/organizace"><Building2 className="h-5 w-5" /> Organizace</Link>
-          </Button>
-        )}
-
-        {profile?.is_volunteer && user && (
-          <Button asChild variant="outline" className="w-full h-14 text-base">
-            <Link href={`/dobrovolnik/${user.id}`}><HandHeart className="h-5 w-5" /> Moje karta dobrovolníka</Link>
           </Button>
         )}
 

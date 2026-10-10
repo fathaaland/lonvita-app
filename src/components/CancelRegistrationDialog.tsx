@@ -50,8 +50,8 @@ export function CancelRegistrationDialog({ registration, event, onCancelled }: P
       <div className="space-y-2">
         <OrganizerContactCard eventId={event.id} />
         <p className="text-center text-sm text-muted-foreground">
-          {volunteer ? "Zrušit účast" : "Odhlásit se"} šlo nejpozději {REGISTRATION_CUTOFF_HOURS} hodiny před začátkem
-          akce. Pokud nemůžete {volunteer ? "pomoct" : "přijít"}, zavolejte nebo napište pořadateli.
+          {/* {volunteer ? "Zrušit účast" : "Odhlásit se"} šlo nejpozději {REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce. */}
+          {volunteer ? "Zrušit účast" : "Odhlásit se"} šlo jen před začátkem akce. Pokud nemůžete {volunteer ? "pomoct" : "přijít"}, zavolejte nebo napište pořadateli.
         </p>
       </div>
     );

@@ -27,16 +27,6 @@ const ACCESSIBILITY_OPTIONS = [
   { value: "accessible_wc", label: "WC pro invalidy" },
 ];
 
-const WEEKDAYS = [
-  { value: "mon", label: "Po" },
-  { value: "tue", label: "Út" },
-  { value: "wed", label: "St" },
-  { value: "thu", label: "Čt" },
-  { value: "fri", label: "Pá" },
-  { value: "sat", label: "So" },
-  { value: "sun", label: "Ne" },
-];
-
 const schema = z.object({
   title: z.string().trim().min(3, "Název musí mít alespoň 3 znaky").max(120),
   description: z.string().trim().min(10, "Popis musí mít alespoň 10 znaků").max(2000),
@@ -117,10 +107,6 @@ export function EventForm({
   submitLabel,
   onSubmit,
 }: Props) {
-  const initialWeekdays = initial?.recurrence_rule?.startsWith("weekly:")
-    ? initial.recurrence_rule.slice("weekly:".length).split(",").filter(Boolean)
-    : [];
-
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState({
     title: initial?.title ?? "",
@@ -141,8 +127,6 @@ export function EventForm({
   const [accessibilityTags, setAccessibilityTags] = useState<string[]>(initial?.accessibility_tags ?? []);
   const [isVolunteering, setIsVolunteering] = useState(Boolean(initial?.is_volunteering));
   const [isMultiDay, setIsMultiDay] = useState(Boolean(initial?.end_date_time));
-  const [isRecurring, setIsRecurring] = useState(initialWeekdays.length > 0);
-  const [recurWeekdays, setRecurWeekdays] = useState<string[]>(initialWeekdays);
   const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
@@ -233,7 +217,10 @@ export function EventForm({
         // Unchanged start keeps the stored instant exactly (seconds included).
         dateTimeIso: startChanged || !initial ? startsAt.toISOString() : initial.date_time,
         endDateTimeIso: endsAt ? endsAt.toISOString() : null,
-        recurrenceRule: isRecurring && recurWeekdays.length > 0 ? `weekly:${recurWeekdays.join(",")}` : null,
+        // Nothing generates the later dates of a series yet, so the form no longer offers one — it
+        // would promise "každé úterý" and deliver a single date. An older event keeps what it has,
+        // untouched: changing it would announce "opakování" as an edit to everyone signed up.
+        recurrenceRule: initial?.recurrence_rule ?? null,
         location,
         accessibilityTags,
         capacity: parsed.data.capacity,
@@ -335,37 +322,6 @@ export function EventForm({
           <div>
             <Label htmlFor="endTime" className="text-base">Čas konce *</Label>
             <Input id="endTime" type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="h-12 mt-1.5" />
-          </div>
-        </div>
-      )}
-
-      <label className="flex items-start gap-2.5 text-sm cursor-pointer">
-        <Checkbox checked={isRecurring} onCheckedChange={(v) => setIsRecurring(v === true)} className="mt-0.5" />
-        <span>Opakující se série (např. „každé úterý“).</span>
-      </label>
-
-      {isRecurring && (
-        <div className="-mt-2">
-          <Label className="text-sm text-muted-foreground">Opakuje se v tyto dny</Label>
-          <div className="flex flex-wrap gap-2 mt-1.5">
-            {WEEKDAYS.map((d) => {
-              const active = recurWeekdays.includes(d.value);
-              return (
-                <button
-                  key={d.value}
-                  type="button"
-                  onClick={() => toggleInArray(recurWeekdays, setRecurWeekdays, d.value)}
-                  className={cn(
-                    "h-10 w-10 rounded-full text-sm font-semibold border-[1.5px] transition-colors",
-                    active
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-card text-foreground border-border hover:border-brand-purple",
-                  )}
-                >
-                  {d.label}
-                </button>
-              );
-            })}
           </div>
         </div>
       )}

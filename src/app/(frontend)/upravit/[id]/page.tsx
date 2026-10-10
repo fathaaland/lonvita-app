@@ -26,7 +26,7 @@ const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 /** Edit an existing event — its organizer/co-organizer, the admin of its obec, or a superadmin
  * (mirrors Events.access.update). Saving a change participants can see notifies every registrant
- * in-app, by e-mail and by SMS (Events.ts notifyRegistrantsOnEdit). */
+ * in-app and by e-mail (Events.ts notifyRegistrantsOnEdit). */
 function EditEventContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -100,7 +100,13 @@ function EditEventContent() {
       });
 
       const sent = await sendFollowUpRequests(event.id, values.inviteOrganizationIds);
-      toast.success(sent ? `Akce upravena, ${sent}.` : "Akce upravena. Přihlášení účastníci dostanou upozornění o změně.");
+      // Only a change participants see (time, place, capacity… — Events NOTIFIABLE_EDIT_FIELDS) tells
+      // them; hiding the event or editing its co-organizers doesn't.
+      toast.success(
+        sent
+          ? `Akce upravena, ${sent}.`
+          : "Akce upravena. Pokud se změnilo něco, co přihlášení vidí (třeba čas nebo místo), dostanou upozornění.",
+      );
       router.push(`/akce/${event.id}`);
     } catch (error) {
       toast.error(

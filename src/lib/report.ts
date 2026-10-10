@@ -326,10 +326,15 @@ export function buildReportRows(m: ReportMetrics): ReportRow[] {
 
 export interface Narrative { summary: string; whatChanged: string }
 
-/** "62/100 a roste" or "nedostatek dat" when below the §6.7 sample-size threshold. */
+/** Czech plural: 1 → `one`, 2–4 → `few`, otherwise (0, 5+) `many`. */
+function cz(n: number, one: string, few: string, many: string): string {
+  return n === 1 ? one : n >= 2 && n <= 4 ? few : many;
+}
+
+/** "je 62/100 a roste", or "zatím nejde spočítat" below the §6.7 sample-size threshold. */
 function formatDatavitaScore(metrics: ReportMetrics): string {
-  if (metrics.datavita.current === null) return "nedostatek dat";
-  return `${metrics.datavita.current}/100 a ${metrics.datavita.trend}`;
+  if (metrics.datavita.current === null) return "zatím nejde spočítat (nedostatek dat)";
+  return `je ${metrics.datavita.current}/100 a ${metrics.datavita.trend}`;
 }
 
 function formatDatavitaDelta(metrics: ReportMetrics): string {
@@ -346,9 +351,11 @@ export function buildNarrative(metrics: ReportMetrics, municipalityName: string)
   const participantsDelta = c.participantsUnique - p.participantsUnique;
 
   const summary =
-    `V období ${metrics.periodFrom} – ${metrics.periodTo} proběhlo v obci ${municipalityName} ` +
-    `${c.eventsCount} akcí s ${c.participantsUnique} unikátními účastníky a ${c.approvedRegistrations} ` +
-    `schválenými přihláškami. Komunitní index (Datavita) je ${formatDatavitaScore(metrics)}.`;
+    `V období ${metrics.periodFrom} – ${metrics.periodTo} ${cz(c.eventsCount, "proběhla", "proběhly", "proběhlo")} ` +
+    `v obci ${municipalityName} ${c.eventsCount} ${cz(c.eventsCount, "akce", "akce", "akcí")} ` +
+    `s ${c.participantsUnique} ${cz(c.participantsUnique, "unikátním účastníkem", "unikátními účastníky", "unikátními účastníky")} ` +
+    `a ${c.approvedRegistrations} ${cz(c.approvedRegistrations, "schválenou přihláškou", "schválenými přihláškami", "schválenými přihláškami")}. ` +
+    `Komunitní index (Datavita) ${formatDatavitaScore(metrics)}.`;
 
   const whatChanged =
     `Počet akcí se oproti ${metrics.previousLabel} ${eventsDelta >= 0 ? "zvýšil" : "snížil"} o ${Math.abs(eventsDelta)}, ` +

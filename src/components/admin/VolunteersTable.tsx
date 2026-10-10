@@ -16,6 +16,16 @@ import { InviteVolunteerDialog } from "@/components/InviteVolunteerDialog";
 import { VolunteerMapDialog } from "@/components/VolunteerMapDialog";
 import { RatingBadge } from "@/components/RatingStars";
 import { UserAvatar } from "@/components/UserAvatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const volunteersLabel = (n: number) => (n === 1 ? "1 dobrovolník" : n < 5 ? `${n} dobrovolníci` : `${n} dobrovolníků`);
 
@@ -33,6 +43,8 @@ export function VolunteersTable() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [inviting, setInviting] = useState<VolunteerRow | null>(null);
+  // Asked first — only the volunteer can put themselves back in the pool.
+  const [removing, setRemoving] = useState<VolunteerRow | null>(null);
 
   useEffect(() => {
     // 403 when the viewer organizes nowhere — show an empty pool.
@@ -50,6 +62,7 @@ export function VolunteersTable() {
       await removeVolunteer(row.user_id);
       toast.success("Dobrovolník odebrán z poolu.");
       setRows((prev) => prev.filter((r) => r.id !== row.id));
+      setRemoving(null);
     } catch (error) {
       toast.error(
         error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se odebrat dobrovolníka.",
@@ -154,7 +167,7 @@ export function VolunteersTable() {
                           variant="ghost"
                           className="h-9 w-9 text-destructive"
                           disabled={busyId === r.id}
-                          onClick={() => handleRemove(r)}
+                          onClick={() => setRemoving(r)}
                           aria-label={`Odebrat ${r.full_name} z poolu`}
                         >
                           <X className="h-4 w-4" />
@@ -194,6 +207,31 @@ export function VolunteersTable() {
         onInvite={(v) => setInviting(v)}
       />
       <InviteVolunteerDialog volunteer={inviting} onOpenChange={(open) => !open && setInviting(null)} />
+
+      <AlertDialog open={removing !== null} onOpenChange={(open) => !open && !busyId && setRemoving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Odebrat {removing?.full_name} z poolu?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Pořadatelé ho pak nebudou moci oslovit a nevyřízené pozvánky se zruší. Dostane o tom oznámení. Zpátky do
+              poolu se může přihlásit jen sám.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busyId !== null}>Ponechat</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (removing) handleRemove(removing);
+              }}
+              disabled={busyId !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {busyId ? "Odebírám…" : "Odebrat z poolu"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

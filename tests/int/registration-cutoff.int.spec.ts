@@ -1,3 +1,5 @@
+// @vitest-environment node
+// Node environment: payload.login signs a JWT with jose, which rejects jsdom's Uint8Array.
 import { getPayload, Payload } from 'payload'
 import config from '@/payload.config'
 
@@ -170,7 +172,8 @@ describe('Signing up and cancelling (with an omluvenka) close 3 hours before the
     expect(excuse?.message).toContain('Jsem nemocná, omlouvám se.')
   })
 
-  it('refuses cancelling within 3 hours of the start — with or without an excuse, approved or pending', async () => {
+  // The 3h freeze is paused for now (lib/registrationCutoff) — un-skip together with it.
+  it.skip('refuses cancelling within 3 hours of the start — with or without an excuse, approved or pending', async () => {
     const event = await createEventStartingIn(2 * HOUR)
 
     const approved = await register(event.id)
@@ -184,6 +187,84 @@ describe('Signing up and cancelling (with an omluvenka) close 3 hours before the
     const pending = await register(event.id, 'pending')
     await expect(cancelOwn(pending.id)).rejects.toThrow(/Odhlásit se z akce lze nejpozději 3 hodiny/)
     expect(await organizerNotifications()).toHaveLength(0)
+  })
+
+  it('still lets the organizer decide about a pending registration within 3 hours — the list is theirs', async () => {
+    const event = await createEventStartingIn(2 * HOUR)
+    const pending = await register(event.id, 'pending')
+
+    const approved = await payload.update({
+      collection: 'registrations',
+      id: pending.id,
+      data: { status: 'approved' },
+      user: organizer,
+      overrideAccess: false,
+    })
+    expect(approved.status).toBe('approved')
+  })
+
+  it('a registration still pending once the event is over is closed — nobody decides about it any more', async () => {
+    const event = await createEventStartingIn(5 * HOUR)
+    const pending = await register(event.id, 'pending')
+    // The event has since taken place (moved straight in the database — the app won't date one in the past).
+    await payload.db.updateOne({
+      collection: 'events',
+      id: event.id,
+      data: { dateTime: new Date(Date.now() - 5 * HOUR).toISOString() },
+    })
+
+    await expect(
+      payload.update({ collection: 'registrations', id: pending.id, data: { status: 'approved' }, user: organizer, overrideAccess: false }),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/proběhla/) })
+  })
+
+  it('lets the organizer take back a rejection — the participant may sign up again and is told so', async () => {
+    const event = await createEventStartingIn(5 * HOUR)
+    const pending = await register(event.id, 'pending')
+    await payload.update({
+      collection: 'registrations',
+      id: pending.id,
+      data: { status: 'rejected' },
+      context: { skipNotifications: true },
+      overrideAccess: true,
+    })
+    await expect(signUp(event.id)).rejects.toThrow(/znovu se přihlásit nejde/)
+
+    const reopened = await payload.update({
+      collection: 'registrations',
+      id: pending.id,
+      data: { status: 'cancelled' },
+      user: organizer,
+      overrideAccess: false,
+    })
+    expect(reopened.status).toBe('cancelled')
+
+    const notices = await payload.find({
+      collection: 'notifications',
+      where: { user: { equals: participant.id } },
+      overrideAccess: true,
+    })
+    expect(notices.docs.map((n) => n.title)).toContain('Můžete se znovu přihlásit')
+    // …and nobody running the event hears that the participant "cancelled".
+    expect(await organizerNotifications()).toHaveLength(0)
+
+    expect((await signUp(event.id)).status).toBe('pending')
+    await payload.delete({ collection: 'notifications', where: { user: { equals: participant.id } }, overrideAccess: true })
+  })
+
+  it("doesn't let the participant lift the organizer's rejection themselves", async () => {
+    const event = await createEventStartingIn(5 * HOUR)
+    const rejected = await register(event.id, 'pending')
+    await payload.update({
+      collection: 'registrations',
+      id: rejected.id,
+      data: { status: 'rejected' },
+      context: { skipNotifications: true },
+      overrideAccess: true,
+    })
+
+    await expect(cancelOwn(rejected.id)).rejects.toThrow(/Pořadatel vaši účast na téhle akci zrušil/)
+    await expect(signUp(event.id)).rejects.toThrow(/znovu se přihlásit nejde/)
   })
 
   it('still lets the organizer take someone off the event within 3 hours', async () => {
@@ -243,12 +324,14 @@ describe('Signing up and cancelling (with an omluvenka) close 3 hours before the
     expect(reg.status).toBe('pending')
   })
 
-  it('refuses signing up within 3 hours of the start', async () => {
+  // Paused with the 3h freeze (lib/registrationCutoff).
+  it.skip('refuses signing up within 3 hours of the start', async () => {
     const event = await createEventStartingIn(2 * HOUR)
     await expect(signUp(event.id)).rejects.toThrow(/Přihlásit se na akci lze nejpozději 3 hodiny/)
   })
 
-  it('refuses offering help as a volunteer within 3 hours of the start', async () => {
+  // Paused with the 3h freeze (lib/registrationCutoff).
+  it.skip('refuses offering help as a volunteer within 3 hours of the start', async () => {
     const event = await createEventStartingIn(2 * HOUR)
     await payload.update({
       collection: 'events',
@@ -268,7 +351,8 @@ describe('Signing up and cancelling (with an omluvenka) close 3 hours before the
     ).rejects.toThrow(/Pomoc lze nabídnout nejpozději 3 hodiny/)
   })
 
-  it("shows the organizer's contact to a registrant — and to anyone once sign-up has closed", async () => {
+  // Paused with the 3h freeze (lib/registrationCutoff).
+  it.skip("shows the organizer's contact to a registrant — and to anyone once sign-up has closed", async () => {
     const open = await createEventStartingIn(5 * HOUR)
     await register(open.id)
 

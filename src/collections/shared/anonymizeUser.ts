@@ -6,7 +6,7 @@ import { APIError, commitTransaction, createLocalReq, initTransaction, killTrans
 import { notYetEnded } from '../Events'
 import { writeAuditLog } from './auditLog'
 import { notDeleted } from './softDelete'
-import type { AccountDeletionBlockingEvent } from '@/lib/accountDeletion'
+import type { AccountDeletionBlockingEvent, AccountDeletionSoleAdminObec } from '@/lib/accountDeletion'
 import { ageOn } from '@/lib/analytics'
 import { logger, serializeError } from '@/lib/logger'
 
@@ -48,6 +48,53 @@ export async function findEventsBlockingDeletion(
   return events.docs.map((e) => ({ id: String(e.id), title: e.title, date_time: e.dateTime }))
 }
 
+/** Obce where `userId` is the only "municipality_admin" — the account can't go while there are any:
+ * nobody would be left to approve organizers, decide escalated deletions or review complaints there. */
+export async function findMunicipalitiesSolelyAdministeredBy(
+  payload: Payload,
+  userId: number | string,
+  req?: PayloadRequest,
+): Promise<AccountDeletionSoleAdminObec[]> {
+  const own = await payload.find({
+    collection: 'user-roles',
+    where: { and: [{ user: { equals: userId } }, { role: { equals: 'municipality_admin' } }] },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  const municipalityIds = [...new Set(own.docs.map((r) => relId(r.municipality)).filter((id): id is number => id !== null))]
+  if (municipalityIds.length === 0) return []
+
+  const all = await payload.find({
+    collection: 'user-roles',
+    where: { and: [{ municipality: { in: municipalityIds } }, { role: { equals: 'municipality_admin' } }] },
+    select: { municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  const adminCount = new Map<number, number>()
+  for (const role of all.docs) {
+    const id = relId(role.municipality)
+    if (id !== null) adminCount.set(id, (adminCount.get(id) ?? 0) + 1)
+  }
+  const sole = municipalityIds.filter((id) => adminCount.get(id) === 1)
+  if (sole.length === 0) return []
+
+  const municipalities = await payload.find({
+    collection: 'municipalities',
+    where: { id: { in: sole } },
+    select: { name: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  return municipalities.docs.map((m) => ({ id: String(m.id), name: m.name }))
+}
+
 /** Uploads to remove once the anonymization has committed — S3 can't roll back with the database. */
 export type AnonymizedFiles = { mediaIds: number[]; exportIds: number[] }
 
@@ -76,6 +123,14 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
   if (!user) throw new APIError('Účet neexistuje.', 404)
   if (user.anonymizedAt) throw new APIError('Účet už byl smazán.', 409)
   if (user.role === 'admin') throw new APIError('Účet správce platformy v aplikaci smazat nejde.', 403)
+
+  const soleAdminOf = await findMunicipalitiesSolelyAdministeredBy(payload, userId, req)
+  if (soleAdminOf.length > 0) {
+    throw new APIError(
+      `Účet nejde smazat — je jediný admin obce ${soleAdminOf.map((m) => m.name).join(', ')}. Nejdřív musí obec dostat dalšího admina; určí ho správce Lonvity.`,
+      400,
+    )
+  }
 
   const blocking = await findEventsBlockingDeletion(payload, userId, req)
   if (blocking.length > 0) {
@@ -150,6 +205,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
     req,
   })
   await payload.db.updateMany({ collection: 'organizer-requests', where: { user: { equals: userId } }, data: { reason: null }, req })
+  await payload.db.updateMany({ collection: 'pool-invitations', where: { invitedBy: { equals: userId } }, data: { message: null }, req })
   // `reason` is required — the obec's decision on the complaint stays, the complainant's words don't.
   await payload.db.updateMany({ collection: 'review-complaints', where: { complainant: { equals: userId } }, data: { reason: '—' }, req })
 
@@ -159,6 +215,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
     ['auth-identities', 'user'],
     ['consents', 'user'],
     ['notifications', 'user'],
+    ['pool-invitations', 'user'],
   ] as const) {
     await payload.delete({ collection, where: { [field]: { equals: userId } }, overrideAccess: true, req })
   }
@@ -194,7 +251,14 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
       req,
     })
   }
-  await payload.delete({ collection: 'user-roles', where: { user: { equals: userId } }, overrideAccess: true, req })
+  await payload.delete({
+    collection: 'user-roles',
+    where: { user: { equals: userId } },
+    overrideAccess: true,
+    // The account itself is going — nobody to tell their role went with it (UserRoles).
+    context: { accountDeleted: true },
+    req,
+  })
 
   // The profile keeps what the obec's overview counts by; the account, nothing to sign in with.
   const profile = (await payload.find({ collection: 'profiles', where: { user: { equals: userId } }, limit: 1, ...find })).docs[0]

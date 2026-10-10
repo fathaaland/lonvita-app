@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatEventDate } from "@/lib/date";
+import { isUnlimitedCapacity } from "@/lib/capacity";
 import { useExport } from "@/hooks/useExport";
 import {
   Period,
@@ -513,7 +514,7 @@ export function AnalyticsOverview({
                       <p className="text-xs text-muted-foreground">{formatEventDate(e.date_time)}</p>
                     </div>
                     <span className="text-xs font-bold tabular-nums">
-                      {e.approved}/{e.capacity}
+                      {isUnlimitedCapacity(e.capacity) ? e.approved : `${e.approved}/${e.capacity}`}
                     </span>
                   </li>
                 ))}

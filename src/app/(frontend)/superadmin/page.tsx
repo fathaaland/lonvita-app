@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   listMunicipalitiesForSuperAdmin,
   createMunicipality,
@@ -38,7 +39,7 @@ import { RequireAuth, RequireRole } from "@/components/RequireAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { CancelEventButton } from "@/components/CancelEventButton";
-import { CoOrganizingRequestCard, OrganizerRequestReason } from "@/components/admin/RequestsTable";
+import { CoOrganizingRequestCard, OrganizerRequestReason, RequestsTable } from "@/components/admin/RequestsTable";
 import { OrganizationsTab } from "@/components/admin/OrganizationsTab";
 import { EventForm, EventFormValues } from "@/components/EventForm";
 import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
@@ -71,7 +72,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
@@ -81,11 +82,9 @@ import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
 import { formatEventDateTime, toDateInputValue } from "@/lib/date";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
-
-// Same lenient Czech format as the onboarding phone step.
-const PHONE_RE = /^(\+420|00420)?\s?[0-9]{3}\s?[0-9]{3}\s?[0-9]{3}$/;
 
 const ROLE_LABEL: Record<string, string> = {
   participant: "Účastník",
@@ -118,8 +117,15 @@ const chipClass = (active: boolean) =>
       : "bg-card text-foreground border-border hover:border-brand-purple",
   );
 
+const SUPERADMIN_TABS = ["municipalities", "users", "events", "roles", "organizations", "requests"];
+
 function SuperAdminContent() {
-  const [tab, setTab] = useState("municipalities");
+  // A notification can open a section straight away — "?tab=requests" for an obec without an admin.
+  const tabParam = useSearchParams().get("tab");
+  const [tab, setTab] = useState(tabParam && SUPERADMIN_TABS.includes(tabParam) ? tabParam : "municipalities");
+  useEffect(() => {
+    if (tabParam && SUPERADMIN_TABS.includes(tabParam)) setTab(tabParam);
+  }, [tabParam]);
   const [municipalities, setMunicipalities] = useState<MunicipalityRow[]>([]);
   const [mapPoints, setMapPoints] = useState<MunicipalityMapPoint[]>([]);
   const [users, setUsers] = useState<PlatformUserRow[]>([]);
@@ -313,8 +319,8 @@ function SuperAdminContent() {
       toast.error("Zadejte celé jméno.");
       return;
     }
-    if (editPhone.trim() && !PHONE_RE.test(editPhone.trim())) {
-      toast.error("Zadejte platné české telefonní číslo.");
+    if (editPhone.trim() && !isValidPhone(editPhone)) {
+      toast.error(INVALID_PHONE_MESSAGE);
       return;
     }
     setSavingUser(true);
@@ -369,8 +375,8 @@ function SuperAdminContent() {
       toast.error("Vyberte obec na mapě, nebo zaškrtněte „bez obce“.");
       return;
     }
-    if (newPhone.trim() && !PHONE_RE.test(newPhone.trim())) {
-      toast.error("Zadejte platné české telefonní číslo.");
+    if (newPhone.trim() && !isValidPhone(newPhone)) {
+      toast.error(INVALID_PHONE_MESSAGE);
       return;
     }
     setCreatingUser(true);
@@ -528,6 +534,8 @@ function SuperAdminContent() {
   };
 
   const pendingRequestCount = orgRequests.length + coOrgRequests.length;
+  // Nobody there decides complaints, escalated deletions or invitations to the obec — the platform does.
+  const obceWithoutAdmin = municipalities.filter((m) => m.has_admin === false);
 
   const logoutAction = (
     <SignOutButton>
@@ -675,7 +683,14 @@ function SuperAdminContent() {
                       <tbody>
                         {comparison
                           .slice()
-                          .sort((a, b) => (b.metrics.datavita.current ?? -1) - (a.metrics.datavita.current ?? -1))
+                          // Datavita first; without it (too little data, typical early on) the busier obec
+                          // still goes first rather than wherever the list happened to put it.
+                          .sort(
+                            (a, b) =>
+                              (b.metrics.datavita.current ?? -1) - (a.metrics.datavita.current ?? -1) ||
+                              b.metrics.current.eventsCount - a.metrics.current.eventsCount ||
+                              b.metrics.current.participantsUnique - a.metrics.current.participantsUnique,
+                          )
                           .map((c) => (
                             <tr key={c.municipality_id} className="border-t border-border">
                               <td className="p-3 font-medium whitespace-nowrap sticky left-0 bg-background">{c.municipality_name}</td>
@@ -1277,6 +1292,26 @@ function SuperAdminContent() {
 
           {/* --- Žádosti (napříč obcemi) ------------------------------------------------ */}
           <TabsContent value="requests" className="pt-4 space-y-5">
+            {obceWithoutAdmin.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 px-1">
+                  <ShieldAlert className="h-4 w-4 text-warning" />
+                  <p className="font-bold text-sm">Obce bez admina</p>
+                </div>
+                <p className="px-1 text-sm text-muted-foreground">
+                  Nikdo tu nevyřizuje stížnosti, žádosti o odebrání pořadatele ani pozvánky obci — dokud obci admina
+                  neurčíte (záložka Role), rozhodujete za ni vy.
+                </p>
+                {obceWithoutAdmin.map((m) => (
+                  <details key={m.id} className="rounded-xl border border-border">
+                    <summary className="cursor-pointer px-4 py-3 font-semibold">{m.name}</summary>
+                    <div className="px-3 pb-3">
+                      <RequestsTable municipalityId={m.id} />
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
             {pendingRequestCount === 0 ? (
               <p className="text-center text-muted-foreground py-8">Žádné čekající žádosti.</p>
             ) : (
@@ -1357,7 +1392,9 @@ export default function SuperAdminPage() {
   return (
     <RequireAuth>
       <RequireRole role="superadmin">
-        <SuperAdminContent />
+        <Suspense fallback={<Loading />}>
+          <SuperAdminContent />
+        </Suspense>
       </RequireRole>
     </RequireAuth>
   );

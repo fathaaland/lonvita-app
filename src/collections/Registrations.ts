@@ -11,6 +11,7 @@ import type {
 import { APIError } from 'payload'
 
 import { isUnlimitedCapacity } from '@/lib/capacity'
+import { hasEventEnded } from '@/lib/eventEnded'
 import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
 import { formatRestrictedUntil, RELIABILITY_WINDOW_MONTHS } from '@/lib/reliability'
@@ -158,6 +159,24 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
 
     if (operation !== 'update' || doc.status === previousDoc?.status) return doc
 
+    // The organizer took back a rejection (Spravovat "Povolit znovu") — the registration is set
+    // aside as cancelled, which no longer blocks signing up. Only the participant hears about it;
+    // nobody "cancelled" anything the team needs to know about.
+    if (doc.status === 'cancelled' && previousDoc?.status === 'rejected') {
+      const again = doc.role === 'volunteer' ? 'znovu nabídnout pomoc' : 'znovu přihlásit'
+      await sendNotification(req.payload, {
+        userId,
+        link: `/akce/${eventId}`,
+        title: doc.role === 'volunteer' ? 'Můžete znovu nabídnout pomoc' : 'Můžete se znovu přihlásit',
+        message: `Pořadatel akce „${event.title}“ změnil své rozhodnutí — můžete se na ni ${again}.`,
+        email: {
+          subject: `Akce ${event.title}: můžete se ${again}`,
+          body: `<p>Pořadatel akce <strong>${escapeHtml(event.title)}</strong> změnil své rozhodnutí — můžete se na ni ${again}.</p>`,
+        },
+      })
+      return doc
+    }
+
     // Task 9: a cancelled registration tells everyone running the event (pořadatel,
     // spolupořadatelé, the obec when it takes part) who it was — name and e-mail, so they can
     // reach them. Whoever cancelled it isn't told about their own doing. An excuse
@@ -281,6 +300,22 @@ const scheduleFeedbackOnAttendance: CollectionAfterChangeHook = async ({ doc, pr
   return doc
 }
 
+/** An event with unlimited capacity keeps no attendance, so there's no "Přišel/a" to set off the
+ * feedback prompt — whoever gets an approved place is asked once the event is over instead. The job
+ * re-checks when it fires (still signed up, event not cancelled — mayRateEvent), so a later
+ * cancellation needs no clean-up here. */
+const scheduleFeedbackOnUnlimitedApproval: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req, context }) => {
+  if (context?.skipNotifications || doc.status !== 'approved') return doc
+  if (operation === 'update' && previousDoc?.status === 'approved') return doc
+  try {
+    const event = await req.payload.findByID({ collection: 'events', id: relId(doc.event), depth: 0, overrideAccess: true, req })
+    if (isUnlimitedCapacity(event.capacity)) await scheduleFeedbackRequest(doc.id, event)
+  } catch (error) {
+    req.payload.logger.error(`Failed to schedule feedback request for registration ${doc.id}: ${error}`)
+  }
+  return doc
+}
+
 /** Marked "Nedorazil/a" — the participant hears it, kindly, with how to let the organizer know next
  * time. Once that makes NO_SHOW_LIMIT within the window, also that their sign-ups now wait for the
  * organizer, and until when (lib/reliability). Only on the transition into "no_show". */
@@ -296,7 +331,8 @@ const notifyOnNoShow: CollectionAfterChangeHook = async ({ doc, previousDoc, ope
     ])
     const base =
       `Mrzí nás, že jste na akci „${event.title}“ nedorazil(a). Když příště nebudete moci přijít, odhlaste se ` +
-      `prosím v aplikaci (nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny předem), nebo dejte vědět pořadateli — ` +
+      // `prosím v aplikaci (nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny předem), nebo dejte vědět pořadateli — ` +
+      `prosím v aplikaci, nebo dejte vědět pořadateli — ` +
       `místo pak může dostat někdo jiný.`
     const limit = record.restrictedUntil
       ? ` Za posledních ${RELIABILITY_WINDOW_MONTHS} měsíců jste bez omluvy nedorazil(a) ${record.noShows}×, a tak vám ` +
@@ -453,10 +489,34 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
         403,
       )
     }
+    // Cancelling is giving up a live registration. A rejected one "cancelled" by its holder would
+    // stop blocking a new sign-up (beforeValidate) — lifting the organizer's decision themselves.
+    if (current.status === 'rejected') {
+      throw new APIError('Pořadatel vaši účast na téhle akci zrušil — znovu se přihlásit nejde.', 403)
+    }
     return args
   }
   if (current.status === 'approved' && current.attendanceStatus && current.attendanceStatus !== 'not_marked') {
     throw new APIError('Docházka je už potvrzená — z akce ho odebrat nejde.', 409)
+  }
+  // Nobody got to it before the event was over — it stays as it was: never let in, never turned down.
+  // (Until then the organizer decides, at the door too.)
+  if (current.status === 'pending' && event && hasEventEnded(event.dateTime, event.endDateTime)) {
+    throw new APIError('Akce už proběhla — o přihlášce už rozhodnout nejde.', 409)
+  }
+  // Signing up checks the capacity only without approval (beforeValidate) — with approval, it's
+  // letting someone in that uses up a place, so that's where a full event says no. A volunteer
+  // takes no participant's place.
+  if (data.status === 'approved' && current.status !== 'approved' && !volunteer && event && !isUnlimitedCapacity(event.capacity)) {
+    const approved = await req.payload.count({
+      collection: 'registrations',
+      where: { and: [{ event: { equals: event.id } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },
+      overrideAccess: true,
+      req,
+    })
+    if (approved.totalDocs >= event.capacity) {
+      throw new APIError('Akce je plná — schválit dalšího účastníka půjde, až se uvolní místo.', 409)
+    }
   }
   return args
 }
@@ -493,7 +553,8 @@ const guardOwnCancellation: CollectionBeforeOperationHook = async ({ args, opera
     .catch(() => null)
   if (event && !isRegistrationOpen(event.dateTime) && req.user.role !== 'admin') {
     throw new APIError(
-      `Odhlásit se z akce lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
+      // `Odhlásit se z akce lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
+      'Odhlásit se z akce lze jen před jejím začátkem — zavolejte nebo napište pořadateli.',
       400,
     )
   }
@@ -520,7 +581,8 @@ const guardRegistrationWindow: CollectionBeforeOperationHook = async ({ args, op
     .catch(() => null)
   if (event && !isRegistrationOpen(event.dateTime)) {
     throw new APIError(
-      `Přihlásit se na akci lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
+      // `Přihlásit se na akci lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
+      'Přihlásit se na akci lze jen před jejím začátkem — zavolejte nebo napište pořadateli.',
       400,
     )
   }
@@ -816,6 +878,12 @@ export const Registrations: CollectionConfig = {
             String(typeof u === 'object' ? u.id : u),
           )
 
+          // An event on hold takes no new sign-ups — whoever got the link before it was hidden
+          // included. A volunteer the team itself invited still joins it (VolunteerInvitations).
+          if (event.isHidden && !req.context?.volunteerInvitation) {
+            throw new APIError('Akce je teď pozastavená — přihlásit se na ni nejde.', 400, undefined, true)
+          }
+
           // Whoever runs the event takes part in it automatically — the pořadatel, every
           // spolupořadatel and, whenever the obec runs or co-organizes it, each of its admins. A
           // registration would only use up one of the participants' spots. On anyone else's event
@@ -846,7 +914,7 @@ export const Registrations: CollectionConfig = {
               overrideAccess: true,
             })
             if (activeCount.totalDocs >= event.capacity) {
-              throw new Error('This event is already at full capacity.')
+              throw new APIError('Akce je plná — všechna místa jsou obsazená.', 400)
             }
             // Whoever has gone NO_SHOW_LIMIT times without a word lately waits for the organizer,
             // here too (lib/reliability) — the place is held for them meanwhile, as counted above.
@@ -871,6 +939,7 @@ export const Registrations: CollectionConfig = {
       broadcastCapacityChange,
       dropReminderWhenNoLongerComing,
       scheduleFeedbackOnAttendance,
+      scheduleFeedbackOnUnlimitedApproval,
       notifyOnNoShow,
     ],
   },

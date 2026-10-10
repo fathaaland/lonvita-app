@@ -133,10 +133,9 @@ const perRequest = <T>(req: PayloadRequest, key: string, load: () => Promise<T>)
 const administeredIdsOf = (req: PayloadRequest, userId: number) =>
   perRequest(req, `profileAccess:administered:${userId}`, () => getAdministeredMunicipalityIds(req.payload, userId))
 
-/** Everyone registered (in any status) for an event `userId` runs or co-organizes, or that's in an
- * obec they administer — the people on their Spravovat pages. */
-const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
-  perRequest(req, `profileAccess:registrants:${userId}`, async () => {
+/** Events `userId` runs or co-organizes, or that are in an obec they administer — their Spravovat pages. */
+const eventsManagedBy = (req: PayloadRequest, userId: number) =>
+  perRequest(req, `profileAccess:events:${userId}`, async () => {
     const administeredIds = await administeredIdsOf(req, userId)
     const managed: Where[] = [{ organizer: { equals: userId } }, { coOrganizers: { in: [userId] } }]
     if (administeredIds.length > 0) managed.push({ municipality: { in: administeredIds } })
@@ -148,17 +147,111 @@ const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
       pagination: false,
       overrideAccess: true,
     })
-    if (events.docs.length === 0) return new Set<string>()
+    return events.docs.map((e) => e.id)
+  })
+
+const relUserId = (value: unknown) => String(value && typeof value === 'object' ? (value as { id: number }).id : value)
+
+/** Everyone registered (in any status) for an event `userId` manages — the people on their
+ * Spravovat pages. */
+const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
+  perRequest(req, `profileAccess:registrants:${userId}`, async () => {
+    const eventIds = await eventsManagedBy(req, userId)
+    if (eventIds.length === 0) return new Set<string>()
     const registrations = await req.payload.find({
       collection: 'registrations',
-      where: { and: [{ event: { in: events.docs.map((e) => e.id) } }, { deletedAt: { exists: false } }] },
+      where: { and: [{ event: { in: eventIds } }, { deletedAt: { exists: false } }] },
       select: { user: true },
       depth: 0,
       pagination: false,
       overrideAccess: true,
     })
-    return new Set(registrations.docs.map((r) => String(typeof r.user === 'object' ? r.user.id : r.user)))
+    return new Set(registrations.docs.map((r) => relUserId(r.user)))
   })
+
+/**
+ * Whose profile (name, photo, home obec) someone may read — not a directory of every user:
+ * - their own, and a platform admin everyone's;
+ * - whoever organizes or co-organizes an event, or holds the organizer role — the public face of
+ *   events (the name on the event detail, on an invitation, on a co-organizing request);
+ * - who signed up for, or was invited / offered to help on, an event they manage;
+ * - for an obec's admin: its residents and whoever holds or asks for a role in it.
+ * Phone, date of birth and the volunteer fields keep their own, narrower field access.
+ */
+export const canReadProfile: Access = async ({ req }) => {
+  const { user, payload } = req
+  if (!user) return false
+  if (user.role === 'admin') return true
+
+  const [organizers, organizerRoles, registrants, eventIds, administeredIds] = await Promise.all([
+    payload.find({
+      collection: 'events',
+      where: { deletedAt: { exists: false } },
+      select: { organizer: true, coOrganizers: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    }),
+    payload.find({
+      collection: 'user-roles',
+      where: { role: { equals: 'organizer' } },
+      select: { user: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    }),
+    registrantsManagedBy(req, user.id),
+    eventsManagedBy(req, user.id),
+    administeredIdsOf(req, user.id),
+  ])
+
+  const visible = new Set<string>(registrants)
+  for (const e of organizers.docs) {
+    visible.add(relUserId(e.organizer))
+    for (const co of e.coOrganizers ?? []) visible.add(relUserId(co))
+  }
+  for (const r of organizerRoles.docs) visible.add(relUserId(r.user))
+
+  if (eventIds.length > 0) {
+    const invitations = await payload.find({
+      collection: 'volunteer-invitations',
+      where: { event: { in: eventIds } },
+      select: { volunteer: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    for (const i of invitations.docs) visible.add(relUserId(i.volunteer))
+  }
+
+  const or: Where[] = [{ user: { equals: user.id } }]
+  if (administeredIds.length > 0) {
+    or.push({ municipality: { in: administeredIds } })
+    const [roles, requests] = await Promise.all([
+      payload.find({
+        collection: 'user-roles',
+        where: { municipality: { in: administeredIds } },
+        select: { user: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      }),
+      payload.find({
+        collection: 'organizer-requests',
+        where: { municipality: { in: administeredIds } },
+        select: { user: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      }),
+    ])
+    for (const doc of [...roles.docs, ...requests.docs]) visible.add(relUserId(doc.user))
+  }
+  visible.delete('null')
+  visible.delete('undefined')
+  if (visible.size > 0) or.push({ user: { in: [...visible].map(Number) } })
+  return { or }
+}
 
 /**
  * Field-level read access for what a profile's onboarding asks (gender, interests, home area): only

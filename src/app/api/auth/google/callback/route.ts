@@ -12,6 +12,7 @@ import {
 } from '@/lib/auth/google/provider'
 import type { GoogleProfile } from '@/lib/auth/google/provider'
 import { OAUTH_STATE_COOKIE, OAUTH_STATE_COOKIE_PATH, verifyOAuthState } from '@/lib/auth/google/state'
+import { onboardingPath } from '@/lib/auth/onboarding'
 import { buildPayloadTokenCookie } from '@/lib/auth/session-cookie'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
@@ -117,8 +118,8 @@ export async function GET(request: Request) {
       )
     }
 
-    // Someone who hasn't finished onboarding goes there rather than to wherever they were
-    // headed — the same rule the password sign-in follows.
+    // Someone who hasn't finished onboarding goes there first, and on to wherever they were headed
+    // afterwards — the same rule the password sign-in follows.
     const profiles = await payload.find({
       collection: 'profiles',
       where: { user: { equals: result.user.id } },
@@ -126,7 +127,7 @@ export async function GET(request: Request) {
       limit: 1,
       overrideAccess: true,
     })
-    const destination = profiles.docs[0]?.onboardingCompleted ? verified.returnTo : '/onboarding'
+    const destination = profiles.docs[0]?.onboardingCompleted ? verified.returnTo : onboardingPath(verified.returnTo)
 
     const response = NextResponse.redirect(new URL(destination, appUrl))
     response.headers.append('Set-Cookie', await buildPayloadTokenCookie(payload, result.user))

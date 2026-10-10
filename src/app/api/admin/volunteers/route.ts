@@ -4,6 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
+import { sendNotification } from '@/collections/shared/notify'
 import { helpingOnEvents, organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
 
 type Body = {
@@ -97,6 +98,19 @@ export async function POST(request: Request) {
     id: profile.id,
     data: { isVolunteer: false },
     overrideAccess: true,
+  })
+
+  // Otherwise they'd simply stop being asked, and never know why.
+  await sendNotification(payload, {
+    userId,
+    title: 'Už nejste v poolu dobrovolníků',
+    message:
+      'Správce vás odebral z poolu dobrovolníků, pořadatelé vás teď nemohou oslovit. Jestli jde o omyl, ozvěte se své obci — znovu se můžete přihlásit v profilu.',
+    link: '/profil',
+    email: {
+      subject: 'Už nejste v poolu dobrovolníků',
+      body: '<p>Správce vás odebral z poolu dobrovolníků, pořadatelé vás teď nemohou oslovit.</p><p>Jestli jde o omyl, ozvěte se své obci — znovu se můžete přihlásit v profilu.</p>',
+    },
   })
 
   return NextResponse.json({ id: updated.id })

@@ -2,7 +2,7 @@ import type { CollectionAfterChangeHook, CollectionBeforeValidateHook, Collectio
 import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered } from './access/shared'
-import { escapeHtml, getMunicipalityAdminUserIds, sendNotificationToMany } from './shared/notify'
+import { escapeHtml, getObecDeciders, sendNotificationToMany } from './shared/notify'
 import {
   complainantContext,
   complaintStatusByReview,
@@ -63,7 +63,8 @@ const prepareComplaint: CollectionBeforeValidateHook = async ({ data, req, opera
   }
 }
 
-/** A new complaint goes to the admins of the obec the event belongs to — they decide it. */
+/** A new complaint goes to the admins of the obec the event belongs to — they decide it (the
+ * platform admins, for an obec without one). */
 const notifyObecOfComplaint: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
   if (operation !== 'create') return
   try {
@@ -72,14 +73,14 @@ const notifyObecOfComplaint: CollectionAfterChangeHook = async ({ doc, operation
       .catch(() => null)
     const title = event?.title ?? 'akce'
     const what = doc.reviewType === 'volunteer-rating' ? 'hodnocení dobrovolníka' : 'recenzi akce'
-    const adminIds = await getMunicipalityAdminUserIds(req.payload, relationId(doc.municipality)!)
+    const { userIds: adminIds, requestsLink } = await getObecDeciders(req.payload, relationId(doc.municipality)!)
     sendNotificationToMany(req.payload, adminIds, {
       title: 'Nová stížnost na recenzi',
-      link: '/admin-obce?tab=requests',
+      link: requestsLink,
       message: `Někdo nahlásil ${what} „${title}“. Posuďte, jestli recenzi odstranit.`,
       email: {
         subject: 'Nová stížnost na recenzi',
-        body: `<p>Někdo nahlásil ${what} <strong>${escapeHtml(title)}</strong>. Posuďte to v sekci Žádosti v adminu obce.</p>`,
+        body: `<p>Někdo nahlásil ${what} <strong>${escapeHtml(title)}</strong>. Posuďte to v sekci Žádosti.</p>`,
       },
     })
   } catch (error) {

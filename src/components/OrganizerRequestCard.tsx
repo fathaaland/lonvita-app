@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getMyOrganizerRequests, requestOrganizerRole, RequestStatus } from "@/integrations/payload/queries";
+import { getMyOrganizerRequests, requestOrganizerRole, RequestStatus, withdrawOrganizerRequest } from "@/integrations/payload/queries";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { ORGANIZER_REASON_MAX_LENGTH, ORGANIZER_REASON_MIN_LENGTH } from "@/lib/validation";
 import {
@@ -27,8 +27,10 @@ const ORGANIZATION_NAME_PLACEHOLDERS: Record<OrganizationType, string> = {
 };
 
 export function OrganizerRequestCard() {
-  const { user, profile, isOrganizer, isSuperAdmin } = useAuth();
+  const { user, profile, isSuperAdmin, organizerMunicipalityIds, administeredMunicipalityIds } = useAuth();
   const [status, setStatus] = useState<RequestStatus | null>(null);
+  // The waiting request, so its applicant can take it back.
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -46,22 +48,43 @@ export function OrganizerRequestCard() {
     getMyOrganizerRequests(String(user.id)).then((reqs) => {
       const forHome = reqs.find((r) => r.municipality_id === profile.municipality_id);
       setStatus(forHome?.status ?? null);
+      setPendingId(forHome?.status === "pending" ? forHome.id : null);
       setLoading(false);
     });
   }, [user, profile?.municipality_id]);
 
-  // Already an organizer/admin, or platform superadmin — nothing to request.
-  if (isOrganizer || isSuperAdmin || loading || !profile?.municipality_id) return null;
+  // Already organizing in their own obec (or administering it), or platform superadmin — nothing to
+  // request. Organizing somewhere else doesn't count: the request is for the home obec.
+  const home = profile?.municipality_id;
+  const organizesAtHome = !!home && (organizerMunicipalityIds.includes(home) || administeredMunicipalityIds.includes(home));
+  if (organizesAtHome || isSuperAdmin || loading || !home) return null;
+
+  const handleWithdraw = async () => {
+    if (!pendingId) return;
+    setSubmitting(true);
+    try {
+      await withdrawOrganizerRequest(pendingId);
+      setStatus(null);
+      setPendingId(null);
+      toast.success("Žádost stažena.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Žádost se nepodařilo stáhnout.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleRequest = async () => {
     if (!user || !profile?.municipality_id || !canSubmit) return;
     setSubmitting(true);
     try {
-      await requestOrganizerRole(String(user.id), profile.municipality_id, reason.trim(), {
+      const id = await requestOrganizerRole(String(user.id), profile.municipality_id, reason.trim(), {
         name: organizationName.trim(),
         type: organizationType,
       });
       setStatus("pending");
+      // So "Stáhnout žádost" is there straight away, not only after a reload.
+      setPendingId(id);
       setFormOpen(false);
       setReason("");
       setOrganizationName("");
@@ -83,9 +106,16 @@ export function OrganizerRequestCard() {
           <p className="font-bold">Role organizátora</p>
         </div>
         {status === "pending" ? (
-          <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-            <Clock className="h-4 w-4" /> Žádost čeká na vyřízení obcí.
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+              <Clock className="h-4 w-4" /> Žádost čeká na vyřízení obcí.
+            </p>
+            {pendingId && (
+              <Button onClick={handleWithdraw} disabled={submitting} variant="ghost" className="w-full h-11 text-muted-foreground">
+                Stáhnout žádost
+              </Button>
+            )}
+          </div>
         ) : (
           <>
             {status === "rejected" && (

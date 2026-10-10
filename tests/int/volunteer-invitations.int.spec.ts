@@ -214,6 +214,20 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
     await expect(decide(invitation.id, 'withdrawn', volunteer)).rejects.toThrow()
   })
 
+  it('whoever invited can take the invitation back before it is answered — the volunteer is told', async () => {
+    const event = await createEvent(pub)
+    const invitation = await invite(event.id, pub)
+    // Nobody else on the event can.
+    await expect(decide(invitation.id, 'withdrawn', club)).rejects.toThrow()
+
+    const withdrawn = await decide(invitation.id, 'withdrawn', pub)
+    expect(withdrawn.status).toBe('withdrawn')
+    expect(await notificationsFor(volunteer, 'Pořadatel pozvánku stáhl')).toBeGreaterThan(0)
+    // …and nobody but the volunteer accepts or declines one.
+    const another = await invite(event.id, pub)
+    await expect(decide(another.id, 'accepted', pub)).rejects.toThrow()
+  })
+
   it('leaving the pool withdraws pending invitations; on a free event the volunteer stays as a participant', async () => {
     const helping = await createEvent(pub)
     const helpingInvitation = await invite(helping.id, pub)

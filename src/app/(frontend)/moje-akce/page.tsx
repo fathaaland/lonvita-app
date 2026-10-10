@@ -7,6 +7,7 @@ import {
   getMyOrganizedEvents,
   getEventCategories,
   getMyFeedbackForRegistrations,
+  getActiveRegistrationCountsByEvent,
   AttendanceStatus,
 } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,6 +32,9 @@ interface Item {
   /** Not the viewer's own — they're here as the admin of the obec that runs or co-organizes it. */
   obecRole: "runs" | "coOrganizes" | null;
   isPending: boolean;
+  /** When it's over — the end of a multi-day event, otherwise its start. One still running is
+   * still upcoming, not past. */
+  endsAt: string;
   /** The viewer's own approved registration — what "Ohodnotit" rates (US-U-03). */
   registration: { id: string; attendance: AttendanceStatus; rating: number | null } | null;
 }
@@ -56,15 +60,15 @@ function RatingRow({ item, onRate }: { item: Item; onRate: () => void }) {
       </p>
     );
   }
-  if (reg.attendance === "attended") {
+  // An event with unlimited capacity keeps no attendance — there, staying signed up is enough.
+  if (reg.attendance === "attended" || isUnlimitedCapacity(item.event.capacity)) {
     return (
       <Button variant="outline" onClick={onRate} className="mt-2 w-full gap-2">
         <Star /> Ohodnotit akci
       </Button>
     );
   }
-  // An event with unlimited capacity keeps no attendance, so nothing ever unlocks rating it.
-  if (reg.attendance === "not_marked" && !isUnlimitedCapacity(item.event.capacity)) {
+  if (reg.attendance === "not_marked") {
     return <p className="mt-2 px-1 text-sm text-muted-foreground">Ohodnotit půjde, až pořadatel potvrdí vaši účast.</p>;
   }
   return null;
@@ -117,6 +121,7 @@ function MyEventsContent() {
             co_organizations: ev.co_organizations,
           },
           isOrganizer: true,
+          endsAt: ev.end_date_time ?? ev.date_time,
           obecRole: own
             ? null
             : isMunicipalityOrganization(ev.organization)
@@ -130,7 +135,9 @@ function MyEventsContent() {
       // Cancelled/rejected rows aren't "my events" — and after a cancel + re-register they'd
       // otherwise shadow the live registration for the same event (first one wins below).
       const activeRegs = regs.filter((r) => r.status === "pending" || r.status === "approved");
-      const attendedIds = activeRegs.filter((r) => r.attendance_status === "attended").map((r) => r.id);
+      const attendedIds = activeRegs
+        .filter((r) => r.attendance_status === "attended" || (r.events && isUnlimitedCapacity(r.events.capacity)))
+        .map((r) => r.id);
       const feedback = await getMyFeedbackForRegistrations(attendedIds).catch(() => new Map());
 
       for (const r of activeRegs) {
@@ -152,6 +159,7 @@ function MyEventsContent() {
             co_organizations: r.events.co_organizations,
           },
           isOrganizer: false,
+          endsAt: r.events.end_date_time ?? r.events.date_time,
           obecRole: null,
           isPending: r.status === "pending",
           registration:
@@ -161,7 +169,12 @@ function MyEventsContent() {
         });
       }
 
-      setItems(Array.from(byId.values()));
+      // The card's "X volných míst" — without the counts it showed the whole capacity as free.
+      const all = Array.from(byId.values());
+      const counts = await getActiveRegistrationCountsByEvent(all.map((i) => i.event.id)).catch(
+        () => new Map<string, number>(),
+      );
+      setItems(all.map((i) => ({ ...i, event: { ...i.event, registrations_count: counts.get(i.event.id) ?? 0 } })));
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -173,7 +186,7 @@ function MyEventsContent() {
     if (loading || !rateParam) return;
     const item = items.find((i) => i.registration?.id === rateParam);
     const reg = item?.registration;
-    if (item && reg?.attendance === "attended" && reg.rating === null) {
+    if (item && reg && (reg.attendance === "attended" || isUnlimitedCapacity(item.event.capacity)) && reg.rating === null) {
       setRating({ registrationId: reg.id, title: item.event.title });
     } else if (reg?.rating != null) {
       toast.info("Tuto akci jste už ohodnotili. Děkujeme!");
@@ -193,8 +206,8 @@ function MyEventsContent() {
     setRating(null);
   };
 
-  const upcoming = items.filter((i) => !isPast(i.event.date_time));
-  const past = items.filter((i) => isPast(i.event.date_time));
+  const upcoming = items.filter((i) => !isPast(i.endsAt));
+  const past = items.filter((i) => isPast(i.endsAt));
 
   return (
     <div className="animate-fade-in">
@@ -234,7 +247,7 @@ function MyEventsContent() {
               <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {past.map((i) => (
                   <div key={i.event.id} className="relative">
-                    <EventCard event={i.event} />
+                    <EventCard event={i.event} ended />
                     {i.isOrganizer && (
                       <Badge className="absolute top-3 left-3 bg-primary text-primary-foreground gap-1">
                         <Megaphone className="h-3 w-3" /> {organizerLabel(i, true)}

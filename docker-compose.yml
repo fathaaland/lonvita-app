@@ -65,7 +65,7 @@ services:
   # Consumes the BullMQ 'lonvita' queue (e-mail/SMS, feedback prompts, attendance reminders, report
   # exports, event update/cancel notifications, password reset — see src/lib/queue/) and owns the scheduled jobs:
   # the nightly notification/export cleanups and the 15-minute finished/expired status sync.
-  # Without this service nothing processes what the app enqueues, so Resend emails and httpSMS
+  # Without this service nothing processes what the app enqueues, so Resend emails and Twilio
   # texts get queued but never actually sent, notifications are never pruned and past events
   # keep 'active' in the database (reads still show them as finished).
   worker:

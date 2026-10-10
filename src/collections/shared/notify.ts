@@ -1,6 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
+import { toE164 } from '@/lib/phone'
 import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
@@ -33,6 +34,29 @@ export const getMunicipalityAdminUserIds = async (payload: Payload, municipality
     overrideAccess: true,
   })
   return result.docs.map((doc) => (typeof doc.user === 'object' ? doc.user.id : doc.user))
+}
+
+/**
+ * Who answers what's waiting on the obec — an organizer request, a complaint about a review, an
+ * escalated deletion, an invitation for the obec to co-organize — and where they do it. Its admins,
+ * in the obec's admin; an obec without one (not appointed yet, or the platform admin took the last
+ * one away) is looked after by the platform admins, in their own panel, so nothing waits on nobody.
+ */
+export async function getObecDeciders(
+  payload: Payload,
+  municipalityId: number | string,
+): Promise<{ userIds: number[]; requestsLink: string }> {
+  const adminIds = await getMunicipalityAdminUserIds(payload, municipalityId)
+  if (adminIds.length > 0) return { userIds: adminIds, requestsLink: '/admin-obce?tab=requests' }
+  const platformAdmins = await payload.find({
+    collection: 'users',
+    where: { role: { equals: 'admin' } },
+    select: { role: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  return { userIds: platformAdmins.docs.map((u) => u.id), requestsLink: '/superadmin?tab=requests' }
 }
 
 type EventTeamSource = {
@@ -112,6 +136,12 @@ type NotificationContent = {
   link?: string
   /** Omit to send in-app only (no email content to send). */
   email?: { subject: string; body: string }
+  /**
+   * Something the recipient must not miss — the event they signed up for is cancelled, moved or
+   * its team writes to them. Goes out in the app and by e-mail whatever the preferences say:
+   * someone who switched both off would otherwise learn about it only by turning up.
+   */
+  critical?: boolean
 }
 
 type SendNotificationInput = NotificationContent & { userId: number | string }
@@ -170,7 +200,7 @@ export async function sendNotificationToMany(
 
     // No profile yet (mid-onboarding) — fall back to both channels' defaults (true) rather
     // than silently dropping the notification.
-    const inAppIds = ids.filter((id) => profileByUser.get(id)?.notifyInApp ?? true)
+    const inAppIds = ids.filter((id) => content.critical || (profileByUser.get(id)?.notifyInApp ?? true))
     for (let i = 0; i < inAppIds.length; i += NOTIFICATION_WRITE_CONCURRENCY) {
       await Promise.all(
         inAppIds.slice(i, i + NOTIFICATION_WRITE_CONCURRENCY).map(async (id) => {
@@ -193,7 +223,7 @@ export async function sendNotificationToMany(
       await Promise.all(
         ids.map(async (id) => {
           const to = emailByUser.get(id)
-          if (!to || !(profileByUser.get(id)?.notifyEmail ?? true)) return
+          if (!to || !(content.critical || (profileByUser.get(id)?.notifyEmail ?? true))) return
           try {
             await enqueueEmail(
               { to, subject, body },
@@ -212,20 +242,14 @@ export async function sendNotificationToMany(
   return sent
 }
 
-/** httpSMS expects E.164, but onboarding accepts Czech numbers as typed ("735 929 442",
- * "+420 735…", "00420…"). A bare 9-digit number is Czech; anything unrecognisable is skipped. */
-export function toE164(phone: string): string | null {
-  const compact = phone.replace(/[^\d+]/g, '').replace(/^00/, '+')
-  if (/^\+\d{9,15}$/.test(compact)) return compact
-  if (/^\d{9}$/.test(compact)) return `+420${compact}`
-  return null
-}
+export { toE164 } from '@/lib/phone'
 
 /**
- * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — SMS to whichever of these users
+ * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — narrowed: SMS go out only when an
+ * event is cancelled (event-cancelled processor), never for anything else. To whichever of these users
  * have a phone on file (onboarding step, still optional until they've filled it in). A no-op (not
- * an error) when httpSMS isn't configured — the worker logs that. httpSMS dedupes on the request
- * id, so `requestIdPrefix` must be unique per announcement but stable across retries of it.
+ * an error) when Twilio isn't configured — the worker logs that. The request id becomes the queue
+ * job id, so `requestIdPrefix` must be unique per announcement but stable across retries of it.
  * Never throws; returns how many were queued.
  */
 export async function sendSmsToMany(

@@ -288,7 +288,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
         new Request('http://localhost/api/account/delete', { headers: await authHeaders(jana) }),
       )
       expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ blockingEvents: [] })
+      expect(await response.json()).toEqual({ blockingEvents: [], soleAdminOf: [] })
     })
 
     it('deletes the account and signs them out', async () => {
@@ -432,7 +432,24 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
   })
 
   describe('an obec admin', () => {
+    it("can't go while they're the obec's only admin", async () => {
+      const admin = await makeUser('only-obec', 'municipality_admin')
+      const others = await payload.count({
+        collection: 'user-roles',
+        where: { and: [{ municipality: { equals: muni.id } }, { role: { equals: 'municipality_admin' } }, { user: { not_equals: admin.id } }] },
+        overrideAccess: true,
+      })
+      // Only meaningful while nobody else administers the test obec.
+      if (others.totalDocs === 0) {
+        const response = await deleteOwn(admin)
+        expect(response.status).toBe(400)
+        expect(((await response.json()) as { error: string }).error).toMatch(/jediný admin/)
+      }
+    })
+
     it('loses the role, and the obec no longer names them its admin', async () => {
+      // There's always someone left to administer the obec (keepLastMunicipalityAdmin, anonymizeUser).
+      await makeUser('obec-colleague', 'municipality_admin')
       const admin = await makeUser('obec', 'municipality_admin')
       expect(relId((await payload.findByID({ collection: 'municipalities', id: muni.id, overrideAccess: true })).adminUser)).toBe(
         admin.id,

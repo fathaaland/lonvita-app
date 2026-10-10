@@ -4,7 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { eventOrganizerIds } from '@/collections/Events'
 import { OPEN_STATUSES } from '@/collections/EventDeletionRequests'
-import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from '@/collections/shared/notify'
+import { escapeHtml, getObecDeciders, sendNotification } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { formatPragueDateTime } from '@/lib/date'
 
@@ -90,18 +90,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const until = formatPragueDateTime(event.dateTime)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
   const municipalityId = relationId(event.municipality)
-  for (const adminId of municipalityId ? await getMunicipalityAdminUserIds(payload, municipalityId) : []) {
+  const obec = municipalityId ? await getObecDeciders(payload, municipalityId) : { userIds: [], requestsLink: '' }
+  for (const adminId of obec.userIds) {
     sendNotification(payload, {
       userId: adminId,
       title: 'Žádost o zrušení spolupořadatelství',
-      link: '/admin-obce?tab=requests',
+      link: obec.requestsLink,
       message: `${who} chce přestat pořádat akci „${event.title}“, ale spolupořadatel nesouhlasí. Rozhodněte do ${until}.`,
       email: {
         subject: `Žádost o zrušení spolupořadatelství: ${event.title}`,
         body:
           `<p><strong>${escapeHtml(who)}</strong> chce přestat pořádat akci <strong>${escapeHtml(event.title)}</strong>. Spolupořadatel nesouhlasil se smazáním akce ani s jeho odchodem.</p>` +
           `<p>Obec ho z akce může odebrat i bez souhlasu spolupořadatele — akce pak zůstane ostatním. Rozhodnout můžete do ${until}.</p>` +
-          `<p><a href="${appUrl}/admin-obce?tab=requests">Otevřít žádosti obce</a></p>`,
+          `<p><a href="${appUrl}${obec.requestsLink}">Otevřít žádosti obce</a></p>`,
       },
     })
   }

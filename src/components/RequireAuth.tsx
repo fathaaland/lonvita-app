@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loading } from "@/components/Loading";
+import { onboardingPath } from "@/lib/auth/onboarding";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading, profile } = useAuth();
@@ -30,7 +31,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       return;
     }
     if (needsOnboarding) {
-      router.replace("/onboarding");
+      // The page they opened is where onboarding hands them back.
+      router.replace(onboardingPath(`${window.location.pathname}${window.location.search}`));
     }
   }, [loading, user, needsOnboarding, router]);
 

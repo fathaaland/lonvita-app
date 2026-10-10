@@ -2,21 +2,30 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
-import { deleteAccount, findEventsBlockingDeletion } from '@/collections/shared/anonymizeUser'
+import {
+  deleteAccount,
+  findEventsBlockingDeletion,
+  findMunicipalitiesSolelyAdministeredBy,
+} from '@/collections/shared/anonymizeUser'
 import { ACCOUNT_DELETION_CONFIRMATION } from '@/lib/accountDeletion'
 
 /**
  * What stands between the signed-in user and deleting their account — the events ahead they still
- * run or co-organize. The profile's "Smazat účet" dialog lists them instead of the button.
+ * run or co-organize, and the obce they're the only admin of. The profile's "Smazat účet" dialog
+ * lists them instead of the button.
  *
- * GET /api/account/delete → { blockingEvents: [{ id, title, date_time }] }
+ * GET /api/account/delete → { blockingEvents: [{ id, title, date_time }], soleAdminOf: [{ id, name }] }
  */
 export async function GET(request: Request) {
   const payload = await getPayload({ config })
   const { user } = await payload.auth({ headers: request.headers })
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  return NextResponse.json({ blockingEvents: await findEventsBlockingDeletion(payload, user.id) })
+  const [blockingEvents, soleAdminOf] = await Promise.all([
+    findEventsBlockingDeletion(payload, user.id),
+    findMunicipalitiesSolelyAdministeredBy(payload, user.id),
+  ])
+  return NextResponse.json({ blockingEvents, soleAdminOf })
 }
 
 /**

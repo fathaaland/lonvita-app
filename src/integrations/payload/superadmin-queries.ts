@@ -22,20 +22,25 @@ export type MunicipalityRow = {
   id: string;
   name: string;
   description: string | null;
+  /** Whether anyone holds "municipality_admin" there (Municipalities.adminUser follows the roles).
+   * Without one, its requests wait on the platform admin. */
+  has_admin?: boolean;
 };
 
 type PayloadMunicipality = {
   id: number;
   name: string;
   description?: string | null;
+  adminUser?: number | { id: number } | null;
 };
 
 export async function listMunicipalitiesForSuperAdmin(): Promise<MunicipalityRow[]> {
-  const result = await get<PayloadListResponse<PayloadMunicipality>>("/municipalities?sort=name&limit=500");
+  const result = await get<PayloadListResponse<PayloadMunicipality>>("/municipalities?sort=name&limit=500&depth=0");
   return result.docs.map((m) => ({
     id: String(m.id),
     name: m.name,
     description: m.description ?? null,
+    has_admin: m.adminUser != null,
   }));
 }
 

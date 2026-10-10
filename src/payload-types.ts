@@ -90,6 +90,7 @@ export interface Config {
     'volunteer-invitations': VolunteerInvitation;
     'volunteer-ratings': VolunteerRating;
     'review-complaints': ReviewComplaint;
+    'pool-invitations': PoolInvitation;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -120,6 +121,7 @@ export interface Config {
     'volunteer-invitations': VolunteerInvitationsSelect<false> | VolunteerInvitationsSelect<true>;
     'volunteer-ratings': VolunteerRatingsSelect<false> | VolunteerRatingsSelect<true>;
     'review-complaints': ReviewComplaintsSelect<false> | ReviewComplaintsSelect<true>;
+    'pool-invitations': PoolInvitationsSelect<false> | PoolInvitationsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -347,7 +349,7 @@ export interface Profile {
    */
   volunteerAllowPhone?: boolean | null;
   /**
-   * The number organizers call — separate from `phone`, which event change/cancellation SMS go to.
+   * The number organizers call — separate from `phone`, which event cancellation SMS go to.
    */
   volunteerContactPhone?: string | null;
   /**
@@ -925,6 +927,26 @@ export interface ReviewComplaint {
   createdAt: string;
 }
 /**
+ * An obec admin's invitation for a resident to join the volunteer pool — the resident accepts by joining.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "pool-invitations".
+ */
+export interface PoolInvitation {
+  id: number;
+  /**
+   * Who is invited.
+   */
+  user: number | User;
+  municipality: number | Municipality;
+  invitedBy?: (number | null) | User;
+  message?: string | null;
+  status: 'pending' | 'accepted' | 'declined' | 'withdrawn';
+  decidedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -1039,6 +1061,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'review-complaints';
         value: number | ReviewComplaint;
+      } | null)
+    | ({
+        relationTo: 'pool-invitations';
+        value: number | PoolInvitation;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1524,6 +1550,20 @@ export interface ReviewComplaintsSelect<T extends boolean = true> {
   decidedBy?: T;
   decidedAt?: T;
   decisionNote?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "pool-invitations_select".
+ */
+export interface PoolInvitationsSelect<T extends boolean = true> {
+  user?: T;
+  municipality?: T;
+  invitedBy?: T;
+  message?: T;
+  status?: T;
+  decidedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

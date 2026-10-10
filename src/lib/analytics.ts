@@ -3,6 +3,8 @@
  * Vše počítáno na klientovi z dat omezených přes RLS na obec.
  */
 
+import { isUnlimitedCapacity } from "@/lib/capacity";
+
 export type Period = "7" | "30" | "90" | "all";
 
 export interface EventRow {
@@ -30,6 +32,8 @@ export interface RegistrationRow {
   status: string;
   created_at: string;
   attendance_status?: "not_marked" | "attended" | "no_show" | "excused";
+  /** A volunteer helps run the event — not one of its participants, and holds none of its places. */
+  role?: "participant" | "volunteer";
 }
 
 export interface CategoryRow {
@@ -83,6 +87,23 @@ export function periodLabel(period: Period): string {
   return period === "all" ? "celé období" : `posledních ${period} dní`;
 }
 
+/** Approved participants — what an event's places are filled with. Volunteers are left out, the
+ * same as Registrations' "full" status leaves them out. */
+function approvedParticipants(regs: RegistrationRow[]): RegistrationRow[] {
+  return regs.filter((r) => r.status === "approved" && r.role !== "volunteer");
+}
+
+/** Whether naplněnost means anything for this event — an unlimited one (UNLIMITED_CAPACITY) is
+ * never more than a sliver full, and counting it would drag every average towards zero. */
+function hasFillRate(e: EventRow): boolean {
+  return Boolean(e.capacity) && !isUnlimitedCapacity(e.capacity);
+}
+
+/** Not over yet and not cancelled — a full event is upcoming as much as an open one. */
+function isUpcoming(e: EventRow, now: number): boolean {
+  return new Date(e.date_time).getTime() >= now && (e.status === "active" || e.status === "full");
+}
+
 function inPeriod(iso: string, start: Date | null): boolean {
   if (!start) return true;
   return new Date(iso).getTime() >= start.getTime();
@@ -118,11 +139,11 @@ export function computeKpis(
   profiles: ProfileRow[],
 ): Kpis {
   const now = Date.now();
-  const eventsUpcoming = events.filter((e) => new Date(e.date_time).getTime() >= now && e.status === "active").length;
+  const eventsUpcoming = events.filter((e) => isUpcoming(e, now)).length;
   const eventsPast = events.filter((e) => new Date(e.date_time).getTime() < now).length;
 
-  const approved = regs.filter((r) => r.status === "approved");
-  const pending = regs.filter((r) => r.status === "pending");
+  const approved = approvedParticipants(regs);
+  const pending = regs.filter((r) => r.status === "pending" && r.role !== "volunteer");
 
   const cutoff30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const activeUserIds = new Set(
@@ -131,10 +152,10 @@ export function computeKpis(
   const newUserIds = profiles.filter((p) => new Date(p.created_at).getTime() >= cutoff30);
   const activeOrganizers = new Set(events.map((e) => e.organizer_id)).size;
 
-  // Fill rate per akce (bereme jen akce s kapacitou > 0)
+  // Fill rate per akce (bereme jen akce s omezenou kapacitou > 0)
   const fillRates: number[] = [];
   for (const e of events) {
-    if (!e.capacity) continue;
+    if (!hasFillRate(e)) continue;
     const count = approved.filter((r) => r.event_id === e.id).length;
     fillRates.push(Math.min(1, count / e.capacity));
   }
@@ -198,8 +219,7 @@ export function weeklySeries(events: EventRow[], regs: RegistrationRow[], weeks 
       const t = new Date(e.date_time).getTime();
       return t >= wStart.getTime() && t < wEnd.getTime();
     }).length;
-    const rs = regs.filter((r) => {
-      if (r.status !== "approved") return false;
+    const rs = approvedParticipants(regs).filter((r) => {
       const t = new Date(r.created_at).getTime();
       return t >= wStart.getTime() && t < wEnd.getTime();
     }).length;
@@ -307,10 +327,16 @@ export function computeDatavitaWindow(
     ? Math.min(100, (orgIds.size / reference) * 100)
     : orgIds.size > 0 ? 100 : 0;
 
+  // Volunteering: taking part in a "Dobrovolnictví" event, or helping run any event as its volunteer.
   const volunteerEventIds = new Set(wEvents.filter((e) => e.is_volunteering).map((e) => e.id));
+  const windowEventIds = new Set(wEvents.map((e) => e.id));
   const volunteerParticipants = new Set(
     regs
-      .filter((r) => r.attendance_status === "attended" && volunteerEventIds.has(r.event_id))
+      .filter(
+        (r) =>
+          r.attendance_status === "attended" &&
+          (volunteerEventIds.has(r.event_id) || (r.role === "volunteer" && windowEventIds.has(r.event_id))),
+      )
       .map((r) => r.user_id),
   );
   const volunteerShare = participants.size ? volunteerParticipants.size / participants.size : 0;
@@ -354,7 +380,7 @@ export function datavitaSeries(
   const profiles50Plus = new Set(
     profiles.filter((p) => isAged50Plus(p, now)).map((p) => p.id),
   );
-  const approved = regs.filter((r) => r.status === "approved");
+  const approved = approvedParticipants(regs);
 
   const out: DatavitaPoint[] = [];
   let prevParticipants = new Set<string>();
@@ -373,7 +399,7 @@ export function datavitaSeries(
     });
     const fillRates: number[] = [];
     for (const e of wEvents) {
-      if (!e.capacity) continue;
+      if (!hasFillRate(e)) continue;
       const cnt = approved.filter((r) => r.event_id === e.id).length;
       fillRates.push(Math.min(1, cnt / e.capacity));
     }
@@ -424,13 +450,16 @@ export function byCategory(
   regs: RegistrationRow[],
   categories: CategoryRow[],
 ): CategoryStat[] {
-  const approved = regs.filter((r) => r.status === "approved");
+  const approved = approvedParticipants(regs);
   return categories
     .map((c) => {
       const evs = events.filter((e) => e.category_ids.includes(c.id));
       const evIds = new Set(evs.map((e) => e.id));
-      const cap = evs.reduce((s, e) => s + (e.capacity || 0), 0);
+      // Naplněnost only over the events that have a limit; `approved` still counts everyone.
+      const limited = new Set(evs.filter(hasFillRate).map((e) => e.id));
+      const cap = evs.filter(hasFillRate).reduce((s, e) => s + e.capacity, 0);
       const appr = approved.filter((r) => evIds.has(r.event_id)).length;
+      const apprLimited = approved.filter((r) => limited.has(r.event_id)).length;
       return {
         id: c.id,
         name: c.name,
@@ -439,7 +468,7 @@ export function byCategory(
         events: evs.length,
         approved: appr,
         capacity: cap,
-        fillRate: cap ? Math.min(1, appr / cap) : 0,
+        fillRate: cap ? Math.min(1, apprLimited / cap) : 0,
       };
     })
     .filter((c) => c.events > 0)
@@ -475,7 +504,7 @@ export function topOrganizers(
   profiles: ProfileRow[],
   limit = 5,
 ): OrganizerStat[] {
-  const approved = regs.filter((r) => r.status === "approved");
+  const approved = approvedParticipants(regs);
   const map = new Map<string, OrganizerStat>();
   const nameMap = new Map(profiles.map((p) => [p.id, p.full_name]));
   for (const e of events) {
@@ -506,7 +535,7 @@ export interface EventStat {
 }
 
 export function topEvents(events: EventRow[], regs: RegistrationRow[], limit = 5): EventStat[] {
-  const approved = regs.filter((r) => r.status === "approved");
+  const approved = approvedParticipants(regs);
   return events
     .map((e) => {
       const a = approved.filter((r) => r.event_id === e.id).length;
@@ -516,7 +545,7 @@ export function topEvents(events: EventRow[], regs: RegistrationRow[], limit = 5
         date_time: e.date_time,
         capacity: e.capacity,
         approved: a,
-        fillRate: e.capacity ? Math.min(1, a / e.capacity) : 0,
+        fillRate: hasFillRate(e) ? Math.min(1, a / e.capacity) : 0,
       };
     })
     .sort((a, b) => b.approved - a.approved)
@@ -528,6 +557,7 @@ export function topEvents(events: EventRow[], regs: RegistrationRow[], limit = 5
 export function regStatusBreakdown(regs: RegistrationRow[]) {
   const out = { approved: 0, pending: 0, rejected: 0 };
   for (const r of regs) {
+    if (r.role === "volunteer") continue;
     if (r.status === "approved") out.approved++;
     else if (r.status === "pending") out.pending++;
     else out.rejected++;
@@ -563,10 +593,10 @@ export function averageRatings(feedback: FeedbackRow[]) {
 /* ===== Naplněnost ===== */
 
 export function fillBuckets(events: EventRow[], regs: RegistrationRow[]) {
-  const approved = regs.filter((r) => r.status === "approved");
+  const approved = approvedParticipants(regs);
   let full = 0, ok = 0, low = 0;
   for (const e of events) {
-    if (!e.capacity) continue;
+    if (!hasFillRate(e)) continue;
     const a = approved.filter((r) => r.event_id === e.id).length;
     const ratio = a / e.capacity;
     if (ratio >= 0.85) full++;
@@ -586,19 +616,19 @@ export function buildEventsCsv(
 ): string {
   const cats = new Map(categories.map((c) => [c.id, c.name]));
   const profs = new Map(profiles.map((p) => [p.id, p.full_name]));
-  const approved = regs.filter((r) => r.status === "approved");
-  const pending = regs.filter((r) => r.status === "pending");
+  const approved = approvedParticipants(regs);
+  const pending = regs.filter((r) => r.status === "pending" && r.role !== "volunteer");
   const header = ["Název", "Datum", "Kategorie", "Pořadatel", "Kapacita", "Schváleno", "Čeká", "Naplněnost %", "Stav"];
   const rows = events.map((e) => {
     const a = approved.filter((r) => r.event_id === e.id).length;
     const p = pending.filter((r) => r.event_id === e.id).length;
-    const fill = e.capacity ? Math.round((a / e.capacity) * 100) : 0;
+    const fill = hasFillRate(e) ? Math.round((a / e.capacity) * 100) : 0;
     return [
       e.title,
       new Date(e.date_time).toLocaleString("cs-CZ"),
       e.category_ids.map((id) => cats.get(id)).filter(Boolean).join(", "),
       profs.get(e.organizer_id) ?? "",
-      String(e.capacity),
+      isUnlimitedCapacity(e.capacity) ? "neomezená" : String(e.capacity),
       String(a),
       String(p),
       String(fill),

@@ -1,7 +1,13 @@
-import type { CollectionConfig, PayloadRequest } from 'payload'
+import type { CollectionBeforeOperationHook, CollectionConfig, PayloadRequest, Where } from 'payload'
+import { APIError } from 'payload'
 
-import { canCreateForAdministeredMunicipality, isPlatformOrMunicipalityAdmin } from './access/shared'
+import {
+  canCreateForAdministeredMunicipality,
+  getAdministeredMunicipalityIds,
+  isPlatformOrMunicipalityAdmin,
+} from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
+import { escapeHtml, sendNotification } from './shared/notify'
 import { ensureOrganization } from './Organizations'
 import { notYetEnded, obecRole, releasePlacesOfTeam } from './Events'
 import { notDeleted } from './shared/softDelete'
@@ -42,6 +48,52 @@ async function syncMunicipalityAdminUser(
   })
 }
 
+/**
+ * An obec always keeps at least one admin — without one, nobody approves its organizers, decides
+ * escalated deletions or reviews complaints there. Taking the last "municipality_admin" away is the
+ * platform admin's call alone (they then look after the obec themselves, or appoint someone);
+ * an obec's own admin can step down only once there's another. Only when access control applies
+ * (every REST request) — trusted internal deletes pass, and account deletion checks the same thing
+ * up front (anonymizeUser).
+ */
+const keepLastMunicipalityAdmin: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'delete') return args
+  const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
+  if (overrideAccess !== false || !req.user || req.user.role === 'admin') return args
+
+  const removing = await req.payload.find({
+    collection: 'user-roles',
+    where: { and: [id !== undefined ? { id: { equals: id } } : (where ?? {}), { role: { equals: 'municipality_admin' } }] },
+    select: { municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  if (removing.docs.length === 0) return args
+
+  const removedPerObec = new Map<number, number>()
+  for (const role of removing.docs) {
+    const municipalityId = relId(role.municipality)
+    removedPerObec.set(municipalityId, (removedPerObec.get(municipalityId) ?? 0) + 1)
+  }
+  for (const [municipalityId, removed] of removedPerObec) {
+    const { totalDocs } = await req.payload.count({
+      collection: 'user-roles',
+      where: { and: [{ municipality: { equals: municipalityId } }, { role: { equals: 'municipality_admin' } }] },
+      overrideAccess: true,
+      req,
+    })
+    if (totalDocs - removed < 1) {
+      throw new APIError(
+        'Obec by zůstala bez admina — jediný admin obce se odebrat nedá. Dalšího admina jí nejdřív určí správce Lonvity.',
+        400,
+      )
+    }
+  }
+  return args
+}
+
 export const UserRoles: CollectionConfig = {
   slug: 'user-roles',
   labels: {
@@ -53,10 +105,16 @@ export const UserRoles: CollectionConfig = {
     defaultColumns: ['user', 'role', 'municipality', 'updatedAt'],
   },
   access: {
-    read: ({ req: { user } }) => {
+    // Their own roles, and every role in an obec they administer — the obec's admin lists its
+    // organizers to revoke the role (Administrace obce → Žádosti), which update/delete below already
+    // allow. Without the second half that list was always empty: the right existed, the way to it didn't.
+    read: async ({ req: { user, payload } }) => {
       if (!user) return false
       if (user.role === 'admin') return true
-      return { user: { equals: user.id } }
+      const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+      const or: Where[] = [{ user: { equals: user.id } }]
+      if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
+      return { or }
     },
     // create ignores any Where clause (see canCreateForAdministeredMunicipality) — must resolve
     // to a boolean checked against the submitted row's own municipality.
@@ -104,6 +162,7 @@ export const UserRoles: CollectionConfig = {
     },
   ],
   hooks: {
+    beforeOperation: [keepLastMunicipalityAdmin],
     beforeValidate: [
       async ({ data, req, operation, originalDoc }) => {
         if (!data?.user || !data?.role || !data?.municipality) return data
@@ -299,6 +358,31 @@ export const UserRoles: CollectionConfig = {
         if (doc.role === 'municipality_admin')
           await syncMunicipalityAdminUser(req, relId(doc.municipality))
         return doc
+      },
+      // Someone else took the role away (the obec's admin, or the platform admin) — the holder hears
+      // it, rather than finding out from a "Vytvořit" button that's no longer there.
+      async ({ doc, req, context }) => {
+        if (context?.accountDeleted || !req.user || String(req.user.id) === String(relId(doc.user))) return
+        if (doc.role !== 'organizer' && doc.role !== 'municipality_admin') return
+        const municipality = await req.payload
+          .findByID({ collection: 'municipalities', id: relId(doc.municipality), depth: 0, overrideAccess: true, req })
+          .catch(() => null)
+        const obec = municipality ? `obci ${municipality.name}` : 'obci'
+        const what = doc.role === 'organizer' ? 'roli organizátora' : 'roli admina obce'
+        const after =
+          doc.role === 'organizer'
+            ? 'Nové akce tam zakládat nemůžete. Akce, které už pořádáte, zůstávají — s dotazy se obraťte na obec.'
+            : 'Administraci obce už neuvidíte.'
+        sendNotification(req.payload, {
+          userId: relId(doc.user),
+          title: doc.role === 'organizer' ? 'Role organizátora odebrána' : 'Role admina obce odebrána',
+          link: '/profil',
+          message: `V ${obec} vám byla odebrána ${what}. ${after}`,
+          email: {
+            subject: doc.role === 'organizer' ? 'Role organizátora odebrána' : 'Role admina obce odebrána',
+            body: `<p>V ${escapeHtml(obec)} vám byla odebrána ${what}.</p><p>${escapeHtml(after)}</p>`,
+          },
+        })
       },
       ({ doc, req }) => {
         writeAuditLog(req.payload, {

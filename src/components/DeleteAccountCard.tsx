@@ -5,8 +5,8 @@ import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
-import { deleteMyAccount, getAccountDeletionBlockers } from "@/integrations/payload/queries";
-import { ACCOUNT_DELETION_CONFIRMATION, type AccountDeletionBlockingEvent } from "@/lib/accountDeletion";
+import { deleteMyAccount, getAccountDeletionBlockers, type AccountDeletionBlockers } from "@/integrations/payload/queries";
+import { ACCOUNT_DELETION_CONFIRMATION } from "@/lib/accountDeletion";
 import { formatEventDateTime } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,11 +25,11 @@ import {
 /**
  * "Smazat účet" — the person goes, what they took part in stays, anonymized, in the obec's and the
  * organizers' overviews (shared/anonymizeUser). An organizer still running an event ahead is shown
- * which ones, instead of the button. Typing the confirmation word guards against a stray tap.
+ * which ones, and an obec's only admin which obec, instead of the button. Typing the confirmation word guards against a stray tap.
  */
 export function DeleteAccountCard() {
   const [open, setOpen] = useState(false);
-  const [blockers, setBlockers] = useState<AccountDeletionBlockingEvent[] | null>(null);
+  const [blockers, setBlockers] = useState<AccountDeletionBlockers | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -37,7 +37,7 @@ export function DeleteAccountCard() {
     setConfirmation("");
     setBlockers(null);
     setOpen(true);
-    setBlockers(await getAccountDeletionBlockers().catch(() => []));
+    setBlockers(await getAccountDeletionBlockers().catch(() => ({ blockingEvents: [], soleAdminOf: [] })));
   };
 
   const confirm = async () => {
@@ -52,7 +52,7 @@ export function DeleteAccountCard() {
     }
   };
 
-  const blocked = blockers !== null && blockers.length > 0;
+  const blocked = blockers !== null && (blockers.blockingEvents.length > 0 || blockers.soleAdminOf.length > 0);
 
   return (
     <Card>
@@ -75,9 +75,18 @@ export function DeleteAccountCard() {
             <AlertDialogDescription asChild>
               {blocked ? (
                 <div className="space-y-2">
-                  <p>Pořádáte akce, které ještě neproběhly. Zrušte je, nebo z nich odejděte přes žádost o smazání:</p>
+                  {blockers.soleAdminOf.length > 0 && (
+                    <p>
+                      Jste jediný admin obce {blockers.soleAdminOf.map((m) => m.name).join(", ")} — bez vás by žádosti
+                      o roli pořadatele ani stížnosti neměl kdo vyřídit. Napište správci Lonvity, ať obci určí dalšího
+                      admina; potom účet smazat půjde.
+                    </p>
+                  )}
+                  {blockers.blockingEvents.length > 0 && (
+                    <p>Pořádáte akce, které ještě neproběhly. Zrušte je, nebo z nich odejděte přes žádost o smazání:</p>
+                  )}
                   <ul className="space-y-1">
-                    {blockers.map((event) => (
+                    {blockers.blockingEvents.map((event) => (
                       <li key={event.id}>
                         <Link href={`/akce/${event.id}`} className="font-semibold text-primary underline">
                           {event.title}

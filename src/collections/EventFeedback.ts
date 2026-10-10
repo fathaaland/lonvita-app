@@ -1,6 +1,8 @@
 import type { Access, CollectionConfig, Where } from 'payload'
 import { APIError } from 'payload'
 
+import { isUnlimitedCapacity, mayRateEvent } from '@/lib/capacity'
+
 import { canReadOwnOrAdministered } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 
@@ -102,10 +104,29 @@ export const EventFeedback: CollectionConfig = {
           collection: 'registrations',
           id: data.registration,
         })
+        const event =
+          registration && !registration.deletedAt
+            ? await req.payload
+                .findByID({
+                  collection: 'events',
+                  id: typeof registration.event === 'object' ? registration.event.id : registration.event,
+                  depth: 0,
+                  overrideAccess: true,
+                  req,
+                })
+                .catch(() => null)
+            : null
 
         // Shown to the participant as-is, so it says what to wait for rather than just "forbidden".
-        if (!registration || registration.deletedAt || registration.attendanceStatus !== 'attended') {
-          throw new APIError('Akci můžete ohodnotit, až pořadatel potvrdí, že jste se jí zúčastnili.', 403)
+        if (!registration || !event || !mayRateEvent(registration, event)) {
+          throw new APIError(
+            event && isUnlimitedCapacity(event.capacity)
+              ? registration?.status !== 'approved'
+                ? 'Akci hodnotí jen ti, kdo na ni byli přihlášení.'
+                : 'Akci můžete ohodnotit, až skončí.'
+              : 'Akci můžete ohodnotit, až pořadatel potvrdí, že jste se jí zúčastnili.',
+            403,
+          )
         }
 
         return data

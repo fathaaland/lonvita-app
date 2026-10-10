@@ -414,13 +414,13 @@ describe("Volunteer pool fields are the volunteer's own (Profiles)", () => {
     payload.findByID({ collection: 'profiles', id: volunteerProfile.id, user, overrideAccess: false })
 
   it("nobody but the volunteer reads the raw volunteer fields — not even the obec's admin", async () => {
-    for (const viewer of [adminA, adminB]) {
-      const profile = await readProfileAs(viewer)
-      expect(profile.fullName).toBe('Volunteer A')
-      expect(profile.isVolunteer).toBeUndefined()
-      expect(profile.volunteerFocus).toBeUndefined()
-      expect(profile.volunteerContactEmail).toBeUndefined()
-    }
+    const profile = await readProfileAs(adminA)
+    expect(profile.fullName).toBe('Volunteer A')
+    expect(profile.isVolunteer).toBeUndefined()
+    expect(profile.volunteerFocus).toBeUndefined()
+    expect(profile.volunteerContactEmail).toBeUndefined()
+    // Another obec's admin doesn't read the profile at all (Profiles canReadProfile).
+    await expect(readProfileAs(adminB)).rejects.toThrow()
   })
 
   it("an admin can't list volunteers by filtering on isVolunteer", async () => {

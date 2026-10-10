@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MessageSquareHeart, Star } from "lucide-react";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
+import { mayRateEvent } from "@/lib/capacity";
 
 function StarPicker({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
   return (
@@ -137,7 +138,8 @@ export function EventFeedbackDialog({
   );
 }
 
-/** US-U-03 — after an event the organizer marked this user as "attended" for, prompt for feedback
+/** US-U-03 — after an event the organizer marked this user as "attended" for (or, with unlimited
+ * capacity, one they stayed signed up for), prompt for feedback
  * (EventFeedback collection). Only shows events with nothing submitted yet. */
 export function EventFeedbackCard() {
   const { user } = useAuth();
@@ -150,7 +152,15 @@ export function EventFeedbackCard() {
     (async () => {
       try {
         const regs = await getMyRegistrationsWithEvents(String(user.id));
-        const attended = regs.filter((r) => r.status === "approved" && r.attendance_status === "attended" && r.events);
+        // Attended — or still signed up for an event with unlimited capacity that's over (mayRateEvent).
+        const attended = regs.filter(
+          (r) =>
+            r.events &&
+            mayRateEvent(
+              { status: r.status, attendanceStatus: r.attendance_status },
+              { capacity: r.events.capacity, dateTime: r.events.date_time, endDateTime: r.events.end_date_time },
+            ),
+        );
         const feedback = await getMyFeedbackForRegistrations(attended.map((r) => r.id));
         setPending(attended.filter((r) => !feedback.has(r.id)));
       } catch {

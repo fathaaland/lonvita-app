@@ -39,7 +39,7 @@ import { VolunteeringCard } from "@/components/VolunteeringCard";
 import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { ShareEventDialog } from "@/components/ShareEventDialog";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart, XCircle, Share2 } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart, XCircle, Share2, EyeOff } from "lucide-react";
 import { formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/date";
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS, registrationDeadline } from "@/lib/registrationCutoff";
 import { getCategoryIcon } from "@/lib/icons";
@@ -169,7 +169,10 @@ function EventDetailContent() {
 
   const myReg = regs.find((r) => r.user_id === String(user?.id));
   const approvedCount = counts.approved;
-  const isFull = approvedCount >= (event?.capacity ?? 0);
+  // Without approval a waiting sign-up (someone the organizer confirms because of past no-shows)
+  // holds its place too — the server counts both (Registrations), so the button has to as well.
+  const takenPlaces = approvedCount + (event?.registration_approval_mode === "auto" ? counts.pending : 0);
+  const isFull = takenPlaces >= (event?.capacity ?? 0);
   const isPaidEvent = !!event?.is_paid;
   const isEventOrganizer =
     !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
@@ -201,9 +204,12 @@ function EventDetailContent() {
     !takesPartAutomatically &&
     event.status !== "cancelled" &&
     isRegistrationOpen(event.date_time);
-  const pendingOffer = volunteerRequest?.status === "pending" && volunteerRequest.kind === "application" ? volunteerRequest : null;
-  const pendingInvitation =
-    volunteerRequest?.status === "pending" && volunteerRequest.kind === "invitation" ? volunteerRequest : null;
+  // Once the event has started an invitation can't be accepted, nor an offer answered (VolunteerInvitations)
+  // — one still waiting then is void, not something to keep waiting on.
+  const started = !!event && new Date(event.date_time).getTime() <= Date.now();
+  const stillOpen = volunteerRequest?.status === "pending" && !started;
+  const pendingOffer = stillOpen && volunteerRequest.kind === "application" ? volunteerRequest : null;
+  const pendingInvitation = stillOpen && volunteerRequest.kind === "invitation" ? volunteerRequest : null;
 
   // A ref guard (checked synchronously, before the first await) closes the window a fast
   // double-click/double-tap leaves open with `submitting` state alone — React doesn't
@@ -256,8 +262,9 @@ function EventDetailContent() {
     if (!user) {
       // US-H-08: make it explicit *why* they're being sent away, not just a silent redirect.
       // The auth page doesn't support a return-redirect yet — just get them logged in.
+      // Back here once signed up (and through onboarding) — not to the home page.
       toast.info("Pro přihlášení na akci si nejprve vytvořte účet.");
-      router.push("/auth?mode=signup");
+      router.push(`/auth?mode=signup&redirect=${encodeURIComponent(`/akce/${id}`)}`);
       return;
     }
     if (!event || submittingRef.current) return;
@@ -284,7 +291,23 @@ function EventDetailContent() {
   if (notFound || !event) return (
     <div className="animate-fade-in">
       <PageHeader title="Detail akce" back />
-      <div className="p-6 text-center text-muted-foreground">Akce nebyla nalezena.</div>
+      {/* A cancelled event is gone from everyone's view — older notifications still link here. */}
+      <div className="p-6 space-y-4 text-center">
+        <p className="font-semibold">Akce nebyla nalezena</p>
+        <p className="text-sm text-muted-foreground">
+          Mohla být zrušena nebo smazána. Pokud jste na ni byli přihlášení, poslali jsme vám o tom zprávu.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+          {user && (
+            <Button asChild variant="outline" className="h-12">
+              <Link href="/moje-akce">Moje akce</Link>
+            </Button>
+          )}
+          <Button asChild className="h-12">
+            <Link href="/">Prohlédnout akce</Link>
+          </Button>
+        </div>
+      </div>
     </div>
   );
 
@@ -351,6 +374,12 @@ function EventDetailContent() {
               {category.name}
             </Badge>
           ))}
+          {/* Only its team, the obec and whoever is signed up still see it (Events canReadEvent). */}
+          {event.is_hidden && (
+            <Badge variant="outline" className="border-warning/40 text-warning gap-1 font-semibold">
+              <EyeOff className="h-3.5 w-3.5" aria-hidden /> Pozastaveno
+            </Badge>
+          )}
           {event.is_volunteering && (
             <Badge variant="outline" className="border-0 bg-primary-soft text-primary gap-1 font-semibold">
               <HandHeart className="h-3.5 w-3.5" aria-hidden /> Dobrovolnictví
@@ -547,6 +576,16 @@ function EventDetailContent() {
             <CheckCircle2 className="h-5 w-5" />{" "}
             {isEventOrganizer ? "Tuto akci pořádáte" : "Akci pořádá vaše obec"} — počítá se s vámi automaticky
           </div>
+        ) : myReg && hasEnded ? (
+          // Over — nothing left to cancel or call about.
+          <div className="flex flex-col items-center gap-2 py-2 text-center">
+            <p className="text-sm font-semibold text-muted-foreground">Akce už proběhla.</p>
+            {myReg.status === "approved" && (
+              <Button asChild variant="outline" className="h-11">
+                <Link href="/moje-akce">Moje akce a hodnocení</Link>
+              </Button>
+            )}
+          </div>
         ) : myReg ? (
           <div className="space-y-2">
             <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold">
@@ -599,15 +638,22 @@ function EventDetailContent() {
                 <OrganizerContactCard eventId={event.id} />
               ) : (
                 <Button asChild variant="outline" className="w-full h-12 text-base">
-                  <Link href="/auth">Přihlaste se do aplikace a uvidíte kontakt</Link>
+                  <Link href={`/auth?redirect=${encodeURIComponent(`/akce/${event.id}`)}`}>
+                    Přihlaste se do aplikace a uvidíte kontakt
+                  </Link>
                 </Button>
               )}
               <p className="text-center text-sm text-muted-foreground">
-                Přihlašování skončilo {REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce. Chcete-li přesto přijít,
+                {/* Přihlašování skončilo {REGISTRATION_CUTOFF_HOURS} hodiny před začátkem akce. Chcete-li přesto přijít, */}
+                Přihlašování skončilo začátkem akce. Chcete-li přesto přijít,
                 zavolejte nebo napište pořadateli.
               </p>
             </div>
           )
+        ) : event.is_hidden ? (
+          <p className="py-3 text-center text-sm font-semibold text-muted-foreground">
+            Akce je teď pozastavená — nové přihlášky nepřijímá.
+          </p>
         ) : isFull && !canOfferHelp ? (
           <Button disabled className="w-full h-14 text-base font-semibold">Akce je plná</Button>
         ) : (

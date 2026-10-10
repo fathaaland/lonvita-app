@@ -31,10 +31,10 @@ export type EmailJobResult = {
 }
 
 /**
- * Brief §8 "Webová aplikace, tudíž oznámení o změně/zrušení musí jít přes SMS/mail" — sent
- * via httpSMS (https://httpsms.com), which relays through a paired Android phone's own SIM
- * instead of a paid SMS gateway account (free tier: 200 SMS/month on one phone). `requestId`
- * makes retries idempotent on httpSMS's side (their API dedupes on it).
+ * Brief §8 "Webová aplikace, tudíž oznámení o změně/zrušení musí jít přes SMS/mail" — sent via
+ * Twilio (worker sms.processor). `requestId` makes the queue job id, so the same announcement
+ * isn't enqueued twice for one person (Twilio itself has no idempotency key). Sent only when an event
+ * is cancelled (event-cancelled processor) — edits and organizers' messages go in-app and by e-mail.
  */
 export type SmsJobData = {
   to: string
@@ -104,7 +104,7 @@ export type CleanupExportsJobResult = {
 }
 
 /**
- * Tells an event's registrants it was edited — in-app, e-mail and SMS. Enqueued from Events'
+ * Tells an event's registrants it was edited — in-app and by e-mail. Enqueued from Events'
  * afterChange hook, i.e. before the edit commits, so it's delayed and carries only what the
  * notifiable fields looked like *before* the edit: the worker re-reads the event and diffs.
  * Debounced per event (see enqueueEventUpdated), so a burst of saves makes one notification
@@ -132,6 +132,9 @@ export type EventCancelledJobData = {
   userIds: (number | string)[]
   /** Every registration of the event, whose reminder jobs have to go. */
   registrationIds: (number | string)[]
+  /** Volunteers whose invitation or offer for the event was still waiting — they hear it's off too.
+   * Optional: jobs queued before it existed carry none. */
+  volunteerUserIds?: (number | string)[]
 }
 
 export type EventCancelledJobResult = {

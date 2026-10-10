@@ -13,20 +13,35 @@ import { logger } from '@/lib/logger'
  * navigate to it — the session cookie authenticates it.
  *
  * GET /api/exports/:id/download → 302 to S3
+ *
+ * Someone who followed the link in a browser gets a page instead of a bare JSON error: signing in
+ * first (and coming back here), or /export-nedostupny saying why the file isn't there.
  */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params
   const payload = await getPayload({ config })
+  const isPageVisit = request.headers.get('accept')?.includes('text/html') ?? false
+  const fail = (status: number, error: string, reason: string) =>
+    isPageVisit
+      ? NextResponse.redirect(new URL(`/export-nedostupny?duvod=${reason}`, request.url), 302)
+      : NextResponse.json({ error }, { status })
+
   const { user } = await payload.auth({ headers: request.headers })
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) {
+    if (isPageVisit) {
+      const back = encodeURIComponent(`/api/exports/${id}/download`)
+      return NextResponse.redirect(new URL(`/auth?redirect=${back}`, request.url), 302)
+    }
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const record = await findViewableExport(payload, user, id)
-  if (!record) return NextResponse.json({ error: 'Export neexistuje.' }, { status: 404 })
+  if (!record) return fail(404, 'Export neexistuje.', 'missing')
   if (new Date(record.expiresAt).getTime() <= Date.now()) {
-    return NextResponse.json({ error: 'Platnost exportu vypršela, vygenerujte ho znovu.' }, { status: 410 })
+    return fail(410, 'Platnost exportu vypršela, vygenerujte ho znovu.', 'expired')
   }
   if (record.status !== 'done' || !record.fileKey || !record.fileName) {
-    return NextResponse.json({ error: 'Export ještě není hotový.' }, { status: 409 })
+    return fail(409, 'Export ještě není hotový.', 'pending')
   }
 
   // Only the owner's download counts — it's what tells the export-ready job to stay quiet.
