@@ -58,7 +58,7 @@ function NextEvent({ event }: { event: OrganizerProfileRow["next_event"] }) {
       className="group flex items-center gap-3 rounded-xl -m-1 p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="w-11 shrink-0 overflow-hidden rounded-lg bg-card text-center shadow-sm ring-1 ring-border" aria-hidden>
-        <span className="block bg-primary py-px text-[10px] font-semibold text-primary-foreground">
+        <span className="block bg-primary py-px text-3xs font-semibold text-primary-foreground">
           {date.toLocaleDateString("cs-CZ", { month: "short" }).replace(".", "")}
         </span>
         <span className="block py-0.5 text-lg font-extrabold leading-tight tabular-nums">{date.getDate()}</span>
@@ -138,7 +138,7 @@ function OrganizerProfile({ organizer, onOpen }: { organizer: OrganizerProfileRo
         </header>
 
         {organizer.description ? (
-          <p className="line-clamp-3 whitespace-pre-line text-[15px] leading-relaxed text-foreground/85">
+          <p className="line-clamp-3 whitespace-pre-line text-sm leading-relaxed text-foreground/85">
             {organizer.description}
           </p>
         ) : (
@@ -201,7 +201,7 @@ function OrganizerDetailDialog({
             )}
 
             {organizer.description && (
-              <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground/85">{organizer.description}</p>
+              <p className="whitespace-pre-line text-sm leading-relaxed text-foreground/85">{organizer.description}</p>
             )}
 
             <Figures stats={organizer.stats} />
@@ -226,8 +226,11 @@ function OrganizersContent() {
     [administeredMunicipalityIds, organizerMunicipalityIds],
   );
   const myKey = myMunicipalityIds.join(",");
-  // "?obec=<id>" — opened from the Organizace page of an organization in that obec.
-  const requestedObec = useSearchParams().get("obec");
+  // "?obec=<id>" — opened from the Organizace page of an organization in that obec; "&organizace=<id>"
+  // from the obec's list of its organizers, straight to that one's profile.
+  const searchParams = useSearchParams();
+  const requestedObec = searchParams.get("obec");
+  const requestedOrganization = searchParams.get("organizace");
 
   const [municipalities, setMunicipalities] = useState<{ id: string; name: string }[]>([]);
   const [municipalityId, setMunicipalityId] = useState<string | null>(null);
@@ -265,12 +268,13 @@ function OrganizersContent() {
         if (!active) return;
         // Their own profile first — the one they come here to check.
         setOrganizers([...rows].sort((a, b) => Number(b.is_own) - Number(a.is_own)));
+        if (requestedOrganization && rows.some((o) => o.id === requestedOrganization)) setOpenId(requestedOrganization);
       })
       .catch(() => active && setError(true));
     return () => {
       active = false;
     };
-  }, [municipalityId]);
+  }, [municipalityId, requestedOrganization]);
 
   const municipalityName = municipalities.find((m) => m.id === municipalityId)?.name;
   const typeCounts = useMemo(() => {

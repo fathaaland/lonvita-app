@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
@@ -59,7 +60,7 @@ export function EventsTable({
   };
 
   const cats = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-  const profs = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name])), [profiles]);
+  const profs = useMemo(() => new Map(profiles.map((p) => [p.user_id, p.full_name])), [profiles]);
   // Participants only — volunteers hold none of the places, as in Registrations' "full" status.
   const approved = useMemo(() => registrations.filter((r) => r.status === "approved" && r.role !== "volunteer"), [registrations]);
 
@@ -126,7 +127,7 @@ export function EventsTable({
                         <Badge
                           key={cat.id}
                           variant="secondary"
-                          className="h-5 text-[10px] px-1.5"
+                          className="h-5 text-3xs px-1.5"
                           style={{ backgroundColor: `${cat.color}20`, color: cat.color }}
                         >
                           {cat.name}
@@ -134,7 +135,7 @@ export function EventsTable({
                       ))}
                       {profs.get(e.organizer_id) && <span className="truncate">· {profs.get(e.organizer_id)}</span>}
                       {tagFor?.(e) && (
-                        <Badge variant="outline" className="h-5 text-[10px] px-1.5 font-semibold">
+                        <Badge variant="outline" className="h-5 text-3xs px-1.5 font-semibold">
                           {tagFor(e)}
                         </Badge>
                       )}
@@ -144,21 +145,26 @@ export function EventsTable({
                         <Badge
                           variant="secondary"
                           className={cn(
-                            "h-5 text-[10px] pl-1.5 gap-1 text-[hsl(var(--brand-purple))] bg-[hsl(var(--brand-purple))]/10",
+                            "h-5 text-3xs pl-1.5 gap-1 text-[hsl(var(--brand-purple))] bg-[hsl(var(--brand-purple))]/10",
                             mayRemoveVolunteering(e) ? "pr-0.5" : "pr-1.5",
                           )}
                         >
                           <HandHeart className="h-3 w-3" /> Dobrovolnictví
                           {mayRemoveVolunteering(e) && (
-                            <button
-                              type="button"
+                            <ConfirmActionButton
+                              variant="ghost"
+                              size="icon"
                               aria-label="Odebrat příznak Dobrovolnictví"
                               disabled={busyVolunteerId === e.id}
-                              onClick={() => handleRemoveVolunteering(e.id)}
-                              className="ml-0.5 rounded-full p-0.5 hover:bg-black/10"
+                              className="ml-0.5 h-auto w-auto rounded-full p-0.5 hover:bg-foreground/10"
+                              title={`Odebrat akci „${e.title}“ příznak Dobrovolnictví?`}
+                              description="Akce přestane být nabízená dobrovolníkům. Příznak může znovu nastavit jen ten, kdo akci založil."
+                              confirmLabel="Odebrat příznak"
+                              destructive
+                              onConfirm={() => handleRemoveVolunteering(e.id)}
                             >
                               <X className="h-3 w-3" />
-                            </button>
+                            </ConfirmActionButton>
                           )}
                         </Badge>
                       </div>
@@ -169,9 +175,9 @@ export function EventsTable({
                       {unlimited ? a : `${a}/${e.capacity}`}
                     </p>
                     {unlimited ? (
-                      <p className="text-[10px] font-semibold text-muted-foreground">bez limitu</p>
+                      <p className="text-3xs font-semibold text-muted-foreground">bez limitu</p>
                     ) : (
-                      <p className={`text-[10px] font-semibold tabular-nums ${
+                      <p className={`text-3xs font-semibold tabular-nums ${
                         fill >= 85 ? "text-success" : fill >= 40 ? "text-primary" : "text-warning"
                       }`}>
                         {fill} %

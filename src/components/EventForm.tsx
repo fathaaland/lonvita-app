@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
-import { toDateInputValue } from "@/lib/date";
+import { MULTI_DAY_END_MESSAGE, nextDateInputValue, toDateInputValue } from "@/lib/date";
 import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 
@@ -204,8 +204,9 @@ export function EventForm({
       return;
     }
     const endsAt = isMultiDay ? new Date(`${parsed.data.endDate}T${parsed.data.endTime}`) : null;
-    if (endsAt && endsAt.getTime() < startsAt.getTime()) {
-      toast.error("Konec akce nemůže být dřív než její začátek.");
+    // Both "YYYY-MM-DD" — they compare as strings.
+    if (isMultiDay && parsed.data.endDate! <= parsed.data.date) {
+      toast.error(MULTI_DAY_END_MESSAGE);
       return;
     }
 
@@ -241,6 +242,20 @@ export function EventForm({
   };
 
   const today = toDateInputValue();
+
+  // A multi-day event ends on a later day than it starts — moving the start onto or past the end
+  // moves the end along, to the day after.
+  const changeStartDate = (date: string) => {
+    setForm((prev) => ({
+      ...prev,
+      date,
+      endDate: prev.endDate && date && prev.endDate <= date ? nextDateInputValue(date) : prev.endDate,
+    }));
+  };
+  const toggleMultiDay = (on: boolean) => {
+    setIsMultiDay(on);
+    if (on) setForm((prev) => (prev.endDate || !prev.date ? prev : { ...prev, endDate: nextDateInputValue(prev.date) }));
+  };
   // Editing used to leave the date picker's `min` unset entirely, so an organizer/admin could
   // pick a brand-new past date for an *upcoming* event — a selection that then silently failed
   // at submit time (handleSubmit's startChanged/past-date check above). Only lift the floor when
@@ -300,7 +315,7 @@ export function EventForm({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label htmlFor="date" className="text-base">Datum {isMultiDay ? "začátku" : ""} *</Label>
-          <Input id="date" type="date" min={originalEventIsPast ? undefined : today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="h-12 mt-1.5" />
+          <Input id="date" type="date" min={originalEventIsPast ? undefined : today} value={form.date} onChange={(e) => changeStartDate(e.target.value)} className="h-12 mt-1.5" />
         </div>
         <div>
           <Label htmlFor="time" className="text-base">Čas {isMultiDay ? "začátku" : ""} *</Label>
@@ -309,7 +324,7 @@ export function EventForm({
       </div>
 
       <label className="flex items-start gap-2.5 text-sm cursor-pointer">
-        <Checkbox checked={isMultiDay} onCheckedChange={(v) => setIsMultiDay(v === true)} className="mt-0.5" />
+        <Checkbox checked={isMultiDay} onCheckedChange={(v) => toggleMultiDay(v === true)} className="mt-0.5" />
         <span>Akce trvá víc dní.</span>
       </label>
 
@@ -317,7 +332,7 @@ export function EventForm({
         <div className="grid grid-cols-2 gap-3 -mt-2">
           <div>
             <Label htmlFor="endDate" className="text-base">Datum konce *</Label>
-            <Input id="endDate" type="date" min={form.date || (originalEventIsPast ? undefined : today)} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="h-12 mt-1.5" />
+            <Input id="endDate" type="date" min={form.date ? nextDateInputValue(form.date) : originalEventIsPast ? undefined : nextDateInputValue(today)} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="h-12 mt-1.5" />
           </div>
           <div>
             <Label htmlFor="endTime" className="text-base">Čas konce *</Label>

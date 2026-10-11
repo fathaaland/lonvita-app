@@ -23,6 +23,7 @@ import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -370,18 +371,29 @@ function InvitationList({
           </div>
           {inv.message && <p className="text-sm">„{inv.message}“</p>}
           <div className="grid grid-cols-2 gap-2">
-            <Button size="sm" className="h-10" disabled={decidingId === inv.id} onClick={() => onDecide(inv, true)}>
+            <ConfirmActionButton
+              size="sm"
+              className="h-10"
+              disabled={decidingId === inv.id}
+              title={`Pomáhat na akci „${inv.event_title}“?`}
+              description={`${inv.invited_by_name} se dozví, že pozvánku přijímáte, a na akci budete zapsaní jako dobrovolník.`}
+              confirmLabel="Pomůžu"
+              onConfirm={() => onDecide(inv, true)}
+            >
               <Check className="h-4 w-4" /> Pomůžu
-            </Button>
-            <Button
+            </ConfirmActionButton>
+            <ConfirmActionButton
               size="sm"
               variant="outline"
               className="h-10"
               disabled={decidingId === inv.id}
-              onClick={() => onDecide(inv, false)}
+              title={`Odmítnout pozvánku na akci „${inv.event_title}“?`}
+              description={`${inv.invited_by_name} se dozví, že tentokrát pomoct nemůžete.`}
+              confirmLabel="Nemůžu"
+              onConfirm={() => onDecide(inv, false)}
             >
               <X className="h-4 w-4" /> Nemůžu
-            </Button>
+            </ConfirmActionButton>
           </div>
         </div>
       ))}

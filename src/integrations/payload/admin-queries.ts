@@ -40,6 +40,7 @@ type PayloadEventAdmin = {
   id: number;
   title: string;
   dateTime: string;
+  endDateTime?: string | null;
   capacity: number;
   status: string;
   categories?: (number | { id: number })[] | null;
@@ -57,6 +58,7 @@ export async function getMunicipalityEventsForAdmin(municipalityId: string): Pro
     id: String(e.id),
     title: e.title,
     date_time: e.dateTime,
+    end_date_time: e.endDateTime ?? null,
     capacity: e.capacity,
     status: e.status,
     category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
@@ -120,18 +122,26 @@ export async function getAllCategoriesForAdmin(): Promise<CategoryRow[]> {
   return result.docs.map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
 }
 
-type PayloadProfileAdmin = { id: number; fullName: string; createdAt: string; dateOfBirth?: string | null; over50?: boolean | null };
+type PayloadProfileAdmin = {
+  id: number;
+  user: number | { id: number };
+  fullName: string;
+  createdAt: string;
+  dateOfBirth?: string | null;
+  over50?: boolean | null;
+};
 
 export async function getMunicipalityProfilesForAdmin(municipalityId: string): Promise<ProfileWithDob[]> {
   const where = buildWhereParams({ municipality: { equals: municipalityId } });
   const docs = await getAllDocs<PayloadProfileAdmin>("/profiles", where);
   return docs.map((p) => ({
     id: String(p.id),
+    user_id: toId(p.user) ?? "",
     full_name: p.fullName,
     created_at: p.createdAt,
     date_of_birth: p.dateOfBirth ?? null,
     over_50: Boolean(p.over50),
-  })) as ProfileWithDob[];
+  }));
 }
 
 /** Cancels an event (soft-delete: sets deletedAt + status "cancelled") rather than hard-
@@ -350,6 +360,32 @@ type PayloadEscalatedDeletionRequest = {
 
 /** Requests to leave an event a spolupořadatel refused, escalated to the obec (EventDeletionRequests)
  * — for one obec, or (a superadmin, no `municipalityId`) every obec. */
+/** How many things wait on the obec's decision in Žádosti — the badge on that tab, so a request
+ * filed before this admin was appointed doesn't go unseen. */
+export async function getPendingRequestCountForAdmin(municipalityId: string): Promise<number> {
+  const now = new Date().toISOString();
+  const total = (path: string, where: Parameters<typeof buildWhereParams>[0]) =>
+    get<PayloadListResponse<unknown>>(`${path}?${buildWhereParams(where)}&${buildQuery({ depth: 0, limit: 1 })}`)
+      .then((r) => r.totalDocs)
+      .catch(() => 0);
+  const counts = await Promise.all([
+    total("/organizer-requests", { municipality: { equals: municipalityId }, status: { equals: "pending" } }),
+    total("/co-organizing-requests", {
+      municipality: { equals: municipalityId },
+      organizationOwner: { exists: false },
+      status: { equals: "pending" },
+      expiresAt: { greater_than: now },
+    }),
+    total("/event-deletion-requests", {
+      municipality: { equals: municipalityId },
+      status: { equals: "escalated" },
+      expiresAt: { greater_than: now },
+    }),
+    getReviewComplaintsForAdmin(municipalityId).then((rows) => rows.length).catch(() => 0),
+  ]);
+  return counts.reduce((sum, n) => sum + n, 0);
+}
+
 export async function getEscalatedDeletionRequestsForAdmin(
   municipalityId?: string,
 ): Promise<EscalatedDeletionRequestRow[]> {
@@ -392,6 +428,9 @@ export type OrganizerRoleRow = {
   id: string;
   user_id: string;
   full_name: string;
+  /** The organization they organize as in this obec — tells apart two people of the same name. */
+  organization_id: string | null;
+  organization_name: string | null;
 };
 
 type PayloadUserRoleAdmin = { id: number; user: number | { id: number }; role: string };
@@ -405,22 +444,38 @@ export async function getOrganizersForAdmin(municipalityId: string): Promise<Org
 
   const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
   const nameById = new Map<string, string>();
+  const organizationByOwner = new Map<string, { id: string; name: string }>();
   if (userIds.length) {
     const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
+    const organizationWhere = buildWhereParams({ owner: { in: userIds }, municipality: { equals: municipalityId } });
+    const [profiles, organizations] = await Promise.all([
+      get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
+        `/profiles?${profileWhere}&depth=0&limit=500`,
+      ),
+      get<PayloadListResponse<{ id: number; name: string; owner?: number | { id: number } | null }>>(
+        `/organizations?${organizationWhere}&depth=0&limit=500`,
+      ).catch(() => ({ docs: [] })),
+    ]);
     for (const p of profiles.docs) {
       const uid = toId(p.user);
       if (uid) nameById.set(uid, p.fullName);
     }
+    for (const o of organizations.docs) {
+      const owner = toId(o.owner);
+      if (owner) organizationByOwner.set(owner, { id: String(o.id), name: o.name });
+    }
   }
 
-  return result.docs.map((r) => ({
-    id: String(r.id),
-    user_id: toId(r.user)!,
-    full_name: nameById.get(toId(r.user) ?? "") ?? "Organizátor",
-  }));
+  return result.docs.map((r) => {
+    const organization = organizationByOwner.get(toId(r.user) ?? "");
+    return {
+      id: String(r.id),
+      user_id: toId(r.user)!,
+      full_name: nameById.get(toId(r.user) ?? "") ?? "Organizátor",
+      organization_id: organization?.id ?? null,
+      organization_name: organization?.name ?? null,
+    };
+  });
 }
 
 export async function revokeOrganizerRole(userRoleId: string): Promise<void> {

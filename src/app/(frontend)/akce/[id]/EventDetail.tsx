@@ -32,6 +32,7 @@ import { EventDeletionConsent } from "@/components/EventDeletionConsent";
 import { ObecLeaveCoOrganizing } from "@/components/ObecLeaveCoOrganizing";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
@@ -608,9 +609,18 @@ function EventDetailContent() {
             <div className="flex items-center justify-center gap-2 py-1 text-sm font-semibold text-warning">
               <Clock className="h-5 w-5" /> Vaše nabídka pomoci čeká na pořadatele
             </div>
-            <Button onClick={handleWithdrawOffer} disabled={submitting} variant="outline" className="w-full h-12 text-base">
+            <ConfirmActionButton
+              disabled={submitting}
+              variant="outline"
+              className="w-full h-12 text-base"
+              title="Stáhnout nabídku pomoci?"
+              description="Pořadatel vaši nabídku už neuvidí. Nabídnout pomoc můžete později znovu."
+              confirmLabel="Stáhnout nabídku"
+              destructive
+              onConfirm={handleWithdrawOffer}
+            >
               Stáhnout nabídku
-            </Button>
+            </ConfirmActionButton>
           </div>
         ) : pendingInvitation ? (
           <div className="space-y-2">
@@ -621,12 +631,27 @@ function EventDetailContent() {
               <p className="text-center text-sm text-muted-foreground">„{pendingInvitation.message}“</p>
             )}
             <div className="grid grid-cols-2 gap-2">
-              <Button onClick={() => handleDecideInvitation(true)} disabled={submitting} className="h-12 text-base">
+              <ConfirmActionButton
+                disabled={submitting}
+                className="h-12 text-base"
+                title="Pomáhat na této akci?"
+                description="Pořadatel se dozví, že pozvánku přijímáte, a na akci budete zapsaní jako dobrovolník."
+                confirmLabel="Pomůžu"
+                onConfirm={() => handleDecideInvitation(true)}
+              >
                 Pomůžu
-              </Button>
-              <Button onClick={() => handleDecideInvitation(false)} disabled={submitting} variant="outline" className="h-12 text-base">
+              </ConfirmActionButton>
+              <ConfirmActionButton
+                disabled={submitting}
+                variant="outline"
+                className="h-12 text-base"
+                title="Odmítnout pozvánku?"
+                description="Pořadatel se dozví, že tentokrát pomoct nemůžete."
+                confirmLabel="Odmítnout"
+                onConfirm={() => handleDecideInvitation(false)}
+              >
                 Odmítnout
-              </Button>
+              </ConfirmActionButton>
             </div>
           </div>
         ) : !registrationOpen ? (

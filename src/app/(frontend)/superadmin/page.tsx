@@ -54,6 +54,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ConfirmDeleteButton } from "@/components/ConfirmDeleteButton";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -183,6 +184,8 @@ function SuperAdminContent() {
   // Role tab — revoking someone's last obec role deletes the account with it, so that one
   // needs its own confirm (the other revokes are a single click, as before).
   const [lastRoleRevoke, setLastRoleRevoke] = useState<PlatformUserRow | null>(null);
+  // Any other role — still asked about first, nothing goes until confirmed.
+  const [roleRevoke, setRoleRevoke] = useState<{ userRoleId: string; who: string; what: string } | null>(null);
   const [deletingLastRole, setDeletingLastRole] = useState(false);
 
   // Akce tab — new event form. Superadmin picks obec + pořadatel first (an organizer/admin's
@@ -398,8 +401,13 @@ function SuperAdminContent() {
       );
       resetNewUserForm();
       load();
-    } catch {
-      toast.error("Nepodařilo se vytvořit uživatele — e-mail už možná existuje.");
+    } catch (error) {
+      // E.g. the phone number already belongs to another account — the server says which.
+      toast.error(
+        error instanceof PayloadApiError && error.status < 500
+          ? error.message
+          : "Nepodařilo se vytvořit uživatele — e-mail už možná existuje.",
+      );
     } finally {
       setCreatingUser(false);
     }
@@ -468,8 +476,9 @@ function SuperAdminContent() {
       await revokeCommunityRole(userRoleId);
       toast.success("Role odebrána.");
       load();
-    } catch {
-      toast.error("Nepodařilo se odebrat roli.");
+    } catch (error) {
+      // E.g. the obec's only admin — the server says what to do about it.
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se odebrat roli.");
     }
   };
 
@@ -575,25 +584,25 @@ function SuperAdminContent() {
       <div className="px-4 py-5 max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4">
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="w-full h-14 grid grid-cols-6">
-            <TabsTrigger value="municipalities" className="flex-col gap-0.5 text-[11px]">
+            <TabsTrigger value="municipalities" className="flex-col gap-0.5 text-2xs">
               <Building2 className="h-4 w-4" /> Obce
             </TabsTrigger>
-            <TabsTrigger value="users" className="flex-col gap-0.5 text-[11px]">
+            <TabsTrigger value="users" className="flex-col gap-0.5 text-2xs">
               <UsersIcon className="h-4 w-4" /> Uživatelé
             </TabsTrigger>
-            <TabsTrigger value="events" className="flex-col gap-0.5 text-[11px]">
+            <TabsTrigger value="events" className="flex-col gap-0.5 text-2xs">
               <CalendarPlus className="h-4 w-4" /> Akce
             </TabsTrigger>
-            <TabsTrigger value="roles" className="flex-col gap-0.5 text-[11px]">
+            <TabsTrigger value="roles" className="flex-col gap-0.5 text-2xs">
               <Shield className="h-4 w-4" /> Role
             </TabsTrigger>
-            <TabsTrigger value="organizations" className="flex-col gap-0.5 text-[11px]">
+            <TabsTrigger value="organizations" className="flex-col gap-0.5 text-2xs">
               <Store className="h-4 w-4" /> Organizace
             </TabsTrigger>
-            <TabsTrigger value="requests" className="relative flex-col gap-0.5 text-[11px]">
+            <TabsTrigger value="requests" className="relative flex-col gap-0.5 text-2xs">
               <ClipboardList className="h-4 w-4" /> Žádosti
               {pendingRequestCount > 0 && (
-                <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px] absolute -top-1 -right-1">
+                <Badge variant="secondary" className="h-4 min-w-4 px-1 text-3xs absolute -top-1 -right-1">
                   {pendingRequestCount}
                 </Badge>
               )}
@@ -767,9 +776,9 @@ function SuperAdminContent() {
                       </Button>
                       <ConfirmDeleteButton
                         title={`Smazat obec „${m.name}“?`}
-                        description="Smazání obce nejde vrátit zpět a nepůjde, pokud na ni ještě odkazují uživatelé nebo akce."
+                        description="Smažou se i všechna data obce — proběhlé akce s přihláškami a hodnoceními, role, organizace a žádosti. Obyvatelé si ponechají účty, jen bez obce. Nejde to vrátit zpět; dokud má obec nadcházející akce, smazat nepůjde."
                         onConfirm={() => handleDeleteMuni(m.id)}
-                        errorMessage="Obec se nepodařilo smazat — pravděpodobně na ni ještě odkazují uživatelé nebo akce."
+                        errorMessage="Obec se nepodařilo smazat."
                       />
                     </CardContent>
                   </Card>
@@ -1232,7 +1241,13 @@ function SuperAdminContent() {
                             <button
                               type="button"
                               onClick={() =>
-                                u.communityRoles.length === 1 ? setLastRoleRevoke(u) : handleRevoke(r.userRoleId)
+                                u.communityRoles.length === 1
+                                  ? setLastRoleRevoke(u)
+                                  : setRoleRevoke({
+                                      userRoleId: r.userRoleId,
+                                      who: u.fullName ?? u.email,
+                                      what: `${ROLE_LABEL[r.role] ?? r.role} · ${r.municipalityName}`,
+                                    })
                               }
                               className="ml-0.5 hover:text-destructive"
                               aria-label="Odebrat roli"
@@ -1247,6 +1262,26 @@ function SuperAdminContent() {
                 </Card>
               ))}
             </div>
+
+            <AlertDialog open={roleRevoke !== null} onOpenChange={(open) => !open && setRoleRevoke(null)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Odebrat roli „{roleRevoke?.what}“?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {roleRevoke?.who} o roli přijde hned a dozví se to oznámením.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Zpět</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => roleRevoke && handleRevoke(roleRevoke.userRoleId)}
+                    className={buttonVariants({ variant: "destructive" })}
+                  >
+                    Odebrat roli
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             <AlertDialog
               open={lastRoleRevoke !== null}
@@ -1332,24 +1367,31 @@ function SuperAdminContent() {
                                 {r.municipality_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
                               </p>
                             </div>
-                            <Button
+                            <ConfirmActionButton
                               size="sm"
                               variant="outline"
                               className="h-9 text-success border-success/40"
                               disabled={requestBusyId === r.id}
-                              onClick={() => handleOrganizerRequestDecision(r.id, true)}
+                              title={`Schválit žádost – ${r.full_name}?`}
+                              description={`${r.full_name} dostane v obci ${r.municipality_name} roli organizátora${r.organization_name ? ` za „${r.organization_name}“` : ""} a bude moct zakládat akce.`}
+                              confirmLabel="Schválit"
+                              onConfirm={() => handleOrganizerRequestDecision(r.id, true)}
                             >
                               <Check className="h-4 w-4" /> Schválit
-                            </Button>
-                            <Button
+                            </ConfirmActionButton>
+                            <ConfirmActionButton
                               size="sm"
                               variant="outline"
                               className="h-9 text-destructive border-destructive/40"
                               disabled={requestBusyId === r.id}
-                              onClick={() => handleOrganizerRequestDecision(r.id, false)}
+                              title={`Zamítnout žádost – ${r.full_name}?`}
+                              description="Žadatel se dozví, že jeho žádost o roli organizátora byla zamítnuta. Rozhodnutí nejde vrátit."
+                              confirmLabel="Zamítnout"
+                              destructive
+                              onConfirm={() => handleOrganizerRequestDecision(r.id, false)}
                             >
                               <X className="h-4 w-4" /> Zamítnout
-                            </Button>
+                            </ConfirmActionButton>
                           </div>
                           <OrganizerRequestReason
                             reason={r.reason}

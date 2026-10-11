@@ -63,6 +63,7 @@ function toAnalyticsEvent(e: QueryEventRow): EventRow {
     id: e.id,
     title: e.title,
     date_time: e.date_time,
+    end_date_time: e.end_date_time ?? null,
     capacity: e.capacity,
     status: e.status ?? "active",
     category_ids: e.category_ids,

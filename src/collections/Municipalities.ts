@@ -5,9 +5,11 @@ import type {
   CollectionBeforeValidateHook,
   CollectionConfig,
 } from 'payload'
+import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
 import { ensureMunicipalityOrganization, findMunicipalityOrganizationId } from './Organizations'
+import { notDeleted } from './shared/softDelete'
 
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
  * so "Blansko" and "blansko " are treated as the same obec (brief item 1: superadmin shouldn't
@@ -102,17 +104,64 @@ const syncMunicipalityOrganization: CollectionAfterChangeHook = async ({ doc, pr
   return doc
 }
 
-/** The obec's organization goes with it — the one way it can be deleted. */
-const deleteMunicipalityOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
-  const organizationId = await findMunicipalityOrganizationId(req, id)
-  if (organizationId === null) return
-  await req.payload.delete({
-    collection: 'organizations',
-    id: organizationId,
+/**
+ * Deleting an obec takes everything that belonged to it along — its events (each with its
+ * registrations, photos and invitations, Events cleanupEventRelations), roles, organizations,
+ * requests, complaints, pool invitations and areas; every one of them points at the obec through a
+ * NOT NULL column. Its residents keep their accounts, "bez obce" (the database clears their
+ * profile's obec). Refused while an event ahead still stands — cancelling it tells the people
+ * signed up, a deleted obec wouldn't. Quietly otherwise: `deletingMunicipality` keeps the hooks
+ * from telling anyone their role or event went.
+ */
+const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) => {
+  const { payload } = req
+  const upcoming = await payload.count({
+    collection: 'events',
+    where: {
+      and: [
+        { municipality: { equals: id } },
+        { status: { not_equals: 'cancelled' } },
+        notDeleted,
+        { dateTime: { greater_than: new Date().toISOString() } },
+      ],
+    },
     overrideAccess: true,
-    context: { deletingMunicipality: true },
     req,
   })
+  if (upcoming.totalDocs > 0) {
+    throw new APIError(
+      `Obec má ${upcoming.totalDocs} nadcházejících akcí. Nejdřív je zrušte (přihlášení se to dozvědí), potom půjde obec smazat.`,
+      400,
+    )
+  }
+
+  const context = { deletingMunicipality: true }
+  const ofObec = { municipality: { equals: id } }
+  // Sequential — one transaction (`req`). Events first: the requests and complaints point at them too.
+  await payload.delete({ collection: 'events', where: ofObec, overrideAccess: true, context, req })
+  for (const collection of [
+    'organizer-requests',
+    'co-organizing-requests',
+    'event-deletion-requests',
+    'review-complaints',
+    'pool-invitations',
+    'municipality-areas',
+    'user-roles',
+  ] as const) {
+    await payload.delete({ collection, where: ofObec, overrideAccess: true, context, req })
+  }
+  // The obec's own organization last — the others' cleanup no longer finds anything to do.
+  const municipalityOrganizationId = await findMunicipalityOrganizationId(req, id)
+  await payload.delete({
+    collection: 'organizations',
+    where: municipalityOrganizationId === null ? ofObec : { and: [ofObec, { id: { not_equals: municipalityOrganizationId } }] },
+    overrideAccess: true,
+    context,
+    req,
+  })
+  if (municipalityOrganizationId !== null) {
+    await payload.delete({ collection: 'organizations', id: municipalityOrganizationId, overrideAccess: true, context, req })
+  }
 }
 
 /** A municipality admin may update their own municipality's settings (e.g. rulesForCreation,
@@ -211,7 +260,7 @@ export const Municipalities: CollectionConfig = {
   hooks: {
     beforeValidate: [preventDuplicateName],
     afterChange: [grantRoleForAdminUser, syncMunicipalityOrganization],
-    beforeDelete: [deleteMunicipalityOrganization],
+    beforeDelete: [deleteMunicipalityData],
   },
   timestamps: true,
 }

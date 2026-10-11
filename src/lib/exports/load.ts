@@ -25,6 +25,7 @@ export const toEventRow = (e: Event): EventRow => ({
   id: String(e.id),
   title: e.title,
   date_time: e.dateTime,
+  end_date_time: e.endDateTime ?? null,
   capacity: e.capacity,
   status: e.status ?? 'active',
   category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
@@ -51,6 +52,8 @@ export async function loadRegistrations(payload: Payload, eventIds: string[]): P
     status: r.status,
     created_at: r.createdAt,
     attendance_status: (r.attendanceStatus ?? 'not_marked') as RegistrationRow['attendance_status'],
+    // Volunteers hold no place — without the role the file counted them as participants, the page didn't.
+    role: r.role ?? 'participant',
   }))
 }
 
@@ -102,6 +105,7 @@ export async function loadMunicipalityExportData(
     registrations,
     profiles: profilesResult.docs.map((p) => ({
       id: String(p.id),
+      user_id: toId(p.user) ?? '',
       full_name: p.fullName,
       created_at: p.createdAt,
       date_of_birth: p.dateOfBirth ?? null,

@@ -22,7 +22,7 @@ export function RatingBadge({
       className={cn("inline-flex items-center gap-1 text-sm font-bold tabular-nums", className)}
       aria-label={`Hodnocení ${rating.average.toLocaleString("cs-CZ")} z 5 (${rating.count}×)`}
     >
-      <Star className="h-4 w-4 fill-amber-400 text-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.55)]" aria-hidden />
+      <Star className="h-4 w-4 fill-rating text-rating drop-shadow-[0_0_4px_rgba(251,191,36,0.55)]" aria-hidden />
       {rating.average.toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
       <span className="font-normal text-muted-foreground">({rating.count})</span>
     </span>
@@ -49,7 +49,7 @@ export function RatingStars({
           <Star
             key={n}
             aria-hidden
-            className={cn(iconClass, n <= value ? "fill-amber-400 text-amber-400" : "text-muted-foreground/40")}
+            className={cn(iconClass, n <= value ? "fill-rating text-rating" : "text-muted-foreground/40")}
           />
         ))}
       </span>
@@ -71,7 +71,7 @@ export function RatingStars({
             className={cn(
               iconClass,
               "transition-colors",
-              n <= value ? "fill-amber-400 text-amber-400" : "text-muted-foreground/40 hover:text-amber-300",
+              n <= value ? "fill-rating text-rating" : "text-muted-foreground/40 hover:text-rating/70",
             )}
           />
         </button>

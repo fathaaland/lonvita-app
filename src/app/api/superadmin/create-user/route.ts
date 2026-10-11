@@ -4,7 +4,8 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
-import { INVALID_PHONE_MESSAGE, isValidPhone } from '@/lib/phone'
+import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
+import { isPhoneTaken } from '@/collections/Profiles'
 import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const GENDERS = ['zena', 'muz', 'jine', 'neuvedeno'] as const
@@ -36,7 +37,8 @@ export async function POST(request: Request) {
   const body = (await request.json()) as CreateUserBody
   const email = body.email?.trim().toLowerCase()
   const fullName = body.fullName?.trim()
-  const phone = body.phone?.trim() || null
+  const rawPhone = body.phone?.trim() || null
+  const phone = rawPhone ? toE164(rawPhone) : null
   const municipality = body.municipality ? Number(body.municipality) : null
 
   if (!isValidEmail(email)) {
@@ -51,8 +53,12 @@ export async function POST(request: Request) {
   if (body.gender && !GENDERS.includes(body.gender)) {
     return NextResponse.json({ error: 'Neplatné pohlaví.' }, { status: 400 })
   }
-  if (phone && !isValidPhone(phone)) {
+  if (rawPhone && !phone) {
     return NextResponse.json({ error: INVALID_PHONE_MESSAGE }, { status: 400 })
+  }
+  // Asked before the account exists — the profile's own check would only fail after the user row.
+  if (phone && (await isPhoneTaken(payload, phone))) {
+    return NextResponse.json({ error: PHONE_TAKEN_MESSAGE }, { status: 400 })
   }
   if (body.dateOfBirth && Number.isNaN(new Date(body.dateOfBirth).getTime())) {
     return NextResponse.json({ error: 'Neplatné datum narození.' }, { status: 400 })

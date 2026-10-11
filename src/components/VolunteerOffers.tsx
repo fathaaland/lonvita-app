@@ -16,7 +16,7 @@ import { PayloadApiError } from "@/integrations/payload/client";
 import { focusLabel } from "@/components/VolunteerCard";
 import { RatingStars } from "@/components/RatingStars";
 import { UserAvatar } from "@/components/UserAvatar";
-import { Button } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Card, CardContent } from "@/components/ui/card";
 
 /** Volunteers from the pool offering to help on the event — answered by its creator alone, who sees
@@ -99,15 +99,19 @@ export function VolunteerOffers({
                 <Link href={`/dobrovolnik/${invitation.user_id}`} className="flex-1 min-w-0 truncate font-bold hover:underline">
                   {invitation.full_name}
                 </Link>
-                <Button
+                <ConfirmActionButton
                   variant="outline"
                   size="sm"
                   className="h-10"
                   disabled={busyId === invitation.id}
-                  onClick={() => withdraw(invitation)}
+                  title={`Stáhnout pozvánku – ${invitation.full_name}?`}
+                  description="Pozvánka přestane platit a dobrovolník se to dozví. Pozvat ho můžete později znovu."
+                  confirmLabel="Stáhnout pozvánku"
+                  destructive
+                  onConfirm={() => withdraw(invitation)}
                 >
                   <Undo2 className="h-4 w-4" />Stáhnout pozvánku
-                </Button>
+                </ConfirmActionButton>
               </CardContent>
             </Card>
           ))}
@@ -152,17 +156,28 @@ export function VolunteerOffers({
                 {offer.message && <p className="rounded-lg bg-muted px-3 py-2 text-sm">„{offer.message}“</p>}
                 {canDecide ? (
                   <div className="grid grid-cols-2 gap-2">
-                    <Button onClick={() => decide(offer, true)} disabled={busyId === offer.id} className="h-11">
+                    <ConfirmActionButton
+                      disabled={busyId === offer.id}
+                      className="h-11"
+                      title={`Přijmout nabídku – ${offer.full_name}?`}
+                      description="Dobrovolník bude na akci pomáhat a dozví se to. Rozhodnutí nejde vrátit."
+                      confirmLabel="Přijmout"
+                      onConfirm={() => decide(offer, true)}
+                    >
                       <Check className="h-4 w-4" />Přijmout
-                    </Button>
-                    <Button
-                      onClick={() => decide(offer, false)}
+                    </ConfirmActionButton>
+                    <ConfirmActionButton
                       disabled={busyId === offer.id}
                       variant="outline"
                       className="h-11"
+                      title={`Odmítnout nabídku – ${offer.full_name}?`}
+                      description="Dobrovolník se dozví, že jeho nabídku pomoci odmítáte. Rozhodnutí nejde vrátit."
+                      confirmLabel="Odmítnout"
+                      destructive
+                      onConfirm={() => decide(offer, false)}
                     >
                       <X className="h-4 w-4" />Odmítnout
-                    </Button>
+                    </ConfirmActionButton>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">O nabídce rozhodne pořadatel, který akci založil.</p>

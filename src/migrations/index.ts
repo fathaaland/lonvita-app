@@ -31,6 +31,7 @@ import * as migration_20261004_194744_registration_cutoff from './20261004_19474
 import * as migration_20261005_153854_account_anonymization from './20261005_153854_account_anonymization';
 import * as migration_20261007_145308_participant_reliability from './20261007_145308_participant_reliability';
 import * as migration_20261010_090710_pool_invitations from './20261010_090710_pool_invitations';
+import * as migration_20261011_120000_normalize_profile_phones from './20261011_120000_normalize_profile_phones';
 
 export const migrations = [
   {
@@ -197,5 +198,10 @@ export const migrations = [
     up: migration_20261010_090710_pool_invitations.up,
     down: migration_20261010_090710_pool_invitations.down,
     name: '20261010_090710_pool_invitations'
+  },
+  {
+    up: migration_20261011_120000_normalize_profile_phones.up,
+    down: migration_20261011_120000_normalize_profile_phones.down,
+    name: '20261011_120000_normalize_profile_phones',
   },
 ];

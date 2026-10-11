@@ -97,7 +97,7 @@ function VolunteerContent() {
           <div className="flex shrink-0 flex-col items-center rounded-2xl bg-card px-5 py-3 shadow-card">
             {v.rating ? (
               <>
-                <span className="text-4xl font-extrabold tabular-nums leading-none text-amber-500 drop-shadow-[0_0_10px_rgba(251,191,36,0.45)]">
+                <span className="text-4xl font-extrabold tabular-nums leading-none text-rating-strong drop-shadow-[0_0_10px_rgba(251,191,36,0.45)]">
                   {v.rating.average.toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                 </span>
                 <RatingStars value={Math.round(v.rating.average)} size="sm" label="Průměrné hodnocení" />

@@ -12,6 +12,7 @@ import {
 import { PayloadApiError } from "@/integrations/payload/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -152,16 +153,20 @@ export function PoolInvitationsCard({ municipalityId }: { municipalityId: string
                   <div className="flex shrink-0 items-center gap-1">
                     <Badge variant={row.status === "accepted" ? "default" : "secondary"}>{STATUS_LABELS[row.status]}</Badge>
                     {row.status === "pending" && (
-                      <Button
+                      <ConfirmActionButton
                         size="icon"
                         variant="ghost"
                         className="h-9 w-9 text-muted-foreground"
                         disabled={busy}
-                        onClick={() => withdraw(row)}
                         aria-label={`Stáhnout pozvánku pro ${row.full_name}`}
+                        title={`Stáhnout pozvánku – ${row.full_name}?`}
+                        description="Pozvánka do poolu dobrovolníků přestane platit. Pozvat můžete později znovu."
+                        confirmLabel="Stáhnout pozvánku"
+                        destructive
+                        onConfirm={() => withdraw(row)}
                       >
                         <X className="h-4 w-4" />
-                      </Button>
+                      </ConfirmActionButton>
                     )}
                   </div>
                 </li>

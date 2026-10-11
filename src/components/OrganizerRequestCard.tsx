@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -111,9 +112,18 @@ export function OrganizerRequestCard() {
               <Clock className="h-4 w-4" /> Žádost čeká na vyřízení obcí.
             </p>
             {pendingId && (
-              <Button onClick={handleWithdraw} disabled={submitting} variant="ghost" className="w-full h-11 text-muted-foreground">
+              <ConfirmActionButton
+                disabled={submitting}
+                variant="ghost"
+                className="w-full h-11 text-muted-foreground"
+                title="Stáhnout žádost o roli organizátora?"
+                description="Obec ji už neuvidí. Požádat můžete později znovu."
+                confirmLabel="Stáhnout žádost"
+                destructive
+                onConfirm={handleWithdraw}
+              >
                 Stáhnout žádost
-              </Button>
+              </ConfirmActionButton>
             )}
           </div>
         ) : (

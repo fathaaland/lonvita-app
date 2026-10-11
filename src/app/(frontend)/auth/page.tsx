@@ -193,7 +193,7 @@ function AuthPageContent() {
         <div className="absolute inset-0 bg-gradient-to-b from-[hsl(var(--brand-graphite))] via-[hsl(var(--brand-graphite-mid))] to-background" />
         <div className="relative pt-12 pb-4 px-6 flex flex-col items-center text-center">
           <LonvitaLogo variant="on-dark" size="xl" />
-          <p className="mt-5 text-[15px] leading-relaxed text-[hsl(var(--brand-sand))] max-w-[320px]">
+          <p className="mt-5 text-sm leading-relaxed text-[hsl(var(--brand-sand))] max-w-[320px]">
             Objevujte, co se děje ve vašem městě.
           </p>
         </div>
@@ -204,7 +204,7 @@ function AuthPageContent() {
             <h1 className="text-[1.75rem] font-bold leading-tight tracking-[-0.01em]">
               {isSignUp ? "Založte si účet" : "Vítejte zpátky"}
             </h1>
-            <p className="text-[15px] leading-relaxed text-muted-foreground">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               {isSignUp
                 ? "Pár údajů, vyberete obec a jste v obraze."
                 : "Přihlaste se a podívejte se, co se u vás chystá."}
@@ -270,7 +270,7 @@ function AuthPageContent() {
                     setNoMunicipality(none);
                   }}
                 />
-                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {noMunicipality
                     ? "Uvidíte akce ze všech obcí. Svoji obec si můžete vybrat později v profilu."
                     : "Určuje, čí akce uvidíte. Změnit ji jde kdykoliv později v profilu."}
@@ -316,14 +316,14 @@ function AuthPageContent() {
               <button
                 type="button"
                 onClick={handleForgot}
-                className="text-[15px] text-muted-foreground underline-offset-4 hover:underline"
+                className="text-sm text-muted-foreground underline-offset-4 hover:underline"
               >
                 Zapomněli jste heslo?
               </button>
             )}
             {/* The question is text and only the action is a link — the whole sentence as one
                 link made the target vague about what clicking it actually does. */}
-            <p className="text-[15px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {isSignUp ? "Už máte účet? " : "Nemáte účet? "}
               <button
                 type="button"
@@ -336,7 +336,7 @@ function AuthPageContent() {
           </div>
 
           {!isSignUp && (
-            <p className="text-[13px] leading-relaxed text-center text-muted-foreground">
+            <p className="text-xs leading-relaxed text-center text-muted-foreground">
               Přihlášením souhlasíte s tím, že vystupujete pod svým skutečným jménem.
             </p>
           )}

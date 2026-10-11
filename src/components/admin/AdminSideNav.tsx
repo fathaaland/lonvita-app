@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { UnreadBadge } from "@/components/UnreadBadge";
 import {
   BarChart3,
   CalendarRange,
@@ -21,9 +22,11 @@ export const ADMIN_NAV: { value: string; label: string; icon: LucideIcon }[] = [
 interface Props {
   value: string;
   onChange: (v: string) => void;
+  /** Items waiting on the admin, per section — e.g. undecided requests. */
+  badges?: Partial<Record<string, number>>;
 }
 
-export function AdminSideNav({ value, onChange }: Props) {
+export function AdminSideNav({ value, onChange, badges = {} }: Props) {
   return (
     <aside className="hidden md:block w-60 shrink-0">
       <div className="sticky top-20 space-y-1 rounded-2xl bg-card border border-border p-3">
@@ -44,6 +47,12 @@ export function AdminSideNav({ value, onChange }: Props) {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1 text-left">{item.label}</span>
+              {(badges[item.value] ?? 0) > 0 && (
+                <>
+                  <UnreadBadge count={badges[item.value]!} className="static" />
+                  <span className="sr-only">{`, čeká na vyřízení: ${badges[item.value]}`}</span>
+                </>
+              )}
             </button>
           );
         })}

@@ -26,6 +26,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { formatEventDateTime } from "@/lib/date";
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from "@/lib/eventCancellation";
 
@@ -257,9 +258,17 @@ export function EventDeletionConsent({
             </Button>
           )}
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1 h-11" disabled={busy} onClick={() => handleDecision("reject")}>
+            <ConfirmActionButton
+              variant="outline"
+              className="flex-1 h-11"
+              disabled={busy}
+              title="Nesouhlasit se smazáním akce?"
+              description={`Akce zůstane a ${requester} se dozví, že se smazáním nesouhlasíte. Rozhodnutí nejde vrátit.`}
+              confirmLabel="Nesouhlasím"
+              onConfirm={() => handleDecision("reject")}
+            >
               Nesouhlasím
-            </Button>
+            </ConfirmActionButton>
             <Button variant="destructive" className="flex-1 h-11" disabled={busy} onClick={() => setConfirm("approve")}>
               Souhlasím se smazáním
             </Button>

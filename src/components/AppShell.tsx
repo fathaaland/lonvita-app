@@ -42,7 +42,7 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
           <div className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:items-center lg:justify-center lg:gap-6 lg:overflow-hidden lg:bg-gradient-to-br lg:from-[hsl(var(--brand-graphite))] lg:via-[hsl(var(--brand-graphite-mid))] lg:to-[hsl(var(--brand-purple-dark))] lg:p-8 lg:text-center">
             <BrandWave className="absolute -bottom-10 -left-10 h-64 w-[140%] opacity-20" color="hsl(var(--brand-sand))" />
             <LonvitaLogo variant="on-dark" size="xl" className="relative" />
-            <p className="relative max-w-[280px] text-[15px] leading-relaxed text-[hsl(var(--brand-sand))]">
+            <p className="relative max-w-[280px] text-sm leading-relaxed text-[hsl(var(--brand-sand))]">
               Objevujte, co se děje ve vašem městě.
             </p>
           </div>

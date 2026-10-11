@@ -54,9 +54,18 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
 
   if (operation === 'update' && doc.status !== previousDoc?.status) {
     if (doc.status === 'approved') {
-      // The one trusted path allowed to grant the role — beforeChange below still runs
-      // UserRoles' own uniqueness hook, so approving twice can't double-grant.
-      try {
+      // The one trusted path allowed to grant the role — in the approval's own transaction (`req`):
+      // a role that can't be granted fails the approval too, instead of leaving a request marked
+      // approved for someone who still can't organize. One granted meanwhile some other way stays.
+      const granted = await req.payload.count({
+        collection: 'user-roles',
+        where: {
+          and: [{ user: { equals: userId } }, { municipality: { equals: municipalityId } }, { role: { equals: 'organizer' } }],
+        },
+        overrideAccess: true,
+        req,
+      })
+      if (granted.totalDocs === 0) {
         await req.payload.create({
           collection: 'user-roles',
           data: { user: userId, municipality: municipalityId, role: 'organizer' },
@@ -66,9 +75,8 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
           context: {
             organization: { name: doc.organizationName, type: doc.organizationType, description: doc.reason },
           },
+          req,
         })
-      } catch (error) {
-        req.payload.logger.error(`Failed to grant organizer role after request ${doc.id} approval: ${error}`)
       }
       // Straight to the organization the obec just approved — they may run several, one per obec.
       const organization = await req.payload
@@ -78,6 +86,8 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
           depth: 0,
           limit: 1,
           overrideAccess: true,
+          // Just created above, in this transaction — invisible outside it.
+          req,
         })
         .catch(() => null)
       const organizationId = organization?.docs[0]?.id
@@ -273,10 +283,15 @@ export const OrganizerRequests: CollectionConfig = {
 
         return data
       },
-      // Stamp reviewedBy/reviewedAt whenever status is set on update (approve/reject).
+      // Stamp reviewedBy/reviewedAt whenever status is set on update (approve/reject). A decision
+      // is final — approving a rejected request (or the other way round) would grant or leave a
+      // role nobody asked about now.
       ({ data, req, operation, originalDoc }) => {
         if (operation !== 'update' || !data) return data
         if (data.status && data.status !== originalDoc?.status) {
+          if (originalDoc?.status !== 'pending') {
+            throw new APIError('O žádosti už bylo rozhodnuto.', 409)
+          }
           data.reviewedBy = req.user?.id
           data.reviewedAt = new Date().toISOString()
         }

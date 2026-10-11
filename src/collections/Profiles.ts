@@ -1,4 +1,11 @@
-import { APIError, type CollectionAfterChangeHook, type CollectionBeforeChangeHook, type CollectionConfig } from 'payload'
+import {
+  APIError,
+  type CollectionAfterChangeHook,
+  type CollectionBeforeChangeHook,
+  type CollectionConfig,
+  type Payload,
+  type PayloadRequest,
+} from 'payload'
 
 import {
   canReadDateOfBirth,
@@ -11,6 +18,50 @@ import {
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 import { getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { PARTICIPANTS_ONLY } from './Registrations'
+import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
+
+/** Whether another account already has `phone` (E.164) — the superadmin's create-user route asks
+ * before it creates anything, the hook below on every write. */
+export async function isPhoneTaken(
+  payload: Payload,
+  phone: string,
+  exceptProfileId?: number | string,
+  req?: PayloadRequest,
+): Promise<boolean> {
+  const { totalDocs } = await payload.count({
+    collection: 'profiles',
+    where: {
+      and: [
+        { phone: { equals: phone } },
+        ...(exceptProfileId !== undefined ? [{ id: { not_equals: exceptProfileId } }] : []),
+      ],
+    },
+    overrideAccess: true,
+    req,
+  })
+  return totalDocs > 0
+}
+
+/**
+ * One phone number, one account — a cancelled event is announced by SMS, and a number shared by
+ * two accounts would tell one person about the other's events. Stored the way the SMS needs it
+ * (E.164), so "735 929 442" and "+420 735 929 442" are recognised as the same number.
+ */
+const ensureUniquePhone: CollectionBeforeChangeHook = async ({ data, req, originalDoc }) => {
+  if (!data || !('phone' in data)) return data
+  const raw = String(data.phone ?? '').trim()
+  if (!raw) {
+    data.phone = null
+    return data
+  }
+  const phone = toE164(raw)
+  if (!phone) throw new APIError(INVALID_PHONE_MESSAGE, 400, undefined, true)
+  data.phone = phone
+  if (phone !== originalDoc?.phone && (await isPhoneTaken(req.payload, phone, originalDoc?.id, req))) {
+    throw new APIError(PHONE_TAKEN_MESSAGE, 400, undefined, true)
+  }
+  return data
+}
 
 /**
  * The volunteer pool is one for the whole platform — whoever organizes anywhere may reach out to a
@@ -400,7 +451,7 @@ export const Profiles: CollectionConfig = {
     deletedAtField,
   ],
   hooks: {
-    beforeChange: [validateVolunteerContact],
+    beforeChange: [validateVolunteerContact, ensureUniquePhone],
     afterChange: [notifyOnVolunteerSignup, handleLeavingPool, acceptPoolInvitations],
   },
   timestamps: true,

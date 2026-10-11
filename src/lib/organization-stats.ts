@@ -30,10 +30,12 @@ export function computeOrganizationStats(
 ): OrganizationStats {
   const live = events.filter((e) => e.status !== "cancelled");
   const liveIds = new Set(live.map((e) => e.id));
-  const approved = registrations.filter((r) => r.status === "approved" && liveIds.has(r.event_id));
+  // Volunteers help run the event — they hold no place and aren't the people it reached.
+  const participants = registrations.filter((r) => r.role !== "volunteer");
+  const approved = participants.filter((r) => r.status === "approved" && liveIds.has(r.event_id));
   // Only where it still matters — a pending registration on a past event won't be approved anymore.
   const upcomingIds = new Set(live.filter((e) => new Date(e.date_time).getTime() >= now).map((e) => e.id));
-  const pending = registrations.filter((r) => r.status === "pending" && upcomingIds.has(r.event_id));
+  const pending = participants.filter((r) => r.status === "pending" && upcomingIds.has(r.event_id));
 
   const perPerson = new Map<string, number>();
   for (const r of approved) perPerson.set(r.user_id, (perPerson.get(r.user_id) ?? 0) + 1);

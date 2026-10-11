@@ -11,6 +11,8 @@ export interface EventRow {
   id: string;
   title: string;
   date_time: string;
+  /** A multi-day event's end — it's over only then. */
+  end_date_time?: string | null;
   capacity: number;
   status: string;
   category_ids: string[];
@@ -45,6 +47,9 @@ export interface CategoryRow {
 
 export interface ProfileRow {
   id: string;
+  /** The account the profile belongs to — what events (organizer_id) and registrations (user_id)
+   * point at, so every lookup by person goes through this, not `id`. */
+  user_id: string;
   full_name: string;
   created_at: string;
   date_of_birth?: string | null;
@@ -89,14 +94,25 @@ export function periodLabel(period: Period): string {
 
 /** Approved participants — what an event's places are filled with. Volunteers are left out, the
  * same as Registrations' "full" status leaves them out. */
-function approvedParticipants(regs: RegistrationRow[]): RegistrationRow[] {
+export function approvedParticipants(regs: RegistrationRow[]): RegistrationRow[] {
   return regs.filter((r) => r.status === "approved" && r.role !== "volunteer");
 }
 
 /** Whether naplněnost means anything for this event — an unlimited one (UNLIMITED_CAPACITY) is
  * never more than a sliver full, and counting it would drag every average towards zero. */
-function hasFillRate(e: EventRow): boolean {
+export function hasFillRate(e: EventRow): boolean {
   return Boolean(e.capacity) && !isUnlimitedCapacity(e.capacity);
+}
+
+/** The events that count — a cancelled one never took place: it isn't an activity of the obec, its
+ * organizer wasn't active through it, and its emptied places aren't low naplněnost. */
+export function heldEvents(events: EventRow[]): EventRow[] {
+  return events.filter((e) => e.status !== "cancelled");
+}
+
+/** When the event is over — a multi-day one at its end, not its start. */
+function endsAt(e: EventRow): number {
+  return new Date(e.end_date_time ?? e.date_time).getTime();
 }
 
 /** Not over yet and not cancelled — a full event is upcoming as much as an open one. */
@@ -139,8 +155,11 @@ export function computeKpis(
   profiles: ProfileRow[],
 ): Kpis {
   const now = Date.now();
+  events = heldEvents(events);
+  const heldIds = new Set(events.map((e) => e.id));
+  regs = regs.filter((r) => heldIds.has(r.event_id));
   const eventsUpcoming = events.filter((e) => isUpcoming(e, now)).length;
-  const eventsPast = events.filter((e) => new Date(e.date_time).getTime() < now).length;
+  const eventsPast = events.filter((e) => endsAt(e) < now).length;
 
   const approved = approvedParticipants(regs);
   const pending = regs.filter((r) => r.status === "pending" && r.role !== "volunteer");
@@ -208,6 +227,7 @@ export interface WeekPoint {
 }
 
 export function weeklySeries(events: EventRow[], regs: RegistrationRow[], weeks = 12): WeekPoint[] {
+  events = heldEvents(events);
   const today = startOfWeek(new Date());
   const out: WeekPoint[] = [];
   for (let i = weeks - 1; i >= 0; i--) {
@@ -309,14 +329,17 @@ export function computeDatavitaWindow(
   windowEnd: number,
   prevParticipants: Set<string>,
 ): DatavitaWindowResult {
+  events = heldEvents(events);
   const wEvents = events.filter((e) => {
     const t = new Date(e.date_time).getTime();
     return t >= windowStart && t < windowEnd;
   });
   const participants = activeParticipantIds(events, regs, windowStart, windowEnd);
 
-  const denominator = profiles50Plus.size || 1;
-  const engagementRate = Math.min(1, participants.size / denominator);
+  // Míra_zapojení: the obec's residents aged 50+ who took part, out of all of them. `profiles50Plus`
+  // holds user ids — the same ids the registrations carry.
+  const participants50 = Array.from(participants).filter((uid) => profiles50Plus.has(uid)).length;
+  const engagementRate = profiles50Plus.size ? Math.min(1, participants50 / profiles50Plus.size) : 0;
 
   const returning = Array.from(prevParticipants).filter((uid) => participants.has(uid)).length;
   const retentionRate = prevParticipants.size ? returning / prevParticipants.size : 0;
@@ -375,10 +398,11 @@ export function datavitaSeries(
   profiles: ProfileRow[],
   weeks = 26,
 ): DatavitaPoint[] {
+  events = heldEvents(events);
   const today = startOfWeek(new Date());
   const now = new Date();
   const profiles50Plus = new Set(
-    profiles.filter((p) => isAged50Plus(p, now)).map((p) => p.id),
+    profiles.filter((p) => isAged50Plus(p, now)).map((p) => p.user_id),
   );
   const approved = approvedParticipants(regs);
 
@@ -451,6 +475,7 @@ export function byCategory(
   categories: CategoryRow[],
 ): CategoryStat[] {
   const approved = approvedParticipants(regs);
+  events = heldEvents(events);
   return categories
     .map((c) => {
       const evs = events.filter((e) => e.category_ids.includes(c.id));
@@ -481,7 +506,7 @@ const DAY_LABELS = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
 export function byDayOfWeek(events: EventRow[]): { day: string; events: number }[] {
   const counts = [0, 0, 0, 0, 0, 0, 0];
-  for (const e of events) {
+  for (const e of heldEvents(events)) {
     const d = new Date(e.date_time).getDay(); // 0 ne ... 6 so
     const idx = d === 0 ? 6 : d - 1;
     counts[idx]++;
@@ -506,8 +531,8 @@ export function topOrganizers(
 ): OrganizerStat[] {
   const approved = approvedParticipants(regs);
   const map = new Map<string, OrganizerStat>();
-  const nameMap = new Map(profiles.map((p) => [p.id, p.full_name]));
-  for (const e of events) {
+  const nameMap = new Map(profiles.map((p) => [p.user_id, p.full_name]));
+  for (const e of heldEvents(events)) {
     const cur = map.get(e.organizer_id) ?? {
       id: e.organizer_id,
       name: nameMap.get(e.organizer_id) ?? "Neznámý",
@@ -536,7 +561,7 @@ export interface EventStat {
 
 export function topEvents(events: EventRow[], regs: RegistrationRow[], limit = 5): EventStat[] {
   const approved = approvedParticipants(regs);
-  return events
+  return heldEvents(events)
     .map((e) => {
       const a = approved.filter((r) => r.event_id === e.id).length;
       return {
@@ -595,7 +620,7 @@ export function averageRatings(feedback: FeedbackRow[]) {
 export function fillBuckets(events: EventRow[], regs: RegistrationRow[]) {
   const approved = approvedParticipants(regs);
   let full = 0, ok = 0, low = 0;
-  for (const e of events) {
+  for (const e of heldEvents(events)) {
     if (!hasFillRate(e)) continue;
     const a = approved.filter((r) => r.event_id === e.id).length;
     const ratio = a / e.capacity;
@@ -615,7 +640,7 @@ export function buildEventsCsv(
   profiles: ProfileRow[],
 ): string {
   const cats = new Map(categories.map((c) => [c.id, c.name]));
-  const profs = new Map(profiles.map((p) => [p.id, p.full_name]));
+  const profs = new Map(profiles.map((p) => [p.user_id, p.full_name]));
   const approved = approvedParticipants(regs);
   const pending = regs.filter((r) => r.status === "pending" && r.role !== "volunteer");
   const header = ["Název", "Datum", "Kategorie", "Pořadatel", "Kapacita", "Schváleno", "Čeká", "Naplněnost %", "Stav"];

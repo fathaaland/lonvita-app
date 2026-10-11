@@ -25,6 +25,7 @@ import { ArrowRight, ArrowLeft, Check, LogOut, Phone } from "lucide-react";
 import { SignOutButton } from "@/components/SignOutButton";
 import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
+import { PayloadApiError } from "@/integrations/payload/client";
 
 /** The obec is picked on the map during registration — except for a Google sign-up, which
  * skips that form, so onboarding asks for it first (see /api/auth/onboarding-municipality). */
@@ -106,8 +107,9 @@ function OnboardingContent() {
       toast.success("Vítejte v Lonvitě!");
       await refreshProfile();
       router.replace(afterOnboarding);
-    } catch {
-      toast.error("Nepodařilo se uložit profil.");
+    } catch (error) {
+      // E.g. the phone number already belongs to another account — the server says so.
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit profil.");
     } finally {
       setSaving(false);
     }
@@ -174,7 +176,7 @@ function OnboardingContent() {
                     }}
                   />
                   {noMunicipality && (
-                    <p className="text-[13px] leading-relaxed text-muted-foreground">
+                    <p className="text-xs leading-relaxed text-muted-foreground">
                       Uvidíte akce ze všech obcí. Svoji obec si můžete vybrat později v profilu.
                     </p>
                   )}

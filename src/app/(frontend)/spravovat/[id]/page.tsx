@@ -25,6 +25,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Clock, UserCheck, UserX, UserMinus, CalendarOff, HandHeart, Undo2 } from "lucide-react";
@@ -288,7 +289,15 @@ function ManageEventContent() {
 
             {r.status === "pending" && r.user_id !== String(user?.id) && !ended && (
               <div className="grid grid-cols-2 gap-2">
-                <Button onClick={() => approve(r.id)} className="h-11"><Check className="h-4 w-4" />Schválit</Button>
+                <ConfirmActionButton
+                  className="h-11"
+                  title={`Schválit přihlášku – ${r.full_name}?`}
+                  description="Přihlášený se dozví, že na akci má místo."
+                  confirmLabel="Schválit"
+                  onConfirm={() => approve(r.id)}
+                >
+                  <Check className="h-4 w-4" />Schválit
+                </ConfirmActionButton>
                 <Button onClick={() => setRejecting(r)} variant="outline" className="h-11">
                   <X className="h-4 w-4" />Zamítnout
                 </Button>

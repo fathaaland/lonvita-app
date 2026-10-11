@@ -401,6 +401,7 @@ type PayloadEventSuperFull = {
   id: number;
   title: string;
   dateTime: string;
+  endDateTime?: string | null;
   capacity: number;
   status: string;
   categories?: (number | { id: number })[] | null;
@@ -419,13 +420,16 @@ type PayloadRegistrationSuperFull = {
   status: string;
   createdAt: string;
   attendanceStatus?: string;
+  role?: RegistrationRow["role"] | null;
 };
 
 type PayloadProfileSuperFull = {
   id: number;
+  user: number | { id: number };
   fullName: string;
   createdAt: string;
   dateOfBirth?: string | null;
+  over50?: boolean | null;
   municipality?: number | { id: number } | null;
 };
 
@@ -446,6 +450,7 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
       id: String(e.id),
       title: e.title,
       date_time: e.dateTime,
+      end_date_time: e.endDateTime ?? null,
       capacity: e.capacity,
       status: e.status,
       category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
@@ -472,6 +477,7 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
       status: r.status,
       created_at: r.createdAt,
       attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
+      role: r.role ?? "participant",
     };
     if (!regsByMuni.has(muniId)) regsByMuni.set(muniId, []);
     regsByMuni.get(muniId)!.push(row);
@@ -483,9 +489,12 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
     if (!muniId) continue;
     const row: ProfileWithDob = {
       id: String(p.id),
+      user_id: toId(p.user) ?? "",
       full_name: p.fullName,
       created_at: p.createdAt,
       date_of_birth: p.dateOfBirth ?? null,
+      // A deleted account keeps only this — still one of the obec's residents aged 50+.
+      over_50: Boolean(p.over50),
     };
     if (!profilesByMuni.has(muniId)) profilesByMuni.set(muniId, []);
     profilesByMuni.get(muniId)!.push(row);

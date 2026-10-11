@@ -8,6 +8,7 @@ import {
   getAllCategoriesForAdmin,
   getMunicipalityProfilesForAdmin,
   getFeedbackForEventIds,
+  getPendingRequestCountForAdmin,
 } from "@/integrations/payload/admin-queries";
 import { getMunicipality, listMunicipalities, RulesForCreation } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,6 +28,7 @@ import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
+import { UnreadBadge } from "@/components/UnreadBadge";
 import { EventRow, RegistrationRow, CategoryRow, FeedbackRow } from "@/lib/analytics";
 import type { ProfileWithDob } from "@/lib/report";
 
@@ -45,6 +47,7 @@ function AdminContent() {
   const [muniOptions, setMuniOptions] = useState<{ id: string; name: string }[]>([]);
   const [rulesForCreation, setRulesForCreation] = useState<RulesForCreation>("approved_organizers");
   const [loading, setLoading] = useState(true);
+  const [pendingRequests, setPendingRequests] = useState(0);
   // A notification can open a section straight away — e.g. "?tab=requests" for something waiting
   // on the obec's approval.
   const tabParam = useSearchParams().get("tab");
@@ -66,11 +69,12 @@ function AdminContent() {
     if (!muniId) return;
     setLoading(true);
 
-    const [evRows, cats, muni, profsRows] = await Promise.all([
+    const [evRows, cats, muni, profsRows, pendingCount] = await Promise.all([
       getMunicipalityEventsForAdmin(muniId),
       getAllCategoriesForAdmin(),
       getMunicipality(muniId),
       getMunicipalityProfilesForAdmin(muniId),
+      getPendingRequestCountForAdmin(muniId),
     ]);
 
     const eventIds = evRows.map((e) => e.id);
@@ -84,6 +88,7 @@ function AdminContent() {
     setFeedback(feedbackRows);
     setCategories(cats);
     setProfiles(profsRows);
+    setPendingRequests(pendingCount);
     setMuniName(muni?.name ?? "");
     setMuniId(muniId);
     setRulesForCreation(muni?.rules_for_creation ?? "approved_organizers");
@@ -130,7 +135,7 @@ function AdminContent() {
     <div className="animate-fade-in">
       <PageHeader title="Přehled obce" back />
       <div className="px-4 py-5 md:flex md:gap-6 md:items-start">
-        <AdminSideNav value={tab} onChange={setTab} />
+        <AdminSideNav value={tab} onChange={setTab} badges={{ requests: pendingRequests }} />
 
         <div className="flex-1 min-w-0">
           {muniOptions.length > 1 && (
@@ -147,19 +152,24 @@ function AdminContent() {
           )}
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="w-full h-12 grid grid-cols-5 md:hidden">
-              <TabsTrigger value="overview" className="gap-1">
+              <TabsTrigger value="overview" className="gap-1" aria-label="Přehled">
                 <BarChart3 className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="events" className="gap-1">
+              <TabsTrigger value="events" className="gap-1" aria-label="Akce">
                 <CalendarRange className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="volunteers" className="gap-1">
+              <TabsTrigger value="volunteers" className="gap-1" aria-label="Dobrovolníci">
                 <HandHeart className="h-4 w-4" />
               </TabsTrigger>
-              <TabsTrigger value="requests" className="gap-1">
+              <TabsTrigger
+                value="requests"
+                className="relative gap-1"
+                aria-label={pendingRequests > 0 ? `Žádosti, čeká na vyřízení: ${pendingRequests}` : "Žádosti"}
+              >
                 <ClipboardList className="h-4 w-4" />
+                <UnreadBadge count={pendingRequests} className="-top-1 right-1" ringClassName="ring-muted" />
               </TabsTrigger>
-              <TabsTrigger value="settings" className="gap-1">
+              <TabsTrigger value="settings" className="gap-1" aria-label="Nastavení">
                 <Settings className="h-4 w-4" />
               </TabsTrigger>
             </TabsList>
@@ -224,7 +234,7 @@ function AdminContent() {
             </TabsContent>
 
             <TabsContent value="requests" className="pt-4">
-              <RequestsTable key={muniId} municipalityId={muniId} />
+              <RequestsTable key={muniId} municipalityId={muniId} onPendingCountChange={setPendingRequests} />
             </TabsContent>
 
             <TabsContent value="settings" className="pt-4">

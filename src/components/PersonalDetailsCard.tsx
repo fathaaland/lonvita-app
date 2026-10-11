@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getCategoryIcon } from "@/lib/icons";
 import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
+import { PayloadApiError } from "@/integrations/payload/client";
 
 
 type Gender = "zena" | "muz" | "jine" | "neuvedeno";
@@ -94,8 +95,9 @@ export function PersonalDetailsCard() {
       await refreshProfile();
       toast.success("Údaje uloženy.");
       setEditing(false);
-    } catch {
-      toast.error("Nepodařilo se uložit údaje.");
+    } catch (error) {
+      // E.g. the phone number already belongs to another account — the server says so.
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit údaje.");
     } finally {
       setSaving(false);
     }

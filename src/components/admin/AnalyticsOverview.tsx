@@ -40,6 +40,8 @@ import { getCategoryIcon } from "@/lib/icons";
 import { formatEventDate } from "@/lib/date";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { useExport } from "@/hooks/useExport";
+import { useFontSize } from "@/contexts/FontSizeContext";
+import { FONT_SCALE } from "@/lib/accessibilityPrefs";
 import {
   Period,
   EventRow,
@@ -98,6 +100,9 @@ export function AnalyticsOverview({
 }: Props) {
   const [period, setPeriod] = useState<Period>("30");
   const exporter = useExport();
+  // Chart text is SVG with pixel sizes, so it doesn't follow the root font size by itself.
+  const { size } = useFontSize();
+  const fs = (px: number) => px * FONT_SCALE[size];
 
   const start = useMemo(() => periodStart(period), [period]);
   const evF = useMemo(() => filterEvents(events, start), [events, start]);
@@ -233,14 +238,14 @@ export function AnalyticsOverview({
                         <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <XAxis dataKey="week" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" interval={3} />
-                    <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" domain={[0, 100]} />
+                    <XAxis dataKey="week" tick={{ fontSize: fs(10) }} stroke="hsl(var(--muted-foreground))" interval={3} />
+                    <YAxis tick={{ fontSize: fs(10) }} stroke="hsl(var(--muted-foreground))" domain={[0, 100]} />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: "hsl(var(--card))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: 8,
-                        fontSize: 12,
+                        fontSize: fs(12),
                       }}
                       formatter={(v: number) => [`${v}`, "Skóre"]}
                     />
@@ -255,7 +260,7 @@ export function AnalyticsOverview({
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-              <p className="text-[11px] text-muted-foreground leading-snug">
+              <p className="text-2xs text-muted-foreground leading-snug">
                 D1 participace (zapojení + retence) · D2 organizace (organizátoři + dobrovolníci). Equity úprava zatím není zapojená.
               </p>
             </>
@@ -275,17 +280,17 @@ export function AnalyticsOverview({
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="week" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                <XAxis dataKey="week" tick={{ fontSize: fs(11) }} stroke="hsl(var(--muted-foreground))" />
+                <YAxis tick={{ fontSize: fs(11) }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
                     borderRadius: 8,
-                    fontSize: 12,
+                    fontSize: fs(12),
                   }}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: fs(12) }} />
                 <Line type="monotone" dataKey="events" name="Akce" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 3 }} />
                 <Line type="monotone" dataKey="registrations" name="Přihlášky" stroke="hsl(var(--accent))" strokeWidth={2.5} dot={{ r: 3 }} />
               </LineChart>
@@ -343,14 +348,14 @@ export function AnalyticsOverview({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dow} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: fs(11) }} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis tick={{ fontSize: fs(11) }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "hsl(var(--card))",
                       border: "1px solid hsl(var(--border))",
                       borderRadius: 8,
-                      fontSize: 12,
+                      fontSize: fs(12),
                     }}
                   />
                   <Bar dataKey="events" name="Akce" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
@@ -380,10 +385,10 @@ export function AnalyticsOverview({
                         backgroundColor: "hsl(var(--card))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: 8,
-                        fontSize: 12,
+                        fontSize: fs(12),
                       }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: fs(11) }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -543,10 +548,10 @@ export function AnalyticsOverview({
                       backgroundColor: "hsl(var(--card))",
                       border: "1px solid hsl(var(--border))",
                       borderRadius: 8,
-                      fontSize: 12,
+                      fontSize: fs(12),
                     }}
                   />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Legend wrapperStyle={{ fontSize: fs(11) }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -582,7 +587,7 @@ function KpiCard({
         </div>
         <p className="text-2xl font-extrabold leading-none tabular-nums">{value}</p>
         <p className="text-xs font-semibold">{label}</p>
-        {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
+        {sub && <p className="text-2xs text-muted-foreground">{sub}</p>}
       </CardContent>
     </Card>
   );

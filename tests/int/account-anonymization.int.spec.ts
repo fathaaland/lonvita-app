@@ -342,10 +342,13 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
       ).docs[0]
       expect(feedback).toMatchObject({ satisfactionRating: 5, feltWelcomeRating: 4, comment: null })
 
-      const request = (
-        await payload.find({ collection: 'organizer-requests', where: { user: { equals: jana.id } }, overrideAccess: true })
-      ).docs[0]
-      expect(request.reason).toBeFalsy()
+      // A request to organize was about them alone — it goes, a decided one as much as a pending one.
+      const requests = await payload.find({
+        collection: 'organizer-requests',
+        where: { user: { equals: jana.id } },
+        overrideAccess: true,
+      })
+      expect(requests.docs).toHaveLength(0)
     })
 
     it('the event ahead loses them — its organizer told without their name', async () => {

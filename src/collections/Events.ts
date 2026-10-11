@@ -4,6 +4,7 @@ import type {
   CollectionAfterDeleteHook,
   CollectionAfterReadHook,
   CollectionBeforeChangeHook,
+  CollectionBeforeDeleteHook,
   CollectionConfig,
   FieldHook,
   PayloadRequest,
@@ -28,6 +29,7 @@ import {
   queueEventUpdatedNotification,
   snapshotNotifiableFields,
 } from './shared/eventNotifications'
+import { MULTI_DAY_END_MESSAGE, pragueDateKey } from '@/lib/date'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { haversineDistanceKm } from '@/lib/geo/distance'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
@@ -553,7 +555,7 @@ const resolveDeletionNeedsConsent: FieldHook = async ({ req, siblingData }) => {
 
 /** A new event can't start in the past, and neither can one that gets rescheduled — but the
  * start is only checked when it actually changes, so editing e.g. the title of an event that is
- * already running (or over) keeps working. A multi-day event can't end before it starts. */
+ * already running (or over) keeps working. A multi-day event ends on a later day than it starts. */
 const validateEventDates: CollectionBeforeChangeHook = ({ data, originalDoc, operation }) => {
   if (!data) return data
 
@@ -570,6 +572,13 @@ const validateEventDates: CollectionBeforeChangeHook = ({ data, originalDoc, ope
   }
   if (end && new Date(end).getTime() < startMs) {
     throw new APIError('Konec akce nemůže být dřív než její začátek.', 400)
+  }
+  // Only when the dates move — an older event saved with a same-day end stays editable.
+  const msOf = (iso: unknown) => (iso ? new Date(iso as string).getTime() : null)
+  const endChanged =
+    operation === 'create' || (data.endDateTime !== undefined && msOf(data.endDateTime) !== msOf(originalDoc?.endDateTime))
+  if (end && (startChanged || endChanged) && pragueDateKey(end) <= pragueDateKey(start)) {
+    throw new APIError(MULTI_DAY_END_MESSAGE, 400)
   }
 
   return data
@@ -781,7 +790,7 @@ async function notifyOrganizersOfObecAction(
   )
 }
 
-const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'coOrganizingApproved']
+const OWN_REQUEST_CONTEXTS = ['skipNotifications', 'coOrganizerConsent', 'coOrganizingApproved', 'deletingMunicipality']
 const isOwnRequest = (context: Record<string, unknown> | undefined) =>
   OWN_REQUEST_CONTEXTS.some((key) => context?.[key])
 
@@ -811,6 +820,65 @@ const notifyOrganizersOnObecChange: CollectionAfterChangeHook = async ({ doc, pr
     req.payload.logger.error(`Failed to notify organizers of obec change to event ${doc.id}: ${error}`)
   }
   return doc
+}
+
+/**
+ * A hard-deleted event takes everything that only existed on it along — whichever way it goes (the
+ * organizers' consented deletion, a platform or obec admin's DELETE, the obec itself being deleted).
+ * Every row below points at the event through a NOT NULL column, so leaving one would fail the
+ * delete on the database. The record of a decided deletion request stays (its event just empties);
+ * one still open has nothing left to decide. The uploads go after the delete (removeEventFiles).
+ */
+const cleanupEventRelations: CollectionBeforeDeleteHook = async ({ id, req }) => {
+  const { payload } = req
+  const find = { depth: 0, pagination: false, overrideAccess: true, req } as const
+  const registrations = await payload.find({ collection: 'registrations', where: { event: { equals: id } }, select: {}, ...find })
+  if (registrations.docs.length > 0) {
+    await payload.delete({
+      collection: 'event-feedback',
+      where: { registration: { in: registrations.docs.map((r) => r.id) } },
+      overrideAccess: true,
+      req,
+    })
+  }
+  const photos = await payload.find({ collection: 'event-media', where: { event: { equals: id } }, select: { media: true }, ...find })
+  const event = await payload.findByID({ collection: 'events', id, depth: 0, select: { image: true }, overrideAccess: true, req })
+  req.context.eventFiles = [
+    ...photos.docs.map((p) => relationId(p.media)),
+    relationId(event.image),
+  ].filter((mediaId): mediaId is string => mediaId !== null)
+
+  // Sequential — one transaction (`req`); invitations and ratings point at registrations too.
+  for (const collection of [
+    'review-complaints',
+    'volunteer-ratings',
+    'volunteer-invitations',
+    'registrations',
+    'event-media',
+    'co-organizing-requests',
+  ] as const) {
+    await payload.delete({ collection, where: { event: { equals: id } }, overrideAccess: true, req })
+  }
+  await payload.delete({
+    collection: 'event-deletion-requests',
+    where: { and: [{ event: { equals: id } }, { status: { in: ['pending', 'escalated'] } }] },
+    overrideAccess: true,
+    req,
+  })
+}
+
+/** The event's cover and its gallery photos — unless another event still shows the same upload. */
+const removeEventFiles: CollectionAfterDeleteHook = async ({ req }) => {
+  const mediaIds = (req.context.eventFiles as string[] | undefined) ?? []
+  for (const mediaId of new Set(mediaIds)) {
+    try {
+      const stillUsed = await req.payload.count({ collection: 'events', where: { image: { equals: mediaId } }, overrideAccess: true, req })
+      if (stillUsed.totalDocs > 0) continue
+      await req.payload.delete({ collection: 'media', id: mediaId, overrideAccess: true, req })
+    } catch (error) {
+      req.payload.logger.error(`Failed to remove media ${mediaId} of a deleted event: ${error}`)
+    }
+  }
 }
 
 const notifyOrganizersOnObecDelete: CollectionAfterDeleteHook = async ({ doc, req, context }) => {
@@ -1242,7 +1310,8 @@ export const Events: CollectionConfig = {
       scheduleAttendanceReminderOnCreate,
       releaseOrganizersPlaces,
     ],
-    afterDelete: [notifyOrganizersOnObecDelete],
+    beforeDelete: [cleanupEventRelations],
+    afterDelete: [notifyOrganizersOnObecDelete, removeEventFiles],
     afterRead: [deriveFinishedStatus],
   },
   timestamps: true,

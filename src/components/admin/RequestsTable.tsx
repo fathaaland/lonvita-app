@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   getOrganizerRequestsForAdmin,
   decideOrganizerRequest,
@@ -18,6 +19,7 @@ import {
   ReviewComplaintAdminRow,
 } from "@/integrations/payload/admin-queries";
 import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
+import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,7 +42,14 @@ import { organizationTypeLabel } from "@/lib/organizations";
 
 /** `municipalityId` = the obec this admin actually administers, which isn't necessarily their
  * home municipality (a superadmin can grant municipality_admin anywhere). */
-export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
+export function RequestsTable({
+  municipalityId,
+  onPendingCountChange,
+}: {
+  municipalityId?: string;
+  /** What still waits on a decision (active organizers aside) — keeps the tab's badge current. */
+  onPendingCountChange?: (count: number) => void;
+}) {
   const { profile } = useAuth();
   const muniId = municipalityId || profile?.municipality_id;
   const [organizerRequests, setOrganizerRequests] = useState<OrganizerRequestAdminRow[]>([]);
@@ -67,6 +76,7 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
     setReviewComplaints(complaints);
     setOrganizers(activeOrganizers);
     setLoading(false);
+    onPendingCountChange?.(org.length + coOrg.length + leaving.length + complaints.length);
   };
 
   useEffect(() => {
@@ -156,12 +166,31 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
                     <p className="font-semibold text-sm truncate">{r.full_name}</p>
                     <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("cs-CZ")}</p>
                   </div>
-                  <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busyId === r.id} onClick={() => handleOrganizerDecision(r.id, true)}>
+                  <ConfirmActionButton
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-success border-success/40"
+                    disabled={busyId === r.id}
+                    title={`Schválit žádost – ${r.full_name}?`}
+                    description={`${r.full_name} dostane v obci roli organizátora${r.organization_name ? ` za „${r.organization_name}“` : ""} a bude moct zakládat akce.`}
+                    confirmLabel="Schválit"
+                    onConfirm={() => handleOrganizerDecision(r.id, true)}
+                  >
                     <Check className="h-4 w-4" /> Schválit
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busyId === r.id} onClick={() => handleOrganizerDecision(r.id, false)}>
+                  </ConfirmActionButton>
+                  <ConfirmActionButton
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-destructive border-destructive/40"
+                    disabled={busyId === r.id}
+                    title={`Zamítnout žádost – ${r.full_name}?`}
+                    description="Žadatel se dozví, že jeho žádost o roli organizátora byla zamítnuta. Rozhodnutí nejde vrátit."
+                    confirmLabel="Zamítnout"
+                    destructive
+                    onConfirm={() => handleOrganizerDecision(r.id, false)}
+                  >
                     <X className="h-4 w-4" /> Zamítnout
-                  </Button>
+                  </ConfirmActionButton>
                 </div>
                 <OrganizerRequestReason
                   reason={r.reason}
@@ -230,17 +259,33 @@ export function RequestsTable({ municipalityId }: { municipalityId?: string }) {
             <Card key={o.id}>
               <CardContent className="p-3 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{o.full_name}</p>
+                  {o.organization_id ? (
+                    <Link
+                      href={`/organizace/organizatori?obec=${muniId}&organizace=${o.organization_id}`}
+                      className="block font-semibold text-sm break-words hover:underline"
+                    >
+                      {o.full_name}
+                      {o.organization_name && o.organization_name !== o.full_name && (
+                        <span className="font-normal text-muted-foreground"> ({o.organization_name})</span>
+                      )}
+                    </Link>
+                  ) : (
+                    <p className="font-semibold text-sm break-words">{o.full_name}</p>
+                  )}
                 </div>
-                <Button
+                <ConfirmActionButton
                   size="sm"
                   variant="outline"
                   className="h-9 text-destructive border-destructive/40"
                   disabled={busyId === o.id}
-                  onClick={() => handleRevokeOrganizer(o.id)}
+                  title={`Odebrat roli organizátora – ${o.full_name}?`}
+                  description="Nové akce v obci už zakládat nebude. Akce, které už pořádá, zůstávají. Dozví se to oznámením."
+                  confirmLabel="Odebrat roli"
+                  destructive
+                  onConfirm={() => handleRevokeOrganizer(o.id)}
                 >
                   <X className="h-4 w-4" /> Odebrat roli
-                </Button>
+                </ConfirmActionButton>
               </CardContent>
             </Card>
           ))}
@@ -280,12 +325,31 @@ export function CoOrganizingRequestCard({
             zve {request.requested_by_name} · platí do {formatEventDateTime(request.expires_at)}
           </p>
         </div>
-        <Button size="sm" variant="outline" className="h-9 text-success border-success/40" disabled={busy} onClick={() => onDecide(true)}>
+        <ConfirmActionButton
+          size="sm"
+          variant="outline"
+          className="h-9 text-success border-success/40"
+          disabled={busy}
+          title={`Přijmout spolupořádání akce „${request.event_title}“?`}
+          description={`${request.organization_name} se stane spolupořadatelem akce a bude ji moct upravovat. Rozhodnutí nejde vrátit.`}
+          confirmLabel="Přijmout"
+          onConfirm={() => onDecide(true)}
+        >
           <Check className="h-4 w-4" /> Přijmout
-        </Button>
-        <Button size="sm" variant="outline" className="h-9 text-destructive border-destructive/40" disabled={busy} onClick={() => onDecide(false)}>
+        </ConfirmActionButton>
+        <ConfirmActionButton
+          size="sm"
+          variant="outline"
+          className="h-9 text-destructive border-destructive/40"
+          disabled={busy}
+          title={`Odmítnout pozvánku na akci „${request.event_title}“?`}
+          description={`${request.requested_by_name} se dozví, že pozvánku ke spolupořádání odmítáte. Rozhodnutí nejde vrátit.`}
+          confirmLabel="Odmítnout"
+          destructive
+          onConfirm={() => onDecide(false)}
+        >
           <X className="h-4 w-4" /> Odmítnout
-        </Button>
+        </ConfirmActionButton>
       </CardContent>
     </Card>
   );
@@ -342,9 +406,18 @@ function EscalatedDeletionRequestCard({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <Button size="sm" variant="outline" className="flex-1 h-9" disabled={busy} onClick={() => onDecide(false)}>
+          <ConfirmActionButton
+            size="sm"
+            variant="outline"
+            className="flex-1 h-9"
+            disabled={busy}
+            title="Zamítnout žádost o odchod z akce?"
+            description={`${request.requested_by_name} zůstane pořadatelem akce „${request.event_title}“. Rozhodnutí nejde vrátit.`}
+            confirmLabel="Zamítnout"
+            onConfirm={() => onDecide(false)}
+          >
             <X className="h-4 w-4" /> Zamítnout
-          </Button>
+          </ConfirmActionButton>
         </div>
       </CardContent>
     </Card>

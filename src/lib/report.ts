@@ -8,7 +8,7 @@ import type {
   RegistrationRow,
   ProfileRow,
 } from "./analytics";
-import { computeDatavitaWindow, isAged50Plus } from "./analytics";
+import { approvedParticipants, computeDatavitaWindow, hasFillRate, heldEvents, isAged50Plus } from "./analytics";
 
 export interface ProfileWithDob extends ProfileRow {
   date_of_birth?: string | null;
@@ -65,24 +65,19 @@ function windowMetrics(
     return t >= ws && t < we;
   });
   const wEventIds = new Set(wEvents.map((e) => e.id));
-  const wRegs = regs.filter(
-    (r) =>
-      r.status === "approved" &&
-      wEventIds.has(r.event_id),
-  );
+  // Participants' approved places — volunteers help run the event, the same as on the dashboard.
+  const wRegs = approvedParticipants(regs).filter((r) => wEventIds.has(r.event_id));
 
   // "Míra zapojení" and retention track who actually showed up, not who was merely approved.
   const participants = new Set(
     regs.filter((r) => r.attendance_status === "attended" && wEventIds.has(r.event_id)).map((r) => r.user_id),
   );
 
-  // Fill rate — jen akce s kapacitou
+  // Fill rate — jen akce s omezenou kapacitou, stejně jako na dashboardu
   const fills: number[] = [];
   for (const e of wEvents) {
-    if (!e.capacity) continue;
-    const cnt = regs.filter(
-      (r) => r.event_id === e.id && r.status === "approved",
-    ).length;
+    if (!hasFillRate(e)) continue;
+    const cnt = wRegs.filter((r) => r.event_id === e.id).length;
     fills.push(Math.min(1, cnt / e.capacity));
   }
   const avgFillRate = fills.length ? fills.reduce((a, b) => a + b, 0) / fills.length : 0;
@@ -147,6 +142,8 @@ export function computeReportMetrics(
   profiles: ProfileWithDob[],
 ): ReportMetrics {
   const now = new Date();
+  // A cancelled event never took place — the same rule as the dashboard (analytics heldEvents).
+  events = heldEvents(events);
   const currentEnd = new Date(now); currentEnd.setHours(0, 0, 0, 0);
   const currentStart = new Date(currentEnd); currentStart.setDate(currentStart.getDate() - 90);
   const previousEnd = new Date(currentStart);
@@ -155,7 +152,8 @@ export function computeReportMetrics(
   const profiles50Plus = new Set(
     profiles
       .filter((p) => isAged50Plus(p, now))
-      .map((p) => p.id),
+      // User ids — what the registrations carry.
+      .map((p) => p.user_id),
   );
 
   const current = windowMetrics(

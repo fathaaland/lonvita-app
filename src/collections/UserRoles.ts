@@ -1,4 +1,10 @@
-import type { CollectionBeforeOperationHook, CollectionConfig, PayloadRequest, Where } from 'payload'
+import type {
+  CollectionAfterChangeHook,
+  CollectionBeforeOperationHook,
+  CollectionConfig,
+  PayloadRequest,
+  Where,
+} from 'payload'
 import { APIError } from 'payload'
 
 import {
@@ -46,6 +52,60 @@ async function syncMunicipalityAdminUser(
     context: { skipAdminUserSync: true },
     req,
   })
+}
+
+/**
+ * A newly appointed obec admin hears what's already waiting on the obec — an organizer who asked
+ * before the obec had an admin was told to the platform admins (getObecDeciders), so the new admin
+ * would otherwise find the request only by chance in Žádosti.
+ */
+const notifyNewAdminOfWaitingRequests: CollectionAfterChangeHook = async ({ doc, previousDoc, req }) => {
+  if (doc.role !== 'municipality_admin') return doc
+  const municipalityId = relId(doc.municipality)
+  if (previousDoc?.role === 'municipality_admin' && relId(previousDoc.municipality) === municipalityId) return doc
+
+  const now = new Date().toISOString()
+  const count = (collection: 'organizer-requests' | 'co-organizing-requests' | 'event-deletion-requests' | 'review-complaints', where: Where[]) =>
+    req.payload
+      .count({ collection, where: { and: [{ municipality: { equals: municipalityId } }, ...where] }, overrideAccess: true, req })
+      .then((r) => r.totalDocs)
+  const [organizerRequests, coOrganizing, escalated, complaints] = await Promise.all([
+    count('organizer-requests', [{ status: { equals: 'pending' } }]),
+    count('co-organizing-requests', [
+      { status: { equals: 'pending' } },
+      { organizationOwner: { exists: false } },
+      { expiresAt: { greater_than: now } },
+    ]),
+    count('event-deletion-requests', [{ status: { equals: 'escalated' } }, { expiresAt: { greater_than: now } }]),
+    count('review-complaints', [{ status: { equals: 'pending' } }]),
+  ])
+  const total = organizerRequests + coOrganizing + escalated + complaints
+  if (total === 0) return doc
+
+  const parts = [
+    organizerRequests && `žádosti o roli organizátora: ${organizerRequests}`,
+    coOrganizing && `pozvánky ke spolupořádání: ${coOrganizing}`,
+    escalated && `žádosti o zrušení spolupořadatelství: ${escalated}`,
+    complaints && `stížnosti na recenze: ${complaints}`,
+  ].filter(Boolean) as string[]
+  const municipality = await req.payload
+    .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true, req })
+    .catch(() => null)
+  const obec = municipality ? `Obec ${municipality.name}` : 'Obec'
+  sendNotification(req.payload, {
+    userId: relId(doc.user),
+    title: 'Na vyřízení čekají žádosti',
+    link: '/admin-obce?tab=requests',
+    message: `${obec} má na vyřízení — ${parts.join(', ')}. Najdete je v Přehledu obce v sekci Žádosti.`,
+    email: {
+      subject: 'Na vyřízení čekají žádosti',
+      body:
+        `<p>Jste nově adminem obce. ${escapeHtml(obec)} má na vyřízení:</p>` +
+        `<ul>${parts.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul>` +
+        '<p>Najdete je v Přehledu obce v sekci Žádosti.</p>',
+    },
+  })
+  return doc
 }
 
 /**
@@ -337,6 +397,7 @@ export const UserRoles: CollectionConfig = {
         })
         return doc
       },
+      notifyNewAdminOfWaitingRequests,
       ({ doc, req, operation }) => {
         if (operation !== 'create') return
         writeAuditLog(req.payload, {
@@ -362,7 +423,7 @@ export const UserRoles: CollectionConfig = {
       // Someone else took the role away (the obec's admin, or the platform admin) — the holder hears
       // it, rather than finding out from a "Vytvořit" button that's no longer there.
       async ({ doc, req, context }) => {
-        if (context?.accountDeleted || !req.user || String(req.user.id) === String(relId(doc.user))) return
+        if (context?.accountDeleted || context?.deletingMunicipality || !req.user || String(req.user.id) === String(relId(doc.user))) return
         if (doc.role !== 'organizer' && doc.role !== 'municipality_admin') return
         const municipality = await req.payload
           .findByID({ collection: 'municipalities', id: relId(doc.municipality), depth: 0, overrideAccess: true, req })

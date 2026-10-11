@@ -114,7 +114,7 @@ function ProfileContent() {
         ].map((s) => (
           <div key={s.label} className="py-4 text-center">
             <div className="text-xl font-extrabold text-brand-purple-dark tracking-tight">{s.num}</div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">{s.label}</div>
+            <div className="text-3xs uppercase tracking-wider text-muted-foreground mt-0.5">{s.label}</div>
           </div>
         ))}
       </div>

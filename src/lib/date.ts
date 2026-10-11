@@ -76,6 +76,22 @@ function pragueParts(iso: string): { year: number; month: number; day: number; w
   return { ...parts, weekday };
 }
 
+/** The calendar day in Prague, "YYYY-MM-DD" — compares as a string, so `a < b` = an earlier day. */
+export function pragueDateKey(iso: string): string {
+  const p = pragueParts(iso);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/** "YYYY-MM-DD" one calendar day after the given `<input type="date">` value. */
+export function nextDateInputValue(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return toDateInputValue(new Date(year, month - 1, day + 1));
+}
+
+/** What a multi-day event's end has to satisfy: a later calendar day than its start — on the same
+ * day it's simply an event with an end time, which the form doesn't offer. */
+export const MULTI_DAY_END_MESSAGE = "Vícedenní akce musí končit nejdřív následující den po dni zahájení.";
+
 /** formatEventDate in the Europe/Prague timezone — for text rendered on the server (link previews,
  * share images) or meant to be read elsewhere (a social post), e.g. "čtvrtek 8. října". */
 export function formatPragueEventDate(iso: string): string {

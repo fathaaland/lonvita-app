@@ -16,7 +16,17 @@ export default {
         serif: ["'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
+      // Small labels below text-xs — 10px / 11px at the default 17px root, in rem so they
+      // follow the font-size setting (US-H-07) like everything else.
+      fontSize: {
+        "3xs": "calc(10rem / 17)",
+        "2xs": "calc(11rem / 17)",
+      },
       colors: {
+        rating: {
+          DEFAULT: "hsl(var(--rating))",
+          strong: "hsl(var(--rating-strong))",
+        },
         ivory: "hsl(var(--brand-ivory))",
         graphite: "hsl(var(--brand-graphite))",
         sage: "hsl(var(--brand-sage))",

@@ -107,7 +107,8 @@ export type AnonymizedFiles = { mediaIds: number[]; exportIds: number[] }
  *   pending volunteer invitations or offers withdrawn;
  * - past registrations, attendance and event ratings stay, minus excuses, notes and comments;
  * - what only described them goes: Google sign-in, consents, notifications, exports, event photos
- *   they uploaded, the ratings they got as a volunteer;
+ *   they uploaded, the ratings they got as a volunteer, their requests to organize and the
+ *   complaints the obec hasn't decided yet;
  * - an organizer's organization is hidden (an "individual" one loses its name), and every role
  *   goes — the obec's adminUser follows (UserRoles);
  * - the profile keeps its obec, its sign-up date and whether they're 50+ (`over50`); the account an
@@ -204,13 +205,26 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
     data: { message: null },
     req,
   })
-  await payload.db.updateMany({ collection: 'organizer-requests', where: { user: { equals: userId } }, data: { reason: null }, req })
   await payload.db.updateMany({ collection: 'pool-invitations', where: { invitedBy: { equals: userId } }, data: { message: null }, req })
   // `reason` is required — the obec's decision on the complaint stays, the complainant's words don't.
-  await payload.db.updateMany({ collection: 'review-complaints', where: { complainant: { equals: userId } }, data: { reason: '—' }, req })
+  // One still undecided has nobody left to answer, so it goes below.
+  await payload.db.updateMany({
+    collection: 'review-complaints',
+    where: { and: [{ complainant: { equals: userId } }, { status: { not_equals: 'pending' } }] },
+    data: { reason: '—' },
+    req,
+  })
 
-  // What only described them.
+  // What only described them — and their asks nobody should decide on any more: a pending request
+  // to organize would otherwise still wait in the obec's Žádosti, approvable for an account that's gone.
+  await payload.delete({
+    collection: 'review-complaints',
+    where: { and: [{ complainant: { equals: userId } }, { status: { equals: 'pending' } }] },
+    overrideAccess: true,
+    req,
+  })
   for (const [collection, field] of [
+    ['organizer-requests', 'user'],
     ['volunteer-ratings', 'volunteer'],
     ['auth-identities', 'user'],
     ['consents', 'user'],

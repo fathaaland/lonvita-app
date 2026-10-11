@@ -14,3 +14,5 @@ export function toE164(phone: string): string | null {
 export const isValidPhone = (phone: string): boolean => toE164(phone) !== null;
 
 export const INVALID_PHONE_MESSAGE = "Zadejte prosím platné telefonní číslo, např. 601 234 567 nebo +421 901 234 567.";
+
+export const PHONE_TAKEN_MESSAGE = "Toto telefonní číslo už používá jiný účet. Zadejte prosím své vlastní číslo.";

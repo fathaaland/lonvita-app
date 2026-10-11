@@ -194,7 +194,7 @@ ${methodologyParagraph(metrics)}
                 </Button>
               </div>
 
-              <p className="text-[11px] text-muted-foreground leading-snug">
+              <p className="text-2xs text-muted-foreground leading-snug">
                 Dokument má vrstvenou strukturu — novinář si vezme první odstavec, grant celý dokument,
                 zastupitelstvo první čtyři sekce bez metodické poznámky.
               </p>

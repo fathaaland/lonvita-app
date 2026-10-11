@@ -85,7 +85,7 @@ export function OrganizationMark({
     <span
       aria-hidden
       className={cn(
-        "h-7 w-7 shrink-0 rounded-full ring-2 ring-card flex items-center justify-center text-[10px] font-bold",
+        "h-7 w-7 shrink-0 rounded-full ring-2 ring-card flex items-center justify-center text-3xs font-bold",
         obec ? "bg-primary text-primary-foreground" : "bg-brand-sand-pale text-foreground",
         className,
       )}
@@ -164,7 +164,7 @@ export function EventCard({ event, className, ended }: { event: EventCardData; c
         )}
         {/* A tear-off calendar leaf — the date is what people scan a list of events by. */}
         <div className="absolute bottom-3 left-3 w-14 rounded-xl bg-card text-center shadow-sm overflow-hidden">
-          <div className="bg-primary text-primary-foreground text-[11px] font-semibold py-0.5">
+          <div className="bg-primary text-primary-foreground text-2xs font-semibold py-0.5">
             {date.toLocaleDateString("cs-CZ", { month: "short" }).replace(".", "")}
           </div>
           <div className="text-2xl font-extrabold leading-none tabular-nums py-1.5">{date.getDate()}</div>

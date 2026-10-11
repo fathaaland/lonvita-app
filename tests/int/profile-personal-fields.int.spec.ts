@@ -22,9 +22,16 @@ let otherObecAdmin: TestUser
 let platformAdmin: TestUser
 let eventId: number
 
-const PERSONAL = { phone: '+420 601 234 567', dateOfBirth: '1955-06-01T00:00:00.000Z', gender: 'zena' as const }
+const PERSONAL = { dateOfBirth: '1955-06-01T00:00:00.000Z', gender: 'zena' as const }
 
-const createUser = async (name: string, home: { id: number }, role = 'user'): Promise<TestUser> => {
+// A phone number belongs to one account (Profiles ensureUniquePhone) — each test user gets its own,
+// typed with spaces and stored in E.164.
+let phoneCounter = 0
+const nextPhone = () => `6${String(STAMP).slice(-7)}${phoneCounter++}`.replace(/^(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3')
+const e164 = (phone: string) => `+420${phone.replace(/\s/g, '')}`
+let residentPhone: string
+
+const createUser = async (name: string, home: { id: number }, role = 'user', phone = nextPhone()): Promise<TestUser> => {
   const user = await payload.create({
     collection: 'users',
     data: { email: `personal-${name}-${STAMP}@test.local`, password: 'test1234', role: role as 'user' },
@@ -32,7 +39,7 @@ const createUser = async (name: string, home: { id: number }, role = 'user'): Pr
   })
   await payload.create({
     collection: 'profiles',
-    data: { user: user.id, fullName: `Personal ${name}`, municipality: home.id, notifyEmail: false, ...PERSONAL },
+    data: { user: user.id, fullName: `Personal ${name}`, municipality: home.id, notifyEmail: false, phone, ...PERSONAL },
     overrideAccess: true,
   })
   return { ...user, collection: 'users' } as TestUser
@@ -71,7 +78,8 @@ describe('A profile’s personal details stay with its owner', () => {
       data: { name: `Personal Category ${STAMP}` },
       overrideAccess: true,
     })
-    resident = await createUser('resident', municipality)
+    residentPhone = nextPhone()
+    resident = await createUser('resident', municipality, 'user', residentPhone)
     neighbour = await createUser('neighbour', municipality)
     organizer = await createUser('organizer', municipality)
     obecAdmin = await createUser('obecadmin', municipality)
@@ -122,7 +130,7 @@ describe('A profile’s personal details stay with its owner', () => {
   it('the owner and a platform admin see everything', async () => {
     for (const viewer of [resident, platformAdmin]) {
       const profile = (await profileAs(resident, viewer))!
-      expect(profile.phone).toBe(PERSONAL.phone)
+      expect(profile.phone).toBe(e164(residentPhone))
       expect(profile.dateOfBirth).toBeTruthy()
       expect(profile.gender).toBe('zena')
       expect(profile.interests?.length).toBe(1)
@@ -134,7 +142,7 @@ describe('A profile’s personal details stay with its owner', () => {
   })
 
   it('nobody but a platform admin filters profiles by them', async () => {
-    const filters: Where[] = [{ phone: { equals: PERSONAL.phone } }, { dateOfBirth: { exists: true } }]
+    const filters: Where[] = [{ phone: { equals: e164(residentPhone) } }, { dateOfBirth: { exists: true } }]
     for (const where of filters) {
       await expect(
         payload.find({ collection: 'profiles', where, user: obecAdmin, overrideAccess: false }),
@@ -185,24 +193,25 @@ describe('A profile’s personal details stay with its owner', () => {
     })
 
     const seen = (await profileAs(resident, organizer))!
-    expect(seen.phone).toBe(PERSONAL.phone)
+    expect(seen.phone).toBe(e164(residentPhone))
     expect(seen.dateOfBirth).toBeUndefined()
     // The obec's admin manages every event in the obec — the phone with it.
-    expect((await profileAs(resident, obecAdmin))!.phone).toBe(PERSONAL.phone)
+    expect((await profileAs(resident, obecAdmin))!.phone).toBe(e164(residentPhone))
     // Not someone who isn't signed up for it.
     expect(await profileAs(neighbour, organizer)).toBeUndefined()
   })
 
   it('the owner changes them after onboarding', async () => {
     const profile = (await profileAs(resident, resident))!
+    const changedPhone = nextPhone()
     const updated = await payload.update({
       collection: 'profiles',
       id: profile.id,
-      data: { phone: '+420 777 000 111', gender: 'neuvedeno', interests: [] },
+      data: { phone: changedPhone, gender: 'neuvedeno', interests: [] },
       user: resident,
       overrideAccess: false,
     })
-    expect(updated.phone).toBe('+420 777 000 111')
+    expect(updated.phone).toBe(e164(changedPhone))
     expect(updated.gender).toBe('neuvedeno')
     await expect(
       payload.update({ collection: 'profiles', id: profile.id, data: { phone: '+420 600 000 000' }, user: neighbour, overrideAccess: false }),

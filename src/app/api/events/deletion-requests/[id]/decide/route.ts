@@ -199,8 +199,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     )
   }
 
-  // Collected up front — the registrations go with the event, and so would the ids of their
-  // reminder jobs.
+  // Collected up front — the registrations go with the event (Events cleanupEventRelations), and
+  // so would the ids of their reminder jobs.
   const registrants = await getEventRegistrants(payload, event.id, relationId(event.organizer)!)
   // Likewise everyone running it — the obec's admins included when it co-organizes.
   const team = await getEventTeamUserIds(payload, event, { exclude: [uid] })
@@ -208,32 +208,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const req = await createLocalReq({ user }, payload)
   const shouldCommit = await initTransaction(req)
   try {
-    const registrations = await payload.find({
-      collection: 'registrations',
-      where: { event: { equals: event.id } },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-      req,
-    })
-    if (registrations.docs.length > 0) {
-      await payload.delete({
-        collection: 'event-feedback',
-        where: { registration: { in: registrations.docs.map((r) => r.id) } },
-        overrideAccess: true,
-        req,
-      })
-    }
-    for (const collection of [
-      'review-complaints',
-      'volunteer-ratings',
-      'volunteer-invitations',
-      'registrations',
-      'event-media',
-      'co-organizing-requests',
-    ] as const) {
-      await payload.delete({ collection, where: { event: { equals: event.id } }, overrideAccess: true, req })
-    }
+    // Registrations, photos, invitations… go with the event (Events cleanupEventRelations).
     await payload.update({
       collection: 'event-deletion-requests',
       id: deletionRequest.id,
