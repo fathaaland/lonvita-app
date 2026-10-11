@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getPayload } from 'payload'
+import { APIError, getPayload } from 'payload'
 
 import config from '@payload-config'
 import { isEventCreator } from '@/collections/Events'
@@ -36,14 +36,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Akce už proběhla — upravit ji nejde.' }, { status: 400 })
   }
 
-  const updated = await payload.update({
-    collection: 'events',
-    id: event.id,
-    data: { isVolunteering: body.isVolunteering },
-    user,
-    overrideAccess: true,
-    // The creator's own change to their own event — nobody else needs telling.
-    context: { skipNotifications: true },
-  })
-  return NextResponse.json({ isVolunteering: Boolean(updated.isVolunteering) })
+  try {
+    const updated = await payload.update({
+      collection: 'events',
+      id: event.id,
+      data: { isVolunteering: body.isVolunteering },
+      user,
+      overrideAccess: true,
+      // The creator's own change to their own event — nobody else needs telling.
+      context: { skipNotifications: true },
+    })
+    return NextResponse.json({ isVolunteering: Boolean(updated.isVolunteering) })
+  } catch (error) {
+    // E.g. a volunteer has signed up meanwhile — the mark stays (Events guardIsVolunteering).
+    if (error instanceof APIError && error.status < 500) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+    throw error
+  }
 }

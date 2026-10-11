@@ -192,4 +192,22 @@ describe('Organizátoři v mém městě', () => {
     const directory = await loadOrganizersDirectory(payload, String(municipality.id), club.id)
     expect(directory.find((o) => o.name === `Kavárna ${STAMP}`)!.contact).toEqual({ email: cafe.email })
   })
+
+  it('drops an organizer once the obec takes the role away — the organization and its events stay', async () => {
+    const [role] = (
+      await payload.find({
+        collection: 'user-roles',
+        where: { and: [{ user: { equals: club.id } }, { municipality: { equals: municipality.id } }, { role: { equals: 'organizer' } }] },
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+      })
+    ).docs
+    await payload.delete({ collection: 'user-roles', id: role.id, user: obecAdmin, overrideAccess: false })
+
+    const directory = await loadOrganizersDirectory(payload, String(municipality.id), cafe.id)
+    expect(directory.map((o) => o.name)).toEqual([`Kavárna ${STAMP}`])
+    const kept = await payload.count({ collection: 'organizations', where: { owner: { equals: club.id } }, overrideAccess: true })
+    expect(kept.totalDocs).toBe(1)
+  })
 })

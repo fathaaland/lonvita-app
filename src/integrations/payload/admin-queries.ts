@@ -478,6 +478,19 @@ export async function getOrganizersForAdmin(municipalityId: string): Promise<Org
   });
 }
 
+/** An event the organizer still runs in the obec — while there's any, their role can't be revoked. */
+export type RunningOrganizerEvent = {
+  id: string;
+  title: string;
+  date_time: string;
+  /** As its pořadatel, or through their organization among its spolupořadatelé. */
+  organizes: "runs" | "co-organizes";
+};
+
+export async function getRunningEventsOfOrganizer(userRoleId: string): Promise<RunningOrganizerEvent[]> {
+  return (await get<{ events: RunningOrganizerEvent[] }>(`/user-roles/${userRoleId}/running-events`)).events;
+}
+
 export async function revokeOrganizerRole(userRoleId: string): Promise<void> {
   await del(`/user-roles/${userRoleId}`);
 }

@@ -131,6 +131,8 @@ export type EventRow = {
   is_paid?: boolean;
   price_cents?: number | null;
   is_volunteering?: boolean;
+  /** A volunteer has signed up — the creator can't take the volunteering mark off any more. */
+  volunteering_locked?: boolean;
   /** The viewer organizes an event the obec takes part in — may help with attendees, not edit/cancel. */
   locked_for_viewer: boolean;
   /** The viewer runs it with other organizers — deleting needs their consent (requestEventDeletion). */
@@ -179,6 +181,7 @@ type PayloadEvent = {
   isVolunteering?: boolean;
   lockedForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
+  volunteeringLocked?: boolean | null;
   obecLeftAt?: string | null;
   updatedAt?: string;
 };
@@ -222,6 +225,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   is_volunteering: e.isVolunteering,
   locked_for_viewer: Boolean(e.lockedForViewer),
   deletion_needs_consent: Boolean(e.deletionNeedsConsent),
+  volunteering_locked: Boolean(e.volunteeringLocked),
   obec_left: Boolean(e.obecLeftAt),
   updated_at: e.updatedAt ?? null,
 });

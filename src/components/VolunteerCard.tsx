@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, Check, HandHeart, Mail, MapPin, Pencil, Phone, UserRound, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, HandHeart, Mail, Pencil, Phone, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   declinePoolInvitation,
@@ -79,15 +80,14 @@ function draftFrom(profile: ProfileRow, accountEmail: string): Draft {
   };
 }
 
-/** Brief §7 "Přihlášení do poolu dobrovolníků" — one pool for the whole platform: whoever organizes
- * anywhere may reach out, only through the channels allowed here. Three states: an invitation to
- * join, the form, and — once in — a summary with "Upravit" and "Odejít z poolu". */
-export function VolunteerCard() {
+/** Everything about the signed-in person's own place in the pool — the form's draft, joining or
+ * saving, leaving, and what they're committed to (invitations, events they help on). Shared by the
+ * profile (joining) and their volunteer card (editing, leaving). */
+function useVolunteerPool() {
   const { user, profile, refreshProfile } = useAuth();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [confirmLeave, setConfirmLeave] = useState(false);
   const [invitations, setInvitations] = useState<VolunteerInvitationRow[]>([]);
   const [shifts, setShifts] = useState<VolunteerShiftRow[]>([]);
   const [decidingId, setDecidingId] = useState<string | null>(null);
@@ -124,8 +124,6 @@ export function VolunteerCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, inPool]);
 
-  if (!profile || !user) return null;
-
   const decide = async (invitation: VolunteerInvitationRow, accept: boolean) => {
     setDecidingId(invitation.id);
     try {
@@ -141,6 +139,7 @@ export function VolunteerCard() {
 
   /** `municipalityId` — accepting an obec's invitation starts with that obec as where they help. */
   const startEditing = (municipalityId?: string) => {
+    if (!profile || !user) return;
     const base = draftFrom(profile, user.email);
     setDraft(municipalityId ? { ...base, municipalityId } : base);
     setEditing(true);
@@ -161,13 +160,24 @@ export function VolunteerCard() {
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
 
-  const save = async () => {
-    if (!draft) return;
-    if (!draft.municipalityId) return toast.error("Vyberte na mapě obec, kde chcete pomáhat.");
-    if (draft.focus.length === 0) return toast.error("Vyberte alespoň jednu oblast, ve které chcete pomoci.");
-    if (!draft.allowEmail && !draft.allowPhone) return toast.error("Vyberte, jak vás mohou pořadatelé oslovit.");
-    if (draft.allowEmail && !draft.email.trim()) return toast.error("Vyplňte kontaktní e-mail.");
-    if (draft.allowPhone && !draft.phone.trim()) return toast.error("Vyplňte kontaktní telefon.");
+  /** Resolves true once saved. */
+  const save = async (): Promise<boolean> => {
+    if (!draft || !profile) return false;
+    const problem = !draft.municipalityId
+      ? "Vyberte na mapě obec, kde chcete pomáhat."
+      : draft.focus.length === 0
+        ? "Vyberte alespoň jednu oblast, ve které chcete pomoci."
+        : !draft.allowEmail && !draft.allowPhone
+          ? "Vyberte, jak vás mohou pořadatelé oslovit."
+          : draft.allowEmail && !draft.email.trim()
+            ? "Vyplňte kontaktní e-mail."
+            : draft.allowPhone && !draft.phone.trim()
+              ? "Vyplňte kontaktní telefon."
+              : null;
+    if (problem) {
+      toast.error(problem);
+      return false;
+    }
 
     setSaving(true);
     try {
@@ -184,28 +194,83 @@ export function VolunteerCard() {
       await refreshProfile();
       toast.success(inPool ? "Uloženo." : "Jste v poolu dobrovolníků.");
       setEditing(false);
+      return true;
     } catch (error) {
       toast.error(error instanceof PayloadApiError && error.status === 400 ? error.message : "Nepodařilo se uložit.");
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  const leave = async () => {
+  /** Resolves true once out of the pool. */
+  const leave = async (): Promise<boolean> => {
+    if (!profile) return false;
     setSaving(true);
     try {
       await updateProfile(profile.id, { isVolunteer: false });
       await refreshProfile();
       toast.success("Odešli jste z poolu dobrovolníků.");
-      setConfirmLeave(false);
       setEditing(false);
-      await loadCommitments();
+      return true;
     } catch {
       toast.error("Nepodařilo se odejít z poolu.");
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  return {
+    user,
+    profile,
+    inPool,
+    editing,
+    setEditing,
+    draft,
+    set,
+    saving,
+    invitations,
+    shifts,
+    decidingId,
+    poolInvitations,
+    municipalities,
+    decide,
+    startEditing,
+    declinePool,
+    save,
+    leave,
+  };
+}
+
+/** Brief §7 "Přihlášení do poolu dobrovolníků" — one pool for the whole platform: whoever organizes
+ * anywhere may reach out, only through the channels allowed here. On the profile it's the way in:
+ * an invitation to join, then the form. Once in, the profile only leads to their volunteer card,
+ * where they edit it or leave (VolunteerSelfPanel). */
+export function VolunteerCard() {
+  const pool = useVolunteerPool();
+  const { user, profile, inPool, editing, draft, poolInvitations, decidingId } = pool;
+
+  if (!profile || !user) return null;
+
+  if (inPool && !editing) {
+    const waiting = pool.invitations.length;
+    return (
+      <Button asChild variant="outline" className="w-full h-14 text-base">
+        <Link href={`/dobrovolnik/${user.id}`}>
+          <HandHeart className="h-5 w-5" /> Moje karta dobrovolníka
+          {waiting > 0 && (
+            <span
+              className="ml-1 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground"
+              aria-label={`Pozvánky k pomoci: ${waiting}`}
+            >
+              {waiting}
+            </span>
+          )}
+        </Link>
+      </Button>
+    );
+  }
 
   return (
     <Card>
@@ -215,24 +280,22 @@ export function VolunteerCard() {
           <div className="flex-1 min-w-0">
             <p className="font-bold">Pool dobrovolníků</p>
             <p className="text-sm text-muted-foreground">
-              {inPool && !editing
-                ? `Jste v poolu od ${new Date(profile.volunteer_since ?? Date.now()).toLocaleDateString("cs-CZ")}. Pořadatelé vás mohou oslovit, když budou potřebovat pomoc.`
-                : "Pořadatelé akcí vás budou moci oslovit, když budou potřebovat pomoc — jen tak, jak povolíte."}
+              Pořadatelé akcí vás budou moci oslovit, když budou potřebovat pomoc — jen tak, jak povolíte.
             </p>
           </div>
         </div>
 
-        {!inPool && !editing && poolInvitations.length > 0 && (
+        {!editing && poolInvitations.length > 0 && (
           <ul className="space-y-2">
             {poolInvitations.map((inv) => (
               <li key={inv.id} className="rounded-lg border border-primary/30 bg-primary-soft/40 p-3 space-y-2">
                 <p className="text-sm font-semibold">Obec {inv.municipality_name} vás zve do poolu dobrovolníků.</p>
                 {inv.message && <p className="text-sm text-muted-foreground">„{inv.message}“</p>}
                 <div className="grid grid-cols-2 gap-2">
-                  <Button className="h-10" disabled={decidingId === inv.id} onClick={() => startEditing(inv.municipality_id)}>
+                  <Button className="h-10" disabled={decidingId === inv.id} onClick={() => pool.startEditing(inv.municipality_id)}>
                     Přidat se
                   </Button>
-                  <Button variant="outline" className="h-10" disabled={decidingId === inv.id} onClick={() => declinePool(inv)}>
+                  <Button variant="outline" className="h-10" disabled={decidingId === inv.id} onClick={() => pool.declinePool(inv)}>
                     Odmítnout
                   </Button>
                 </div>
@@ -241,58 +304,90 @@ export function VolunteerCard() {
           </ul>
         )}
 
-        {editing && draft ? (
-          <VolunteerForm draft={draft} set={set} municipalities={municipalities} />
-        ) : inPool ? (
-          <>
-            {invitations.length > 0 && (
-              <InvitationList invitations={invitations} decidingId={decidingId} onDecide={decide} />
-            )}
-            <VolunteerSummary
-              profile={profile}
-              userId={String(user.id)}
-              placeName={municipalities.find((m) => m.id === profile.volunteer_municipality_id)?.name ?? null}
-            />
-          </>
-        ) : null}
-
-        {!editing && shifts.length > 0 && <ShiftList shifts={shifts} />}
+        {editing && draft && <VolunteerForm draft={draft} set={pool.set} municipalities={pool.municipalities} />}
 
         {editing ? (
           <div className="flex flex-col gap-2 pt-1">
-            <Button className="w-full h-11" onClick={save} disabled={saving}>
-              {saving ? "Ukládám…" : inPool ? "Uložit změny" : "Přihlásit se do poolu"}
+            <Button className="w-full h-11" onClick={pool.save} disabled={pool.saving}>
+              {pool.saving ? "Ukládám…" : inPool ? "Uložit změny" : "Přihlásit se do poolu"}
             </Button>
             <Button
               variant="ghost"
               className="w-full h-11 text-muted-foreground"
-              onClick={() => setEditing(false)}
-              disabled={saving}
+              onClick={() => pool.setEditing(false)}
+              disabled={pool.saving}
             >
               Zrušit
             </Button>
           </div>
-        ) : inPool ? (
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="outline" className="h-11 sm:flex-1" onClick={() => startEditing()}>
-              <Pencil className="h-4 w-4" /> Upravit
-            </Button>
-            <Button
-              variant="outline"
-              className="h-11 sm:flex-1 text-destructive hover:text-destructive"
-              onClick={() => setConfirmLeave(true)}
-            >
-              Odejít z poolu
-            </Button>
-          </div>
         ) : (
           poolInvitations.length === 0 && (
-            <Button className="w-full h-11" onClick={() => startEditing()}>
+            <Button className="w-full h-11" onClick={() => pool.startEditing()}>
               Chci pomáhat
             </Button>
           )
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+/** On their own volunteer card: invitations waiting for their answer, "Upravit" (the pool form) and
+ * "Odejít z poolu". `onSaved` reloads the card; leaving takes them back to the profile — the card is
+ * gone while they're out of the pool. */
+export function VolunteerSelfPanel({ onSaved }: { onSaved: () => void }) {
+  const router = useRouter();
+  const pool = useVolunteerPool();
+  const { inPool, editing, draft, invitations, shifts, saving } = pool;
+  const [confirmLeave, setConfirmLeave] = useState(false);
+
+  if (!pool.profile || !pool.user || !inPool) return null;
+
+  return (
+    <div className="space-y-4">
+      {!editing && invitations.length > 0 && (
+        <InvitationList invitations={invitations} decidingId={pool.decidingId} onDecide={pool.decide} />
+      )}
+
+      {editing && draft ? (
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <VolunteerForm draft={draft} set={pool.set} municipalities={pool.municipalities} />
+            <div className="flex flex-col gap-2 pt-1">
+              <Button
+                className="w-full h-11"
+                disabled={saving}
+                onClick={async () => {
+                  if (await pool.save()) onSaved();
+                }}
+              >
+                {saving ? "Ukládám…" : "Uložit změny"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full h-11 text-muted-foreground"
+                onClick={() => pool.setEditing(false)}
+                disabled={saving}
+              >
+                Zrušit
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button variant="outline" className="h-12 sm:flex-1" onClick={() => pool.startEditing()}>
+            <Pencil className="h-4 w-4" /> Upravit
+          </Button>
+          <Button
+            variant="outline"
+            className="h-12 sm:flex-1 text-destructive hover:text-destructive"
+            onClick={() => setConfirmLeave(true)}
+          >
+            Odejít z poolu
+          </Button>
+        </div>
+      )}
 
       <AlertDialog open={confirmLeave} onOpenChange={(open) => !saving && setConfirmLeave(open)}>
         <AlertDialogContent>
@@ -324,9 +419,12 @@ export function VolunteerCard() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={saving}>Zůstat</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.preventDefault();
-                leave();
+                if (await pool.leave()) {
+                  setConfirmLeave(false);
+                  router.push("/profil");
+                }
               }}
               disabled={saving}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -336,7 +434,7 @@ export function VolunteerCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </div>
   );
 }
 
@@ -398,78 +496,6 @@ function InvitationList({
         </div>
       ))}
     </section>
-  );
-}
-
-/** The upcoming events the volunteer has said yes to. */
-function ShiftList({ shifts }: { shifts: VolunteerShiftRow[] }) {
-  return (
-    <section className="space-y-1.5" aria-label="Kde pomáháte">
-      <p className="text-sm font-semibold">Kde pomáháte</p>
-      <ul className="space-y-1">
-        {shifts.map((s) => (
-          <li key={s.registration_id}>
-            <Link
-              href={`/akce/${s.event_id}`}
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
-            >
-              <CalendarCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <span className="flex-1 truncate font-medium">{s.title}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">{formatWhen(s.date_time)}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function VolunteerSummary({
-  profile,
-  userId,
-  placeName,
-}: {
-  profile: ProfileRow;
-  userId: string;
-  placeName: string | null;
-}) {
-  return (
-    <div className="space-y-3">
-      {placeName && (
-        <p className="flex items-center gap-2 text-sm">
-          <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          Pomáhám v obci <span className="font-semibold">{placeName}</span>
-        </p>
-      )}
-      <div className="flex flex-wrap gap-1.5">
-        {(profile.volunteer_focus ?? []).map((f) => (
-          <span key={f} className="rounded-full bg-primary-soft px-3 py-1 text-sm font-semibold text-brand-purple-dark">
-            {focusLabel(f)}
-          </span>
-        ))}
-      </div>
-      <div className="space-y-1 text-sm">
-        {profile.volunteer_allow_email && profile.volunteer_contact_email && (
-          <p className="flex items-center gap-2">
-            <Mail className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="truncate">{profile.volunteer_contact_email}</span>
-          </p>
-        )}
-        {profile.volunteer_allow_phone && profile.volunteer_contact_phone && (
-          <p className="flex items-center gap-2">
-            <Phone className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-            {profile.volunteer_contact_phone}
-          </p>
-        )}
-      </div>
-      {profile.volunteer_note && <p className="text-sm text-muted-foreground">„{profile.volunteer_note}“</p>}
-      <Link
-        href={`/dobrovolnik/${userId}`}
-        className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
-      >
-        <UserRound className="h-4 w-4" aria-hidden /> Moje karta dobrovolníka
-      </Link>
-    </div>
   );
 }
 

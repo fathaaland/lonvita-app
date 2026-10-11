@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { CalendarCheck, CalendarClock, HandHeart, Mail, MapPin, Pencil, Phone, Send } from "lucide-react";
+import { CalendarCheck, CalendarClock, HandHeart, Mail, MapPin, Phone, Send } from "lucide-react";
 import { getVolunteerDetail, VolunteerDetail } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { UserAvatar } from "@/components/UserAvatar";
 import { RatingStars } from "@/components/RatingStars";
 import { ReportReviewAction } from "@/components/ReportReviewAction";
-import { focusLabel } from "@/components/VolunteerCard";
+import { focusLabel, VolunteerSelfPanel } from "@/components/VolunteerCard";
 import { InviteVolunteerDialog } from "@/components/InviteVolunteerDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,7 +24,8 @@ const ratingsLabel = (n: number) => (n === 1 ? "1 hodnocení" : `${n} hodnocení
 
 /** A volunteer's card — what an organizer looks at before inviting them, and what the volunteer
  * sees of themselves under "Dobrovolník": where they help, their ratings from organizers and the
- * events they've helped on. Gone while they're out of the pool (the data waits for them). */
+ * events they've helped on. Their own is also where they answer invitations, edit their place in the
+ * pool and leave it (VolunteerSelfPanel). Gone while they're out of the pool (the data waits for them). */
 function VolunteerContent() {
   const { id } = useParams<{ id: string }>();
   const { isOrganizer, isAdmin } = useAuth();
@@ -109,20 +110,12 @@ function VolunteerContent() {
           </div>
         </section>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          {canInvite && (
-            <Button className="h-12 sm:flex-1" onClick={() => setInviting(true)}>
-              <Send className="h-4 w-4" /> Pozvat na akci
-            </Button>
-          )}
-          {isSelf && (
-            <Button asChild variant="outline" className="h-12 sm:flex-1">
-              <Link href="/profil">
-                <Pencil className="h-4 w-4" /> Upravit v profilu
-              </Link>
-            </Button>
-          )}
-        </div>
+        {canInvite && (
+          <Button className="h-12 w-full" onClick={() => setInviting(true)}>
+            <Send className="h-4 w-4" /> Pozvat na akci
+          </Button>
+        )}
+        {isSelf && <VolunteerSelfPanel onSaved={() => setReloadKey((k) => k + 1)} />}
 
         <Card>
           <CardContent className="p-4 space-y-4">

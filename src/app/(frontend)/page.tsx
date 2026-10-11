@@ -134,7 +134,7 @@ function IndexContent() {
     setCategoryId(searchParams.get("kategorie"));
   }, [searchParams]);
 
-  // Landed here from the profile's "Smazat účet" (DeleteAccountCard) — say it worked, once.
+  // Landed here from the profile's "Smazat účet" (DeleteAccountButton) — say it worked, once.
   useEffect(() => {
     if (searchParams.get("ucet-smazan") !== "1") return;
     toast.success("Účet byl smazán. Děkujeme, že jste byli s námi.");

@@ -459,6 +459,7 @@ export interface Event {
   obecLeftAt?: string | null;
   lockedForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
+  volunteeringLocked?: boolean | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
   /**
    * Temporarily unpublish the event without cancelling it — registrations and data stay intact, it just drops out of the public feed/map.
@@ -1275,6 +1276,7 @@ export interface EventsSelect<T extends boolean = true> {
   obecLeftAt?: T;
   lockedForViewer?: T;
   deletionNeedsConsent?: T;
+  volunteeringLocked?: T;
   status?: T;
   isHidden?: T;
   categories?: T;

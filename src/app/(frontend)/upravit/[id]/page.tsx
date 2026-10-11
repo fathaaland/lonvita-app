@@ -136,7 +136,11 @@ function EditEventContent() {
         {/* The obec locks the event's creator out of editing it, but not out of its volunteering. */}
         {event && volunteering === "set" && event.status !== "finished" && (
           <div className="px-4 pb-6">
-            <VolunteeringCard eventId={event.id} isVolunteering={Boolean(event.is_volunteering)} />
+            <VolunteeringCard
+              eventId={event.id}
+              isVolunteering={Boolean(event.is_volunteering)}
+              locked={Boolean(event.volunteering_locked)}
+            />
           </div>
         )}
       </div>

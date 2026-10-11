@@ -524,6 +524,7 @@ function EventDetailContent() {
           <VolunteeringCard
             eventId={event.id}
             isVolunteering={Boolean(event.is_volunteering)}
+            locked={Boolean(event.volunteering_locked)}
             onChanged={(isVolunteering) => setEvent((ev) => (ev ? { ...ev, is_volunteering: isVolunteering } : ev))}
           />
         )}

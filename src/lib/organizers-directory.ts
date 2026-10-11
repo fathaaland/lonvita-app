@@ -50,18 +50,32 @@ export async function organizesIn(
 }
 
 /** Every organization that organizes in the obec (not the obec's own), with the same headline numbers
- * as their Organizace page — computed here, since a fellow organizer can't read the registrations. */
+ * as their Organizace page — computed here, since a fellow organizer can't read the registrations.
+ * An organization whose owner has lost the organizer role stays (its events go on) but no longer
+ * organizes here, so it isn't listed — mirrors co-organizer-candidates. */
 export async function loadOrganizersDirectory(
   payload: Payload,
   municipalityId: string,
   viewerId: number,
 ): Promise<OrganizerProfile[]> {
+  const roles = await payload.find({
+    collection: 'user-roles',
+    where: { and: [{ municipality: { equals: municipalityId } }, { role: { equals: 'organizer' } }] },
+    select: { user: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  const organizerIds = [...new Set(roles.docs.map((r) => toId(r.user)).filter((id): id is string => id !== null))]
+  if (organizerIds.length === 0) return []
+
   const organizations = await payload.find({
     collection: 'organizations',
     where: {
       and: [
         { municipality: { equals: municipalityId } },
         { type: { not_equals: MUNICIPALITY_ORGANIZATION_TYPE } },
+        { owner: { in: organizerIds } },
         notDeleted,
       ],
     },

@@ -16,7 +16,7 @@ import {
   isLoggedIn,
 } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
-import { getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
+import { getEventTeamUserIds, sendNotificationToMany } from './shared/notify'
 import { PARTICIPANTS_ONLY } from './Registrations'
 import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
 
@@ -95,25 +95,6 @@ const validateVolunteerContact: CollectionBeforeChangeHook = ({ data, originalDo
     data.volunteerSince = new Date().toISOString()
   }
   return data
-}
-
-const notifyOnVolunteerSignup: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
-  if (operation !== 'update') return doc
-  if (!doc.isVolunteer || previousDoc?.isVolunteer) return doc
-
-  sendNotification(req.payload, {
-    userId: typeof doc.user === 'object' ? doc.user.id : doc.user,
-    title: 'Přihlášení do poolu dobrovolníků',
-    // Their own card in the pool — what organizers see before inviting them.
-    link: `/dobrovolnik/${typeof doc.user === 'object' ? doc.user.id : doc.user}`,
-    message: 'Jste v poolu dobrovolníků. Pořadatelé akcí vás teď mohou oslovit, když budou potřebovat pomoc.',
-    email: {
-      subject: 'Přihlášení do poolu dobrovolníků',
-      body: '<p>Jste v poolu dobrovolníků. Pořadatelé akcí vás teď mohou oslovit, když budou potřebovat pomoc — jen tak, jak jste v profilu povolili.</p>',
-    },
-  })
-
-  return doc
 }
 
 const relId = (value: number | { id: number }): number => (typeof value === 'object' ? value.id : value)
@@ -452,7 +433,7 @@ export const Profiles: CollectionConfig = {
   ],
   hooks: {
     beforeChange: [validateVolunteerContact, ensureUniquePhone],
-    afterChange: [notifyOnVolunteerSignup, handleLeavingPool, acceptPoolInvitations],
+    afterChange: [handleLeavingPool, acceptPoolInvitations],
   },
   timestamps: true,
 }

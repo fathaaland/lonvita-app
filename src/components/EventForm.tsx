@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ImagePlus } from "lucide-react";
+import { HandHeart, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
@@ -139,6 +139,8 @@ export function EventForm({
   const [submitting, setSubmitting] = useState(false);
 
   const volunteeringLocked = volunteering === "none";
+  // A volunteer has signed up — the mark stays (Events guardIsVolunteering), so there's nothing to untick.
+  const volunteeringKept = Boolean(initial?.volunteering_locked);
   const savedCoOrganizationIds = new Set((initial?.co_organizations ?? []).map((o) => o.id));
   const pendingIds = pendingCoOrganizations.map((o) => o.id);
   // Inviting the obec hands the event over to it once it accepts (Events lockedEventIds) — worth
@@ -468,21 +470,28 @@ export function EventForm({
         )}
       </div>
 
-      <label className={cn("flex items-start gap-2.5 text-sm", volunteeringLocked ? "opacity-70" : "cursor-pointer")}>
-        <Checkbox
-          checked={isVolunteering}
-          disabled={volunteeringLocked}
-          onCheckedChange={(v) => setIsVolunteering(v === true)}
-          className="mt-0.5"
-        />
-        <span>
-          {volunteering === "set"
-            ? "Tohle je dobrovolnická aktivita."
-            : isVolunteering
-              ? "Dobrovolnická aktivita — příznak spravuje ten, kdo akci založil."
-              : "Příznak Dobrovolnictví může přidat jen ten, kdo akci založil."}
-        </span>
-      </label>
+      {volunteeringKept ? (
+        <p className="flex items-start gap-2.5 text-sm">
+          <HandHeart className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden />
+          <span>Dobrovolnická aktivita — přihlásil se už dobrovolník, takže označení zůstává.</span>
+        </p>
+      ) : (
+        <label className={cn("flex items-start gap-2.5 text-sm", volunteeringLocked ? "opacity-70" : "cursor-pointer")}>
+          <Checkbox
+            checked={isVolunteering}
+            disabled={volunteeringLocked}
+            onCheckedChange={(v) => setIsVolunteering(v === true)}
+            className="mt-0.5"
+          />
+          <span>
+            {volunteering === "set"
+              ? "Tohle je dobrovolnická aktivita."
+              : isVolunteering
+                ? "Dobrovolnická aktivita — příznak spravuje ten, kdo akci založil."
+                : "Příznak Dobrovolnictví může přidat jen ten, kdo akci založil."}
+          </span>
+        </label>
+      )}
 
       <label className="flex items-start gap-2.5 text-sm cursor-pointer">
         <Checkbox checked={isPaid} onCheckedChange={(v) => setIsPaid(v === true)} className="mt-0.5" />

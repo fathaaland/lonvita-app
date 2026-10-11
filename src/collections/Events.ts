@@ -326,22 +326,47 @@ const canDeleteEvent: Access = async ({ req }) => {
 
 const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } | null } }) => user?.role === 'admin'
 
+/** Whether a volunteer has signed up for the event — offered to help (still waiting on the creator),
+ * or is on it (an accepted offer or invitation). From then on the event stays a volunteering one. */
+export async function hasVolunteersSignedUp(req: PayloadRequest, eventId: number | string): Promise<boolean> {
+  const [onEvent, offers] = await Promise.all([
+    req.payload.count({
+      collection: 'registrations',
+      where: { and: [{ event: { equals: eventId } }, { role: { equals: 'volunteer' } }, { status: { in: ['pending', 'approved'] } }] },
+      overrideAccess: true,
+      req,
+    }),
+    req.payload.count({
+      collection: 'volunteer-invitations',
+      where: { and: [{ event: { equals: eventId } }, { kind: { equals: 'application' } }, { status: { equals: 'pending' } }] },
+      overrideAccess: true,
+      req,
+    }),
+  ])
+  return onEvent.totalDocs + offers.totalDocs > 0
+}
+
 /**
  * The volunteering flag is the event creator's (`organizer`) alone — they mark their event as one
- * for volunteers themselves, no obec approval needed, and take the mark off again. Not a
+ * for volunteers themselves, no obec approval needed, also later on, before it takes place. Not a
  * spolupořadatel's, not the obec's — whether it co-organizes the event or merely oversees it. A
  * platform admin may always, and so may trusted internal writes (no user). Anyone else's attempt is
- * dropped.
+ * dropped. Once a volunteer has signed up (hasVolunteersSignedUp) the mark stays — nobody takes it off.
  */
-const guardIsVolunteering: CollectionBeforeChangeHook = ({ data, req, originalDoc }) => {
+const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, originalDoc }) => {
   if (!data || data.isVolunteering === undefined) return data
   if (data.isVolunteering === Boolean(originalDoc?.isVolunteering)) return data
 
   const { user } = req
-  if (!user || user.role === 'admin') return data
+  if (!user) return data
 
-  if (relationId(data.organizer ?? originalDoc?.organizer) !== String(user.id)) {
+  if (user.role !== 'admin' && relationId(data.organizer ?? originalDoc?.organizer) !== String(user.id)) {
     data.isVolunteering = originalDoc?.isVolunteering ?? false
+    return data
+  }
+
+  if (!data.isVolunteering && originalDoc?.id && (await hasVolunteersSignedUp(req, originalDoc.id))) {
+    throw new APIError('Na akci se už přihlásil dobrovolník — označení dobrovolnické akce už odebrat nejde.', 400)
   }
 
   return data
@@ -551,6 +576,15 @@ const resolveDeletionNeedsConsent: FieldHook = async ({ req, siblingData }) => {
   // Locked out entirely — there's nothing for them to delete.
   const locked = await lockedEventIds(req, user.id, [event], await administeredIdsFor(req, user.id))
   return !locked.has(String(event.id))
+}
+
+/** Only resolved for whoever may set the flag (the creator, a platform admin) on a volunteering
+ * event — so a public listing doesn't pay for the lookup per event. */
+const resolveVolunteeringLocked: FieldHook = async ({ req, siblingData }) => {
+  const { user } = req
+  if (!user || !siblingData?.id || !siblingData.isVolunteering) return false
+  if (!isEventCreator(user, siblingData as EventOwnership)) return false
+  return hasVolunteersSignedUp(req, siblingData.id)
 }
 
 /** A new event can't start in the past, and neither can one that gets rescheduled — but the
@@ -1197,6 +1231,16 @@ export const Events: CollectionConfig = {
       access: { create: () => false, update: () => false },
       admin: { hidden: true },
       hooks: { afterRead: [resolveDeletionNeedsConsent] },
+    },
+    {
+      // Tells the creator's form and Dobrovolnictví card to drop the "take the mark off" control —
+      // guardIsVolunteering is what actually enforces it.
+      name: 'volunteeringLocked',
+      type: 'checkbox',
+      virtual: true,
+      access: { create: () => false, update: () => false },
+      admin: { hidden: true },
+      hooks: { afterRead: [resolveVolunteeringLocked] },
     },
     {
       name: 'status',

@@ -17,6 +17,7 @@ import { escapeHtml, sendNotification } from './shared/notify'
 import { ensureOrganization } from './Organizations'
 import { notYetEnded, obecRole, releasePlacesOfTeam } from './Events'
 import { notDeleted } from './shared/softDelete'
+import { findRunningEvents } from './shared/runningEvents'
 import type { OrganizationType } from '@/lib/organizations'
 
 const relId = (value: number | { id: number }): number =>
@@ -154,6 +155,38 @@ const keepLastMunicipalityAdmin: CollectionBeforeOperationHook = async ({ args, 
   return args
 }
 
+/**
+ * The organizer role doesn't go while its holder still runs events in the obec — they'd go on under
+ * someone who no longer organizes there. Once they've taken place or been cancelled, it can. Only
+ * when access control applies, like keepLastMunicipalityAdmin: deleting an organization or an
+ * account handles its events itself.
+ */
+const keepRunningEventsOrganized: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'delete') return args
+  const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
+  if (overrideAccess !== false || !req.user) return args
+
+  const removing = await req.payload.find({
+    collection: 'user-roles',
+    where: { and: [id !== undefined ? { id: { equals: id } } : (where ?? {}), { role: { equals: 'organizer' } }] },
+    select: { user: true, municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  for (const role of removing.docs) {
+    const running = await findRunningEvents(req, relId(role.user), relId(role.municipality))
+    if (running.length > 0) {
+      throw new APIError(
+        `Organizátor má v obci ${running.length === 1 ? 'rozjetou akci' : `rozjeté akce (${running.length})`} — roli mu půjde odebrat, až proběhnou, nebo když se zruší.`,
+        409,
+      )
+    }
+  }
+  return args
+}
+
 export const UserRoles: CollectionConfig = {
   slug: 'user-roles',
   labels: {
@@ -222,7 +255,7 @@ export const UserRoles: CollectionConfig = {
     },
   ],
   hooks: {
-    beforeOperation: [keepLastMunicipalityAdmin],
+    beforeOperation: [keepLastMunicipalityAdmin, keepRunningEventsOrganized],
     beforeValidate: [
       async ({ data, req, operation, originalDoc }) => {
         if (!data?.user || !data?.role || !data?.municipality) return data
@@ -432,7 +465,7 @@ export const UserRoles: CollectionConfig = {
         const what = doc.role === 'organizer' ? 'roli organizátora' : 'roli admina obce'
         const after =
           doc.role === 'organizer'
-            ? 'Nové akce tam zakládat nemůžete. Akce, které už pořádáte, zůstávají — s dotazy se obraťte na obec.'
+            ? 'Nové akce tam zakládat nemůžete. S dotazy se obraťte na obec.'
             : 'Administraci obce už neuvidíte.'
         sendNotification(req.payload, {
           userId: relId(doc.user),

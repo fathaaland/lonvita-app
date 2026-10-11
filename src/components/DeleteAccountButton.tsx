@@ -9,7 +9,6 @@ import { deleteMyAccount, getAccountDeletionBlockers, type AccountDeletionBlocke
 import { ACCOUNT_DELETION_CONFIRMATION } from "@/lib/accountDeletion";
 import { formatEventDateTime } from "@/lib/date";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -23,11 +22,11 @@ import {
 } from "@/components/ui/alert-dialog";
 
 /**
- * "Smazat účet" — the person goes, what they took part in stays, anonymized, in the obec's and the
- * organizers' overviews (shared/anonymizeUser). An organizer still running an event ahead is shown
+ * "Smazat účet" — styled like the profile's "Odhlásit se", only red. The person goes, what they
+ * took part in stays, anonymized, in the obec's and the organizers' overviews (shared/anonymizeUser). An organizer still running an event ahead is shown
  * which ones, and an obec's only admin which obec, instead of the button. Typing the confirmation word guards against a stray tap.
  */
-export function DeleteAccountCard() {
+export function DeleteAccountButton() {
   const [open, setOpen] = useState(false);
   const [blockers, setBlockers] = useState<AccountDeletionBlockers | null>(null);
   const [confirmation, setConfirmation] = useState("");
@@ -55,18 +54,14 @@ export function DeleteAccountCard() {
   const blocked = blockers !== null && (blockers.blockingEvents.length > 0 || blockers.soleAdminOf.length > 0);
 
   return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <div>
-          <p className="font-bold">Smazat účet</p>
-          <p className="text-sm text-muted-foreground">
-            Vaše jméno, kontakty a fotka se smažou. To, čeho jste se účastnili, zůstane obci jen jako anonymní statistika.
-          </p>
-        </div>
-        <Button onClick={openDialog} variant="outline" className="w-full h-12 text-destructive hover:text-destructive">
-          <Trash2 className="h-4 w-4" /> Smazat účet
-        </Button>
-      </CardContent>
+    <>
+      <Button
+        onClick={openDialog}
+        variant="outline"
+        className="w-full h-14 text-base text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+      >
+        <Trash2 className="h-5 w-5" /> Smazat účet
+      </Button>
 
       <AlertDialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
         <AlertDialogContent>
@@ -97,16 +92,10 @@ export function DeleteAccountCard() {
                   </ul>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <p>
-                    Smaže se vaše jméno, e-mail, telefon, fotka, datum narození i to, co jste napsali (komentáře,
-                    omluvenky). Z akcí, které vás teprve čekají, se odhlásíte. Přihlásit se k účtu už nepůjde.
-                  </p>
-                  <p>
-                    Účast na proběhlých akcích a vaše hodnocení (hvězdičky) zůstanou obci a pořadatelům jako anonymní
-                    statistika — nikdo už nepozná, že jste to byli vy.
-                  </p>
-                </div>
+                <p>
+                  Vaše jméno, kontakty a fotka se smažou. To, čeho jste se účastnili, zůstane obci jen jako anonymní
+                  statistika.
+                </p>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -136,6 +125,6 @@ export function DeleteAccountCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </>
   );
 }

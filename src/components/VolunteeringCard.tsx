@@ -9,14 +9,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 /** The volunteering flag for the event's creator when the obec has locked them out of editing it
- * (it co-organizes the event) — the flag stays theirs to set, no approval needed. */
+ * (it co-organizes the event) — the flag stays theirs to set, no approval needed. Once a volunteer
+ * has signed up it can't come off (Events guardIsVolunteering) — the button goes. */
 export function VolunteeringCard({
   eventId,
   isVolunteering: initial,
+  locked = false,
   onChanged,
 }: {
   eventId: string;
   isVolunteering: boolean;
+  /** A volunteer has signed up (EventRow.volunteering_locked). */
+  locked?: boolean;
   /** E.g. for the event detail to show the volunteering parts that come with the flag. */
   onChanged?: (isVolunteering: boolean) => void;
 }) {
@@ -47,14 +51,18 @@ export function VolunteeringCard({
           <div>
             <p className="font-bold">Dobrovolnictví</p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {isVolunteering
-                ? "Akce je označená jako dobrovolnická. Dobrovolníky na ni zvete z poolu dobrovolníků."
-                : "Akci jste založili vy, takže ji můžete označit jako dobrovolnickou."}
+              {isVolunteering && locked
+                ? "Akce je označená jako dobrovolnická. Přihlásil se už dobrovolník, takže označení zůstává."
+                : isVolunteering
+                  ? "Akce je označená jako dobrovolnická. Dobrovolníky na ni zvete z poolu dobrovolníků."
+                  : "Akci jste založili vy, takže ji můžete označit jako dobrovolnickou."}
             </p>
           </div>
-          <Button onClick={toggle} disabled={saving} variant={isVolunteering ? "outline" : "default"} className="h-11">
-            {saving ? "Ukládám…" : isVolunteering ? "Odebrat označení" : "Označit jako dobrovolnickou"}
-          </Button>
+          {!(isVolunteering && locked) && (
+            <Button onClick={toggle} disabled={saving} variant={isVolunteering ? "outline" : "default"} className="h-11">
+              {saving ? "Ukládám…" : isVolunteering ? "Odebrat označení" : "Označit jako dobrovolnickou"}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

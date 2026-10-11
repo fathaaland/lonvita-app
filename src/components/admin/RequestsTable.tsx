@@ -12,17 +12,19 @@ import {
   EscalatedDeletionRequestRow,
   getOrganizersForAdmin,
   getReviewComplaintsForAdmin,
+  getRunningEventsOfOrganizer,
   revokeOrganizerRole,
   OrganizerRequestAdminRow,
   CoOrganizingRequestAdminRow,
   OrganizerRoleRow,
   ReviewComplaintAdminRow,
+  RunningOrganizerEvent,
 } from "@/integrations/payload/admin-queries";
 import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
 import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Check, X, UserPlus, Handshake, Users, Flag, UserMinus } from "lucide-react";
 import {
   AlertDialog,
@@ -129,11 +131,12 @@ export function RequestsTable({
     try {
       await revokeOrganizerRole(userRoleId);
       toast.success("Role organizátora odebrána.");
-      await load();
-    } catch {
-      toast.error("Nepodařilo se odebrat roli.");
+    } catch (error) {
+      // E.g. they've started running an event meanwhile — the server says so.
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se odebrat roli.");
     } finally {
       setBusyId(null);
+      await load();
     }
   };
 
@@ -273,19 +276,11 @@ export function RequestsTable({
                     <p className="font-semibold text-sm break-words">{o.full_name}</p>
                   )}
                 </div>
-                <ConfirmActionButton
-                  size="sm"
-                  variant="outline"
-                  className="h-9 text-destructive border-destructive/40"
-                  disabled={busyId === o.id}
-                  title={`Odebrat roli organizátora – ${o.full_name}?`}
-                  description="Nové akce v obci už zakládat nebude. Akce, které už pořádá, zůstávají. Dozví se to oznámením."
-                  confirmLabel="Odebrat roli"
-                  destructive
+                <RevokeOrganizerButton
+                  organizer={o}
+                  busy={busyId === o.id}
                   onConfirm={() => handleRevokeOrganizer(o.id)}
-                >
-                  <X className="h-4 w-4" /> Odebrat roli
-                </ConfirmActionButton>
+                />
               </CardContent>
             </Card>
           ))}
@@ -421,6 +416,90 @@ function EscalatedDeletionRequestCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Revoking the organizer role asks first — and looks up what they still run in the obec. While
+ * there's any, the role can't go (the server refuses it too, UserRoles keepRunningEventsOrganized):
+ * the dialog lists the events and offers no revoke.
+ */
+function RevokeOrganizerButton({
+  organizer,
+  busy,
+  onConfirm,
+}: {
+  organizer: OrganizerRoleRow;
+  busy: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState<RunningOrganizerEvent[] | null>(null);
+
+  const openDialog = () => {
+    setRunning(null);
+    setOpen(true);
+    getRunningEventsOfOrganizer(organizer.id)
+      .then(setRunning)
+      .catch(() => {
+        setOpen(false);
+        toast.error("Nepodařilo se zjistit akce organizátora.");
+      });
+  };
+  const blocked = running !== null && running.length > 0;
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-9 text-destructive border-destructive/40"
+        disabled={busy}
+        onClick={openDialog}
+      >
+        <X className="h-4 w-4" /> Odebrat roli
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {blocked ? "Roli teď odebrat nejde" : `Odebrat roli organizátora – ${organizer.full_name}?`}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {running === null
+              ? "Zjišťuji, jestli v obci pořádá nějaké akce…"
+              : blocked
+                ? `${organizer.full_name} má v obci rozjeté akce. Roli mu půjde odebrat, až proběhnou, nebo když se zruší.`
+                : "Nové akce v obci už zakládat nebude a zmizí z přehledu organizátorů. Dozví se to oznámením."}
+          </AlertDialogDescription>
+          {blocked && (
+            <ul className="mt-2 space-y-1.5 text-sm text-left">
+              {running.map((e) => (
+                <li key={e.id} className="rounded-md border p-2">
+                  <a href={`/akce/${e.id}`} target="_blank" rel="noreferrer" className="font-semibold hover:underline">
+                    {e.title}
+                  </a>
+                  <p className="text-xs text-muted-foreground">
+                    {formatEventDateTime(e.date_time)} · {e.organizes === "runs" ? "pořádá" : "spolupořádá"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{blocked ? "Rozumím" : "Zpět"}</AlertDialogCancel>
+          {!blocked && (
+            <AlertDialogAction
+              disabled={running === null}
+              onClick={onConfirm}
+              className={buttonVariants({ variant: "destructive" })}
+            >
+              Odebrat roli
+            </AlertDialogAction>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

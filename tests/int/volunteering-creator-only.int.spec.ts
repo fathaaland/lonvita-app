@@ -328,4 +328,46 @@ describe('Volunteering on an event is its creator’s alone', () => {
     const invitation = await invite(third.id, creator)
     await expect(decide(invitation.id, 'accepted', creator)).rejects.toThrow()
   })
+
+  it('once a volunteer signs up the mark stays — not even the creator takes it off', async () => {
+    const callRoute = async (eventId: number, isVolunteering: boolean) => {
+      const { token } = await payload.login({ collection: 'users', data: { email: creator.email, password: 'test1234' } })
+      return setVolunteeringRoute(
+        new Request(`http://localhost/api/events/${eventId}/volunteering`, {
+          method: 'POST',
+          headers: { Authorization: `JWT ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isVolunteering }),
+        }),
+        { params: Promise.resolve({ id: String(eventId) }) },
+      )
+    }
+    const lockedFor = async (eventId: number, user: TestUser) =>
+      (await payload.findByID({ collection: 'events', id: eventId, depth: 0, user, overrideAccess: false })).volunteeringLocked
+
+    // Their own event — the edit form. A pending offer already counts.
+    const own = await createVolunteeringEvent(creator)
+    expect(await lockedFor(own.id, creator)).toBe(false)
+    const offer = await offerHelp(own.id, volunteer)
+    expect(await lockedFor(own.id, creator)).toBe(true)
+    await expect(setVolunteering(own.id, creator, false)).rejects.toThrow(/dobrovolník/)
+    await decide(offer.id, 'accepted', creator)
+    await expect(setVolunteering(own.id, creator, false)).rejects.toThrow(/dobrovolník/)
+    expect(await flagOf(own.id)).toBe(true)
+    // Saving the form with the mark left on still works.
+    await setVolunteering(own.id, creator, true)
+
+    // One the obec co-organizes — the creator's own endpoint answers 400, not a crash.
+    const locked = await createVolunteeringEvent(creator, { withObec: true })
+    await decide((await offerHelp(locked.id, volunteer)).id, 'accepted', creator)
+    const response = await callRoute(locked.id, false)
+    expect(response.status).toBe(400)
+    expect(await flagOf(locked.id)).toBe(true)
+  })
+
+  it('the mark comes off again once no volunteer is signed up any more', async () => {
+    const event = await createVolunteeringEvent(creator)
+    await decide((await offerHelp(event.id, volunteer)).id, 'withdrawn', volunteer)
+    await setVolunteering(event.id, creator, false)
+    expect(await flagOf(event.id)).toBe(false)
+  })
 })
