@@ -1,4 +1,23 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionBeforeOperationHook, CollectionConfig } from 'payload'
+
+import { recordAuditLog } from './shared/auditLog'
+
+/** Looking into the audit log is itself on the record (vyhláška č. 409/2025 Sb. § 22 odst. 3 písm. g)
+ * — every read through the API or the admin panel, by whom and from where. Server-side reads
+ * (overrideAccess) are the app's own and aren't. Awaited, but a failed write doesn't lock the
+ * platform admin out of the log. */
+const recordRead: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'read' || args.overrideAccess !== false || !req.user) return args
+  const { id } = args as { id?: number | string }
+  await recordAuditLog(req.payload, {
+    action: 'audit-log.read',
+    actor: Number(req.user.id),
+    targetCollection: 'audit-log',
+    targetId: id ?? 'list',
+    source: req,
+  }).catch((error) => req.payload.logger.error({ err: error }, 'Failed to record an audit log read'))
+  return args
+}
 
 export const AuditLog: CollectionConfig = {
   slug: 'audit-log',
@@ -8,9 +27,9 @@ export const AuditLog: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'action',
-    defaultColumns: ['action', 'actor', 'targetCollection', 'targetId', 'createdAt'],
+    defaultColumns: ['action', 'outcome', 'actor', 'targetCollection', 'targetId', 'createdAt'],
     description:
-      'Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation. Not writable or deletable through the API.',
+      'Append-only — the database itself refuses edits and any delete younger than 18 months (trigger audit_log_guard). Kept 36 months, then removed by the nightly data-retention job, which writes down everything it removes here first. Reading it is recorded too.',
   },
   access: {
     // Written exclusively via `overrideAccess: true` from collection hooks — never
@@ -25,9 +44,20 @@ export const AuditLog: CollectionConfig = {
       name: 'action',
       type: 'text',
       required: true,
+      index: true,
       admin: {
-        description: 'e.g. "user-roles.grant", "consents.revoke".',
+        description: 'e.g. "user-roles.grant", "consents.revoke", "data-retention.purge".',
       },
+    },
+    {
+      name: 'outcome',
+      type: 'select',
+      required: true,
+      defaultValue: 'success',
+      options: [
+        { label: 'Success', value: 'success' },
+        { label: 'Failure (refused)', value: 'failure' },
+      ],
     },
     {
       name: 'actor',
@@ -56,6 +86,24 @@ export const AuditLog: CollectionConfig = {
       name: 'metadata',
       type: 'json',
     },
+    {
+      name: 'ipAddress',
+      type: 'text',
+      admin: { description: "The originator's address. Empty for system-triggered entries.", position: 'sidebar' },
+    },
+    {
+      name: 'userAgent',
+      type: 'text',
+      admin: { description: "The originator's browser.", position: 'sidebar' },
+    },
+    {
+      name: 'correlationId',
+      type: 'text',
+      admin: { description: 'The request id — the same one in the application logs (BetterStack).', position: 'sidebar' },
+    },
   ],
+  hooks: {
+    beforeOperation: [recordRead],
+  },
   timestamps: true,
 }

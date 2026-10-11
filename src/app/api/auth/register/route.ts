@@ -125,7 +125,7 @@ export async function POST(request: Request) {
       })
     }
 
-    logger.info('Registration succeeded', {
+    logger.audit('Registration succeeded', {
       event: 'auth.registration_succeeded',
       userId: payloadUser.id,
       userEmail: payloadUser.email,

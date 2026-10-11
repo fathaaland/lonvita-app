@@ -9,6 +9,7 @@ import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
 import { ensureMunicipalityOrganization, findMunicipalityOrganizationId } from './Organizations'
+import { auditDeletion } from './shared/auditLog'
 import { notDeleted } from './shared/softDelete'
 
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
@@ -261,6 +262,8 @@ export const Municipalities: CollectionConfig = {
     beforeValidate: [preventDuplicateName],
     afterChange: [grantRoleForAdminUser, syncMunicipalityOrganization],
     beforeDelete: [deleteMunicipalityData],
+    // Takes everything of the obec along (deleteMunicipalityData) — one entry for all of it.
+    afterDelete: [auditDeletion<{ name?: string }>((doc) => ({ metadata: { name: doc.name } }))],
   },
   timestamps: true,
 }

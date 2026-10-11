@@ -50,13 +50,13 @@ export async function GET(request: Request) {
   // them and useless for us — so each one says here which of the six ways it failed.
   const correlationId = correlationIdFromHeaders(request.headers)
   const fail = (appUrl: string, error: AuthError, reason: string, context?: Record<string, unknown>) => {
-    logger.warn('Google sign-in failed', {
+    logger.audit('Google sign-in failed', {
       event: 'auth.google_sign_in_failed',
       reason,
       error,
       ...context,
       correlationId,
-    })
+    }, 'warn')
     return failTo(appUrl, error)
   }
 
@@ -133,7 +133,7 @@ export async function GET(request: Request) {
     response.headers.append('Set-Cookie', await buildPayloadTokenCookie(payload, result.user))
     clearStateCookie(response)
 
-    logger.info('Google sign-in succeeded', {
+    logger.audit('Google sign-in succeeded', {
       event: 'auth.google_sign_in_succeeded',
       userId: result.user.id,
       userEmail: result.user.email,
@@ -180,13 +180,13 @@ async function linkToSignedInUser(
     return response
   }
   const fail = (error: LinkError, reason: string, context?: Record<string, unknown>) => {
-    logger.warn('Google account link failed', {
+    logger.audit('Google account link failed', {
       event: 'auth.google_link_failed',
       reason,
       error,
       ...context,
       correlationId,
-    })
+    }, 'warn')
     return back(`link-error=${error}`)
   }
 
@@ -199,7 +199,7 @@ async function linkToSignedInUser(
   const result = await linkGoogleToUser(payload, user.id, profile)
   if (!result.ok) return fail(result.reason, result.reason, { userId: user.id })
 
-  logger.info('Google account linked', {
+  logger.audit('Google account linked', {
     event: 'auth.google_linked',
     userId: user.id,
     alreadyLinked: result.alreadyLinked,

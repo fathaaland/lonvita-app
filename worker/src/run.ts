@@ -3,6 +3,7 @@ import 'dotenv/config'
 import { logger } from '@/lib/logger'
 import { JOB_NAMES } from '@/lib/queue/contracts'
 import { getQueue } from '@/lib/queue/queues'
+import { retentionMode } from '@/lib/retention/policy'
 
 import { warnIfArrayPrototypeIsPolluted } from './runtime/prototype-safety'
 import { registerShutdown } from './runtime/shutdown'
@@ -18,6 +19,9 @@ const CLEANUP_EXPORTS_CRON = '30 3 * * *'
 /** Time-driven statuses (finished events, expired deletion requests). Often, not nightly: the
  * stored status is what filters and counts see, and each run only touches what just lapsed. */
 const SYNC_STATUSES_CRON = '*/15 * * * *'
+/** Data retention (lib/retention/policy.ts) — after the two cleanups, still in the quiet window.
+ * Deletes only with DATA_RETENTION_MODE=enforce; until then each night just reports what's due. */
+const DATA_RETENTION_CRON = '0 4 * * *'
 
 logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
@@ -64,6 +68,21 @@ logger.info('Status sync schedule registered', {
   event: 'worker.status_sync_schedule_registered',
   pattern: SYNC_STATUSES_CRON,
   tz: CLEANUP_NOTIFICATIONS_TZ,
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.DATA_RETENTION,
+  { pattern: DATA_RETENTION_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  {
+    name: JOB_NAMES.DATA_RETENTION,
+    data: { jobType: JOB_NAMES.DATA_RETENTION, payload: {} },
+  },
+)
+logger.info('Data retention schedule registered', {
+  event: 'worker.cleanup_schedule_registered',
+  pattern: DATA_RETENTION_CRON,
+  tz: CLEANUP_NOTIFICATIONS_TZ,
+  mode: retentionMode(),
 })
 
 const worker = spawnQueueWorker()

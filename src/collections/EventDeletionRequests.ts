@@ -250,6 +250,7 @@ export const EventDeletionRequests: CollectionConfig = {
       name: 'status',
       type: 'select',
       required: true,
+      index: true,
       defaultValue: 'pending',
       options: [
         { label: 'Pending', value: 'pending' },
@@ -266,6 +267,7 @@ export const EventDeletionRequests: CollectionConfig = {
       name: 'expiresAt',
       type: 'date',
       required: true,
+      index: true,
     },
     {
       name: 'rejectedBy',

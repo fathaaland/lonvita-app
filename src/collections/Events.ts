@@ -17,6 +17,7 @@ import {
   getOrganizerMunicipalityIds,
 } from './access/shared'
 import { ensureMunicipalityOrganization, findOrganizationId, municipalityOrganizationIds } from './Organizations'
+import { auditDeletion, writeAuditLog } from './shared/auditLog'
 import { notDeleted } from './shared/softDelete'
 import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleAttendanceReminder } from './shared/reminders'
@@ -33,6 +34,8 @@ import { MULTI_DAY_END_MESSAGE, pragueDateKey } from '@/lib/date'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { haversineDistanceKm } from '@/lib/geo/distance'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
+
+import type { Event } from '@/payload-types'
 
 /**
  * Brief §3 "Pravidla pro vznik akcí" — a municipality picks one of two modes
@@ -915,6 +918,35 @@ const removeEventFiles: CollectionAfterDeleteHook = async ({ req }) => {
   }
 }
 
+/** Cancelling takes an event out of every overview and, months later, out of the database
+ * (data-retention) — the audit log is what remembers who called it off. */
+const auditCancellation: CollectionAfterChangeHook = ({ doc, previousDoc, operation, req }) => {
+  if (operation !== 'update' || !previousDoc || !req.user) return doc
+  const cancelled =
+    (doc.deletedAt && !previousDoc.deletedAt) || (doc.status === 'cancelled' && previousDoc.status !== 'cancelled')
+  if (!cancelled) return doc
+  writeAuditLog(req.payload, {
+    action: 'events.cancel',
+    actor: Number(req.user.id),
+    targetCollection: 'events',
+    targetId: doc.id,
+    municipality: Number(relationId(doc.municipality)) || null,
+    metadata: { title: doc.title, dateTime: doc.dateTime },
+    source: req,
+  })
+  return doc
+}
+
+/** An obec admin (or a platform admin) deleting the event outright. A consented delete, the obec's own
+ * removal and the data-retention job write entries of their own. */
+const auditDelete = auditDeletion<Event>(
+  (doc) => ({
+    municipality: Number(relationId(doc.municipality)) || null,
+    metadata: { title: doc.title, dateTime: doc.dateTime },
+  }),
+  isOwnRequest,
+)
+
 const notifyOrganizersOnObecDelete: CollectionAfterDeleteHook = async ({ doc, req, context }) => {
   if (isOwnRequest(context)) return doc
   try {
@@ -1065,6 +1097,7 @@ export const Events: CollectionConfig = {
       name: 'dateTime',
       type: 'date',
       required: true,
+      index: true,
       admin: {
         date: {
           pickerAppearance: 'dayAndTime',
@@ -1246,6 +1279,7 @@ export const Events: CollectionConfig = {
       name: 'status',
       type: 'select',
       required: true,
+      index: true,
       defaultValue: 'active',
       options: [
         { label: 'Active', value: 'active' },
@@ -1331,6 +1365,7 @@ export const Events: CollectionConfig = {
     {
       name: 'deletedAt',
       type: 'date',
+      index: true,
       admin: {
         description: 'Soft-delete marker — preserves attendance history when an event is removed.',
         position: 'sidebar',
@@ -1349,13 +1384,14 @@ export const Events: CollectionConfig = {
     ],
     afterChange: [
       notifyRegistrantsOnCancellation,
+      auditCancellation,
       notifyRegistrantsOnEdit,
       notifyOrganizersOnObecChange,
       scheduleAttendanceReminderOnCreate,
       releaseOrganizersPlaces,
     ],
     beforeDelete: [cleanupEventRelations],
-    afterDelete: [notifyOrganizersOnObecDelete, removeEventFiles],
+    afterDelete: [auditDelete, notifyOrganizersOnObecDelete, removeEventFiles],
     afterRead: [deriveFinishedStatus],
   },
   timestamps: true,

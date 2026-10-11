@@ -4,9 +4,9 @@ import { multiTenantPlugin } from '@payloadcms/plugin-multi-tenant'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { s3Storage } from '@payloadcms/storage-s3'
 import { sql } from 'drizzle-orm'
-import { uniqueIndex } from 'drizzle-orm/pg-core'
+import { index, uniqueIndex } from 'drizzle-orm/pg-core'
 import path from 'path'
-import { buildConfig } from 'payload'
+import { buildConfig, type PayloadRequest } from 'payload'
 import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
@@ -34,6 +34,7 @@ import { VolunteerInvitations } from './collections/VolunteerInvitations'
 import { VolunteerRatings } from './collections/VolunteerRatings'
 import { ReviewComplaints } from './collections/ReviewComplaints'
 import { PoolInvitations } from './collections/PoolInvitations'
+import { writeAuditLog } from './collections/shared/auditLog'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError } from './lib/logger'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
@@ -43,6 +44,33 @@ import { validateEnv } from './lib/env'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
+
+/** Where a refused attempt is itself worth an audit entry: sign-in, accounts, roles and the audit log
+ * (vyhláška č. 409/2025 Sb. § 22 odst. 3 písm. a, c, d, h — "including unsuccessful attempts"). */
+const REFUSALS_AUDITED = new Set(['users', 'user-roles', 'audit-log', 'municipalities'])
+
+const auditRefusal = ({ error, req, collection }: { error: unknown; req?: PayloadRequest; collection?: string }) => {
+  if (!req || !collection || !REFUSALS_AUDITED.has(collection)) return
+  const status = (error as { status?: number }).status
+  let pathname = ''
+  try {
+    pathname = new URL(req.url ?? '', 'http://localhost').pathname
+  } catch {
+    // no URL on a Local API call — nothing to say about where it came from
+  }
+  const login = pathname.endsWith('/login')
+  // A wrong password (401) only on the sign-in itself; elsewhere a 401 is just an expired session.
+  if (!(status === 403 || status === 423 || (status === 401 && login))) return
+  writeAuditLog(req.payload, {
+    action: login ? `${collection}.login` : `${collection}.denied`,
+    outcome: 'failure',
+    actor: req.user ? Number(req.user.id) : null,
+    targetCollection: collection,
+    targetId: (req.routeParams?.id as string | undefined) ?? '-',
+    metadata: { status, method: req.method, path: pathname, message: error instanceof Error ? error.message : null },
+    source: req,
+  })
+}
 
 export default buildConfig({
   onInit: async (payload) => {
@@ -126,6 +154,8 @@ export default buildConfig({
           correlationId,
         })
 
+        auditRefusal({ error, req, collection: collection?.slug })
+
         // Handing the id back means a user can quote the number from the screen and it maps
         // straight onto one line in BetterStack.
         return { response: { errors: [{ message: error.message }], correlationId } }
@@ -165,6 +195,22 @@ export default buildConfig({
             oneActiveRegistrationPerEventUser: uniqueIndex('registrations_active_event_user_idx')
               .on(table.event, table.user)
               .where(sql`${table.status} != 'cancelled'`),
+          }),
+        })
+        // Compound indexes named here rather than through a collection's `indexes`, which names them
+        // after the fields alone ("user_readAt_idx") — one namespace for every table in Postgres.
+        extendTable({
+          table: schema.tables.events,
+          extraConfig: (table) => ({
+            // The feed and the obec's overview: one obec's events by date.
+            municipalityByDate: index('events_municipality_date_time_idx').on(table.municipality, table.dateTime),
+          }),
+        })
+        extendTable({
+          table: schema.tables.notifications,
+          extraConfig: (table) => ({
+            // The unread badge — someone's notifications not read yet.
+            unreadOfUser: index('notifications_user_read_at_idx').on(table.user, table.readAt),
           }),
         })
         return schema

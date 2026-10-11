@@ -88,6 +88,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   writeAuditLog(payload, {
+    source: request,
     action: `review-complaints.${status}`,
     actor: user.id,
     targetCollection: 'review-complaints',

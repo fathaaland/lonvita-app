@@ -104,6 +104,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
         },
       })
       writeAuditLog(req.payload, {
+        source: req,
         action: 'organizer-requests.approve',
         actor: req.user?.id ?? null,
         targetCollection: 'organizer-requests',
@@ -123,6 +124,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
         },
       })
       writeAuditLog(req.payload, {
+        source: req,
         action: 'organizer-requests.reject',
         actor: req.user?.id ?? null,
         targetCollection: 'organizer-requests',
@@ -203,6 +205,7 @@ export const OrganizerRequests: CollectionConfig = {
       name: 'status',
       type: 'select',
       required: true,
+      index: true,
       defaultValue: 'pending',
       options: [
         { label: 'Pending', value: 'pending' },

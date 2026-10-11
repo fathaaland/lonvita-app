@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Pro smazání účtu napište „${ACCOUNT_DELETION_CONFIRMATION}“.` }, { status: 400 })
   }
 
-  const result = await deleteAccount(payload, user, user.id)
+  const result = await deleteAccount(payload, user, user.id, request)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status })
 
   const response = NextResponse.json({ deleted: true })

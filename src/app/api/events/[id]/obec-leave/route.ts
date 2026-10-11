@@ -108,6 +108,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ),
   ])
   writeAuditLog(payload, {
+    source: request,
     action: 'events.obec-left',
     actor: user.id,
     targetCollection: 'events',

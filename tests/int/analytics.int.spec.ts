@@ -5,6 +5,7 @@ import {
   computeDatavitaWindow,
   computeKpis,
   fillBuckets,
+  regStatusBreakdown,
   topOrganizers,
   type EventRow,
   type ProfileRow,
@@ -165,5 +166,28 @@ describe('Obec statistics look people up by their account', () => {
     )
     expect(stats.people).toBe(1)
     expect(stats.fillRate).toBe(0.5)
+  })
+})
+
+describe('Stav přihlášek — what the data-retention job removes never counted', () => {
+  const past = event('past', 10, -10 * DAY)
+  const upcoming = event('upcoming', 10, DAY)
+  const regs = [
+    reg('past', 'a', { status: 'pending' }),
+    reg('past', 'b', { status: 'cancelled' }),
+    reg('past', 'c', { status: 'rejected' }),
+    reg('upcoming', 'd', { status: 'pending' }),
+    reg('upcoming', 'e', { status: 'cancelled' }),
+  ]
+
+  it('a cancellation is no refusal, and a pending one only waits while its event is not over', () => {
+    expect(regStatusBreakdown(regs, [past, upcoming])).toEqual({ approved: 0, pending: 1, rejected: 1 })
+    expect(computeKpis([past, upcoming], regs, []).pendingRegs).toBe(1)
+  })
+
+  it('removing cancelled and undecided past registrations leaves the numbers as they were', () => {
+    const kept = regs.filter((r) => r.status === 'rejected' || r.event_id === 'upcoming')
+    expect(regStatusBreakdown(kept, [past, upcoming])).toEqual(regStatusBreakdown(regs, [past, upcoming]))
+    expect(computeKpis([past, upcoming], kept, [])).toEqual(computeKpis([past, upcoming], regs, []))
   })
 })

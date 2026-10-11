@@ -12,6 +12,7 @@ import type {
 import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
+import { auditDeletion } from './shared/auditLog'
 import { deletedAtField, notDeleted } from './shared/softDelete'
 import {
   ORGANIZATION_DESCRIPTION_MAX_LENGTH,
@@ -491,6 +492,12 @@ export const Organizations: CollectionConfig = {
     beforeChange: [syncAvatarUrl],
     afterChange: [grantOrganizerRole],
     beforeDelete: [cleanupOrganization],
+    afterDelete: [
+      auditDeletion<{ name?: string; type?: string; municipality?: number | { id: number } | null }>((doc) => ({
+        municipality: (typeof doc.municipality === 'object' ? doc.municipality?.id : doc.municipality) ?? null,
+        metadata: { name: doc.name, type: doc.type },
+      })),
+    ],
   },
   timestamps: true,
 }

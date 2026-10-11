@@ -63,7 +63,7 @@ export async function resetPasswordAction({ token, password, requestHeaders }: R
 
   const parsed = resetPasswordInputSchema.safeParse({ token, password })
   if (!parsed.success) {
-    logger.info('Password reset failed', {
+    logger.audit('Password reset failed', {
       event: 'auth.password_reset_failed',
       reason: 'invalid_input',
       correlationId,
@@ -73,12 +73,12 @@ export async function resetPasswordAction({ token, password, requestHeaders }: R
 
   const rateLimit = await enforcePasswordResetRateLimit({ operation: 'reset-password', requestHeaders })
   if (!rateLimit.allowed) {
-    logger.warn('Password reset failed', {
+    logger.audit('Password reset failed', {
       event: 'auth.password_reset_failed',
       reason: 'rate_limited',
       retryAfter: rateLimit.retryAfter,
       correlationId,
-    })
+    }, 'warn')
     return { success: false, error: 'Příliš mnoho pokusů. Vyžádejte si prosím nový odkaz později.' }
   }
 
@@ -96,7 +96,7 @@ export async function resetPasswordAction({ token, password, requestHeaders }: R
       await invalidateResetToken(payload, user.id)
     }
 
-    logger.info('Password reset succeeded', {
+    logger.audit('Password reset succeeded', {
       event: 'auth.password_reset_succeeded',
       userId: user.id,
       userEmail: user.email,
@@ -107,12 +107,12 @@ export async function resetPasswordAction({ token, password, requestHeaders }: R
   } catch (error) {
     // A spent or forged token looks exactly like a mistyped one from here, so this stays at
     // warn: a single line is noise, a run of them against one address is an attack.
-    logger.warn('Password reset failed', {
+    logger.audit('Password reset failed', {
       event: 'auth.password_reset_failed',
       reason: 'token_rejected',
       ...serializeError(error),
       correlationId,
-    })
+    }, 'warn')
     return { success: false, error: GENERIC_ERROR }
   }
 }

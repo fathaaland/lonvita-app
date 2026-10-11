@@ -114,7 +114,7 @@ export function AnalyticsOverview({
   const dow = useMemo(() => byDayOfWeek(evF), [evF]);
   const orgs = useMemo(() => topOrganizers(evF, regF, profiles, 5), [evF, regF, profiles]);
   const top = useMemo(() => topEvents(evF, regF, 5), [evF, regF]);
-  const rs = useMemo(() => regStatusBreakdown(regF), [regF]);
+  const rs = useMemo(() => regStatusBreakdown(regF, events), [regF, events]);
   const fill = useMemo(() => fillBuckets(evF, regF), [evF, regF]);
   const dvSeries = useMemo(() => datavitaSeries(events, registrations, profiles, 26), [events, registrations, profiles]);
   const dvTrend = useMemo(() => datavitaTrend(dvSeries), [dvSeries]);

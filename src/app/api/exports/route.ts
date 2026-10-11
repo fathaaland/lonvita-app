@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { writeAuditLog } from '@/collections/shared/auditLog'
 import { canRequestExport } from '@/lib/exports/access'
 import { EXPORT_RETENTION_DAYS, exportRequestSchema } from '@/lib/exports/contracts'
 import { logger, serializeError } from '@/lib/logger'
@@ -80,6 +81,19 @@ export async function POST(request: Request) {
     logger.error('Export enqueue failed', { event: 'export.enqueue_failed', exportId: record.id, ...serializeError(error) })
     return NextResponse.json({ error: 'Export se teď nepodařilo spustit, zkuste to znovu.' }, { status: 503 })
   }
+
+  // A file with people's names and attendance leaving the app — the row goes after a week
+  // (cleanup-exports), this is what still says who took what.
+  const params = exportRequest.params as { municipalityId?: string; organizationId?: string }
+  writeAuditLog(payload, {
+    source: request,
+    action: 'exports.request',
+    actor: user.id,
+    targetCollection: 'exports',
+    targetId: record.id,
+    municipality: Number(params.municipalityId) || null,
+    metadata: { kind: exportRequest.kind, format: exportRequest.format, params: exportRequest.params },
+  })
 
   logger.info('Export requested', {
     event: 'export.requested',

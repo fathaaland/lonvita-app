@@ -262,6 +262,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       : `${who} akci „${doc.eventTitle}“ spolupořádat nebude.`,
   })
   writeAuditLog(req.payload, {
+    source: req,
     action: approved ? 'co-organizing-requests.approve' : 'co-organizing-requests.reject',
     actor: req.user?.id ?? null,
     targetCollection: 'co-organizing-requests',
@@ -360,6 +361,7 @@ export const CoOrganizingRequests: CollectionConfig = {
       name: 'status',
       type: 'select',
       required: true,
+      index: true,
       defaultValue: 'pending',
       options: [
         { label: 'Pending', value: 'pending' },
@@ -372,6 +374,7 @@ export const CoOrganizingRequests: CollectionConfig = {
       name: 'expiresAt',
       type: 'date',
       required: true,
+      index: true,
       access: fixedAfterCreate,
       admin: { description: 'Unanswered by then, the invitation lapses — 24 h, never past the event start.' },
     },

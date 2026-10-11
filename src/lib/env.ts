@@ -21,6 +21,16 @@ const ENV_VARS: EnvVar[] = [
   { key: 'GOOGLE_CLIENT_ID', description: 'Google sign-in (button hidden without it)', required: false },
   { key: 'GOOGLE_CLIENT_SECRET', description: 'Google sign-in (button hidden without it)', required: false },
   { key: 'BETTERSTACK_SOURCE_TOKEN', description: 'BetterStack log shipping (console only without it)', required: false },
+  {
+    key: 'BETTERSTACK_AUDIT_SOURCE_TOKEN',
+    description: 'BetterStack source for the audit trail, kept 18+ months (audit lines go to the main source only without it)',
+    required: false,
+  },
+  {
+    key: 'DATA_RETENTION_MODE',
+    description: 'Worker data retention — "enforce" deletes what is due; unset, it only reports (dry run)',
+    required: false,
+  },
 ]
 
 export type EnvValidationResult = {

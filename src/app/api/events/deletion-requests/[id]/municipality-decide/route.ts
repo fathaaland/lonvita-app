@@ -86,6 +86,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       message: `Obec rozhodla, že pořadatelé akce „${event.title}“ zůstávají, jak jsou.`,
     })
     writeAuditLog(payload, {
+      source: request,
       action: 'event-deletion-requests.municipality-reject',
       actor: user.id,
       targetCollection: 'event-deletion-requests',
@@ -145,6 +146,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   await announceRequesterRemoved(payload, { event: updated, requesterId, successorId, deciderId: uid, byObec: true })
   writeAuditLog(payload, {
+    source: request,
     action: 'event-deletion-requests.municipality-remove',
     actor: user.id,
     targetCollection: 'event-deletion-requests',

@@ -434,13 +434,14 @@ export const UserRoles: CollectionConfig = {
       ({ doc, req, operation }) => {
         if (operation !== 'create') return
         writeAuditLog(req.payload, {
+          source: req,
           action: 'user-roles.grant',
           actor: req.user?.id ?? null,
           targetCollection: 'user-roles',
           targetId: doc.id,
           municipality:
             typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
-          metadata: { grantedTo: doc.user, role: doc.role },
+          metadata: { grantedTo: relId(doc.user), role: doc.role },
         })
       },
     ],
@@ -480,13 +481,14 @@ export const UserRoles: CollectionConfig = {
       },
       ({ doc, req }) => {
         writeAuditLog(req.payload, {
+          source: req,
           action: 'user-roles.revoke',
           actor: req.user?.id ?? null,
           targetCollection: 'user-roles',
           targetId: doc.id,
           municipality:
             typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
-          metadata: { revokedFrom: doc.user, role: doc.role },
+          metadata: { revokedFrom: relId(doc.user), role: doc.role },
         })
       },
     ],

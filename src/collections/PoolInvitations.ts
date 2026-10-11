@@ -208,6 +208,7 @@ export const PoolInvitations: CollectionConfig = {
       name: 'status',
       type: 'select',
       required: true,
+      index: true,
       defaultValue: 'pending',
       options: [
         { label: 'Pending', value: 'pending' },

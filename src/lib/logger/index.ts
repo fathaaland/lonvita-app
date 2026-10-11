@@ -69,34 +69,47 @@ const redact = (value: unknown, depth = 0): unknown => {
  * source's "Data ingestion" tab at betterstack.com; without a token this is a no-op and the
  * console mirror below is the only output, which is what local development wants anyway.
  */
-const betterStackToken = process.env.BETTERSTACK_SOURCE_TOKEN?.trim()
 // Normalised rather than taken literally: it is pasted into a dashboard by hand, and a trailing
 // newline or a leading `https://` turns the endpoint into one the SDK cannot reach.
-const betterStackHost = process.env.BETTERSTACK_INGESTING_HOST?.trim()
-  .replace(/^https?:\/\//i, '')
-  .replace(/\/+$/, '')
+const normaliseHost = (value: string | undefined) =>
+  value?.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
 
-const logtail = betterStackToken
-  ? new Logtail(betterStackToken, {
-      // Sources created recently get their own ingesting host. The SDK's built-in default
-      // (in.logs.betterstack.com) accepts our token too, so a missing host is not fatal.
-      ...(betterStackHost ? { endpoint: `https://${betterStackHost}` } : {}),
-      // A Vercel instance can be frozen the moment it replies. Waiting the stock full second
-      // for a batch to fill up means holding the instance open that long on every request.
-      batchInterval: 250,
-      // Never let a logging problem become a request problem — but do not swallow it either:
-      // with both of these false the SDK console.errors what went wrong, which is exactly the
-      // visibility whose absence made this integration look like it was working for weeks.
-      throwExceptions: false,
-      ignoreExceptions: false,
-      // The console mirror below already prints every line, as JSON.
-      sendLogsToConsoleOutput: false,
-    })
-  : null
+const createShipper = (token: string | undefined, host: string | undefined) => {
+  if (!token) return null
+  const shipper = new Logtail(token, {
+    // Sources created recently get their own ingesting host. The SDK's built-in default
+    // (in.logs.betterstack.com) accepts our token too, so a missing host is not fatal.
+    ...(host ? { endpoint: `https://${host}` } : {}),
+    // A Vercel instance can be frozen the moment it replies. Waiting the stock full second
+    // for a batch to fill up means holding the instance open that long on every request.
+    batchInterval: 250,
+    // Never let a logging problem become a request problem — but do not swallow it either:
+    // with both of these false the SDK console.errors what went wrong, which is exactly the
+    // visibility whose absence made this integration look like it was working for weeks.
+    throwExceptions: false,
+    ignoreExceptions: false,
+    // The console mirror below already prints every line, as JSON.
+    sendLogsToConsoleOutput: false,
+  })
+  // Stamped onto the shipped copy of every line, so one BetterStack source can hold the web app
+  // and the worker, production and preview, and still be filterable.
+  shipper.use(async (log) => ({ ...log, service, env: environment }))
+  return shipper
+}
 
-/** Stamped onto the shipped copy of every line, so one BetterStack source can hold the web app
- * and the worker, production and preview, and still be filterable. */
-logtail?.use(async (log) => ({ ...log, service, env: environment }))
+const betterStackToken = process.env.BETTERSTACK_SOURCE_TOKEN?.trim()
+const betterStackHost = normaliseHost(process.env.BETTERSTACK_INGESTING_HOST)
+const logtail = createShipper(betterStackToken, betterStackHost)
+
+/**
+ * The audit trail's copy outside the app — its own BetterStack source, so that one can be kept
+ * 18 months or more (vyhláška č. 409/2025 Sb. § 22 odst. 5: integrity of the records, a central
+ * tool) while the bulk of the logs stays on a short, cheap retention. Someone who gets hold of the
+ * application or its database can't reach this copy. Without its token, audit lines still go to
+ * the main source like every other line.
+ */
+const auditToken = process.env.BETTERSTACK_AUDIT_SOURCE_TOKEN?.trim()
+const auditLogtail = createShipper(auditToken, normaliseHost(process.env.BETTERSTACK_AUDIT_INGESTING_HOST))
 
 /** Whether this deployment can ship at all, stated once per cold start. The alternative is
  * what happened the first time: a silent no-op that looks exactly like a working logger. */
@@ -107,9 +120,11 @@ console.info(
     service,
     env: environment,
     enabled: Boolean(logtail),
+    auditEnabled: Boolean(auditLogtail),
     // Shapes only — never the values. Enough to tell "missing" from "pasted with a newline".
     tokenLength: betterStackToken?.length ?? 0,
     hostLength: betterStackHost?.length ?? 0,
+    auditTokenLength: auditToken?.length ?? 0,
   }),
 )
 
@@ -155,8 +170,9 @@ const keepAliveUntilSettled = (promise: Promise<unknown>) => {
   waitUntil?.(promise)
 }
 
-const log = (level: LogLevel, message: string, context?: LogContext) => {
-  if (LEVEL_WEIGHT[level] < minLevelWeight) return
+const log = (level: LogLevel, message: string, context?: LogContext, audit = false) => {
+  // The audit trail isn't diagnostics — LOG_LEVEL never thins it out.
+  if (!audit && LEVEL_WEIGHT[level] < minLevelWeight) return
 
   const fields: LogContext = {
     correlationId: (context?.correlationId as string) || getCorrelationId(),
@@ -177,6 +193,7 @@ const log = (level: LogLevel, message: string, context?: LogContext) => {
   // The SDK's log() settles only once the line has actually been synced, so this promise is
   // the one thing that has to outlive the request that produced it.
   if (logtail) keepAliveUntilSettled(logtail[level](message, fields))
+  if (audit && auditLogtail) keepAliveUntilSettled(auditLogtail[level](message, fields))
 }
 
 export const logger = {
@@ -191,11 +208,18 @@ export const logger = {
    */
   fatal: (message: string, context?: LogContext) =>
     log('error', `[FATAL] ${message}`, { ...context, severity: 'fatal' }),
+  /**
+   * Who did what security-relevant from where — sign-ins and sign-outs (failed ones too), password
+   * resets, and a copy of every audit-log entry (collections/shared/auditLog). Goes everywhere an
+   * info line goes, whatever LOG_LEVEL says, and to the audit source as well.
+   */
+  audit: (message: string, context?: LogContext, level: 'info' | 'warn' = 'info') =>
+    log(level, message, { ...context, audit: true }, true),
 }
 
 /** Let a long-running process (the worker, on shutdown) drain anything still in flight. */
 export const flushLogs = async (): Promise<void> => {
-  await Promise.allSettled([...pending, logtail?.flush() ?? Promise.resolve()])
+  await Promise.allSettled([...pending, logtail?.flush() ?? Promise.resolve(), auditLogtail?.flush() ?? Promise.resolve()])
 }
 
 export {

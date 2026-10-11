@@ -120,6 +120,14 @@ function isUpcoming(e: EventRow, now: number): boolean {
   return new Date(e.date_time).getTime() >= now && (e.status === "active" || e.status === "full");
 }
 
+/** Participants still waiting for the organizer — only on events not over yet: once one has ended,
+ * nobody decides a pending registration any more (Registrations guardStatusChange), so it isn't
+ * "waiting" for anything, and the data-retention job eventually removes it. */
+export function awaitingDecision(regs: RegistrationRow[], events: EventRow[], now: number = Date.now()): RegistrationRow[] {
+  const open = new Set(events.filter((e) => endsAt(e) >= now).map((e) => e.id));
+  return regs.filter((r) => r.status === "pending" && r.role !== "volunteer" && open.has(r.event_id));
+}
+
 function inPeriod(iso: string, start: Date | null): boolean {
   if (!start) return true;
   return new Date(iso).getTime() >= start.getTime();
@@ -162,7 +170,7 @@ export function computeKpis(
   const eventsPast = events.filter((e) => endsAt(e) < now).length;
 
   const approved = approvedParticipants(regs);
-  const pending = regs.filter((r) => r.status === "pending" && r.role !== "volunteer");
+  const pending = awaitingDecision(regs, events, now);
 
   const cutoff30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const activeUserIds = new Set(
@@ -579,15 +587,17 @@ export function topEvents(events: EventRow[], regs: RegistrationRow[], limit = 5
 
 /* ===== Stav přihlášek ===== */
 
-export function regStatusBreakdown(regs: RegistrationRow[]) {
-  const out = { approved: 0, pending: 0, rejected: 0 };
-  for (const r of regs) {
-    if (r.role === "volunteer") continue;
-    if (r.status === "approved") out.approved++;
-    else if (r.status === "pending") out.pending++;
-    else out.rejected++;
-  }
-  return out;
+/** A registration cancelled by its holder (or set aside when they joined the event's team) isn't a
+ * "Zamítnuto" — and since every sign-up after cancelling is a row of its own, counting them would
+ * turn one person changing their mind five times into five refusals. Pending ones count only while
+ * someone can still decide them (awaitingDecision). `events` — every event the registrations belong to. */
+export function regStatusBreakdown(regs: RegistrationRow[], events: EventRow[]) {
+  const participants = regs.filter((r) => r.role !== "volunteer");
+  return {
+    approved: participants.filter((r) => r.status === "approved").length,
+    pending: awaitingDecision(participants, events).length,
+    rejected: participants.filter((r) => r.status === "rejected").length,
+  };
 }
 
 /* ===== Docházka ===== */
@@ -642,7 +652,7 @@ export function buildEventsCsv(
   const cats = new Map(categories.map((c) => [c.id, c.name]));
   const profs = new Map(profiles.map((p) => [p.user_id, p.full_name]));
   const approved = approvedParticipants(regs);
-  const pending = regs.filter((r) => r.status === "pending" && r.role !== "volunteer");
+  const pending = awaitingDecision(regs, events);
   const header = ["Název", "Datum", "Kategorie", "Pořadatel", "Kapacita", "Schváleno", "Čeká", "Naplněnost %", "Stav"];
   const rows = events.map((e) => {
     const a = approved.filter((r) => r.event_id === e.id).length;

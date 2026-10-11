@@ -81,11 +81,12 @@ export const Consents: CollectionConfig = {
       ({ doc, previousDoc, req, operation }) => {
         if (operation !== 'update' || previousDoc?.revokedAt || !doc.revokedAt) return
         writeAuditLog(req.payload, {
+          source: req,
           action: 'consents.revoke',
           actor: req.user?.id ?? null,
           targetCollection: 'consents',
           targetId: doc.id,
-          metadata: { user: doc.user, type: doc.type },
+          metadata: { user: typeof doc.user === 'object' ? doc.user.id : doc.user, type: doc.type },
         })
       },
     ],

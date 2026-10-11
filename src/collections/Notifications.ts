@@ -56,6 +56,7 @@ export const Notifications: CollectionConfig = {
     {
       name: 'readAt',
       type: 'date',
+      index: true,
       admin: {
         description: 'Set when the recipient opens/dismisses the notification.',
       },

@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const userId = Number((await context.params).id)
   if (!userId) return NextResponse.json({ error: 'Účet neexistuje.' }, { status: 404 })
 
-  const result = await deleteAccount(payload, user, userId)
+  const result = await deleteAccount(payload, user, userId, request)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json({ deleted: true })
 }

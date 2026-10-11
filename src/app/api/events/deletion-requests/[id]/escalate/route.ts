@@ -113,6 +113,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     message: `${who} požádal(a) obec, aby ho z akce „${event.title}“ odebrala i bez vašeho souhlasu.`,
   })
   writeAuditLog(payload, {
+    source: request,
     action: 'event-deletion-requests.escalate',
     actor: user.id,
     targetCollection: 'event-deletion-requests',

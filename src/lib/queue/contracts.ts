@@ -13,6 +13,7 @@ export const JOB_NAMES = {
   PASSWORD_RESET: 'password-reset',
   SYNC_STATUSES: 'sync-statuses',
   ATTENDANCE_REMINDER: 'attendance-reminder',
+  DATA_RETENTION: 'data-retention',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -163,9 +164,10 @@ export type PasswordResetJobResult = {
 
 /**
  * Every quarter of an hour: writes down the statuses that change with the clock alone — events
- * past their end become 'finished', deletion requests past their 24 h 'expired'. Reads already
- * derive both (the collections' afterRead hooks); this makes the stored value, which filters,
- * counts and the admin see, catch up. Enqueued only by the worker's own scheduler.
+ * past their end become 'finished', deletion requests past their 24 h 'expired', volunteer
+ * invitations still waiting when their event starts 'withdrawn'. Reads already derive the first
+ * two (the collections' afterRead hooks); this makes the stored value, which filters, counts and
+ * the admin see, catch up. Enqueued only by the worker's own scheduler.
  */
 export type SyncStatusesJobData = Record<string, never>
 
@@ -173,6 +175,30 @@ export type SyncStatusesJobResult = {
   eventsFinished: number
   deletionRequestsExpired: number
   coOrganizingInvitationsExpired: number
+  /** Pending volunteer invitations/offers whose event has started — nobody can accept them now. */
+  volunteerInvitationsWithdrawn: number
+}
+
+/**
+ * Nightly: removes what no overview reads any more, by the periods in lib/retention/policy.ts —
+ * decided requests and invitations, cancelled events, stale registrations, orphaned uploads, audit
+ * entries past their retention. Every removal is written to the audit log in the same transaction.
+ * `DATA_RETENTION_MODE=enforce` deletes; otherwise the run only counts. Enqueued only by the
+ * worker's own scheduler.
+ */
+export type DataRetentionJobData = Record<string, never>
+
+export type DataRetentionStepResult = {
+  /** Rows the rule matched (all of them in a dry run; up to the per-run cap). */
+  matched: number
+  deleted: number
+}
+
+export type DataRetentionJobResult = {
+  mode: 'enforce' | 'dry-run'
+  steps: Record<string, DataRetentionStepResult>
+  /** Steps that threw — the others ran regardless. */
+  failed: string[]
 }
 
 /**
@@ -212,3 +238,4 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.PASSWORD_RESET; payload: PasswordResetJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SYNC_STATUSES; payload: SyncStatusesJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.ATTENDANCE_REMINDER; payload: AttendanceReminderJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.DATA_RETENTION; payload: DataRetentionJobData } & Traced)

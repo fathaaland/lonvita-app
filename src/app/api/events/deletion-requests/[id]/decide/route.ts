@@ -138,6 +138,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
     await announceRequesterRemoved(payload, { event: updated, requesterId, successorId, deciderId: uid, byObec: false })
     writeAuditLog(payload, {
+      source: request,
       action: 'event-deletion-requests.requester-removed',
       actor: user.id,
       targetCollection: 'event-deletion-requests',
@@ -154,6 +155,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       id: deletionRequest.id,
       data: { status: 'rejected', decidedBy: user.id, decidedAt, rejectedBy: asApprover ? user.id : null },
       overrideAccess: true,
+    })
+    writeAuditLog(payload, {
+      source: request,
+      action: 'event-deletion-requests.reject',
+      actor: user.id,
+      targetCollection: 'event-deletion-requests',
+      targetId: deletionRequest.id,
+      municipality: Number(relationId(event.municipality)) || null,
+      metadata: { event: event.id, requestedBy: requesterId, forObec: !asApprover },
     })
     // The requester, and everyone else who was asked — the event stays for all of them. The
     // requester may still turn to the obec to leave it (…/escalate).
@@ -246,6 +256,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillCoOrganizes ? ' i obce' : ''} smazána.`,
   })
   writeAuditLog(payload, {
+    source: request,
     action: 'events.consented_delete',
     actor: user.id,
     targetCollection: 'events',

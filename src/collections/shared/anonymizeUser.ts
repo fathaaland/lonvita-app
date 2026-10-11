@@ -365,6 +365,7 @@ export async function deleteAccount(
   payload: Payload,
   actor: { id: number },
   userId: number,
+  source?: { headers?: unknown },
 ): Promise<{ status: 200 } | { status: number; error: string }> {
   const req = await createLocalReq({ user: actor as never }, payload)
   const shouldCommit = await initTransaction(req)
@@ -381,6 +382,7 @@ export async function deleteAccount(
 
   await removeAnonymizedFiles(payload, userId, files)
   writeAuditLog(payload, {
+    source,
     action: 'users.anonymize',
     actor: actor.id,
     targetCollection: 'users',

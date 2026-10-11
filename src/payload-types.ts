@@ -679,7 +679,7 @@ export interface Consent {
   createdAt: string;
 }
 /**
- * Append-only. Written by server-side hooks (overrideAccess) on sensitive changes — role grants, consent revocation. Not writable or deletable through the API.
+ * Append-only — the database itself refuses edits and any delete younger than 18 months (trigger audit_log_guard). Kept 36 months, then removed by the nightly data-retention job, which writes down everything it removes here first. Reading it is recorded too.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "audit-log".
@@ -687,9 +687,10 @@ export interface Consent {
 export interface AuditLog {
   id: number;
   /**
-   * e.g. "user-roles.grant", "consents.revoke".
+   * e.g. "user-roles.grant", "consents.revoke", "data-retention.purge".
    */
   action: string;
+  outcome: 'success' | 'failure';
   /**
    * Who performed the action. Empty for system-triggered entries.
    */
@@ -706,6 +707,18 @@ export interface AuditLog {
     | number
     | boolean
     | null;
+  /**
+   * The originator's address. Empty for system-triggered entries.
+   */
+  ipAddress?: string | null;
+  /**
+   * The originator's browser.
+   */
+  userAgent?: string | null;
+  /**
+   * The request id — the same one in the application logs (BetterStack).
+   */
+  correlationId?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1390,11 +1403,15 @@ export interface ConsentsSelect<T extends boolean = true> {
  */
 export interface AuditLogSelect<T extends boolean = true> {
   action?: T;
+  outcome?: T;
   actor?: T;
   targetCollection?: T;
   targetId?: T;
   municipality?: T;
   metadata?: T;
+  ipAddress?: T;
+  userAgent?: T;
+  correlationId?: T;
   updatedAt?: T;
   createdAt?: T;
 }
