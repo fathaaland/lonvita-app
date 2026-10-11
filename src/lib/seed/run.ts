@@ -197,7 +197,7 @@ const DEMO_PEOPLE: DemoPerson[] = [
     roles: [],
   },
   {
-    email: 'jiri.kucera@example.com',
+    email: 'jiri.kucera1@example.com',
     demoAccount: true,
     fullName: 'Jiří Kučera',
     municipality: 'Brno',
