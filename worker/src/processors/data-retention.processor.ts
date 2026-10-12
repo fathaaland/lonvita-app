@@ -232,7 +232,6 @@ const STEPS: Step[] = [
         AND NOT EXISTS (SELECT 1 FROM events e WHERE e.image_id = m.id)
         AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.avatar_id = m.id)
         AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.avatar_id = m.id)
-        AND NOT EXISTS (SELECT 1 FROM event_media em WHERE em.media_id = m.id)
         AND m.id > ${afterId}
       ORDER BY m.id LIMIT ${limit}`,
     purge: deleteUploads,

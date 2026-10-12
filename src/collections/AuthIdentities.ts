@@ -44,11 +44,6 @@ export const AuthIdentities: CollectionConfig = {
       index: true,
     },
     {
-      name: 'connection',
-      type: 'text',
-      index: true,
-    },
-    {
       name: 'providerType',
       type: 'text',
       admin: {
@@ -79,13 +74,6 @@ export const AuthIdentities: CollectionConfig = {
       admin: {
         description:
           "When the provider's profile photo was offered to the profile. Set once — a person who removes the photo afterwards doesn't get it back on the next sign-in.",
-      },
-    },
-    {
-      name: 'profile',
-      type: 'json',
-      admin: {
-        description: "Raw profile payload from the provider, cached for reference.",
       },
     },
   ],

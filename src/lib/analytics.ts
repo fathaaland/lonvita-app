@@ -310,7 +310,7 @@ export function weeklySeries(events: EventRow[], regs: RegistrationRow[], weeks 
  *    tu populaci nemáme) proti vlastnímu klouzavému ročnímu průměru — self-referenční,
  *    jak spec pro fázi 1 povoluje.
  *  - Equity modifikátor (D3/D4a/D4b, ±10 bodů) NENÍ implementovaný — D3 (geografické
- *    pokrytí) potřebuje vazbu Events → MunicipalityAreas, kterou zatím events nemají.
+ *    pokrytí) potřebuje rozdělení obce na části a jejich vazbu na akce, které aplikace zatím nemá.
  *    Score je tedy jen Datavita_jádro, bez equity úpravy.
  */
 

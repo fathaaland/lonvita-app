@@ -826,12 +826,6 @@ export const Registrations: CollectionConfig = {
         position: 'sidebar',
       },
     },
-    {
-      name: 'attendanceNote',
-      type: 'text',
-      access: attendanceAccess,
-      admin: { position: 'sidebar' },
-    },
     deletedAtField,
   ],
   hooks: {

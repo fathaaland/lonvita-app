@@ -874,12 +874,8 @@ const cleanupEventRelations: CollectionBeforeDeleteHook = async ({ id, req }) =>
       req,
     })
   }
-  const photos = await payload.find({ collection: 'event-media', where: { event: { equals: id } }, select: { media: true }, ...find })
   const event = await payload.findByID({ collection: 'events', id, depth: 0, select: { image: true }, overrideAccess: true, req })
-  req.context.eventFiles = [
-    ...photos.docs.map((p) => relationId(p.media)),
-    relationId(event.image),
-  ].filter((mediaId): mediaId is string => mediaId !== null)
+  req.context.eventFiles = [relationId(event.image)].filter((mediaId): mediaId is string => mediaId !== null)
 
   // Sequential — one transaction (`req`); invitations and ratings point at registrations too.
   for (const collection of [
@@ -887,7 +883,6 @@ const cleanupEventRelations: CollectionBeforeDeleteHook = async ({ id, req }) =>
     'volunteer-ratings',
     'volunteer-invitations',
     'registrations',
-    'event-media',
     'co-organizing-requests',
   ] as const) {
     await payload.delete({ collection, where: { event: { equals: id } }, overrideAccess: true, req })
@@ -900,7 +895,7 @@ const cleanupEventRelations: CollectionBeforeDeleteHook = async ({ id, req }) =>
   })
 }
 
-/** The event's cover and its gallery photos — unless another event still shows the same upload. */
+/** The event's cover — unless another event still shows the same upload. */
 const removeEventFiles: CollectionAfterDeleteHook = async ({ req }) => {
   const mediaIds = (req.context.eventFiles as string[] | undefined) ?? []
   for (const mediaId of new Set(mediaIds)) {
@@ -1117,15 +1112,6 @@ export const Events: CollectionConfig = {
       admin: {
         description:
           'Brief §4 "Opakující se série" (e.g. "weekly:tuesday") — a simple machine-readable rule set on the first occurrence only. Combines with endDateTime for a multi-day recurring series. Occurrence generation is a separate, later piece; this field just records the intent.',
-      },
-    },
-    {
-      name: 'recurrenceParent',
-      type: 'relationship',
-      relationTo: 'events',
-      admin: {
-        description: 'Set on a generated occurrence, pointing back at the event that defines recurrenceRule.',
-        position: 'sidebar',
       },
     },
     {

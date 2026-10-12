@@ -651,13 +651,11 @@ export type ProfileRow = {
   full_name: string;
   avatar_url: string | null;
   phone: string | null;
-  phone_verified: boolean;
   notify_email: boolean;
   notify_in_app: boolean;
   municipality_id: string | null;
   onboarding_completed: boolean;
   date_of_birth: string | null;
-  home_area_id: string | null;
   gender: string | null;
   interests: string[] | null;
   is_volunteer: boolean;
@@ -678,13 +676,11 @@ type PayloadProfile = {
   fullName: string;
   avatar?: number | PayloadMedia | null;
   phone?: string | null;
-  phoneVerified?: boolean;
   notifyEmail?: boolean;
   notifyInApp?: boolean;
   municipality?: number | { id: number } | null;
   onboardingCompleted?: boolean;
   dateOfBirth?: string | null;
-  homeArea?: number | { id: number } | null;
   gender?: string | null;
   interests?: (number | { id: number })[] | null;
   isVolunteer?: boolean;
@@ -724,13 +720,11 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   full_name: p.fullName,
   avatar_url: avatarUrlOf(p.avatar),
   phone: p.phone ?? null,
-  phone_verified: Boolean(p.phoneVerified),
   notify_email: p.notifyEmail ?? true,
   notify_in_app: p.notifyInApp ?? true,
   municipality_id: relationId(p.municipality),
   onboarding_completed: Boolean(p.onboardingCompleted),
   date_of_birth: p.dateOfBirth ?? null,
-  home_area_id: relationId(p.homeArea),
   gender: p.gender ?? null,
   interests: p.interests?.map((i) => relationId(i)!).filter(Boolean) ?? null,
   is_volunteer: Boolean(p.isVolunteer),

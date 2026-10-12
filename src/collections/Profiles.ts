@@ -297,15 +297,6 @@ export const Profiles: CollectionConfig = {
       access: { read: canReadPhone },
     },
     {
-      name: 'phoneVerified',
-      type: 'checkbox',
-      defaultValue: false,
-      admin: {
-        description: 'Brief §8 "přidání a ověření tel. čísla pro GoSMS" — set once an OTP sent to `phone` is confirmed.',
-        position: 'sidebar',
-      },
-    },
-    {
       name: 'notifyEmail',
       type: 'checkbox',
       defaultValue: true,
@@ -351,15 +342,6 @@ export const Profiles: CollectionConfig = {
       access: { read: canReadOwnProfileField },
       relationTo: 'event-categories',
       hasMany: true,
-    },
-    {
-      name: 'homeArea',
-      type: 'relationship',
-      access: { read: canReadOwnProfileField },
-      relationTo: 'municipality-areas',
-      admin: {
-        description: 'Neighborhood within the municipality, chosen during onboarding.',
-      },
     },
     {
       name: 'onboardingCompleted',

@@ -75,10 +75,8 @@ export interface Config {
     'user-roles': UserRole;
     events: Event;
     registrations: Registration;
-    'event-media': EventMedia;
     'event-feedback': EventFeedback;
     'auth-identities': AuthIdentity;
-    'municipality-areas': MunicipalityArea;
     consents: Consent;
     'audit-log': AuditLog;
     notifications: Notification;
@@ -106,10 +104,8 @@ export interface Config {
     'user-roles': UserRolesSelect<false> | UserRolesSelect<true>;
     events: EventsSelect<false> | EventsSelect<true>;
     registrations: RegistrationsSelect<false> | RegistrationsSelect<true>;
-    'event-media': EventMediaSelect<false> | EventMediaSelect<true>;
     'event-feedback': EventFeedbackSelect<false> | EventFeedbackSelect<true>;
     'auth-identities': AuthIdentitiesSelect<false> | AuthIdentitiesSelect<true>;
-    'municipality-areas': MunicipalityAreasSelect<false> | MunicipalityAreasSelect<true>;
     consents: ConsentsSelect<false> | ConsentsSelect<true>;
     'audit-log': AuditLogSelect<false> | AuditLogSelect<true>;
     notifications: NotificationsSelect<false> | NotificationsSelect<true>;
@@ -175,12 +171,6 @@ export interface User {
    * When the account was deleted. Its personal data is gone; the row stays so the registrations, attendance and ratings hanging off it keep counting in the overviews.
    */
   anonymizedAt?: string | null;
-  tenants?:
-    | {
-        tenant: number | Municipality;
-        id?: string | null;
-      }[]
-    | null;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -199,34 +189,6 @@ export interface User {
     | null;
   password?: string | null;
   collection: 'users';
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "municipalities".
- */
-export interface Municipality {
-  id: number;
-  name: string;
-  description?: string | null;
-  /**
-   * Brief §4 "poloha je mandatory field" — plots this obec on the municipality-switcher map (brief §4/§7 "mapka jako v Projects/eduard-app").
-   */
-  lat: number;
-  lng: number;
-  /**
-   * The user who administers this municipality. Kept in sync with "municipality_admin" user-roles (the most recently granted one).
-   */
-  adminUser?: (number | null) | User;
-  /**
-   * Maximální vzdálenost (km) mezi středem obce (lat/lng výše) a místem konání akce. Akce mimo tento okruh nejde založit ani upravit — brání přiřazení akce z jiného města k této obci.
-   */
-  eventRadiusKm: number;
-  /**
-   * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.
-   */
-  rulesForCreation: 'municipality_only' | 'approved_organizers';
-  updatedAt: string;
-  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -265,6 +227,34 @@ export interface Media {
       filename?: string | null;
     };
   };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "municipalities".
+ */
+export interface Municipality {
+  id: number;
+  name: string;
+  description?: string | null;
+  /**
+   * Brief §4 "poloha je mandatory field" — plots this obec on the municipality-switcher map (brief §4/§7 "mapka jako v Projects/eduard-app").
+   */
+  lat: number;
+  lng: number;
+  /**
+   * The user who administers this municipality. Kept in sync with "municipality_admin" user-roles (the most recently granted one).
+   */
+  adminUser?: (number | null) | User;
+  /**
+   * Maximální vzdálenost (km) mezi středem obce (lat/lng výše) a místem konání akce. Akce mimo tento okruh nejde založit ani upravit — brání přiřazení akce z jiného města k této obci.
+   */
+  eventRadiusKm: number;
+  /**
+   * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.
+   */
+  rulesForCreation: 'municipality_only' | 'approved_organizers';
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -308,10 +298,6 @@ export interface Profile {
   municipality?: (number | null) | Municipality;
   phone?: string | null;
   /**
-   * Brief §8 "přidání a ověření tel. čísla pro GoSMS" — set once an OTP sent to `phone` is confirmed.
-   */
-  phoneVerified?: boolean | null;
-  /**
    * Brief §7 "Preferovaný kanál notifikací... e-mail defaultně."
    */
   notifyEmail?: boolean | null;
@@ -323,10 +309,6 @@ export interface Profile {
   over50?: boolean | null;
   gender?: ('zena' | 'muz' | 'jine' | 'neuvedeno') | null;
   interests?: (number | EventCategory)[] | null;
-  /**
-   * Neighborhood within the municipality, chosen during onboarding.
-   */
-  homeArea?: (number | null) | MunicipalityArea;
   onboardingCompleted?: boolean | null;
   isVolunteer?: boolean | null;
   volunteerFocus?: string[] | null;
@@ -356,26 +338,6 @@ export interface Profile {
    * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
   deletedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * Neighborhoods within a municipality, used for the onboarding "where do you live" map.
- *
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "municipality-areas".
- */
-export interface MunicipalityArea {
-  id: number;
-  municipality: number | Municipality;
-  name: string;
-  /**
-   * Short slug-like identifier, unique within the municipality.
-   */
-  code: string;
-  centerLat: number;
-  centerLng: number;
-  radiusM: number;
   updatedAt: string;
   createdAt: string;
 }
@@ -415,10 +377,6 @@ export interface Event {
    * Brief §4 "Opakující se série" (e.g. "weekly:tuesday") — a simple machine-readable rule set on the first occurrence only. Combines with endDateTime for a multi-day recurring series. Occurrence generation is a separate, later piece; this field just records the intent.
    */
   recurrenceRule?: string | null;
-  /**
-   * Set on a generated occurrence, pointing back at the event that defines recurrenceRule.
-   */
-  recurrenceParent?: (number | null) | Event;
   /**
    * Human-readable label for the picked location (from the map picker's search result, editable).
    */
@@ -557,24 +515,6 @@ export interface Registration {
    * The organizer who marked attendance.
    */
   attendanceMarkedBy?: (number | null) | User;
-  attendanceNote?: string | null;
-  /**
-   * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
-   */
-  deletedAt?: string | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "event-media".
- */
-export interface EventMedia {
-  id: number;
-  event: number | Event;
-  media: number | Media;
-  uploadedBy: number | User;
-  visibility: 'private' | 'municipality' | 'public';
   /**
    * Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.
    */
@@ -625,7 +565,6 @@ export interface AuthIdentity {
    */
   providerSubject: string;
   provider: string;
-  connection?: string | null;
   /**
    * database | social
    */
@@ -638,18 +577,6 @@ export interface AuthIdentity {
    * When the provider's profile photo was offered to the profile. Set once — a person who removes the photo afterwards doesn't get it back on the next sign-in.
    */
   avatarImportedAt?: string | null;
-  /**
-   * Raw profile payload from the provider, cached for reference.
-   */
-  profile?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1017,20 +944,12 @@ export interface PayloadLockedDocument {
         value: number | Registration;
       } | null)
     | ({
-        relationTo: 'event-media';
-        value: number | EventMedia;
-      } | null)
-    | ({
         relationTo: 'event-feedback';
         value: number | EventFeedback;
       } | null)
     | ({
         relationTo: 'auth-identities';
         value: number | AuthIdentity;
-      } | null)
-    | ({
-        relationTo: 'municipality-areas';
-        value: number | MunicipalityArea;
       } | null)
     | ({
         relationTo: 'consents';
@@ -1129,12 +1048,6 @@ export interface PayloadMigration {
 export interface UsersSelect<T extends boolean = true> {
   role?: T;
   anonymizedAt?: T;
-  tenants?:
-    | T
-    | {
-        tenant?: T;
-        id?: T;
-      };
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -1231,14 +1144,12 @@ export interface ProfilesSelect<T extends boolean = true> {
   avatar?: T;
   municipality?: T;
   phone?: T;
-  phoneVerified?: T;
   notifyEmail?: T;
   notifyInApp?: T;
   dateOfBirth?: T;
   over50?: T;
   gender?: T;
   interests?: T;
-  homeArea?: T;
   onboardingCompleted?: T;
   isVolunteer?: T;
   volunteerFocus?: T;
@@ -1275,7 +1186,6 @@ export interface EventsSelect<T extends boolean = true> {
   dateTime?: T;
   endDateTime?: T;
   recurrenceRule?: T;
-  recurrenceParent?: T;
   locationText?: T;
   lat?: T;
   lng?: T;
@@ -1318,20 +1228,6 @@ export interface RegistrationsSelect<T extends boolean = true> {
   attendanceStatus?: T;
   attendanceMarkedAt?: T;
   attendanceMarkedBy?: T;
-  attendanceNote?: T;
-  deletedAt?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "event-media_select".
- */
-export interface EventMediaSelect<T extends boolean = true> {
-  event?: T;
-  media?: T;
-  uploadedBy?: T;
-  visibility?: T;
   deletedAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1359,28 +1255,12 @@ export interface AuthIdentitiesSelect<T extends boolean = true> {
   user?: T;
   providerSubject?: T;
   provider?: T;
-  connection?: T;
   providerType?: T;
   email?: T;
   emailVerified?: T;
   lastLoginAt?: T;
   lastSyncedAt?: T;
   avatarImportedAt?: T;
-  profile?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "municipality-areas_select".
- */
-export interface MunicipalityAreasSelect<T extends boolean = true> {
-  municipality?: T;
-  name?: T;
-  code?: T;
-  centerLat?: T;
-  centerLng?: T;
-  radiusM?: T;
   updatedAt?: T;
   createdAt?: T;
 }

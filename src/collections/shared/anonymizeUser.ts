@@ -104,9 +104,9 @@ export type AnonymizedFiles = { mediaIds: number[]; exportIds: number[] }
  * - their places on events that haven't started are given up (the team told, without a name), and
  *   pending volunteer invitations or offers withdrawn;
  * - past registrations, attendance and event ratings stay, minus excuses, notes and comments;
- * - what only described them goes: Google sign-in, consents, notifications, exports, event photos
- *   they uploaded, the ratings they got as a volunteer, their requests to organize and the
- *   complaints the obec hasn't decided yet;
+ * - what only described them goes: Google sign-in, consents, notifications, exports, the ratings
+ *   they got as a volunteer, their requests to organize and the complaints the obec hasn't
+ *   decided yet;
  * - an organizer's organization is hidden (an "individual" one loses its name), and every role
  *   goes — the obec's adminUser follows (UserRoles);
  * - the profile keeps its obec, its sign-up date and whether they're 50+ (`over50`); the account an
@@ -186,7 +186,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
   await payload.db.updateMany({
     collection: 'registrations',
     where: { user: { equals: userId } },
-    data: { excuseMessage: null, attendanceNote: null },
+    data: { excuseMessage: null },
     req,
   })
   if (registrations.docs.length > 0) {
@@ -232,11 +232,6 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
     await payload.delete({ collection, where: { [field]: { equals: userId } }, overrideAccess: true, req })
   }
   const mediaIds: number[] = []
-  const eventMedia = await payload.find({ collection: 'event-media', where: { uploadedBy: { equals: userId } }, ...find })
-  mediaIds.push(...eventMedia.docs.map((m) => relationNumber(m.media)).filter((id): id is number => id !== null))
-  if (eventMedia.docs.length > 0) {
-    await payload.delete({ collection: 'event-media', where: { uploadedBy: { equals: userId } }, overrideAccess: true, req })
-  }
   const exports = await payload.find({ collection: 'exports', where: { owner: { equals: userId } }, select: {}, ...find })
 
   // Organizing: past events stay theirs (and so the obec's history), the organization is hidden.
@@ -284,10 +279,8 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
         over50: profile.dateOfBirth ? ageOn(profile.dateOfBirth, now) >= 50 : Boolean(profile.over50),
         avatar: null,
         phone: null,
-        phoneVerified: false,
         dateOfBirth: null,
         gender: null,
-        homeArea: null,
         notifyEmail: false,
         notifyInApp: false,
         isVolunteer: false,

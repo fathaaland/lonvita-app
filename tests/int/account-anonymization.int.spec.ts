@@ -186,7 +186,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
     pastEvent = await pastEventBy(pub, 'Past event')
     pastRegistration = await payload.create({
       collection: 'registrations',
-      data: { event: pastEvent.id, user: jana.id, status: 'approved', attendanceStatus: 'attended', attendanceNote: 'Přišla s vnučkou' },
+      data: { event: pastEvent.id, user: jana.id, status: 'approved', attendanceStatus: 'attended' },
       overrideAccess: true,
       context: { skipNotifications: true },
     })
@@ -331,7 +331,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
 
     it('their history stays, without the words they wrote', async () => {
       const past = await payload.findByID({ collection: 'registrations', id: pastRegistration.id, overrideAccess: true })
-      expect(past).toMatchObject({ status: 'approved', attendanceStatus: 'attended', attendanceNote: null })
+      expect(past).toMatchObject({ status: 'approved', attendanceStatus: 'attended' })
 
       const feedback = (
         await payload.find({
