@@ -96,7 +96,7 @@ describe("An organization's feedback summary (GET /api/organizations/:id/feedbac
       overrideAccess: true,
     })
 
-    const makeUser = async (name: string, role: string) => {
+    const makeUser = async (name: string, role: string | null) => {
       const user = await payload.create({
         collection: 'users',
         data: { email: `summary-${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -107,19 +107,21 @@ describe("An organization's feedback summary (GET /api/organizations/:id/feedbac
         data: { user: user.id, fullName: `summary ${name}`, municipality: muni.id, notifyEmail: false },
         overrideAccess: true,
       })
-      await payload.create({
-        collection: 'user-roles',
-        data: { user: user.id, municipality: muni.id, role: role as 'organizer' },
-        overrideAccess: true,
-      })
+      if (role) {
+        await payload.create({
+          collection: 'user-roles',
+          data: { user: user.id, municipality: muni.id, role: role as 'organizer' },
+          overrideAccess: true,
+        })
+      }
       return user
     }
     admin = await makeUser('admin', 'municipality_admin')
     pub = await makeUser('hospoda', 'organizer')
     club = await makeUser('spolek', 'organizer')
     bakery = await makeUser('pekarna', 'organizer')
-    anna = await makeUser('anna', 'participant')
-    petr = await makeUser('petr', 'participant')
+    anna = await makeUser('anna', null)
+    petr = await makeUser('petr', null)
 
     const orgs = await payload.find({
       collection: 'organizations',

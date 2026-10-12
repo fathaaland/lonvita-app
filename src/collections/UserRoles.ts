@@ -21,38 +21,6 @@ import { findRunningEvents } from './shared/runningEvents'
 import type { OrganizationType } from '@/lib/organizations'
 import { requiredRelationNumber } from '@/lib/relations'
 
-/** Municipalities.adminUser mirrors the most recently granted "municipality_admin" role for that
- * obec (null once none is left) — the superadmin panel only ever writes user-roles rows, so without
- * this the obec's own adminUser column stayed empty. `req` keeps it in the same transaction as the
- * grant/revoke; `skipAdminUserSync` stops Municipalities' own hook from granting the role back. */
-async function syncMunicipalityAdminUser(
-  req: PayloadRequest,
-  municipalityId: number,
-): Promise<void> {
-  const latest = await req.payload.find({
-    collection: 'user-roles',
-    where: {
-      and: [
-        { municipality: { equals: municipalityId } },
-        { role: { equals: 'municipality_admin' } },
-      ],
-    },
-    sort: '-createdAt',
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-    req,
-  })
-  await req.payload.update({
-    collection: 'municipalities',
-    id: municipalityId,
-    data: { adminUser: latest.docs[0] ? requiredRelationNumber(latest.docs[0].user) : null },
-    overrideAccess: true,
-    context: { skipAdminUserSync: true },
-    req,
-  })
-}
-
 /**
  * A newly appointed obec admin hears what's already waiting on the obec — an organizer who asked
  * before the obec had an admin was told to the platform admins (getObecDeciders), so the new admin
@@ -238,7 +206,6 @@ export const UserRoles: CollectionConfig = {
       type: 'select',
       required: true,
       options: [
-        { label: 'Participant', value: 'participant' },
         { label: 'Municipality Admin', value: 'municipality_admin' },
         { label: 'Organizer', value: 'organizer' },
         {
@@ -248,7 +215,7 @@ export const UserRoles: CollectionConfig = {
       ],
       admin: {
         description:
-          'Enum matches ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren\'t tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).',
+          'What someone may do in an obec — where they live is Profiles.municipality, not a role. Enum follows ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren\'t tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).',
       },
     },
   ],
@@ -314,16 +281,6 @@ export const UserRoles: CollectionConfig = {
       },
     ],
     afterChange: [
-      async ({ doc, previousDoc, req }) => {
-        const municipalityIds = new Set<number>()
-        if (doc.role === 'municipality_admin') municipalityIds.add(requiredRelationNumber(doc.municipality))
-        if (previousDoc?.role === 'municipality_admin')
-          municipalityIds.add(requiredRelationNumber(previousDoc.municipality))
-        for (const municipalityId of municipalityIds) {
-          await syncMunicipalityAdminUser(req, municipalityId)
-        }
-        return doc
-      },
       // Granting "municipality_admin" (e.g. via the superadmin panel's "Přidat roli") used to only
       // ever write this user-roles row — the admin's own profile.municipality (their dashboard's
       // home obec, see page.tsx's `viewing` default) never followed, so they'd land on "Všechny
@@ -447,11 +404,6 @@ export const UserRoles: CollectionConfig = {
     // audited on create above; this is the matching trail for revocation (a hard DELETE, see
     // revokeCommunityRole in superadmin-queries.ts), which previously left no audit record.
     afterDelete: [
-      async ({ doc, req }) => {
-        if (doc.role === 'municipality_admin')
-          await syncMunicipalityAdminUser(req, requiredRelationNumber(doc.municipality))
-        return doc
-      },
       // Someone else took the role away (the obec's admin, or the platform admin) — the holder hears
       // it, rather than finding out from a "Vytvořit" button that's no longer there.
       async ({ doc, req, context }) => {

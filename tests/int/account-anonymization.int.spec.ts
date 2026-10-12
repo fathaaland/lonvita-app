@@ -40,7 +40,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
 
   const makeUser = async (
     name: string,
-    role: 'organizer' | 'participant' | 'municipality_admin' | null,
+    role: 'organizer' | 'municipality_admin' | null,
     profile: Record<string, unknown> = {},
     platformRole: 'user' | 'admin' = 'user',
   ): Promise<TestUser> => {
@@ -168,7 +168,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
     superadmin = await makeUser('superadmin', null, {}, 'admin')
     pub = await makeUser('hospoda', 'organizer')
     pubOrganizationId = (await organizationOf(pub))!.id
-    jana = await makeUser('jana', 'participant', {
+    jana = await makeUser('jana', null, {
       fullName: 'Jana Nováková',
       phone: '+420 777 123 456',
       dateOfBirth: '1950-03-01T00:00:00.000Z',
@@ -450,24 +450,31 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
       }
     })
 
-    it('loses the role, and the obec no longer names them its admin', async () => {
+    it('loses the role — the obec is left with its other admin', async () => {
       // There's always someone left to administer the obec (keepLastMunicipalityAdmin, anonymizeUser).
-      await makeUser('obec-colleague', 'municipality_admin')
+      const colleague = await makeUser('obec-colleague', 'municipality_admin')
       const admin = await makeUser('obec', 'municipality_admin')
-      expect(relId((await payload.findByID({ collection: 'municipalities', id: muni.id, overrideAccess: true })).adminUser)).toBe(
-        admin.id,
-      )
+      const obecAdmins = async () =>
+        (
+          await payload.find({
+            collection: 'user-roles',
+            where: { and: [{ municipality: { equals: muni.id } }, { role: { equals: 'municipality_admin' } }] },
+            depth: 0,
+            overrideAccess: true,
+          })
+        ).docs.map((r) => relId(r.user))
+      expect(await obecAdmins()).toEqual(expect.arrayContaining([admin.id, colleague.id]))
 
       expect((await deleteOwn(admin)).status).toBe(200)
 
-      const municipality = await payload.findByID({ collection: 'municipalities', id: muni.id, overrideAccess: true })
-      expect(relId(municipality.adminUser)).not.toBe(admin.id)
+      expect(await obecAdmins()).not.toContain(admin.id)
+      expect(await obecAdmins()).toContain(colleague.id)
     })
   })
 
   describe('the superadmin', () => {
     it('anonymizes an account from the panel instead of deleting it', async () => {
-      const panelUser = await makeUser('panel', 'participant')
+      const panelUser = await makeUser('panel', null)
       const response = await anonymizeAs(superadmin, panelUser)
       expect(response.status).toBe(200)
       const user = await payload.findByID({ collection: 'users', id: panelUser.id, overrideAccess: true })
@@ -475,7 +482,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
     })
 
     it('nobody else may', async () => {
-      const someone = await makeUser('someone', 'participant')
+      const someone = await makeUser('someone', null)
       expect((await anonymizeAs(pub, someone)).status).toBe(403)
     })
 
@@ -485,7 +492,7 @@ describe('Deleting an account keeps its data, anonymized, for the obec and organ
     })
 
     it('the hard delete over the API is closed', async () => {
-      const someone = await makeUser('hard-delete', 'participant')
+      const someone = await makeUser('hard-delete', null)
       await expect(
         payload.delete({ collection: 'users', id: someone.id, user: superadmin, overrideAccess: false }),
       ).rejects.toThrow()

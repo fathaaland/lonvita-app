@@ -24,18 +24,13 @@ const createAccount = async (label: string) =>
     overrideAccess: true,
   })
 
-/** What POST /api/superadmin/create-user leaves behind: the account, a full profile and a
- * "participant" role in the chosen obec. */
+/** What POST /api/superadmin/create-user leaves behind: the account and a full profile in the
+ * chosen obec. */
 const provisionFromPanel = async (label: string) => {
   const user = await createAccount(label)
   await payload.create({
     collection: 'profiles',
     data: { user: user.id, fullName: `Panel User ${label}`, municipality: municipality.id },
-    overrideAccess: true,
-  })
-  await payload.create({
-    collection: 'user-roles',
-    data: { user: user.id, municipality: municipality.id, role: 'participant' },
     overrideAccess: true,
   })
   return user

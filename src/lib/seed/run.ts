@@ -120,7 +120,7 @@ type DemoPerson = {
   interests: CategoryName[]
   volunteer?: { focus: string[]; note: string }
   roles: {
-    role: 'participant' | 'municipality_admin' | 'organizer'
+    role: 'municipality_admin' | 'organizer'
     municipality: MunicipalityName
   }[]
 }
@@ -145,7 +145,6 @@ const DEMO_PEOPLE: DemoPerson[] = [
     gender: 'zena',
     interests: ['Kultura', 'Setkání'],
     roles: [
-      { role: 'participant', municipality: 'Nové Veselí' },
       { role: 'municipality_admin', municipality: 'Nové Veselí' },
     ],
   },
@@ -157,7 +156,7 @@ const DEMO_PEOPLE: DemoPerson[] = [
     dateOfBirth: '1956-09-23',
     gender: 'muz',
     interests: ['Výlety', 'Zdraví', 'Sport'],
-    roles: [{ role: 'participant', municipality: 'Nové Veselí' }],
+    roles: [],
   },
   {
     email: 'marie.svobodova@example.com',
@@ -169,7 +168,7 @@ const DEMO_PEOPLE: DemoPerson[] = [
     gender: 'zena',
     interests: ['Kultura', 'Setkání', 'Zdraví'],
     volunteer: { focus: ['doprava', 'socialni'], note: 'Mám auto, ráda odvezu sousedy na akce.' },
-    roles: [{ role: 'participant', municipality: 'Nové Veselí' }],
+    roles: [],
   },
   {
     email: 'tomas.cerny@example.com',
@@ -181,7 +180,6 @@ const DEMO_PEOPLE: DemoPerson[] = [
     gender: 'muz',
     interests: ['Sport', 'Výlety'],
     roles: [
-      { role: 'participant', municipality: 'Nové Veselí' },
       { role: 'organizer', municipality: 'Nové Veselí' },
     ],
   },
@@ -205,7 +203,7 @@ const DEMO_PEOPLE: DemoPerson[] = [
     dateOfBirth: '1952-05-08',
     gender: 'muz',
     interests: ['Výlety', 'Setkání'],
-    roles: [{ role: 'participant', municipality: 'Brno' }],
+    roles: [],
   },
 ]
 

@@ -97,7 +97,7 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
       overrideAccess: true,
     })
 
-    const makeUser = async (name: string, role: 'organizer' | 'participant' | 'municipality_admin') => {
+    const makeUser = async (name: string, role: 'organizer' | 'municipality_admin' | null) => {
       const user = await payload.create({
         collection: 'users',
         data: { email: `rc-${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -108,15 +108,17 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
         data: { user: user.id, fullName: `rc ${name}`, municipality: muni.id, notifyEmail: false },
         overrideAccess: true,
       })
-      await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+      if (role) {
+        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+      }
       return user as TestUser
     }
     pub = await makeUser('hospoda', 'organizer')
     club = await makeUser('spolek', 'organizer')
     otherOrganizer = await makeUser('cizi', 'organizer')
-    volunteer = await makeUser('dobrovolnik', 'participant')
-    happy = await makeUser('spokojeny', 'participant')
-    grumpy = await makeUser('nespokojeny', 'participant')
+    volunteer = await makeUser('dobrovolnik', null)
+    happy = await makeUser('spokojeny', null)
+    grumpy = await makeUser('nespokojeny', null)
     obecAdmin = await makeUser('obec', 'municipality_admin')
 
     const orgs = await payload.find({

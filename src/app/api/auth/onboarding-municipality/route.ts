@@ -9,8 +9,8 @@ import config from '@payload-config'
  * aren't readable by their owner over REST, hence this endpoint.
  *
  * GET  → `{ needed }` — whether onboarding should show the obec step.
- * POST `{ municipality }` → files the profile under it with a "participant" role there, the
- * same as /api/auth/register does. "Bez obce" needs no call — the profile already has none.
+ * POST `{ municipality }` → files the profile under it, the same as /api/auth/register does.
+ * "Bez obce" needs no call — the profile already has none.
  */
 async function loadState(payload: Payload, userId: number) {
   const [profiles, identities] = await Promise.all([
@@ -80,27 +80,6 @@ export async function POST(request: Request) {
     data: { municipality: municipalityId },
     overrideAccess: true,
   })
-
-  const existingRole = await payload.find({
-    collection: 'user-roles',
-    where: {
-      and: [
-        { user: { equals: user.id } },
-        { municipality: { equals: municipalityId } },
-        { role: { equals: 'participant' } },
-      ],
-    },
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-  })
-  if (existingRole.docs.length === 0) {
-    await payload.create({
-      collection: 'user-roles',
-      data: { user: user.id, municipality: municipalityId, role: 'participant' },
-      overrideAccess: true,
-    })
-  }
 
   return NextResponse.json({ ok: true })
 }

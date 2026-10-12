@@ -85,7 +85,7 @@ describe('Obec step in onboarding for Google sign-ups (/api/auth/onboarding-muni
     expect((await pick(emailUser.email, muni.id)).status).toBe(409)
   })
 
-  it('files the Google sign-up under the picked obec with a participant role', async () => {
+  it('files the Google sign-up under the picked obec — no role, living there is no permission', async () => {
     expect((await pick(googleUser.email, muni.id)).status).toBe(200)
     // A retry with the same obec (onboarding failed to finish) still succeeds.
     expect((await pick(googleUser.email, muni.id)).status).toBe(200)
@@ -101,7 +101,7 @@ describe('Obec step in onboarding for Google sign-ups (/api/auth/onboarding-muni
       depth: 0,
       overrideAccess: true,
     })
-    expect(roles.docs.map((r) => r.role)).toEqual(['participant'])
+    expect(roles.docs).toEqual([])
     expect(await isNeeded(googleUser.email)).toBe(false)
   })
 })

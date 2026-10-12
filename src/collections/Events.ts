@@ -1107,14 +1107,6 @@ export const Events: CollectionConfig = {
       },
     },
     {
-      name: 'recurrenceRule',
-      type: 'text',
-      admin: {
-        description:
-          'Brief §4 "Opakující se série" (e.g. "weekly:tuesday") — a simple machine-readable rule set on the first occurrence only. Combines with endDateTime for a multi-day recurring series. Occurrence generation is a separate, later piece; this field just records the intent.',
-      },
-    },
-    {
       name: 'locationText',
       type: 'text',
       required: true,

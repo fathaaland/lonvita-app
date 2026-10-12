@@ -45,7 +45,6 @@ export type EventFormValues = {
   description: string;
   dateTimeIso: string;
   endDateTimeIso: string | null;
-  recurrenceRule: string | null;
   location: PickedLocation;
   accessibilityTags: string[];
   capacity: number;
@@ -224,7 +223,6 @@ export function EventForm({
         // Nothing generates the later dates of a series yet, so the form no longer offers one — it
         // would promise "každé úterý" and deliver a single date. An older event keeps what it has,
         // untouched: changing it would announce "opakování" as an edit to everyone signed up.
-        recurrenceRule: initial?.recurrence_rule ?? null,
         location,
         accessibilityTags,
         capacity: parsed.data.capacity,

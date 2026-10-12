@@ -60,7 +60,7 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
 
     const makeUser = async (
       name: string,
-      role: 'organizer' | 'participant' | 'municipality_admin',
+      role: 'organizer' | 'municipality_admin' | null,
       profile: Record<string, unknown> = {},
     ) => {
       const user = await payload.create({
@@ -73,14 +73,16 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
         data: { user: user.id, fullName: `vrat ${name}`, municipality: muni.id, notifyEmail: false, ...profile },
         overrideAccess: true,
       })
-      await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+      if (role) {
+        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+      }
       return { user, profileId: created.id }
     }
     pub = (await makeUser('hospoda', 'organizer')).user
     club = (await makeUser('spolek', 'organizer')).user
-    resident = (await makeUser('resident', 'participant')).user
+    resident = (await makeUser('resident', null)).user
     obecAdmin = (await makeUser('obec', 'municipality_admin')).user
-    const v = await makeUser('dobrovolnik', 'participant', {
+    const v = await makeUser('dobrovolnik', null, {
       isVolunteer: true,
       volunteerMunicipality: muni.id,
       volunteerFocus: ['akce'],

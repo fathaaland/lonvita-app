@@ -108,7 +108,7 @@ export type AnonymizedFiles = { mediaIds: number[]; exportIds: number[] }
  *   they got as a volunteer, their requests to organize and the complaints the obec hasn't
  *   decided yet;
  * - an organizer's organization is hidden (an "individual" one loses its name), and every role
- *   goes — the obec's adminUser follows (UserRoles);
+ *   goes;
  * - the profile keeps its obec, its sign-up date and whether they're 50+ (`over50`); the account an
  *   address nobody owns, a password nobody knows and no sessions.
  *

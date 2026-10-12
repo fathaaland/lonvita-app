@@ -773,7 +773,6 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
       [admin, 'municipality_admin'],
       [pub, 'organizer'],
       [club, 'organizer'],
-      [resident, 'participant'],
     ] as const) {
       await payload.create({
         collection: 'user-roles',
@@ -969,11 +968,6 @@ describe('Organizer requests carry a reason (OrganizerRequests.reason)', () => {
     await payload.create({
       collection: 'user-roles',
       data: { user: admin.id, municipality: muni.id, role: 'municipality_admin' },
-      overrideAccess: true,
-    })
-    await payload.create({
-      collection: 'user-roles',
-      data: { user: applicant.id, municipality: muni.id, role: 'participant' },
       overrideAccess: true,
     })
   })

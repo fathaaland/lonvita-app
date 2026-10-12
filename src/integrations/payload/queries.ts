@@ -111,7 +111,6 @@ export type EventRow = {
   description?: string;
   date_time: string;
   end_date_time: string | null;
-  recurrence_rule: string | null;
   location_text: string;
   lat: number | null;
   lng: number | null;
@@ -160,7 +159,6 @@ type PayloadEvent = {
   description?: string | null;
   dateTime: string;
   endDateTime?: string | null;
-  recurrenceRule?: string | null;
   locationText: string;
   lat?: number | null;
   lng?: number | null;
@@ -200,7 +198,6 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   description: e.description ?? undefined,
   date_time: e.dateTime,
   end_date_time: e.endDateTime ?? null,
-  recurrence_rule: e.recurrenceRule ?? null,
   location_text: e.locationText,
   lat: e.lat ?? null,
   lng: e.lng ?? null,
@@ -278,7 +275,6 @@ type CreateEventInput = {
   description: string;
   dateTimeIso: string;
   endDateTimeIso?: string;
-  recurrenceRule?: string;
   locationText: string;
   lat: number;
   lng: number;
@@ -304,7 +300,6 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     description: input.description,
     dateTime: input.dateTimeIso,
     endDateTime: input.endDateTimeIso || undefined,
-    recurrenceRule: input.recurrenceRule || undefined,
     locationText: input.locationText,
     lat: input.lat,
     lng: input.lng,
@@ -1179,7 +1174,7 @@ export async function removeProfileAvatar(profileId: string): Promise<void> {
 
 // --- User roles -----------------------------------------------------------------------
 
-export type AppRole = "municipality_admin" | "organizer" | "participant" | "prescriber";
+export type AppRole = "municipality_admin" | "organizer" | "prescriber";
 
 type PayloadUserRole = { id: number; role: AppRole; municipality: number | { id: number } };
 

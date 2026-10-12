@@ -88,7 +88,6 @@ import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 const ROLE_LABEL: Record<string, string> = {
-  participant: "Účastník",
   municipality_admin: "Admin obce",
   organizer: "Organizátor",
   prescriber: "Prescriber",
@@ -422,7 +421,6 @@ function SuperAdminContent() {
         description: values.description,
         dateTimeIso: values.dateTimeIso,
         endDateTimeIso: values.endDateTimeIso ?? undefined,
-        recurrenceRule: values.recurrenceRule ?? undefined,
         locationText: values.location.label,
         lat: values.location.lat,
         lng: values.location.lng,

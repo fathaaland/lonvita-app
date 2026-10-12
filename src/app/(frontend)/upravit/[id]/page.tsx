@@ -81,7 +81,6 @@ function EditEventContent() {
         description: values.description,
         dateTime: values.dateTimeIso,
         endDateTime: values.endDateTimeIso,
-        recurrenceRule: values.recurrenceRule,
         locationText: values.location.label,
         lat: values.location.lat,
         lng: values.location.lng,

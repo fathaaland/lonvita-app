@@ -88,7 +88,7 @@ describe('Co-organizing between organizations takes the invited one’s consent'
       overrideAccess: true,
     })
 
-    const makeUser = async (name: string, municipality: { id: number }, role: 'organizer' | 'participant') => {
+    const makeUser = async (name: string, municipality: { id: number }, role: 'organizer' | null) => {
       const user = await payload.create({
         collection: 'users',
         data: { email: `invitation-${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -99,18 +99,20 @@ describe('Co-organizing between organizations takes the invited one’s consent'
         data: { user: user.id, fullName: `invitation ${name}`, municipality: municipality.id, notifyEmail: false },
         overrideAccess: true,
       })
-      await payload.create({
-        collection: 'user-roles',
-        data: { user: user.id, municipality: municipality.id, role },
-        overrideAccess: true,
-      })
+      if (role) {
+        await payload.create({
+          collection: 'user-roles',
+          data: { user: user.id, municipality: municipality.id, role },
+          overrideAccess: true,
+        })
+      }
       return user
     }
     pub = await makeUser('hospoda', muni, 'organizer')
     club = await makeUser('spolek', muni, 'organizer')
     bakery = await makeUser('pekarna', muni, 'organizer')
     outsider = await makeUser('cizinec', otherMuni, 'organizer')
-    resident = await makeUser('resident', muni, 'participant')
+    resident = await makeUser('resident', muni, null)
 
     // The organizer role brings its organization along (UserRoles → ensureOrganization).
     const orgs = await payload.find({

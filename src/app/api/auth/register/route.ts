@@ -97,20 +97,6 @@ export async function POST(request: Request) {
       overrideAccess: true,
     })
 
-    // Every registered user starts as a plain participant in their chosen municipality —
-    // the admin role is granted later by a superadmin. "Bez obce" has no municipality to hold it in.
-    if (municipality) {
-      await payload.create({
-        collection: 'user-roles',
-        data: {
-          user: payloadUser.id,
-          municipality,
-          role: 'participant',
-        },
-        overrideAccess: true,
-      })
-    }
-
     const grantedAt = new Date().toISOString()
     await payload.create({
       collection: 'consents',

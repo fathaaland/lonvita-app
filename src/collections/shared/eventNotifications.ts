@@ -9,7 +9,6 @@ export const NOTIFIABLE_EDIT_FIELDS: Record<string, string> = {
   title: 'název',
   dateTime: 'začátek',
   endDateTime: 'konec',
-  recurrenceRule: 'opakování',
   locationText: 'místo konání',
   lat: 'místo konání',
   lng: 'místo konání',

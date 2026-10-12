@@ -90,14 +90,6 @@ export async function POST(request: Request) {
       overrideAccess: true,
     })
 
-    if (municipality) {
-      await payload.create({
-        collection: 'user-roles',
-        data: { user: newUser.id, municipality, role: 'participant' },
-        overrideAccess: true,
-      })
-    }
-
     // An account created by staff on somebody else's behalf is exactly the kind of privileged
     // action an audit trail exists for.
     logger.info('Superadmin created a user', {

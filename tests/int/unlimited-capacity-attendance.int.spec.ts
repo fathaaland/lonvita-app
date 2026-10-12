@@ -77,7 +77,7 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
 
     const makeUser = async (
       name: string,
-      role: 'organizer' | 'participant',
+      role: 'organizer' | null,
       profile: Record<string, unknown> = {},
     ): Promise<TestUser> => {
       const user = await payload.create({
@@ -90,7 +90,9 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
         data: { user: user.id, fullName: `unlim ${name}`, municipality: muni.id, notifyEmail: false, ...profile },
         overrideAccess: true,
       })
-      await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+      if (role) {
+        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+      }
       return user
     }
     const volunteerProfile = {
@@ -102,10 +104,10 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
     }
     pub = await makeUser('hospoda', 'organizer')
     club = await makeUser('spolek', 'organizer')
-    volunteer = await makeUser('dobrovolnik', 'participant', volunteerProfile)
-    leftVolunteer = await makeUser('odhlaseny', 'participant', volunteerProfile)
-    participant = await makeUser('ucastnik', 'participant')
-    leftParticipant = await makeUser('odhlaseny-ucastnik', 'participant')
+    volunteer = await makeUser('dobrovolnik', null, volunteerProfile)
+    leftVolunteer = await makeUser('odhlaseny', null, volunteerProfile)
+    participant = await makeUser('ucastnik', null)
+    leftParticipant = await makeUser('odhlaseny-ucastnik', null)
 
     // An unlimited event that has already started, founded by the pub and co-organized by the club —
     // a trusted write, since a past start can't be created through the app.

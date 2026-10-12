@@ -242,10 +242,6 @@ export interface Municipality {
   lat: number;
   lng: number;
   /**
-   * The user who administers this municipality. Kept in sync with "municipality_admin" user-roles (the most recently granted one).
-   */
-  adminUser?: (number | null) | User;
-  /**
    * Maximální vzdálenost (km) mezi středem obce (lat/lng výše) a místem konání akce. Akce mimo tento okruh nejde založit ani upravit — brání přiřazení akce z jiného města k této obci.
    */
   eventRadiusKm: number;
@@ -353,9 +349,9 @@ export interface UserRole {
    */
   municipality: number | Municipality;
   /**
-   * Enum matches ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren't tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
+   * What someone may do in an obec — where they live is Profiles.municipality, not a role. Enum follows ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren't tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
    */
-  role: 'participant' | 'municipality_admin' | 'organizer' | 'prescriber';
+  role: 'municipality_admin' | 'organizer' | 'prescriber';
   updatedAt: string;
   createdAt: string;
 }
@@ -373,10 +369,6 @@ export interface Event {
    * Brief §4 "Datum jako rozsah" — an event can span more than one day. Leave empty for a single-day event.
    */
   endDateTime?: string | null;
-  /**
-   * Brief §4 "Opakující se série" (e.g. "weekly:tuesday") — a simple machine-readable rule set on the first occurrence only. Combines with endDateTime for a multi-day recurring series. Occurrence generation is a separate, later piece; this field just records the intent.
-   */
-  recurrenceRule?: string | null;
   /**
    * Human-readable label for the picked location (from the map picker's search result, editable).
    */
@@ -1117,7 +1109,6 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   description?: T;
   lat?: T;
   lng?: T;
-  adminUser?: T;
   eventRadiusKm?: T;
   rulesForCreation?: T;
   updatedAt?: T;
@@ -1185,7 +1176,6 @@ export interface EventsSelect<T extends boolean = true> {
   municipality?: T;
   dateTime?: T;
   endDateTime?: T;
-  recurrenceRule?: T;
   locationText?: T;
   lat?: T;
   lng?: T;

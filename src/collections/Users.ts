@@ -80,7 +80,7 @@ const refuseAnonymizedLogin: CollectionBeforeLoginHook = ({ user }) => {
 /** Collections holding a row that points at a user through a NOT NULL column, in the order they
  * have to go. Every FK to `users` here is `ON DELETE set null`, so each of these rows turns a
  * user DELETE into a not-null violation unless it's removed first — which is why deleting an
- * account provisioned from the superadmin panel (user + profile + participant role) always
+ * account provisioned from the superadmin panel (user + profile) always
  * failed. Event feedback hangs off a registration, so it's handled separately, before this. */
 const USER_OWNED_COLLECTIONS: { collection: CollectionSlug; field: string }[] = [
   { collection: 'review-complaints', field: 'complainant' },

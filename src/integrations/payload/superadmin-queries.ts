@@ -20,8 +20,7 @@ export type MunicipalityRow = {
   id: string;
   name: string;
   description: string | null;
-  /** Whether anyone holds "municipality_admin" there (Municipalities.adminUser follows the roles).
-   * Without one, its requests wait on the platform admin. */
+  /** Whether anyone holds "municipality_admin" there. Without one, its requests wait on the platform admin. */
   has_admin?: boolean;
 };
 
@@ -29,16 +28,20 @@ type PayloadMunicipality = {
   id: number;
   name: string;
   description?: string | null;
-  adminUser?: number | { id: number } | null;
 };
 
 export async function listMunicipalitiesForSuperAdmin(): Promise<MunicipalityRow[]> {
-  const result = await get<PayloadListResponse<PayloadMunicipality>>("/municipalities?sort=name&limit=500&depth=0");
+  const adminRolesWhere = buildWhereParams({ role: { equals: "municipality_admin" } });
+  const [result, adminRoles] = await Promise.all([
+    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?sort=name&limit=500&depth=0"),
+    get<PayloadListResponse<{ municipality: number | { id: number } }>>(`/user-roles?${adminRolesWhere}&depth=0&limit=2000`),
+  ]);
+  const administered = new Set(adminRoles.docs.map((r) => relationId(r.municipality)));
   return result.docs.map((m) => ({
     id: String(m.id),
     name: m.name,
     description: m.description ?? null,
-    has_admin: m.adminUser != null,
+    has_admin: administered.has(String(m.id)),
   }));
 }
 
@@ -78,7 +81,7 @@ export type Gender = "zena" | "muz" | "jine" | "neuvedeno";
 
 export type CommunityRoleEntry = {
   userRoleId: string;
-  role: "participant" | "municipality_admin" | "organizer" | "prescriber";
+  role: "municipality_admin" | "organizer" | "prescriber";
   municipalityId: string;
   municipalityName: string;
 };

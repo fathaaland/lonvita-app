@@ -102,7 +102,7 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
       overrideAccess: true,
     })
 
-    const makeUser = async (name: string, role: 'organizer' | 'participant', profile: Record<string, unknown> = {}) => {
+    const makeUser = async (name: string, role: 'organizer' | null, profile: Record<string, unknown> = {}) => {
       const user = await payload.create({
         collection: 'users',
         data: { email: `vinv-${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -113,17 +113,19 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
         data: { user: user.id, fullName: `vinv ${name}`, municipality: muni.id, notifyEmail: false, ...profile },
         overrideAccess: true,
       })
-      await payload.create({
-        collection: 'user-roles',
-        data: { user: user.id, municipality: muni.id, role },
-        overrideAccess: true,
-      })
+      if (role) {
+        await payload.create({
+          collection: 'user-roles',
+          data: { user: user.id, municipality: muni.id, role },
+          overrideAccess: true,
+        })
+      }
       return { user, profileId: created.id }
     }
     pub = (await makeUser('hospoda', 'organizer')).user
     club = (await makeUser('spolek', 'organizer')).user
-    outsider = (await makeUser('nedobrovolnik', 'participant')).user
-    const v = await makeUser('dobrovolnik', 'participant', {
+    outsider = (await makeUser('nedobrovolnik', null)).user
+    const v = await makeUser('dobrovolnik', null, {
       isVolunteer: true,
       volunteerMunicipality: muni.id,
       volunteerFocus: ['doprava'],

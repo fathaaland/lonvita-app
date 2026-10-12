@@ -66,7 +66,6 @@ function CreateEventContent() {
         description: values.description,
         dateTimeIso: values.dateTimeIso,
         endDateTimeIso: values.endDateTimeIso ?? undefined,
-        recurrenceRule: values.recurrenceRule ?? undefined,
         locationText: values.location.label,
         lat: values.location.lat,
         lng: values.location.lng,

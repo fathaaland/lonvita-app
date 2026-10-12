@@ -42,37 +42,6 @@ const preventDuplicateName: CollectionBeforeValidateHook = async ({ data, req, o
   return { ...data, name }
 }
 
-/** Picking an adminUser directly on the obec (Payload admin UI) grants the matching
- * "municipality_admin" user-role, so both places agree. The reverse direction (superadmin panel
- * grants a role -> adminUser) lives in UserRoles.ts and sets `skipAdminUserSync` to stop the loop. */
-const grantRoleForAdminUser: CollectionAfterChangeHook = async ({ doc, previousDoc, req, context }) => {
-  if (context?.skipAdminUserSync) return doc
-
-  const userId = typeof doc.adminUser === 'object' ? doc.adminUser?.id : doc.adminUser
-  const previousUserId = typeof previousDoc?.adminUser === 'object' ? previousDoc?.adminUser?.id : previousDoc?.adminUser
-  if (!userId || userId === previousUserId) return doc
-
-  const existing = await req.payload.find({
-    collection: 'user-roles',
-    where: {
-      and: [{ user: { equals: userId } }, { municipality: { equals: doc.id } }, { role: { equals: 'municipality_admin' } }],
-    },
-    depth: 0,
-    limit: 1,
-    overrideAccess: true,
-    req,
-  })
-  if (existing.docs.length === 0) {
-    await req.payload.create({
-      collection: 'user-roles',
-      data: { user: userId, municipality: doc.id, role: 'municipality_admin' },
-      overrideAccess: true,
-      req,
-    })
-  }
-  return doc
-}
-
 /** Every obec runs its own events as its organization (Organizations, type "municipality") —
  * founded with it, and renamed along with it unless its admins gave it a name of its own. */
 const syncMunicipalityOrganization: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
@@ -219,20 +188,6 @@ export const Municipalities: CollectionConfig = {
       required: true,
     },
     {
-      name: 'adminUser',
-      type: 'relationship',
-      relationTo: 'users',
-      label: 'Municipality Admin',
-      // Setting it grants a municipality_admin role (grantRoleForAdminUser) — platform admin only,
-      // otherwise a municipality admin could hand that role to anyone via their own obec settings.
-      access: { update: ({ req: { user } }) => user?.role === 'admin' },
-      admin: {
-        description:
-          'The user who administers this municipality. Kept in sync with "municipality_admin" user-roles (the most recently granted one).',
-        position: 'sidebar',
-      },
-    },
-    {
       name: 'eventRadiusKm',
       type: 'number',
       required: true,
@@ -259,7 +214,7 @@ export const Municipalities: CollectionConfig = {
   ],
   hooks: {
     beforeValidate: [preventDuplicateName],
-    afterChange: [grantRoleForAdminUser, syncMunicipalityOrganization],
+    afterChange: [syncMunicipalityOrganization],
     beforeDelete: [deleteMunicipalityData],
     // Takes everything of the obec along (deleteMunicipalityData) — one entry for all of it.
     afterDelete: [auditDeletion<{ name?: string }>((doc) => ({ metadata: { name: doc.name } }))],
