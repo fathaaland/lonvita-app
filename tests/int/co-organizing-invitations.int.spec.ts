@@ -74,12 +74,12 @@ describe('Co-organizing between organizations takes the invited one’s consent'
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Invitation Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Invitation Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     otherMuni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Invitation Other ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Invitation Other ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({

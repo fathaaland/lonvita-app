@@ -436,7 +436,7 @@ describe('Registrations & EventFeedback', () => {
 
       const again = payload.create({
         collection: 'registrations',
-        data: { event: event.id, user: participant.id },
+        data: { event: event.id, user: participant.id, status: 'pending' },
         user: participant,
         overrideAccess: false,
       })

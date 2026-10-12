@@ -29,31 +29,21 @@ const decode = (value: string) => Buffer.from(value, 'base64url').toString('utf8
 export type CreatedOAuthState = {
   /** Goes to Google as the `state` parameter. */
   state: string
-  /** Goes into the cookie: the same nonce plus where to land afterwards and, for linking, whose
-   * account the Google identity goes to. */
+  /** Goes into the cookie: the same nonce plus where to land afterwards. */
   cookieValue: string
 }
 
-type StatePayload = { returnTo: string; linkUserId: string | null }
+type StatePayload = { returnTo: string }
 
-export const createOAuthState = (
-  returnTo: string | null | undefined,
-  options: { linkUserId?: number | string } = {},
-): CreatedOAuthState => {
+export const createOAuthState = (returnTo: string | null | undefined): CreatedOAuthState => {
   const state = randomBytes(NONCE_BYTES).toString('base64url')
   // Validated on the way in as well as on the way out — a path that could never be redirected
   // to has no business being carried around in a cookie in the first place.
-  const carried: StatePayload = {
-    returnTo: getSafeRedirectPath(returnTo, '/'),
-    linkUserId: options.linkUserId === undefined ? null : String(options.linkUserId),
-  }
+  const carried: StatePayload = { returnTo: getSafeRedirectPath(returnTo, '/') }
   return { state, cookieValue: `${state}.${encode(JSON.stringify(carried))}` }
 }
 
-/** `linkUserId` is set when the flow was started from the profile to attach Google to an account
- * that is already signed in, rather than to sign in. It only binds the flow to that account — the
- * cookie isn't signed, so the callback still checks it against the live session. */
-export type VerifiedOAuthState = { valid: true; returnTo: string; linkUserId: string | null } | { valid: false }
+export type VerifiedOAuthState = { valid: true; returnTo: string } | { valid: false }
 
 export const verifyOAuthState = (
   stateFromQuery: string | null | undefined,
@@ -69,13 +59,11 @@ export const verifyOAuthState = (
   // timingSafeEqual throws on a length mismatch, which would itself leak length — check first.
   if (a.length !== b.length || !timingSafeEqual(a, b)) return { valid: false }
   let returnTo = '/'
-  let linkUserId: string | null = null
   try {
     const carried = JSON.parse(decode(encodedPayload)) as Partial<StatePayload>
     returnTo = getSafeRedirectPath(typeof carried.returnTo === 'string' ? carried.returnTo : null, '/')
-    linkUserId = typeof carried.linkUserId === 'string' ? carried.linkUserId : null
   } catch {
     returnTo = '/'
   }
-  return { valid: true, returnTo, linkUserId }
+  return { valid: true, returnTo }
 }

@@ -82,8 +82,9 @@ interface Props {
   municipalityCenter: [number, number];
   /** The viewer acts for the obec (its admin, or a platform admin) — may take any spolupořadatel off. */
   isObecAdmin: boolean;
-  /** The volunteering flag is the event creator's alone: "set" (the creator, or a platform admin —
-   * no obec approval), "none" (everyone else, the obec included). */
+  /** The volunteering flag is the event creator's alone: "set" (the creator — the obec's admins when
+   * the obec runs it — or a platform admin; no obec approval), "none" (everyone else, the obec
+   * co-organizing it included). */
   volunteering: "set" | "none";
   /** The event is (or, created by the obec's admin, will be) the obec's own. */
   runsAsObec?: boolean;
@@ -143,14 +144,6 @@ export function EventForm({
   const volunteeringKept = Boolean(initial?.volunteering_locked);
   const savedCoOrganizationIds = new Set((initial?.co_organizations ?? []).map((o) => o.id));
   const pendingIds = pendingCoOrganizations.map((o) => o.id);
-  // Inviting the obec hands the event over to it once it accepts (Events lockedEventIds) — worth
-  // saying to whoever would lose the right to edit it. Its admins don't.
-  const obecInvited =
-    !isObecAdmin &&
-    [...pendingCoOrganizations, ...coOrganizations].some(
-      (o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE && !savedCoOrganizationIds.has(o.id),
-    );
-
   const toggleInArray = (arr: string[], setArr: (v: string[]) => void, value: string) => {
     setArr(arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value]);
   };
@@ -459,12 +452,6 @@ export function EventForm({
           <p className="text-sm text-muted-foreground mt-2">
             Spolupořadatele odebrat nejde. Kdo akci pořádat nechce, požádá v detailu akce o její smazání — ostatní ho
             pak můžou z akce pustit, případně rozhodne obec.
-          </p>
-        )}
-        {obecInvited && (
-          <p className="text-sm text-muted-foreground mt-3">
-            Až obec pozvánku přijme, bude akci upravovat a rušit už jen obec. Vy i ostatní spolupořadatelé budete dál
-            spravovat přihlášené a docházku.
           </p>
         )}
       </div>

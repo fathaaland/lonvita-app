@@ -28,8 +28,11 @@ import {
   decideCoOrganizingRequest,
   decideOrganizerRequest,
   getCoOrganizingRequestsForAdmin,
+  getPlatformReviewComplaints,
   type CoOrganizingRequestAdminRow,
+  type ReviewComplaintAdminRow,
 } from "@/integrations/payload/admin-queries";
+import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
 import { getEventCategories, createEvent, listMunicipalities } from "@/integrations/payload/queries";
 import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { PayloadApiError } from "@/integrations/payload/client";
@@ -73,7 +76,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert, Flag } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
@@ -134,6 +137,8 @@ function SuperAdminContent() {
   const [organizations, setOrganizations] = useState<SuperAdminOrganizationRow[]>([]);
   const [orgRequests, setOrgRequests] = useState<SuperAdminOrganizerRequestRow[]>([]);
   const [coOrgRequests, setCoOrgRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
+  // Complaints about reviews the obec itself is a party to — the platform admin decides them.
+  const [platformComplaints, setPlatformComplaints] = useState<ReviewComplaintAdminRow[]>([]);
   const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -210,7 +215,7 @@ function SuperAdminContent() {
     // below already calls, so folding the comparison refetch in here — whenever that view is the
     // one on screen — keeps it live without threading a refetch through each handler individually.
     const wantsComparison = muniView === "comparison";
-    const [munis, points, us, cats, evs, orgs, orgReqs, coOrgReqs, comp] = await Promise.all([
+    const [munis, points, us, cats, evs, orgs, orgReqs, coOrgReqs, complaints, comp] = await Promise.all([
       listMunicipalitiesForSuperAdmin(),
       listMunicipalities(),
       listAllUsersForSuperAdmin(),
@@ -219,6 +224,7 @@ function SuperAdminContent() {
       listOrganizationsForSuperAdmin(),
       getAllOrganizerRequestsForSuperAdmin(),
       getCoOrganizingRequestsForAdmin(),
+      getPlatformReviewComplaints().catch(() => [] as ReviewComplaintAdminRow[]),
       wantsComparison ? getMunicipalityComparison() : Promise.resolve(null),
     ]);
     setMunicipalities(munis);
@@ -229,6 +235,7 @@ function SuperAdminContent() {
     setOrganizations(orgs);
     setOrgRequests(orgReqs);
     setCoOrgRequests(coOrgReqs);
+    setPlatformComplaints(complaints);
     if (wantsComparison) setComparison(comp);
     setLoading(false);
   };
@@ -540,7 +547,7 @@ function SuperAdminContent() {
     }
   };
 
-  const pendingRequestCount = orgRequests.length + coOrgRequests.length;
+  const pendingRequestCount = orgRequests.length + coOrgRequests.length + platformComplaints.length;
   // Nobody there decides complaints, escalated deletions or invitations to the obec — the platform does.
   const obceWithoutAdmin = municipalities.filter((m) => m.has_admin === false);
 
@@ -1398,6 +1405,27 @@ function SuperAdminContent() {
                           />
                         </CardContent>
                       </Card>
+                    ))}
+                  </div>
+                )}
+
+                {platformComplaints.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1">
+                      <Flag className="h-4 w-4 text-primary" />
+                      <p className="font-bold text-sm">Stížnosti na recenze, kde je stranou obec</p>
+                    </div>
+                    <p className="px-1 text-sm text-muted-foreground">
+                      Recenze akce, kterou obec pořádá, nebo stížnost od admina obce — obec o vlastní věci
+                      nerozhoduje, rozhodujete vy.
+                    </p>
+                    {platformComplaints.map((c) => (
+                      <div key={c.id} className="space-y-1">
+                        <p className="px-1 text-xs text-muted-foreground">
+                          {municipalities.find((m) => m.id === c.municipality_id)?.name ?? "Neznámá obec"}
+                        </p>
+                        <ReviewComplaintCard complaint={c} onDecided={load} />
+                      </div>
                     ))}
                   </div>
                 )}

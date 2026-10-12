@@ -12,7 +12,7 @@ import { APIError } from 'payload'
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
-import { isEventCreator } from './Events'
+import { eventCreatorUserIds, isEventCreator } from './Events'
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleParticipantReminder } from './shared/reminders'
 import { notDeleted } from './shared/softDelete'
@@ -48,18 +48,32 @@ const canReadInvitation: Access = async ({ req }) => {
 }
 
 /** Who may touch a pending row — the two sides of it. An invitation is answered by the volunteer and
- * may be taken back by whoever sent it (`invitedBy`); an application is answered by the event's
- * creator (`invitedBy`), and the volunteer may take theirs back. applyDecision says which status each
- * of them may set. The system withdraws the rest — leaving the pool (Profiles), a cancelled event. */
-const canDecideInvitation: Access = ({ req: { user } }) => {
+ * may be taken back by the event's creator; an application is answered by the event's creator, and
+ * the volunteer may take theirs back. The creator is whoever is it now (Events isEventCreator — the
+ * obec's admins when the obec runs the event), not whoever it was when the row was made: an event
+ * handed over takes its volunteers along. Narrowed here to the volunteer and the events the user runs
+ * or oversees; applyDecision says exactly which status each of them may set. The system withdraws the
+ * rest — leaving the pool (Profiles), a cancelled event. */
+const canDecideInvitation: Access = async ({ req }) => {
+  const { user, payload } = req
   if (!user) return false
   if (user.role === 'admin') return true
-  const where: Where = {
-    or: [
-      { or: [{ invitedBy: { equals: user.id } }, { volunteer: { equals: user.id } }] },
-    ],
-  }
-  return where
+
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const creatorOf: Where[] = [{ organizer: { equals: user.id } }]
+  if (administeredIds.length > 0) creatorOf.push({ municipality: { in: administeredIds } })
+  const events = await payload.find({
+    collection: 'events',
+    where: { or: creatorOf },
+    select: {},
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  const or: Where[] = [{ volunteer: { equals: user.id } }, { invitedBy: { equals: user.id } }]
+  if (events.docs.length > 0) or.push({ event: { in: events.docs.map((e) => e.id) } })
+  return { or }
 }
 
 type EventForInvitation = {
@@ -145,7 +159,8 @@ async function assertFreeToJoin(
  * client names the event (and, for an invitation, the volunteer) and may add a note. Two ways to the
  * same commitment:
  * - an invitation: only the event's creator invites — not its spolupořadatelé, not the obec
- *   co-organizing it (Events isEventCreator) — someone from the pool, who then answers;
+ *   co-organizing it; the obec's admins when the obec runs it (Events isEventCreator) — someone from
+ *   the pool, who then answers;
  * - an application: someone from the pool offers to help on an event flagged as volunteering
  *   (Events.isVolunteering), and the creator answers — they may weigh the volunteer's ratings first.
  * Either way only for an event that hasn't started, and nobody already on it or waiting on it.
@@ -185,7 +200,7 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
         400,
       )
     }
-  } else if (!isEventCreator(user, event)) {
+  } else if (!(await isEventCreator(req, user, event))) {
     throw new APIError('Dobrovolníky na akci může zvát jen ten, kdo ji založil.', 403)
   }
 
@@ -227,7 +242,8 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
     event: event.id,
     eventTitle: event.title,
     volunteer: Number(volunteerId),
-    // The organizer's side: whoever invited — or, for an application, the creator who answers it.
+    // The organizer's side: whoever invited — or, for an application, the pořadatel it goes to (the
+    // obec's admins all answer it when the obec runs the event).
     invitedBy: application ? Number(relationId(event.organizer)) : user.id,
     message: message || null,
     status: 'pending',
@@ -235,9 +251,10 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
 }
 
 /**
- * A decision is final. An invitation is answered by the volunteer; an application by the event's
- * creator, while the volunteer may withdraw it. Withdrawing an invitation is the system's alone
- * (`context.withdrawingVolunteerInvitations`, when the volunteer leaves the pool). Accepting puts the
+ * A decision is final. An invitation is answered by the volunteer and may be withdrawn by the event's
+ * creator; an application is answered by the event's creator, while the volunteer may withdraw it —
+ * the creator as it stands now (Events isEventCreator). The system withdraws the rest
+ * (`context.withdrawingVolunteerInvitations` — the volunteer leaving the pool, a cancelled event). Accepting puts the
  * volunteer on the event in the same transaction — an approved registration with the "volunteer"
  * role, which uses up no participant's spot — so an accepted row always has its registration.
  */
@@ -256,20 +273,18 @@ const applyDecision: CollectionBeforeChangeHook = async ({ data, req, operation,
     .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     .catch(() => null)
 
-  const byInviter = !!user && relationId(originalDoc.invitedBy) === String(user.id)
+  const byCreator = !!user && !!event && !byVolunteer && (await isEventCreator(req, user, event))
   if (!trusted) {
     if (data.status === 'withdrawn') {
-      // Each side takes back only its own: the volunteer an offer, whoever invited an invitation.
-      if (application ? !byVolunteer : !byInviter) {
-        throw new APIError(byVolunteer ? 'Pozvánku můžete jen přijmout, nebo odmítnout.' : 'Stáhnout ji může jen ten, kdo ji poslal.', 400)
+      // Each side takes back only its own: the volunteer an offer, the event's creator an invitation.
+      if (application ? !byVolunteer : !byCreator) {
+        throw new APIError(byVolunteer ? 'Pozvánku můžete jen přijmout, nebo odmítnout.' : 'Stáhnout ji může jen ten, kdo akci založil.', 400)
       }
     } else if (!application) {
       if (!byVolunteer) throw new APIError('Na pozvánku odpovídá jen pozvaný dobrovolník.', 403)
     } else if (application) {
       if (byVolunteer) throw new APIError('Svou nabídku pomoci můžete jen stáhnout.', 400)
-      if (!event || !isEventCreator(user, event)) {
-        throw new APIError('O nabídce dobrovolníka rozhoduje ten, kdo akci založil.', 403)
-      }
+      if (!byCreator) throw new APIError('O nabídce dobrovolníka rozhoduje ten, kdo akci založil.', 403)
     }
   }
 
@@ -356,14 +371,21 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
       })
     ).docs[0]?.fullName || fallback
 
+  // Whoever answers offers on the event — its creator, or the obec's admins when the obec runs it.
+  const creatorIds = async () => {
+    const event = await payload
+      .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
+      .catch(() => null)
+    return event ? eventCreatorUserIds(req, event) : [inviterId]
+  }
+
   if (operation === 'create') {
     if (application) {
       // The creator decides — the rest of the team hears once they have.
       const volunteer = await nameOf(volunteerId, 'Dobrovolník')
       const rating = await ratingSummary(req, volunteerId)
       const note = doc.message ? ` Vzkaz: „${doc.message}“` : ''
-      sendNotification(payload, {
-        userId: inviterId,
+      sendNotificationToMany(payload, await creatorIds(), {
         title: 'Dobrovolník nabízí pomoc',
         link: `/spravovat/${eventId}`,
         message: `${volunteer} (${rating}) se nabízí jako dobrovolník na akci „${doc.eventTitle}“.${note}`,
@@ -408,8 +430,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
 
   if (application) {
     if (doc.status === 'withdrawn') {
-      sendNotification(payload, {
-        userId: inviterId,
+      sendNotificationToMany(payload, await creatorIds(), {
         title: 'Dobrovolník stáhl nabídku',
         link: `/spravovat/${eventId}`,
         message: `${volunteer} už na akci „${doc.eventTitle}“ pomoc nenabízí.`,

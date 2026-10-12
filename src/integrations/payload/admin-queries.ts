@@ -135,6 +135,7 @@ export type ReviewComplaintAdminRow = {
   review_type: "event-feedback" | "volunteer-rating";
   event_id: string | null;
   event_title: string;
+  municipality_id: string;
   /** Null once the review itself is gone — the complaint can still be closed. */
   review: {
     rating: number;
@@ -151,6 +152,12 @@ export type ReviewComplaintAdminRow = {
 
 export async function getReviewComplaintsForAdmin(municipalityId: string): Promise<ReviewComplaintAdminRow[]> {
   const result = await get<{ docs: ReviewComplaintAdminRow[] }>(`/municipalities/${municipalityId}/review-complaints`);
+  return result.docs;
+}
+
+/** Complaints the obec is a party to — the platform admin decides them, across every obec. */
+export async function getPlatformReviewComplaints(): Promise<ReviewComplaintAdminRow[]> {
+  const result = await get<{ docs: ReviewComplaintAdminRow[] }>("/review-complaints/platform");
   return result.docs;
 }
 

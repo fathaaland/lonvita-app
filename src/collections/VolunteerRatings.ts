@@ -1,6 +1,7 @@
 import type { Access, CollectionBeforeValidateHook, CollectionConfig, Where } from 'payload'
 import { APIError } from 'payload'
 
+import { isEventCreator } from './Events'
 import { deletedAtField, notDeleted } from './shared/softDelete'
 import { isUnlimitedCapacity } from '@/lib/capacity'
 import { relationId } from '@/lib/relations'
@@ -26,9 +27,10 @@ const canReadRating: Access = async ({ req: { user, payload } }) => {
 /**
  * Everything but the stars and the comment is derived from the registration. Only for a volunteer
  * marked as attended — on an event with unlimited capacity, which keeps no attendance, any volunteer
- * still on it — once the event has started, and only by the event's own pořadatel, whoever else
- * co-organizes it (the obec included): the same person who fills in its attendance. Once, and for
- * good: a rating can't be changed afterwards (the pořadatel confirms it first).
+ * still on it — once the event has started, and only by the event's creator (Events isEventCreator:
+ * its pořadatel, or the obec's admins when the obec runs it), whoever else co-organizes it: the same
+ * party that fills in its attendance. Once, and for good: a rating can't be changed afterwards (the
+ * pořadatel confirms it first).
  */
 const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (!data) return data
@@ -60,7 +62,8 @@ const prepareRating: CollectionBeforeValidateHook = async ({ data, req, operatio
   if (new Date(event.dateTime).getTime() > Date.now()) {
     throw new APIError('Dobrovolníka ohodnotíte po akci.', 400)
   }
-  if (relationId(event.organizer) !== String(user.id)) {
+  // Not a platform admin — they didn't run the event.
+  if (user.role === 'admin' || !(await isEventCreator(req, user, event))) {
     throw new APIError('Dobrovolníka hodnotí jen pořadatel, který akci založil.', 403)
   }
 

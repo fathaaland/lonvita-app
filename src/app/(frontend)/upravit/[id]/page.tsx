@@ -17,7 +17,6 @@ import { PageHeader } from "@/components/PageHeader";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { EventForm, EventFormValues } from "@/components/EventForm";
-import { VolunteeringCard } from "@/components/VolunteeringCard";
 import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { toast } from "sonner";
@@ -54,15 +53,12 @@ function EditEventContent() {
         const uid = String(user.id);
         const isAdminHere = isSuperAdmin || (!!ev.municipality_id && adminIds.includes(ev.municipality_id));
         setIsAdminHere(isAdminHere);
-        // The volunteering flag is the creator's alone — not a spolupořadatel's, not the obec's
-        // (Events guardIsVolunteering). The creator sets it straight away, no obec approval.
-        setVolunteering(isSuperAdmin || ev.organizer_id === uid ? "set" : "none");
-        // With the obec on the event, only the obec edits it (Events lockedEventIds). Once it has
-        // taken place, nobody does (Events canUpdateEvent).
+        // The volunteering flag is the creator's alone — not a spolupořadatel's, not the obec's unless
+        // it runs the event (Events guardIsVolunteering). Set straight away, no obec approval.
+        setVolunteering(isSuperAdmin || ev.creator_for_viewer ? "set" : "none");
+        // Everyone organizing it edits it. Once it has taken place, nobody does (Events canUpdateEvent).
         setCanEdit(
-          ev.status !== "finished" &&
-            (isAdminHere ||
-              ((ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)) && !ev.locked_for_viewer)),
+          ev.status !== "finished" && (isAdminHere || ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)),
         );
       }
       setEvent(ev);
@@ -125,23 +121,11 @@ function EditEventContent() {
           description={
             event?.status === "finished"
               ? "Akce už proběhla — upravovat ji nejde. Přihlášené a docházku spravovat můžete dál."
-              : event?.locked_for_viewer
-              ? "Tuhle akci pořádá nebo spolupořádá obec — upravit nebo zrušit ji může jen admin obce. Přihlášené a docházku spravovat můžete dál."
               : event
                 ? "Upravovat ji může pořadatel nebo admin obce."
                 : undefined
           }
         />
-        {/* The obec locks the event's creator out of editing it, but not out of its volunteering. */}
-        {event && volunteering === "set" && event.status !== "finished" && (
-          <div className="px-4 pb-6">
-            <VolunteeringCard
-              eventId={event.id}
-              isVolunteering={Boolean(event.is_volunteering)}
-              locked={Boolean(event.volunteering_locked)}
-            />
-          </div>
-        )}
       </div>
     );
   }

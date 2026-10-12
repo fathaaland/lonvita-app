@@ -2,12 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  createEvent,
-  getMunicipality,
-  getMyAdministeredMunicipalityIds,
-  getMyOrganizerMunicipalityIds,
-} from "@/integrations/payload/queries";
+import { createEvent, getMunicipality } from "@/integrations/payload/queries";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { RequireAuth, RequireRole } from "@/components/RequireAuth";
@@ -22,10 +17,11 @@ const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 function CreateEventContent() {
   const router = useRouter();
-  const { user, profile } = useAuth();
-  // The obec the event is filed under: one where this user actually holds the admin/organizer
-  // role (their home obec when they hold it there). Their home municipality alone isn't enough —
-  // a "bez obce" admin has none, and a superadmin can grant a role for a town they don't live in.
+  const { user, profile, administeredMunicipalityIds, creatableMunicipalityIds } = useAuth();
+  // The obec the event is filed under: one where this user may found events — they administer it,
+  // or organize there and it takes events from its organizers (their home obec when it's one of
+  // those). Their home municipality alone isn't enough — a "bez obce" admin has none, and a
+  // superadmin can grant a role for a town they don't live in.
   const [municipalityId, setMunicipalityId] = useState<string | null | undefined>(undefined);
   // Its admin creates the event as the obec itself.
   const [adminHere, setAdminHere] = useState(false);
@@ -35,17 +31,11 @@ function CreateEventContent() {
     if (!user) return;
     let active = true;
     (async () => {
-      const uid = String(user.id);
-      const [adminIds, organizerIds] = await Promise.all([
-        getMyAdministeredMunicipalityIds(uid),
-        getMyOrganizerMunicipalityIds(uid),
-      ]);
-      const candidates = [...adminIds, ...organizerIds];
       const home = profile?.municipality_id ?? null;
-      const chosen = home && candidates.includes(home) ? home : (candidates[0] ?? home);
+      const chosen = home && creatableMunicipalityIds.includes(home) ? home : (creatableMunicipalityIds[0] ?? null);
       if (!active) return;
       setMunicipalityId(chosen);
-      setAdminHere(Boolean(chosen && adminIds.includes(chosen)));
+      setAdminHere(Boolean(chosen && administeredMunicipalityIds.includes(chosen)));
       if (chosen) {
         const muni = await getMunicipality(chosen);
         if (active && muni) setCenter([muni.lat, muni.lng]);
@@ -56,7 +46,7 @@ function CreateEventContent() {
     return () => {
       active = false;
     };
-  }, [user?.id, profile?.municipality_id]);
+  }, [user?.id, profile?.municipality_id, creatableMunicipalityIds, administeredMunicipalityIds]);
 
   const handleSubmit = async (values: EventFormValues) => {
     if (!user || !municipalityId) return;
@@ -105,7 +95,10 @@ function CreateEventContent() {
     return (
       <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
         <PageHeader title="Vytvořit akci" back />
-        <EmptyState title="Není kde akci založit" description="Nemáte obec, pro kterou byste mohli zakládat akce." />
+        <EmptyState
+          title="Není kde akci založit"
+          description="Nemáte obec, pro kterou byste mohli zakládat akce — tam, kde jste organizátorem, teď akce zakládá jen obec sama."
+        />
       </div>
     );
   }

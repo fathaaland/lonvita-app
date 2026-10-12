@@ -5,13 +5,15 @@ import config from '@payload-config'
 import { escapeHtml, sendNotification } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { canAccessMunicipality } from '@/lib/exports/access'
+import { complaintsDecidedByPlatform } from '@/lib/review-complaints'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId } from '@/lib/relations'
 
 const DECISION_NOTE_MAX_LENGTH = 500
 
 /**
- * The obec decides a complaint about a review (ReviewComplaints): upholding it removes the review —
+ * The obec decides a complaint about a review (ReviewComplaints) — the platform admin, when the obec
+ * is a party to it (complaintsDecidedByPlatform): upholding it removes the review —
  * soft-deleted, in the same transaction that closes the complaint — so every average computed from
  * the reviews drops it; rejecting keeps the review, and it can't be reported again. Whoever
  * complained hears the outcome. The review's author is not told, so the complaint stays discreet.
@@ -41,7 +43,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!complaint) return NextResponse.json({ error: 'Stížnost neexistuje.' }, { status: 404 })
 
   const municipalityId = relationId(complaint.municipality)
-  if (!municipalityId || !(await canAccessMunicipality(payload, user, municipalityId))) {
+  // The obec doesn't decide a case it's a party to — the platform admin does.
+  const byPlatform = (await complaintsDecidedByPlatform(payload, [complaint])).has(String(complaint.id))
+  const allowed = byPlatform
+    ? user.role === 'admin'
+    : Boolean(municipalityId) && (await canAccessMunicipality(payload, user, municipalityId!))
+  if (!allowed) {
     return NextResponse.json({ error: 'O téhle stížnosti nerozhodujete.' }, { status: 403 })
   }
   if (complaint.status !== 'pending') {
@@ -99,19 +106,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const title = event?.title ?? 'akce'
   const complainantId = relationId(complaint.complainant)!
   const what = isRating ? 'hodnocení z akce' : 'recenzi akce'
-  const reasoning = note ? ` Zdůvodnění obce: ${note}` : ''
+  const who = byPlatform
+    ? { decided: 'Správce Lonvity', upheld: 'vyhověl', removed: 'odstranil', judged: 'posoudil', kept: 'ponechal', of: 'správce' }
+    : { decided: 'Obec', upheld: 'vyhověla', removed: 'odstranila', judged: 'posoudila', kept: 'ponechala', of: 'obce' }
+  const reasoning = note ? ` Zdůvodnění ${who.of}: ${note}` : ''
   sendNotification(payload, {
     userId: complainantId,
     title: body.uphold ? 'Recenze odstraněna' : 'Stížnost na recenzi zamítnuta',
     link: isRating ? `/dobrovolnik/${complainantId}` : '/organizace',
     message: body.uphold
-      ? `Obec vaší stížnosti vyhověla a ${what} „${title}“ odstranila. Hodnocení se přepočítalo.${reasoning}`
-      : `Obec posoudila vaši stížnost na ${what} „${title}“ a recenzi ponechala.${reasoning}`,
+      ? `${who.decided} vaší stížnosti ${who.upheld} a ${what} „${title}“ ${who.removed}. Hodnocení se přepočítalo.${reasoning}`
+      : `${who.decided} ${who.judged} vaši stížnost na ${what} „${title}“ a recenzi ${who.kept}.${reasoning}`,
     email: {
       subject: body.uphold ? 'Recenze odstraněna' : 'Stížnost na recenzi zamítnuta',
       body: body.uphold
-        ? `<p>Obec vaší stížnosti vyhověla a ${what} <strong>${escapeHtml(title)}</strong> odstranila. Hodnocení se přepočítalo.</p>${note ? `<p>Zdůvodnění obce: ${escapeHtml(note)}</p>` : ''}`
-        : `<p>Obec posoudila vaši stížnost na ${what} <strong>${escapeHtml(title)}</strong> a recenzi ponechala.</p>${note ? `<p>Zdůvodnění obce: ${escapeHtml(note)}</p>` : ''}`,
+        ? `<p>${who.decided} vaší stížnosti ${who.upheld} a ${what} <strong>${escapeHtml(title)}</strong> ${who.removed}. Hodnocení se přepočítalo.</p>${note ? `<p>Zdůvodnění ${who.of}: ${escapeHtml(note)}</p>` : ''}`
+        : `<p>${who.decided} ${who.judged} vaši stížnost na ${what} <strong>${escapeHtml(title)}</strong> a recenzi ${who.kept}.</p>${note ? `<p>Zdůvodnění ${who.of}: ${escapeHtml(note)}</p>` : ''}`,
     },
   })
 

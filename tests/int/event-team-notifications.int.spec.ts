@@ -222,7 +222,7 @@ describe("Notifications about an event reach everyone running it", () => {
 
     await payload.create({
       collection: 'registrations',
-      data: { event: event.id, user: participant.id },
+      data: { event: event.id, user: participant.id, status: 'pending' },
       user: participant,
       overrideAccess: true,
     })

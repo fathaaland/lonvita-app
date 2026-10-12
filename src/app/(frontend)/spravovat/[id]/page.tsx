@@ -63,8 +63,9 @@ function ManageEventContent() {
   const [coOrganizerNames, setCoOrganizerNames] = useState<string[]>([]);
   const [startsAt, setStartsAt] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
-  // Attendance, the volunteers and their ratings are the pořadatel who founded the event's alone —
-  // not its spolupořadatelé, not the obec co-organizing it (Registrations canMarkAttendance).
+  // Attendance, the volunteers and their ratings are the event creator's alone — the pořadatel who
+  // founded it, or the obec's admins when the obec runs it; not its spolupořadatelé, not the obec
+  // co-organizing it (Registrations canMarkAttendance, Events.creatorForViewer).
   const [isCreator, setIsCreator] = useState(false);
   // An event with unlimited capacity keeps no attendance — its volunteers are rated straight away.
   const [unlimited, setUnlimited] = useState(false);
@@ -107,7 +108,7 @@ function ManageEventContent() {
       setStartsAt(ev.date_time);
       setEnded(hasEventEnded(ev.date_time, ev.end_date_time));
       setUnlimited(isUnlimitedCapacity(ev.capacity));
-      setIsCreator(Boolean(user) && ev.organizer_id === String(user!.id));
+      setIsCreator(ev.creator_for_viewer);
       setCanCorrect(Boolean(ev.municipality_id) && administeredMunicipalityIds.includes(ev.municipality_id!));
       const orgName = ev.organization
         ? ev.organization.name

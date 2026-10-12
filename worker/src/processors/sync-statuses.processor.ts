@@ -1,4 +1,6 @@
-import { logger } from '@/lib/logger'
+import { escapeHtml, sendNotification } from '@/collections/shared/notify'
+import { logger, serializeError } from '@/lib/logger'
+import { relationId } from '@/lib/relations'
 
 import { BATCH_SIZE, inBatches } from '../runtime/batches'
 import { getWorkerPayload } from '../runtime/payload'
@@ -88,17 +90,75 @@ async function withdrawLapsedVolunteerInvitations(payload: Payload, now: string)
   )
 }
 
+/**
+ * A request to delete the event that the others let lapse without a word. The event stays — but the
+ * requester may now turn to the obec (escalate route), so they hear both. Read before the bulk
+ * update marks them expired, told after it.
+ */
+async function lapsingUnansweredDeletionRequests(payload: Payload, now: string) {
+  const lapsing = await payload.find({
+    collection: 'event-deletion-requests',
+    where: { and: [{ status: { equals: 'pending' } }, { expiresAt: { less_than_equal: now } }] },
+    select: { event: true, eventTitle: true, requestedBy: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  return lapsing.docs
+}
+
+async function tellRequestersOfLapse(
+  payload: Payload,
+  requests: Awaited<ReturnType<typeof lapsingUnansweredDeletionRequests>>,
+): Promise<void> {
+  for (const request of requests) {
+    const eventId = relationId(request.event)
+    const requesterId = relationId(request.requestedBy)
+    if (!eventId || !requesterId) continue
+    const event = await payload
+      .findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true })
+      .catch(() => null)
+    if (!event || event.deletedAt || event.status === 'cancelled') continue
+    const canEscalate = new Date(event.dateTime).getTime() > Date.now()
+    const next = canEscalate
+      ? ' Pokud ji pořádat nechcete, můžete požádat obec, aby vás z ní odebrala.'
+      : ''
+    try {
+      await sendNotification(payload, {
+        userId: requesterId,
+        title: 'Na žádost o smazání nikdo neodpověděl',
+        link: `/akce/${eventId}`,
+        message: `Na vaši žádost o smazání akce „${request.eventTitle}“ nikdo včas neodpověděl — akce zůstává.${next}`,
+        email: {
+          subject: `Žádost o smazání akce vypršela: ${request.eventTitle}`,
+          body:
+            `<p>Na vaši žádost o smazání akce <strong>${escapeHtml(request.eventTitle)}</strong> nikdo včas neodpověděl — akce zůstává.</p>` +
+            (next ? `<p>${escapeHtml(next.trim())}</p>` : ''),
+        },
+      })
+    } catch (error) {
+      logger.error('Lapsed deletion request notice failed', {
+        event: 'statuses.deletion_request_lapse_notice_failed',
+        requestId: request.id,
+        ...serializeError(error),
+      })
+    }
+  }
+}
+
 export const processSyncStatusesJob = async (): Promise<SyncStatusesJobResult> => {
   const payload = await getWorkerPayload()
   const now = new Date().toISOString()
 
   const eventsFinished = await setStatus(payload, 'events', finishedEvents(now), 'finished')
+  const unanswered = await lapsingUnansweredDeletionRequests(payload, now)
   const deletionRequestsExpired = await setStatus(
     payload,
     'event-deletion-requests',
     expiredDeletionRequests(now),
     'expired',
   )
+  await tellRequestersOfLapse(payload, unanswered)
   const coOrganizingInvitationsExpired = await setStatus(
     payload,
     'co-organizing-requests',

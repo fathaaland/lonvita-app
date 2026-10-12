@@ -52,7 +52,7 @@ describe('A hidden event', () => {
     const makeMuni = (name: string) =>
       payload.create({
         collection: 'municipalities',
-        data: { name: `Hidden ${name} ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+        data: { name: `Hidden ${name} ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
         overrideAccess: true,
       })
     muni = await makeMuni('A')

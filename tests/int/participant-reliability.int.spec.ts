@@ -176,7 +176,7 @@ describe('Who turns up — no-shows, omluvy and the soft limit on signing up', (
       payload = await getPayload({ config: await config })
       muni = await payload.create({
         collection: 'municipalities',
-        data: { name: `Test Reliability Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+        data: { name: `Test Reliability Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
         overrideAccess: true,
       })
       cat = await payload.create({
@@ -237,7 +237,7 @@ describe('Who turns up — no-shows, omluvy and the soft limit on signing up', (
         const event = await eventStartingIn(7 * DAY, 'auto')
         const registration = await payload.create({
           collection: 'registrations',
-          data: { event: event.id, user: repeat.id },
+          data: { event: event.id, user: repeat.id, status: 'pending' },
           user: repeat,
           overrideAccess: false,
         })
@@ -253,7 +253,7 @@ describe('Who turns up — no-shows, omluvy and the soft limit on signing up', (
         const event = await eventStartingIn(7 * DAY, 'auto')
         const registration = await payload.create({
           collection: 'registrations',
-          data: { event: event.id, user: fine.id },
+          data: { event: event.id, user: fine.id, status: 'pending' },
           user: fine,
           overrideAccess: false,
         })

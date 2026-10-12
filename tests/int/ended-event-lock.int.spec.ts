@@ -79,7 +79,7 @@ describe('An event that has taken place can’t be edited, whatever the role', (
 
     municipality = await payload.create({
       collection: 'municipalities',
-      data: { name: `Ended Obec ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Ended Obec ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     category = await payload.create({

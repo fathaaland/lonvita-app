@@ -75,6 +75,7 @@ describe('Organizátoři v mém městě', () => {
         reason: 'Kavárna na náměstí, pořádáme čtení a odpolední setkání u kávy.',
         organizationName: `Kavárna ${STAMP}`,
         organizationType: 'business',
+        status: 'pending',
       },
       overrideAccess: true,
     })
@@ -93,6 +94,7 @@ describe('Organizátoři v mém městě', () => {
         reason: 'Chtěla bych pořádat vycházky pro seniory.',
         organizationName: `Vycházky ${STAMP}`,
         organizationType: 'individual',
+        status: 'pending',
       },
       overrideAccess: true,
     })

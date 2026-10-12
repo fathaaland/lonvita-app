@@ -70,7 +70,7 @@ describe('Who may read whose profile', () => {
     const muni = (name: string) =>
       payload.create({
         collection: 'municipalities',
-        data: { name: `Profile Read ${name} ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+        data: { name: `Profile Read ${name} ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
         overrideAccess: true,
       })
     muniA = await muni('A')

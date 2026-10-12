@@ -196,10 +196,11 @@ describe('Volunteering on an event is its creator’s alone', () => {
     expect(await flagOf(event.id)).toBe(false)
   })
 
-  it('a creator the obec has locked out of editing still sets it, through its own endpoint', async () => {
+  it('with the obec co-organizing, the creator still sets it — in the form, or through its own endpoint', async () => {
     const event = await createEvent(creator, { withObec: true })
-    // The locked event's update access keeps the creator out of a plain update…
-    await expect(setVolunteering(event.id, creator, true)).rejects.toThrow()
+    await setVolunteering(event.id, creator, true)
+    expect(await flagOf(event.id)).toBe(true)
+    await setVolunteering(event.id, creator, false)
 
     const call = async (user: TestUser, isVolunteering: boolean) => {
       const { token } = await payload.login({ collection: 'users', data: { email: user.email, password: 'test1234' } })

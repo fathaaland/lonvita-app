@@ -58,9 +58,8 @@ async function answersFor(
 
 /**
  * Everything about a new invitation is derived from the event, the organization and the signed-in
- * user — the client only names the first two. Whoever may edit the event invites (with the obec on
- * it, that's only the obec's admins — see Events lockedEventIds); the organization has to be one of
- * the obec's, not on the event yet, and — unless it's the obec's own — still organizing there.
+ * user — the client only names the first two. Whoever may edit the event invites (Events
+ * mayEditEvent); the organization has to be one of the obec's, not on the event yet, and — unless it's the obec's own — still organizing there.
  * Someone answering for the invited organization themselves has consented by inviting, so theirs is
  * approved on the spot — except the obec: it never puts itself on someone's event, its pořadatel
  * has to invite it. And an obec that has stepped off the event (Events obecLeftAt) isn't invited back.
@@ -280,8 +279,8 @@ const fixedAfterCreate = { update: () => false }
  * An invitation for an organization to co-organize an event — nobody becomes a spolupořadatel
  * without their own consent (brief §4 "Spolupořadatelství"). Whoever may edit the event invites;
  * the organization's owner accepts or declines — for the obec's own organization, any of the obec's
- * admins — within CO_ORGANIZING_INVITATION_HOURS, or the invitation lapses. Accepting adds the organization to the event (Events.coOrganizations); with the obec on
- * it, only the obec edits the event from then on (Events lockedEventIds).
+ * admins — within CO_ORGANIZING_INVITATION_HOURS, or the invitation lapses. Accepting adds the
+ * organization to the event (Events.coOrganizations), with the same right to edit it as the rest.
  */
 export const CoOrganizingRequests: CollectionConfig = {
   slug: 'co-organizing-requests',

@@ -36,7 +36,6 @@ import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Badge } from "@/components/ui/badge";
-import { VolunteeringCard } from "@/components/VolunteeringCard";
 import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { ShareEventDialog } from "@/components/ShareEventDialog";
 import { toast } from "sonner";
@@ -177,18 +176,17 @@ function EventDetailContent() {
   const isPaidEvent = !!event?.is_paid;
   const isEventOrganizer =
     !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
-  // Who founded it — the one who decides about its volunteering (the flag, inviting volunteers).
-  const isCreator = !!user && !!event && event.organizer_id === String(user.id);
   const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
   const canManage = isEventOrganizer || isAdminOfEventMunicipality;
-  // A co-organizer of the obec admin's own event helps run it (Spravovat) but can't edit or cancel it.
-  // Once it has taken place, nobody edits it any more (Events canUpdateEvent).
+  // Everyone organizing it edits it, the obec on it or not. Once it has taken place, nobody edits it
+  // any more (Events canUpdateEvent).
   const hasEnded = event?.status === "finished";
-  const canEdit = canManage && !event?.locked_for_viewer && !hasEnded;
+  const canEdit = canManage && !hasEnded;
   const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
+  const obecRuns = isMunicipalityOrganization(event?.organization);
   // Whoever runs the event takes part in it automatically — the obec's admins too whenever the obec
   // runs or co-organizes it. Anywhere else they sign up as themselves, like everyone (Registrations).
-  const runsItForObec = isAdminOfEventMunicipality && (isMunicipalityOrganization(event?.organization) || obecCoOrganizes);
+  const runsItForObec = isAdminOfEventMunicipality && (obecRuns || obecCoOrganizes);
   const takesPartAutomatically = isEventOrganizer || runsItForObec;
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
   const canSeeAttendees = canManage || isSuperAdmin;
@@ -519,22 +517,13 @@ function EventDetailContent() {
             )}
           </div>
         )}
-        {/* The obec co-organizing it locks its creator out of editing — but not out of its volunteering. */}
-        {isCreator && event.locked_for_viewer && !hasEnded && (
-          <VolunteeringCard
-            eventId={event.id}
-            isVolunteering={Boolean(event.is_volunteering)}
-            locked={Boolean(event.volunteering_locked)}
-            onChanged={(isVolunteering) => setEvent((ev) => (ev ? { ...ev, is_volunteering: isVolunteering } : ev))}
-          />
-        )}
         {(canEdit || (isSuperAdmin && !hasEnded)) && (
           <div className="rounded-2xl border border-destructive/30 p-4 space-y-3">
             <div>
               <h2 className="text-lg font-bold">{event.deletion_needs_consent ? "Smazání akce" : "Zrušení akce"}</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {event.deletion_needs_consent
-                  ? `Akci pořádáte ${obecCoOrganizes ? "s obcí" : "se spolupořadateli"} — smazat ji jde jen s jejich souhlasem.`
+                  ? `Akci pořádáte ${obecRuns || obecCoOrganizes ? "s obcí" : "se spolupořadateli"} — smazat ji jde jen s jejich souhlasem.`
                   : "Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci."}
               </p>
             </div>
@@ -545,19 +534,21 @@ function EventDetailContent() {
                 dateTime={event.date_time}
                 userId={String(user.id)}
                 organizerId={event.organizer_id}
-                obecCoOrganizes={obecCoOrganizes}
+                obecTakesPart={obecRuns || obecCoOrganizes}
                 onOrganizersChanged={load}
               />
             ) : (
               <>
-                {/* A pořadatel may be asking the obec's consent to delete it — its admin answers here. */}
-                {obecCoOrganizes && isAdminOfEventMunicipality && user && (
+                {/* An organizer may be asking the obec's consent to delete it — its admin answers here. */}
+                {(obecRuns || obecCoOrganizes) && isAdminOfEventMunicipality && user && (
                   <EventDeletionConsent
                     eventId={event.id}
                     title={event.title}
                     dateTime={event.date_time}
                     userId={String(user.id)}
                     forObec
+                    obecRuns={obecRuns}
+                    onOrganizersChanged={load}
                   />
                 )}
                 <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />

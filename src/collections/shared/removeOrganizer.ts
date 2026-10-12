@@ -12,7 +12,8 @@ import { relationId } from '@/lib/relations'
  * event over to `successorUserId`, one of its spolupořadatelé: they become its `organizer`
  * (Events resolveOrganizations re-derives `organization` from them, requireOrganizerRole checks they
  * still organize in the obec) and with it everything that's the creator's alone — volunteering,
- * ratings. Pass the `req` of the transaction the request's own status change runs in.
+ * ratings, and the volunteer invitations and offers still waiting, which go to them to answer or
+ * withdraw. Pass the `req` of the transaction the request's own status change runs in.
  */
 export async function removeOrganizerFromEvent(
   req: PayloadRequest,
@@ -57,7 +58,7 @@ export async function removeOrganizerFromEvent(
 
   // Agreed to by the others or decided by the obec — Events guardCoOrganizedChanges lets it through
   // and notifyOrganizersOnObecChange stays quiet (the caller announces it).
-  return req.payload.update({
+  const updated = await req.payload.update({
     collection: 'events',
     id: event.id,
     data,
@@ -66,6 +67,17 @@ export async function removeOrganizerFromEvent(
     context: { coOrganizerConsent: true },
     req,
   })
+
+  if (data.organizer !== undefined) {
+    await req.payload.update({
+      collection: 'volunteer-invitations',
+      where: { and: [{ event: { equals: event.id } }, { status: { equals: 'pending' } }] },
+      data: { invitedBy: data.organizer },
+      overrideAccess: true,
+      req,
+    })
+  }
+  return updated
 }
 
 /**

@@ -134,8 +134,9 @@ export type EventRow = {
   is_volunteering?: boolean;
   /** A volunteer has signed up — the creator can't take the volunteering mark off any more. */
   volunteering_locked?: boolean;
-  /** The viewer organizes an event the obec takes part in — may help with attendees, not edit/cancel. */
-  locked_for_viewer: boolean;
+  /** The viewer is the event's creator — its pořadatel, or an admin of the obec running it: they fill
+   * in its attendance and decide about its volunteers (Events.creatorForViewer). */
+  creator_for_viewer: boolean;
   /** The viewer runs it with other organizers — deleting needs their consent (requestEventDeletion). */
   deletion_needs_consent: boolean;
   /** The obec stopped co-organizing it — it can never come back to it (leaveCoOrganizingAsObec). */
@@ -179,7 +180,7 @@ type PayloadEvent = {
   isPaid?: boolean;
   priceCents?: number | null;
   isVolunteering?: boolean;
-  lockedForViewer?: boolean | null;
+  creatorForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
   volunteeringLocked?: boolean | null;
   obecLeftAt?: string | null;
@@ -217,7 +218,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   is_paid: e.isPaid,
   price_cents: e.priceCents ?? null,
   is_volunteering: e.isVolunteering,
-  locked_for_viewer: Boolean(e.lockedForViewer),
+  creator_for_viewer: Boolean(e.creatorForViewer),
   deletion_needs_consent: Boolean(e.deletionNeedsConsent),
   volunteering_locked: Boolean(e.volunteeringLocked),
   obec_left: Boolean(e.obecLeftAt),
@@ -380,10 +381,10 @@ export async function getActiveRegistrationCountsByEvent(eventIds: string[]): Pr
 }
 
 export async function createRegistration(eventId: string, userId: string): Promise<RegistrationRow> {
+  // The status is the server's to decide (Registrations) — pending, or approved without approval.
   const doc = await post<PayloadRegistration>("/registrations", {
     event: Number(eventId),
     user: Number(userId),
-    status: "pending",
   });
   return mapRegistration(doc);
 }
@@ -1200,6 +1201,18 @@ export function getMyOrganizerMunicipalityIds(userId: string): Promise<string[]>
   return getMyRoleMunicipalityIds(userId, "organizer");
 }
 
+/** Of `municipalityIds`, the ones that let their organizers found events — not "municipality_only"
+ * (Events canCreateEvent). */
+export async function getMunicipalityIdsOpenToOrganizers(municipalityIds: string[]): Promise<string[]> {
+  if (municipalityIds.length === 0) return [];
+  const where = buildWhereParams({
+    id: { in: municipalityIds },
+    rulesForCreation: { not_equals: "municipality_only" },
+  });
+  const result = await get<PayloadListResponse<PayloadMunicipality>>(`/municipalities?${where}&limit=200&depth=0`);
+  return result.docs.map((m) => String(m.id));
+}
+
 // --- Organizer / volunteering-flag requests ----------------------------------------------
 
 export type RequestStatus = "pending" | "approved" | "rejected";
@@ -1271,6 +1284,8 @@ export type EventDeletionRequestRow = {
   municipality_approved: boolean;
   /** The others' deadline; once escalated, the event's start (the obec's). */
   expires_at: string;
+  /** Lapsed with nobody having answered (and never taken to the obec) — the requester may turn to it. */
+  unanswered: boolean;
 };
 
 type PayloadEventDeletionRequest = {
@@ -1283,6 +1298,8 @@ type PayloadEventDeletionRequest = {
   municipalityConsent?: boolean | null;
   municipalityApprovedBy?: number | { id: number } | null;
   expiresAt: string;
+  escalatedAt?: string | null;
+  decidedBy?: number | { id: number } | null;
 };
 
 /** The event's latest request to delete it, whatever became of it — still open, refused (its
@@ -1306,6 +1323,7 @@ export async function getLatestEventDeletionRequest(eventId: string): Promise<Ev
     municipality_consent: Boolean(r.municipalityConsent),
     municipality_approved: Boolean(r.municipalityApprovedBy),
     expires_at: r.expiresAt,
+    unanswered: r.status === "expired" && !r.escalatedAt && !r.decidedBy,
   };
 }
 
@@ -1325,7 +1343,7 @@ export async function decideEventDeletion(
   return post(`/events/deletion-requests/${requestId}/decide`, { decision });
 }
 
-/** After a spolupořadatel refused, the requester asks the obec to take them off the event. */
+/** After a spolupořadatel refused, or nobody answered, the requester asks the obec to take them off the event. */
 export async function escalateEventDeletion(requestId: string): Promise<void> {
   await post(`/events/deletion-requests/${requestId}/escalate`, {});
 }
@@ -1333,13 +1351,6 @@ export async function escalateEventDeletion(requestId: string): Promise<void> {
 /** The obec's admin stops the obec co-organizing the event — no one's consent needed, and for good. */
 export async function leaveCoOrganizingAsObec(eventId: string): Promise<void> {
   await post(`/events/${eventId}/obec-leave`, {});
-}
-
-/** The creator marks their event as one for volunteers, or takes the mark off — no obec approval.
- * Works even when the obec co-organizing the event has locked them out of editing it. */
-export async function setEventVolunteering(eventId: string, isVolunteering: boolean): Promise<boolean> {
-  const result = await post<{ isVolunteering: boolean }>(`/events/${eventId}/volunteering`, { isVolunteering });
-  return result.isVolunteering;
 }
 
 // --- The viewer's organizations ("Organizace") ----------------------------------------------

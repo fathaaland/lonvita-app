@@ -17,13 +17,13 @@ type Decision = (typeof DECISIONS)[number]
 
 /**
  * A spolupořadatel answers a request to delete the event they run together
- * (EventDeletionRequests) — or an obec admin, for the obec co-organizing it. A refusal keeps the
- * event; once everyone asked (the obec included) has consented the event
+ * (EventDeletionRequests) — or an obec admin, for the obec running or co-organizing it. A refusal
+ * keeps the event; once everyone asked (the obec included) has consented the event
  * is hard-deleted — with its registrations, their feedback and photos,
- * in one transaction — and the registrants are told it's off. Or an organizer keeps the event
- * but lets the requester go: the requester leaves it (handing it over to them, if the requester
- * was its pořadatel) and the request is settled — nobody else's answer matters any more, the event
- * can't be deleted against their will anyway.
+ * in one transaction — and the registrants are told it's off. Or an organizer — or the obec, when
+ * it runs the event — keeps the event but lets the requester go: the requester leaves it (handing it
+ * over to them, if the requester was its pořadatel) and the request is settled — nobody else's
+ * answer matters any more, the event can't be deleted against their will anyway.
  *
  * POST /api/events/deletion-requests/:id/decide  { decision: 'approve' | 'reject' | 'remove-requester' }
  * → { status: 'pending' | 'approved' | 'rejected' | 'requester-removed' }
@@ -82,16 +82,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Tuhle akci už nepořádáte.' }, { status: 403 })
   }
   // Once the obec's admins take it off the event, its consent is no longer needed.
-  const obecStillCoOrganizes =
-    Boolean(deletionRequest.municipalityConsent) &&
-    (await obecRole(await createLocalReq({ user }, payload), event)).coOrganizes
+  const obec = await obecRole(await createLocalReq({ user }, payload), event)
+  const obecStillTakesPart = Boolean(deletionRequest.municipalityConsent) && (obec.runs || obec.coOrganizes)
 
   const requesterId = relationId(deletionRequest.requestedBy)!
   const decidedAt = new Date().toISOString()
 
   if (decision === 'remove-requester') {
-    // The obec answers only for itself — whom the event stays with is the organizers' call.
-    if (!asApprover) {
+    // The obec co-organizing answers only for itself — whom the event stays with is the organizers'
+    // call. Running it, the obec is the one the event stays with.
+    if (!asApprover && !(forObec && obec.runs)) {
       return NextResponse.json({ error: 'Odebrat žadatele může jen spolupořadatel akce.' }, { status: 403 })
     }
     if (!onEvent.has(requesterId)) {
@@ -185,7 +185,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   ].filter((a): a is string => a !== null)
   const municipalityApprovedBy = forObec ? uid : relationId(deletionRequest.municipalityApprovedBy)
   const stillWaiting = approverIds.filter((a) => a && onEvent.has(a) && !approvedBy.includes(a))
-  if (stillWaiting.length > 0 || (obecStillCoOrganizes && !municipalityApprovedBy)) {
+  if (stillWaiting.length > 0 || (obecStillTakesPart && !municipalityApprovedBy)) {
     await payload.update({
       collection: 'event-deletion-requests',
       id: deletionRequest.id,
@@ -249,7 +249,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   sendNotificationToMany(payload, team, {
     title: 'Akce smazána',
-    message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillCoOrganizes ? ' i obce' : ''} smazána.`,
+    message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillTakesPart ? ' i obce' : ''} smazána.`,
   })
   writeAuditLog(payload, {
     source: request,

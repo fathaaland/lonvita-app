@@ -9,7 +9,7 @@ import type {
 import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
-import { deletionNeedsConsent, eventOrganizerIds, lockedEventIds, administeredIdsFor, obecRole } from './Events'
+import { deletionNeedsConsent, eventOrganizerIds, obecRole } from './Events'
 import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { canCancelEvent, eventCancellationDeadline, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { formatPragueDateTime } from '@/lib/date'
@@ -35,7 +35,8 @@ const canReadDeletionRequest: Access = async ({ req: { user, payload } }) => {
  * Everything about a new request is derived here from the event and the signed-in user — the
  * client only names the event. Only an organizer who runs it together with someone else may ask
  * (a sole organizer or the obec admin simply cancels it); everyone else on it has to consent — and
- * the obec, when it co-organizes the event (any one of its admins answers for it).
+ * the obec, whenever it runs or co-organizes the event: any one of its admins answers for it, so
+ * they aren't asked one by one.
  */
 const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (operation !== 'create' || !data) return data
@@ -53,10 +54,6 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   const organizerIds = eventOrganizerIds(event)
   if (!organizerIds.includes(String(user.id))) {
     throw new APIError('O smazání akce může požádat jen její pořadatel nebo spolupořadatel.', 403)
-  }
-  const locked = await lockedEventIds(req, user.id, [event], await administeredIdsFor(req, user.id))
-  if (locked.has(String(event.id))) {
-    throw new APIError('Tuhle akci pořádá nebo spolupořádá obec — smazat ji může jen admin obce.', 403)
   }
   if (!(await deletionNeedsConsent(req, user, event))) {
     throw new APIError('Tuhle akci můžete zrušit rovnou, souhlas nikoho dalšího nepotřebuje.', 400)
@@ -87,14 +84,20 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
     eventCancellationDeadline(event.dateTime).getTime(),
   )
 
+  const municipalityId = relationId(event.municipality)
+  const { runs, coOrganizes } = await obecRole(req, event)
+  const obecAdminIds = new Set(
+    municipalityId && (runs || coOrganizes) ? (await getMunicipalityAdminUserIds(payload, municipalityId)).map(String) : [],
+  )
+
   return {
     event: event.id,
     eventTitle: event.title,
-    municipality: relationId(event.municipality) ? Number(relationId(event.municipality)) : null,
+    municipality: municipalityId ? Number(municipalityId) : null,
     requestedBy: user.id,
-    approvers: organizerIds.filter((id) => id !== String(user.id)).map(Number),
+    approvers: organizerIds.filter((id) => id !== String(user.id) && !obecAdminIds.has(id)).map(Number),
     approvedBy: [],
-    municipalityConsent: (await obecRole(req, event)).coOrganizes,
+    municipalityConsent: runs || coOrganizes,
     municipalityApprovedBy: null,
     status: 'pending',
     expiresAt: new Date(expiresAt).toISOString(),
@@ -124,11 +127,11 @@ const notifyApprovers: CollectionAfterChangeHook = async ({ doc, operation, req 
         userId: adminId,
         title: 'Žádost o smazání akce',
         link: `/akce/${eventId}`,
-        message: `${who} chce smazat akci „${doc.eventTitle}“, kterou obec spolupořádá. Bez souhlasu obce se nesmaže — odpovězte do ${until}.`,
+        message: `${who} chce smazat akci „${doc.eventTitle}“, kterou obec pořádá. Bez souhlasu obce se nesmaže — odpovězte do ${until}.`,
         email: {
           subject: `Žádost o smazání akce: ${doc.eventTitle}`,
           body:
-            `<p><strong>${escapeHtml(who)}</strong> chce smazat akci <strong>${escapeHtml(doc.eventTitle)}</strong>, kterou obec spolupořádá.</p>` +
+            `<p><strong>${escapeHtml(who)}</strong> chce smazat akci <strong>${escapeHtml(doc.eventTitle)}</strong>, kterou obec pořádá.</p>` +
             `<p>Bez souhlasu obce se akce nesmaže — za obec stačí odpověď jednoho z jejích adminů. Odpovědět můžete do ${until} — když nikdo neodpoví, akce zůstane.</p>` +
             `<p><a href="${appUrl}/akce/${eventId}">Otevřít akci a rozhodnout</a></p>`,
         },
@@ -163,16 +166,17 @@ const deriveExpiredStatus: CollectionAfterReadHook = ({ doc }) => {
 
 /**
  * Two organizers running an event together must both agree before it's deleted: one asks, the
- * others (and the obec, if it co-organizes) get notified and have DELETION_CONSENT_HOURS to
+ * others (and the obec, if it runs or co-organizes it) get notified and have DELETION_CONSENT_HOURS to
  * answer (api/events/deletion-requests/[id]/decide):
  * - all consent → the event is hard-deleted (`approved`);
  * - one keeps the event but lets the requester go → the requester leaves it, the event stays with
  *   the rest — handed over to whoever chose so, if the requester was its pořadatel
  *   (`requester-removed`);
  * - one refuses, or time runs out → everything stays (`rejected` / `expired`).
- * After a refusal the requester may turn to the obec (…/escalate → `escalated`, open until the event
- * starts), whose admin takes them off the event without the others' consent (`requester-removed`)
- * or turns it down (`escalation-rejected`) — …/municipality-decide. Created over REST; decided only
+ * After a spolupořadatel's refusal — or when nobody answered in time — the requester may turn to the
+ * obec (…/escalate → `escalated`, open until the event starts), whose admin takes them off the event
+ * without the others' consent (`requester-removed`) or turns it down (`escalation-rejected`) —
+ * …/municipality-decide. Created over REST; decided only
  * through those routes (update is closed here).
  */
 export const EventDeletionRequests: CollectionConfig = {

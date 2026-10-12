@@ -25,12 +25,12 @@ describe('Co-organizer picker list (GET /api/events/co-organizer-candidates)', (
 
     muniA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Picker Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Picker Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     muniB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Picker Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Picker Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
 

@@ -22,7 +22,7 @@ describe('Obec step in onboarding for Google sign-ups (/api/auth/onboarding-muni
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Onboarding Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Onboarding Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
 

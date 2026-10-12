@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getMyOrganizerRequests, requestOrganizerRole, RequestStatus, withdrawOrganizerRequest } from "@/integrations/payload/queries";
+import {
+  getMunicipality,
+  getMyOrganizerRequests,
+  requestOrganizerRole,
+  RequestStatus,
+  withdrawOrganizerRequest,
+} from "@/integrations/payload/queries";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { ORGANIZER_REASON_MAX_LENGTH, ORGANIZER_REASON_MIN_LENGTH } from "@/lib/validation";
 import {
@@ -33,6 +39,8 @@ export function OrganizerRequestCard() {
   // The waiting request, so its applicant can take it back.
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // The home obec founds its events itself ("municipality_only") — nobody asks to organize there.
+  const [obecOnly, setObecOnly] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -46,10 +54,11 @@ export function OrganizerRequestCard() {
 
   useEffect(() => {
     if (!user || !profile?.municipality_id) return;
-    getMyOrganizerRequests(String(user.id)).then((reqs) => {
+    Promise.all([getMyOrganizerRequests(String(user.id)), getMunicipality(profile.municipality_id)]).then(([reqs, home]) => {
       const forHome = reqs.find((r) => r.municipality_id === profile.municipality_id);
       setStatus(forHome?.status ?? null);
       setPendingId(forHome?.status === "pending" ? forHome.id : null);
+      setObecOnly(home?.rules_for_creation === "municipality_only");
       setLoading(false);
     });
   }, [user, profile?.municipality_id]);
@@ -133,10 +142,16 @@ export function OrganizerRequestCard() {
                 <XCircle className="h-4 w-4" /> Předchozí žádost byla zamítnuta.
               </p>
             )}
-            <p className="text-sm text-muted-foreground">
-              Chcete v obci pořádat vlastní akce? Požádejte o roli organizátora.
-            </p>
-            {formOpen ? (
+            {obecOnly ? (
+              <p className="text-sm text-muted-foreground">
+                Akce ve vaší obci teď zakládá jen obec sama — o roli organizátora tu požádat nejde.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Chcete v obci pořádat vlastní akce? Požádejte o roli organizátora.
+              </p>
+            )}
+            {obecOnly ? null : formOpen ? (
               <div className="space-y-2">
                 <Label>Za koho budete akce pořádat?</Label>
                 <div className="flex flex-wrap gap-2">

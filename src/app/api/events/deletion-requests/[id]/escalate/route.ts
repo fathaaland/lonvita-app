@@ -4,16 +4,17 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { eventOrganizerIds } from '@/collections/Events'
 import { OPEN_STATUSES } from '@/collections/EventDeletionRequests'
-import { escapeHtml, getObecDeciders, sendNotification } from '@/collections/shared/notify'
+import { escapeHtml, getObecDeciders, sendNotification, sendNotificationToMany } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { formatPragueDateTime } from '@/lib/date'
 import { relationId } from '@/lib/relations'
 
 /**
  * The requester turns to the obec after a spolupořadatel refused both deleting the event and
- * letting them leave it (EventDeletionRequests). The obec's admins may then take them off the event
- * without the others' consent (…/municipality-decide) — until the event starts, when the request
- * lapses.
+ * letting them leave it (EventDeletionRequests) — or after nobody answered in time: keeping quiet
+ * mustn't hold them on the event more firmly than saying no. The obec's admins may then take them
+ * off the event without the others' consent (…/municipality-decide) — until the event starts, when
+ * the request lapses.
  *
  * POST /api/events/deletion-requests/:id/escalate → { status: 'escalated' }
  */
@@ -34,9 +35,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Obec může požádat jen ten, kdo o smazání žádal.' }, { status: 403 })
   }
   const rejectedById = relationId(deletionRequest.rejectedBy)
-  // Only a spolupořadatel's refusal — the obec refusing for itself has already had its say.
-  if (deletionRequest.status !== 'rejected' || !rejectedById) {
-    return NextResponse.json({ error: 'Obec lze požádat jen po zamítnutí spolupořadatelem.' }, { status: 409 })
+  // A spolupořadatel's refusal — the obec refusing for itself has already had its say — or a request
+  // that lapsed unanswered (afterRead reports it "expired"; one the obec let lapse was escalated).
+  const refused = deletionRequest.status === 'rejected' && rejectedById !== null
+  const unanswered =
+    deletionRequest.status === 'expired' && !deletionRequest.escalatedAt && !relationId(deletionRequest.decidedBy)
+  if (!refused && !unanswered) {
+    return NextResponse.json(
+      { error: 'Obec lze požádat jen po zamítnutí spolupořadatelem, nebo když na žádost nikdo neodpověděl.' },
+      { status: 409 },
+    )
   }
 
   const eventId = relationId(deletionRequest.event)
@@ -92,18 +100,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       userId: adminId,
       title: 'Žádost o zrušení spolupořadatelství',
       link: obec.requestsLink,
-      message: `${who} chce přestat pořádat akci „${event.title}“, ale spolupořadatel nesouhlasí. Rozhodněte do ${until}.`,
+      message: `${who} chce přestat pořádat akci „${event.title}“, ${refused ? 'ale spolupořadatel nesouhlasí' : 'a na jeho žádost nikdo neodpověděl'}. Rozhodněte do ${until}.`,
       email: {
         subject: `Žádost o zrušení spolupořadatelství: ${event.title}`,
         body:
-          `<p><strong>${escapeHtml(who)}</strong> chce přestat pořádat akci <strong>${escapeHtml(event.title)}</strong>. Spolupořadatel nesouhlasil se smazáním akce ani s jeho odchodem.</p>` +
+          `<p><strong>${escapeHtml(who)}</strong> chce přestat pořádat akci <strong>${escapeHtml(event.title)}</strong>. ${refused ? 'Spolupořadatel nesouhlasil se smazáním akce ani s jeho odchodem.' : 'Na jeho žádost o smazání akce nikdo včas neodpověděl.'}</p>` +
           `<p>Obec ho z akce může odebrat i bez souhlasu spolupořadatele — akce pak zůstane ostatním. Rozhodnout můžete do ${until}.</p>` +
           `<p><a href="${appUrl}${obec.requestsLink}">Otevřít žádosti obce</a></p>`,
       },
     })
   }
-  sendNotification(payload, {
-    userId: rejectedById,
+  // Whoever refused — or everyone still on the event who left it unanswered.
+  const approvedBy = new Set((deletionRequest.approvedBy ?? []).map(relationId))
+  const silent = (deletionRequest.approvers ?? [])
+    .map(relationId)
+    .filter((id): id is string => id !== null && id !== uid && organizerIds.includes(id) && !approvedBy.has(id))
+  sendNotificationToMany(payload, refused ? [rejectedById!] : silent, {
     title: 'Spolupořadatel požádal obec',
     link: `/akce/${event.id}`,
     message: `${who} požádal(a) obec, aby ho z akce „${event.title}“ odebrala i bez vašeho souhlasu.`,
@@ -115,7 +127,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     targetCollection: 'event-deletion-requests',
     targetId: deletionRequest.id,
     municipality: Number(municipalityId) || null,
-    metadata: { event: event.id, rejectedBy: rejectedById },
+    metadata: { event: event.id, rejectedBy: rejectedById, unanswered },
   })
 
   return NextResponse.json({ status: 'escalated' })

@@ -49,7 +49,7 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Rating Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Rating Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({

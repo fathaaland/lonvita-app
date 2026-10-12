@@ -179,9 +179,8 @@ export function EventsTable({
                       </p>
                     )}
                   </div>
-                  {/* An event the obec runs or co-organizes, co-organized by this viewer — theirs to help run,
-                      not to edit or cancel. Same fixed widths keep the rows aligned. */}
-                  {e.locked_for_viewer || e.status === "finished" ? (
+                  {/* A held event is history — nobody edits it. Same fixed widths keep the rows aligned. */}
+                  {e.status === "finished" ? (
                     <div className="w-16 shrink-0" />
                   ) : (
                     <>

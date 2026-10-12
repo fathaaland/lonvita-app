@@ -18,7 +18,7 @@ import { relationId } from '@/lib/relations'
  * The obec stops co-organizing an event — its own decision, no consent from the event's creator or
  * the other spolupořadatelé needed. For good: Events resolveOrganizations stamps `obecLeftAt`, and
  * from then on the obec can't be put back on the event (nor invited, CoOrganizingRequests). The
- * organizers get the event back to edit (Events lockedEventIds) and hear about it.
+ * organizers go on running it without the obec and hear about it.
  *
  * POST /api/events/:id/obec-leave → { left: true }
  */
@@ -84,11 +84,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       {
         title: 'Obec akci už nespolupořádá',
         link,
-        message: `${obec} ukončila spolupořádání akce „${event.title}“. Akci teď zase upravujete a spravujete sami.`,
+        message: `${obec} ukončila spolupořádání akce „${event.title}“. Akci pořádáte dál bez obce.`,
         email: {
           subject: `Obec akci už nespolupořádá: ${event.title}`,
           body:
-            `<p>${escapeHtml(obec)} ukončila spolupořádání akce <strong>${title}</strong>. Akci teď zase upravujete a spravujete sami.</p>` +
+            `<p>${escapeHtml(obec)} ukončila spolupořádání akce <strong>${title}</strong>. Akci pořádáte dál bez obce.</p>` +
             `<p><a href="${appUrl}${link}">Zobrazit akci</a></p>`,
         },
       },

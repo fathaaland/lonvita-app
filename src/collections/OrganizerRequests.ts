@@ -1,10 +1,11 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig, Where } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig, FieldAccess, Where } from 'payload'
 import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared'
 import { escapeHtml, getObecDeciders, sendNotification } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
 import { ORGANIZER_REASON_MAX_LENGTH, ORGANIZER_REASON_MIN_LENGTH } from '@/lib/validation'
+import { relationId } from '@/lib/relations'
 import {
   ORGANIZATION_NAME_MAX_LENGTH,
   ORGANIZATION_NAME_MIN_LENGTH,
@@ -17,6 +18,8 @@ const canCreateOwnRequest: Access = ({ req: { user }, data }) => {
   if (user.role === 'admin') return true
   return String(data?.user) === String(user.id)
 }
+
+const platformAdminField: FieldAccess = ({ req: { user } }) => user?.role === 'admin'
 
 const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
@@ -91,16 +94,25 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
         })
         .catch(() => null)
       const organizationId = organization?.docs[0]?.id
+      // An obec that has since switched to founding its events itself only takes organizers on as
+      // spolupořadatelé (Events canCreateEvent).
+      const municipality = await req.payload
+        .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true, req })
+        .catch(() => null)
+      const canCreate = municipality?.rulesForCreation !== 'municipality_only'
+      const what = canCreate
+        ? 'teď můžete zakládat akce'
+        : 'můžete spolupořádat akce, ke kterým vás obec pozve — nové akce v obci teď zakládá jen obec sama'
       sendNotification(req.payload, {
         userId,
         title: 'Role organizátora schválena',
         link: organizationId ? `/organizace?organizace=${organizationId}` : '/organizace',
         message: doc.organizationName
-          ? `Vaše žádost o roli organizátora byla schválena — za „${doc.organizationName}“ teď můžete zakládat akce.`
-          : 'Vaše žádost o roli organizátora byla schválena.',
+          ? `Vaše žádost o roli organizátora byla schválena — za „${doc.organizationName}“ ${what}.`
+          : `Vaše žádost o roli organizátora byla schválena — ${what}.`,
         email: {
           subject: 'Role organizátora schválena',
-          body: '<p>Vaše žádost o roli organizátora byla schválena. Teď můžete v aplikaci zakládat vlastní akce.</p>',
+          body: `<p>Vaše žádost o roli organizátora byla schválena — ${escapeHtml(what)}.</p>`,
         },
       })
       writeAuditLog(req.payload, {
@@ -163,16 +175,20 @@ export const OrganizerRequests: CollectionConfig = {
   },
   fields: [
     {
+      // Fixed once asked — the obec decides on this person and this obec, not on whatever a PATCH
+      // makes of the request afterwards.
       name: 'user',
       type: 'relationship',
       relationTo: 'users',
       required: true,
+      access: { update: () => false },
     },
     {
       name: 'municipality',
       type: 'relationship',
       relationTo: 'municipalities',
       required: true,
+      access: { update: () => false },
     },
     {
       // Not `required` at the DB level — requests filed before this field existed have none.
@@ -202,11 +218,13 @@ export const OrganizerRequests: CollectionConfig = {
       access: { update: () => false },
     },
     {
+      // A request starts waiting on the obec — never filed as already decided.
       name: 'status',
       type: 'select',
       required: true,
       index: true,
       defaultValue: 'pending',
+      access: { create: platformAdminField },
       options: [
         { label: 'Pending', value: 'pending' },
         { label: 'Approved', value: 'approved' },
@@ -214,14 +232,17 @@ export const OrganizerRequests: CollectionConfig = {
       ],
     },
     {
+      // Stamped with the decision (beforeValidate) — never taken from the client.
       name: 'reviewedBy',
       type: 'relationship',
       relationTo: 'users',
+      access: { create: platformAdminField, update: platformAdminField },
       admin: { position: 'sidebar' },
     },
     {
       name: 'reviewedAt',
       type: 'date',
+      access: { create: platformAdminField, update: platformAdminField },
       admin: { position: 'sidebar' },
     },
   ],
@@ -266,6 +287,47 @@ export const OrganizerRequests: CollectionConfig = {
         })
         if (existing.docs.length > 0) {
           throw new APIError('Vaše žádost o roli organizátora v téhle obci už čeká na vyřízení.', 400)
+        }
+
+        // Asked by the person themselves (not a platform admin filing one, nor a trusted internal
+        // write): only for the obec they live in — and one that still lets organizers in, whose
+        // admin doesn't already run events for it.
+        if (req.user && req.user.role !== 'admin') {
+          const profile = (
+            await req.payload.find({
+              collection: 'profiles',
+              where: { user: { equals: data.user } },
+              depth: 0,
+              limit: 1,
+              overrideAccess: true,
+              req,
+            })
+          ).docs[0]
+          if (!profile?.municipality || String(relationId(profile.municipality)) !== String(relationId(data.municipality))) {
+            throw new APIError('O roli organizátora se žádá jen ve vaší domovské obci.', 400)
+          }
+        }
+        const municipality = await req.payload
+          .findByID({ collection: 'municipalities', id: relationId(data.municipality)!, depth: 0, overrideAccess: true, req })
+          .catch(() => null)
+        if (!municipality) throw new APIError('Obec nebyla nalezena.', 404)
+        if (municipality.rulesForCreation === 'municipality_only') {
+          throw new APIError('Akce v téhle obci teď zakládá jen obec sama — o roli organizátora požádat nejde.', 400)
+        }
+        const adminHere = await req.payload.count({
+          collection: 'user-roles',
+          where: {
+            and: [
+              { user: { equals: data.user } },
+              { municipality: { equals: data.municipality } },
+              { role: { equals: 'municipality_admin' } },
+            ],
+          },
+          overrideAccess: true,
+          req,
+        })
+        if (adminHere.totalDocs > 0) {
+          throw new APIError('Jako admin obce pořádáte akce za obec — roli organizátora v ní nepotřebujete.', 400)
         }
 
         const existingRole = await req.payload.find({

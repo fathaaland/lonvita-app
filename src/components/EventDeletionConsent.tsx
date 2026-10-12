@@ -38,11 +38,14 @@ interface Props {
   userId: string;
   /** The event's pořadatel — if they're the one asking, letting them go hands the event over. */
   organizerId?: string | null;
-  /** The obec co-organizes the event, so it has to consent as well. */
-  obecCoOrganizes?: boolean;
-  /** The viewer is an admin of the obec co-organizing the event — they only answer requests for it
-   * (they cancel the event outright otherwise, with CancelEventButton). */
+  /** The obec runs or co-organizes the event, so it has to consent as well. */
+  obecTakesPart?: boolean;
+  /** The viewer is an admin of the obec running or co-organizing the event — they only answer
+   * requests for it (they cancel the event outright otherwise, with CancelEventButton). */
   forObec?: boolean;
+  /** The obec runs the event — answering for it, its admin may also keep the event and let the
+   * requester go. */
+  obecRuns?: boolean;
   /** Who organizes the event has changed (the requester left it) — reload it. */
   onOrganizersChanged?: () => void;
 }
@@ -54,16 +57,18 @@ const errorMessage = (error: unknown, fallback: string) =>
 
 /** Deleting an event run by several organizers, or together with the obec
  * (Events.deletionNeedsConsent) — one asks, the others (and the obec) get 24 hours to consent,
- * refuse, or keep the event and let the requester go (EventDeletionRequests). After a refusal the
- * requester may ask the obec to take them off it. Takes the place of CancelEventButton for them. */
+ * refuse, or keep the event and let the requester go (EventDeletionRequests). After a refusal, or
+ * when nobody answered, the requester may ask the obec to take them off it. Takes the place of
+ * CancelEventButton for them. */
 export function EventDeletionConsent({
   eventId,
   title,
   dateTime,
   userId,
   organizerId = null,
-  obecCoOrganizes = false,
+  obecTakesPart = false,
   forObec = false,
+  obecRuns = false,
   onOrganizersChanged,
 }: Props) {
   const router = useRouter();
@@ -103,7 +108,7 @@ export function EventDeletionConsent({
     setBusy(true);
     try {
       await requestEventDeletion(eventId);
-      toast.success(`Žádost odeslána. ${obecCoOrganizes ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} ${DELETION_CONSENT_HOURS} hodin na odpověď.`);
+      toast.success(`Žádost odeslána. ${obecTakesPart ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} ${DELETION_CONSENT_HOURS} hodin na odpověď.`);
       setAsking(false);
       await load();
     } catch (error) {
@@ -246,14 +251,14 @@ export function EventDeletionConsent({
       <div className="space-y-3">
         <p className="text-sm">
           <strong>{requester}</strong> žádá o smazání akce.{" "}
-          {forObec ? "Obec ji spolupořádá, bez jejího souhlasu se nesmaže" : "Bez vašeho souhlasu se nesmaže"} —
+          {forObec ? `Obec ji ${obecRuns ? "pořádá" : "spolupořádá"}, bez jejího souhlasu se nesmaže` : "Bez vašeho souhlasu se nesmaže"} —
           odpovězte do {until}.
-          {!forObec && (requesterIsOrganizer
+          {(!forObec || obecRuns) && (requesterIsOrganizer
             ? " Akci můžete také převzít — žadatel ji opustí a vy se stanete hlavním pořadatelem."
             : " Akci si také můžete ponechat a žadatele z ní odebrat.")}
         </p>
         <div className="grid gap-2">
-          {!forObec && (
+          {(!forObec || obecRuns) && (
             <Button variant="outline" className="h-11" disabled={busy} onClick={() => setConfirm("remove-requester")}>
               {requesterIsOrganizer ? "Převzít akci, žadatel odejde" : "Ponechat akci, žadatele odebrat"}
             </Button>
@@ -280,8 +285,9 @@ export function EventDeletionConsent({
     );
   }
 
-  // Nothing open — the requester of a refused request may turn to the obec.
-  const canEscalate = isRequester && request?.status === "rejected" && Boolean(request.rejected_by_id) && !started;
+  // Nothing open — the requester of a refused request, or of one nobody answered, may turn to the obec.
+  const refused = request?.status === "rejected" && Boolean(request.rejected_by_id);
+  const canEscalate = isRequester && (refused || Boolean(request?.unanswered)) && !started;
   const outcome =
     isRequester && request?.status === "escalation-rejected"
       ? "Obec vaší žádosti o zrušení spolupořadatelství nevyhověla — akci pořádáte dál."
@@ -292,8 +298,10 @@ export function EventDeletionConsent({
       {canEscalate && (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            Spolupořadatel nesouhlasil se smazáním akce ani s tím, abyste ji opustili. Pokud ji pořádat nechcete, může
-            o tom rozhodnout obec.
+            {refused
+              ? "Spolupořadatel nesouhlasil se smazáním akce ani s tím, abyste ji opustili."
+              : "Na vaši žádost o smazání akce nikdo včas neodpověděl."}{" "}
+            Pokud ji pořádat nechcete, může o tom rozhodnout obec.
           </p>
           <Button variant="outline" className="w-full h-12 text-base" disabled={busy} onClick={() => setConfirm("escalate")}>
             <Landmark className="h-4 w-4" /> Požádat obec o zrušení spolupořadatelství
@@ -315,8 +323,8 @@ export function EventDeletionConsent({
             <AlertDialogHeader>
               <AlertDialogTitle>Požádat o smazání „{title}“?</AlertDialogTitle>
               <AlertDialogDescription>
-                Akci pořádáte {obecCoOrganizes ? "s obcí" : "se spolupořadateli"}, takže se smaže jen s{" "}
-                {obecCoOrganizes ? "souhlasem obce (a případných dalších spolupořadatelů)" : "jejich souhlasem"}. Dostanou
+                Akci pořádáte {obecTakesPart ? "s obcí" : "se spolupořadateli"}, takže se smaže jen s{" "}
+                {obecTakesPart ? "souhlasem obce (a případných dalších spolupořadatelů)" : "jejich souhlasem"}. Dostanou
                 upozornění a mají {DELETION_CONSENT_HOURS} hodin na odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou
                 upozornění. Spolupořadatel si také může akci ponechat — vy ji pak opustíte. Když nesouhlasí nebo
                 neodpoví, akce zůstane.

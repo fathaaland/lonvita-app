@@ -149,12 +149,12 @@ describe('The obec dashboard (GET /api/municipalities/:id/dashboard)', () => {
     payload = await getPayload({ config: await config })
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Dashboard Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Dashboard Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     otherMuni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Dashboard Other ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Dashboard Other ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({ collection: 'event-categories', data: { name: `Test Category Dashboard ${STAMP}` }, overrideAccess: true })

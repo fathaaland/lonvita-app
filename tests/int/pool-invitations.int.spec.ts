@@ -64,7 +64,7 @@ describe('Invitations into the volunteer pool', () => {
     const makeMuni = (name: string) =>
       payload.create({
         collection: 'municipalities',
-        data: { name: `Pool Inv ${name} ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+        data: { name: `Pool Inv ${name} ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
         overrideAccess: true,
       })
     muni = await makeMuni('A')

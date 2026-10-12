@@ -201,6 +201,7 @@ describe('An obec is never left without its admin', () => {
         reason: 'Vedu místní spolek a chci tu pořádat akce pro seniory.',
         organizationName: 'Spolek seniorů',
         organizationType: 'association',
+        status: 'pending',
       },
       overrideAccess: true,
     })
@@ -233,6 +234,7 @@ describe('Asking for the organizer role', () => {
         reason: 'Provozuji tu kavárnu a chci pořádat komunitní večery.',
         organizationName: 'Kavárna',
         organizationType: 'business',
+        status: 'pending',
       },
       user,
       overrideAccess: false,
@@ -247,11 +249,20 @@ describe('Asking for the organizer role', () => {
     })
     applicant = await createUser('request-applicant')
     other = await createUser('request-other')
+    // One asks only in the obec they live in (OrganizerRequests).
+    for (const user of [applicant, other]) {
+      await payload.create({
+        collection: 'profiles',
+        data: { user: user.id, fullName: `Requests ${user.id}`, municipality: obec.id },
+        overrideAccess: true,
+      })
+    }
   })
 
   afterAll(async () => {
     for (const user of [applicant, other]) {
       await payload.delete({ collection: 'organizer-requests', where: { user: { equals: user.id } }, overrideAccess: true }).catch(() => {})
+      await payload.delete({ collection: 'profiles', where: { user: { equals: user.id } }, overrideAccess: true }).catch(() => {})
       await payload.delete({ collection: 'users', id: user.id, overrideAccess: true }).catch(() => {})
     }
     await payload.delete({ collection: 'municipalities', id: obec.id, overrideAccess: true }).catch(() => {})

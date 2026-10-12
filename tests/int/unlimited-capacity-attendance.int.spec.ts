@@ -66,7 +66,7 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Unlimited Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Unlimited Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({

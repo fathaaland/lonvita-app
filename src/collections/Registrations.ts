@@ -19,7 +19,8 @@ import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNo
 import { reliabilityOf } from './shared/reliability'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
-import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { isEventCreator } from './Events'
 import { deletedAtField } from './shared/softDelete'
 import { requiredRelationNumber } from '@/lib/relations'
 
@@ -355,8 +356,9 @@ const notifyOnNoShow: CollectionAfterChangeHook = async ({ doc, previousDoc, ope
 
 /** Attendance is the pořadatel's record of who actually came — it gates who may rate the event
  * (EventFeedback), whom the pořadatel may rate as a volunteer, and feeds the obec's analytics. Only
- * the event's own pořadatel (who founded it) fills it in — not its spolupořadatelé, not the obec when
- * it co-organizes — so there's one person answerable for it. Collection-level update access also lets
+ * the event's creator fills it in (Events isEventCreator: the pořadatel who founded it, or the obec's
+ * admins when the obec runs it) — not its spolupořadatelé, not the obec when it co-organizes — so
+ * there's one party answerable for it. Collection-level update access also lets
  * a participant update their own registration (to cancel it), so without this they could PATCH
  * themselves to "attended". An event with unlimited capacity keeps no attendance at all — nobody's
  * counted at the door; its volunteers are rated without it (VolunteerRatings). A participant's
@@ -371,8 +373,8 @@ const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
 
 type AttendanceRights = { mark: boolean; correct: boolean }
 
-/** `mark` — the event's creator (and a platform admin) fills attendance in; `correct` — an admin of
- * the event's obec may change a participant's once it's confirmed. */
+/** `mark` — the event's creator (isEventCreator, a platform admin included) fills attendance in;
+ * `correct` — an admin of the event's obec may change a participant's once it's confirmed. */
 async function attendanceRights(req: PayloadRequest, eventId: number | string): Promise<AttendanceRights> {
   const cacheKey = `attendanceRights:${eventId}`
   if (req.context[cacheKey]) return req.context[cacheKey] as AttendanceRights
@@ -382,7 +384,7 @@ async function attendanceRights(req: PayloadRequest, eventId: number | string): 
     .catch(() => null)
   const rights: AttendanceRights = { mark: false, correct: false }
   if (event && !isUnlimitedCapacity(event.capacity)) {
-    rights.mark = req.user!.role === 'admin' || String(requiredRelationNumber(event.organizer)) === String(req.user!.id)
+    rights.mark = await isEventCreator(req, req.user!, event)
     rights.correct = (await getAdministeredMunicipalityIds(req.payload, req.user!.id)).includes(
       String(requiredRelationNumber(event.municipality)),
     )
@@ -429,7 +431,7 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
     }
     return args
   }
-  if (!event || String(requiredRelationNumber(event.organizer)) !== String(req.user.id)) {
+  if (!event || !(await isEventCreator(req, req.user, event))) {
     throw new APIError('Docházku zapisuje jen pořadatel, který akci založil.', 403)
   }
   if (marked) {
@@ -468,12 +470,13 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
   const volunteer = current.role === 'volunteer'
   const own = String(requiredRelationNumber(current.user)) === String(req.user.id)
   const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(requiredRelationNumber(u))) : []
-  // The event's volunteers are its creator's alone — not a spolupořadatel's, not the obec's.
+  // The event's volunteers are its creator's alone — not a spolupořadatel's, not the obec's unless
+  // it runs the event (Events isEventCreator).
   const manages =
     event !== null &&
     !own &&
     (volunteer
-      ? String(requiredRelationNumber(event.organizer)) === String(req.user.id)
+      ? await isEventCreator(req, req.user, event)
       : organizerIds.includes(String(req.user.id)) ||
         (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(requiredRelationNumber(event.municipality))))
 
@@ -608,7 +611,7 @@ const stampCancellation: CollectionBeforeChangeHook = ({ data, originalDoc, oper
 }
 
 /** The obec's admins may hard-delete registrations in their obec — but not a volunteer's, which is
- * the event creator's alone (guardStatusChange). Like guardStatusChange, only when access control
+ * the event creator's alone (guardStatusChange, Events isEventCreator). Like guardStatusChange, only when access control
  * applies — trusted internal deletes (a consented event deletion, an account deletion) pass. */
 const guardVolunteerDelete: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'delete') return args
@@ -629,15 +632,14 @@ const guardVolunteerDelete: CollectionBeforeOperationHook = async ({ args, opera
   const events = await req.payload.find({
     collection: 'events',
     where: { id: { in: eventIds } },
-    select: { organizer: true },
+    select: { organizer: true, organization: true, municipality: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
     req,
   })
-  if (events.docs.length === eventIds.length && events.docs.every((e) => String(requiredRelationNumber(e.organizer)) === String(req.user!.id))) {
-    return args
-  }
+  const creatorOf = await Promise.all(events.docs.map((e) => isEventCreator(req, req.user!, e)))
+  if (events.docs.length === eventIds.length && creatorOf.every(Boolean)) return args
   throw new APIError('O dobrovolnících na akci rozhoduje jen pořadatel, který ji založil.', 403)
 }
 
@@ -648,6 +650,16 @@ const stampAttendance: CollectionBeforeChangeHook = ({ data, originalDoc, operat
   data.attendanceMarkedBy = req.user.id
   data.attendanceMarkedAt = new Date().toISOString()
   return data
+}
+
+/** One signs up oneself — never someone else, who'd find themselves on an event they never chose.
+ * A platform admin may file anyone's; trusted internal writes (an accepted volunteer invitation,
+ * seeds) pass as always. */
+const canCreateRegistration: Access = ({ req: { user }, data }) => {
+  if (!user) return false
+  if (user.role === 'admin') return true
+  const registrant = (data as { user?: unknown } | undefined)?.user
+  return registrant != null && String(requiredRelationNumber(registrant)) === String(user.id)
 }
 
 /** Nobody registers someone as already attended — only a platform admin may set these on create. */
@@ -716,7 +728,7 @@ export const Registrations: CollectionConfig = {
   },
   access: {
     read: canReadRegistration,
-    create: isLoggedIn,
+    create: canCreateRegistration,
     update: canUpdateRegistration,
     // Platform superadmin everywhere, or a municipality admin scoped to their own
     // municipality (traverses the relationship: registration -> event -> municipality).
@@ -741,6 +753,10 @@ export const Registrations: CollectionConfig = {
       required: true,
       index: true,
       defaultValue: 'pending',
+      // A sign-up always starts as what the event decides — pending, or approved straight away
+      // without approval (beforeValidate) — never as whatever the client sends: self-approved past
+      // the organizer and the capacity. Moving it on is guardStatusChange's.
+      access: { create: isPlatformAdminField },
       options: [
         { label: 'Pending', value: 'pending' },
         { label: 'Approved', value: 'approved' },
@@ -872,6 +888,10 @@ export const Registrations: CollectionConfig = {
             String(typeof u === 'object' ? u.id : u),
           )
 
+          // A cancelled event takes nobody — its registrants have been told it's off.
+          if (event.deletedAt || event.status === 'cancelled') {
+            throw new APIError('Akce byla zrušena — přihlásit se na ni nejde.', 400, undefined, true)
+          }
           // An event on hold takes no new sign-ups — whoever got the link before it was hidden
           // included. A volunteer the team itself invited still joins it (VolunteerInvitations).
           if (event.isHidden && !req.context?.volunteerInvitation) {

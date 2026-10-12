@@ -48,6 +48,12 @@ export async function getObecDeciders(
 ): Promise<{ userIds: number[]; requestsLink: string }> {
   const adminIds = await getMunicipalityAdminUserIds(payload, municipalityId)
   if (adminIds.length > 0) return { userIds: adminIds, requestsLink: '/admin-obce?tab=requests' }
+  return getPlatformDeciders(payload)
+}
+
+/** The platform admins, in their own panel — for what an obec can't decide (an obec without an
+ * admin, a complaint the obec is a party to). */
+export async function getPlatformDeciders(payload: Payload): Promise<{ userIds: number[]; requestsLink: string }> {
   const platformAdmins = await payload.find({
     collection: 'users',
     where: { role: { equals: 'admin' } },

@@ -10,7 +10,7 @@ const STAMP = Date.now()
 
 type TestUser = { id: number; email: string; role: 'admin' | 'user' }
 
-const relId = (value: number | { id: number }) => (typeof value === 'object' ? value.id : value)
+const relId = (value: number | { id: number } | null | undefined) => (value && typeof value === 'object' ? value.id : value)
 
 describe('Superadmin manages organizations', () => {
   let muni: { id: number }
@@ -75,12 +75,12 @@ describe('Superadmin manages organizations', () => {
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Org CRUD Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Org CRUD Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     otherMuni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Org CRUD Other ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Org CRUD Other ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({
@@ -305,7 +305,7 @@ describe('Superadmin manages organizations', () => {
   it("deleting the obec takes its organization along", async () => {
     const doomed = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Org CRUD Doomed ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Org CRUD Doomed ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     const [obec] = await obecOrganizationOf(doomed)

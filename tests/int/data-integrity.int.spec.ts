@@ -138,7 +138,7 @@ describe('An obec admin appointed after an organizer asked', () => {
     obec = await createMunicipality('new-admin')
     applicant = await createUser('applicant')
     admin = await createUser('new-admin')
-    await createProfile(applicant)
+    await createProfile(applicant, obec)
     await createProfile(admin)
     request = await payload.create({
       collection: 'organizer-requests',
@@ -148,6 +148,7 @@ describe('An obec admin appointed after an organizer asked', () => {
         reason: 'Vedu v obci kroužek pletení pro seniory.',
         organizationName: `Pletení ${STAMP}`,
         organizationType: 'association',
+        status: 'pending',
       },
       user: applicant,
       overrideAccess: false,

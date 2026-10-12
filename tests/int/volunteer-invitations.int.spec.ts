@@ -93,7 +93,7 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Volunteer Inv Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Volunteer Inv Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({
@@ -170,7 +170,7 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
     // The one participant spot is still free.
     const participant = await payload.create({
       collection: 'registrations',
-      data: { event: event.id, user: outsider.id },
+      data: { event: event.id, user: outsider.id, status: 'pending' },
       user: outsider,
       overrideAccess: false,
     })
@@ -203,7 +203,7 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
     const event = await createEvent(pub)
     const registration = await payload.create({
       collection: 'registrations',
-      data: { event: event.id, user: volunteer.id, role: 'volunteer' },
+      data: { event: event.id, user: volunteer.id, role: 'volunteer', status: 'pending' },
       user: volunteer,
       overrideAccess: false,
     })
@@ -257,7 +257,7 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
     await decide(invitation.id, 'accepted', volunteer)
     await payload.create({
       collection: 'registrations',
-      data: { event: full.id, user: outsider.id },
+      data: { event: full.id, user: outsider.id, status: 'pending' },
       user: outsider,
       overrideAccess: false,
     })

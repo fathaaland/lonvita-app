@@ -97,7 +97,7 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Consent Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Consent Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({
@@ -161,26 +161,26 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
   })
 
-  it('the obec founds an event with the pub as co-organizer — the pub helps, only the obec edits', async () => {
+  it('the obec founds an event with the pub as co-organizer — both edit it, and the obec lets the pub go', async () => {
     const event = await createEvent(admin, [pub])
     expect(relId(event.organization!)).toBe(obecOrgId)
     expect((event.coOrganizers ?? []).map((u) => (typeof u === 'object' ? u.id : u))).toEqual([pub.id])
 
-    await expect(
-      payload.update({ collection: 'events', id: event.id, data: { title: 'Hospoda' }, user: pub, overrideAccess: false }),
-    ).rejects.toThrow()
-    await expect(requestDeletion(event.id, pub)).rejects.toThrow()
-
-    const edited = await payload.update({
-      collection: 'events',
-      id: event.id,
-      data: { title: 'Obec' },
-      user: admin,
-      overrideAccess: false,
-    })
-    expect(edited.title).toBe('Obec')
+    const edited = await payload.update({ collection: 'events', id: event.id, data: { title: 'Hospoda' }, user: pub, overrideAccess: false })
+    expect(edited.title).toBe('Hospoda')
     const read = await payload.findByID({ collection: 'events', id: event.id, user: pub, overrideAccess: false })
-    expect(read.lockedForViewer).toBe(true)
+    expect(read.deletionNeedsConsent).toBe(true)
+    expect(read.creatorForViewer).toBe(false)
+
+    // The obec answers as one — not its founding admin in person.
+    const request = await requestDeletion(event.id, pub)
+    expect(request.approvers ?? []).toEqual([])
+    expect(request.municipalityConsent).toBe(true)
+    // Running the event, the obec may keep it and let the pub go.
+    expect(await (await decideAs(admin, request.id, 'remove-requester')).json()).toEqual({ status: 'requester-removed' })
+    const after = await readEvent(event.id)
+    expect(relId(after.organizer)).toBe(admin.id)
+    expect(ids(after.coOrganizers)).toEqual([])
   })
 
   it('two organizers both edit, but neither can cancel it outright or remove the other', async () => {
@@ -227,7 +227,6 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
 
     const read = await payload.findByID({ collection: 'events', id: event.id, user: pub, overrideAccess: false })
     expect(read.deletionNeedsConsent).toBe(true)
-    expect(read.lockedForViewer).toBe(false)
   })
 
   it('a refusal keeps the event; a consent hard-deletes it with its registrations', async () => {
@@ -293,6 +292,40 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     expect(await eventExists(event.id)).toBe(true)
     // …and a fresh request can be made.
     await expect(requestDeletion(event.id, club)).resolves.toBeTruthy()
+  })
+
+  it('a request nobody answered may go to the obec too — silence holds no one on the event', async () => {
+    const event = await createEvent(pub, [club])
+    const request = await requestDeletion(event.id, club)
+    await payload.update({
+      collection: 'event-deletion-requests',
+      id: request.id,
+      data: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      overrideAccess: true,
+    })
+
+    expect(await (await escalateAs(club, request.id)).json()).toEqual({ status: 'escalated' })
+    expect(await (await obecDecides(admin, request.id, true)).json()).toEqual({ status: 'requester-removed' })
+    const after = await readEvent(event.id)
+    expect(relId(after.organizer)).toBe(pub.id)
+    expect(ids(after.coOrganizers)).toEqual([])
+    // An escalation the obec let lapse doesn't go round again.
+    const second = await createEvent(pub, [club])
+    const asked = await requestDeletion(second.id, club)
+    await payload.update({
+      collection: 'event-deletion-requests',
+      id: asked.id,
+      data: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      overrideAccess: true,
+    })
+    await escalateAs(club, asked.id)
+    await payload.update({
+      collection: 'event-deletion-requests',
+      id: asked.id,
+      data: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      overrideAccess: true,
+    })
+    expect((await escalateAs(club, asked.id)).status).toBe(409)
   })
 
   it('a sole organizer just cancels — and the obec admin always can', async () => {
@@ -463,7 +496,7 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     )
   }
 
-  it("a pořadatel invites the obec — once it accepts, only the obec edits the event", async () => {
+  it("a pořadatel invites the obec — once it accepts, everyone on the event still edits it", async () => {
     const event = await createEvent(pub, [club])
     await expect(
       payload.update({
@@ -493,16 +526,16 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     await expect(decideInvitation(request.id, 'rejected', admin)).rejects.toThrow()
     await expect(invite(event.id, obecOrgId, admin)).rejects.toThrow(/už akci spolupořádá/)
 
-    // With the obec on it, the pořadatelé help run it but no longer edit it.
+    // With the obec on it, the pořadatelé still edit it — but can't take the obec off.
     for (const user of [pub, club]) {
-      const read = await payload.findByID({ collection: 'events', id: event.id, user, overrideAccess: false })
-      expect(read.lockedForViewer).toBe(true)
-      await expect(
-        payload.update({ collection: 'events', id: event.id, data: { title: 'Bez obce' }, user, overrideAccess: false }),
-      ).rejects.toThrow()
+      const edited = await payload.update({ collection: 'events', id: event.id, data: { title: 'S obcí' }, user, overrideAccess: false })
+      expect(edited.title).toBe('S obcí')
     }
+    await expect(
+      payload.update({ collection: 'events', id: event.id, data: { coOrganizations: [orgOf(club)] }, user: pub, overrideAccess: false }),
+    ).rejects.toThrow(/žádost o smazání/)
 
-    // Once the obec's admin takes the obec off, they're equal again — and the obec is off for good.
+    // The obec's admin takes the obec off — for good.
     const left = await payload.update({
       collection: 'events',
       id: event.id,
@@ -558,12 +591,14 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     expect(untouched.coOrganizations ?? []).toEqual([])
   })
 
-  it('with the obec on it, its organizers can neither cancel it nor ask to', async () => {
+  it("with the obec on it, its organizer cancels it only with the obec's consent", async () => {
     const event = await createEvent(bakery, [])
     await obecJoins(event, bakery)
 
     const read = await payload.findByID({ collection: 'events', id: event.id, user: bakery, overrideAccess: false })
-    expect(read.deletionNeedsConsent).toBe(false)
+    expect(read.deletionNeedsConsent).toBe(true)
+    // Still their event to keep attendance and volunteers on.
+    expect(read.creatorForViewer).toBe(true)
     await expect(
       payload.update({
         collection: 'events',
@@ -572,8 +607,12 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
         user: bakery,
         overrideAccess: false,
       }),
-    ).rejects.toThrow()
-    await expect(requestDeletion(event.id, bakery)).rejects.toThrow(/spolupořádá obec/)
+    ).rejects.toThrow(/souhlasem/)
+
+    const request = await requestDeletion(event.id, bakery)
+    expect(request.municipalityConsent).toBe(true)
+    expect(await (await decideAs(admin, request.id, 'approve')).json()).toEqual({ status: 'approved' })
+    expect(await eventExists(event.id)).toBe(false)
   })
 
   it("the obec's admin cancels an event the obec co-organizes outright", async () => {

@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server'
-import { APIError, getPayload } from 'payload'
+import { APIError, createLocalReq, getPayload } from 'payload'
 
 import config from '@payload-config'
 import { isEventCreator } from '@/collections/Events'
 import { hasEventEnded } from '@/lib/eventEnded'
 
 /**
- * The event's creator marks it as one for volunteers (or takes the mark off) — no obec approval.
- * Its own endpoint because the obec co-organizing an event locks its creator out of editing it
- * (Events lockedEventIds), but not out of its volunteering. Events guardIsVolunteering still decides
- * who may flip it; this only lets the creator past the locked event's update access.
+ * The event's creator marks it as one for volunteers (or takes the mark off) — no obec approval —
+ * straight from a list of events (EventsTable), without opening the whole edit form. Events
+ * guardIsVolunteering still decides who may flip it (Events isEventCreator).
  *
  * POST /api/events/:id/volunteering  { isVolunteering: boolean }
  * → { isVolunteering: boolean }
@@ -29,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!event || event.deletedAt || event.status === 'cancelled') {
     return NextResponse.json({ error: 'Akce neexistuje nebo už byla zrušena.' }, { status: 404 })
   }
-  if (!isEventCreator(user, event)) {
+  if (!(await isEventCreator(await createLocalReq({ user }, payload), user, event))) {
     return NextResponse.json({ error: 'Dobrovolnictví u akce nastavuje jen ten, kdo ji založil.' }, { status: 403 })
   }
   if (hasEventEnded(event.dateTime, event.endDateTime)) {

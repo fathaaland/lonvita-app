@@ -1,4 +1,5 @@
 import type {
+  Access,
   CollectionAfterChangeHook,
   CollectionBeforeOperationHook,
   CollectionConfig,
@@ -14,12 +15,12 @@ import {
 } from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
 import { escapeHtml, sendNotification } from './shared/notify'
-import { ensureOrganization } from './Organizations'
+import { ensureOrganization, municipalityOrganizationIds } from './Organizations'
 import { notYetEnded, obecRole, releasePlacesOfTeam } from './Events'
 import { notDeleted } from './shared/softDelete'
 import { findRunningEvents } from './shared/runningEvents'
 import type { OrganizationType } from '@/lib/organizations'
-import { requiredRelationNumber } from '@/lib/relations'
+import { relationId, requiredRelationNumber } from '@/lib/relations'
 
 /**
  * A newly appointed obec admin hears what's already waiting on the obec — an organizer who asked
@@ -122,10 +123,11 @@ const keepLastMunicipalityAdmin: CollectionBeforeOperationHook = async ({ args, 
 }
 
 /**
- * The organizer role doesn't go while its holder still runs events in the obec — they'd go on under
- * someone who no longer organizes there. Once they've taken place or been cancelled, it can. Only
- * when access control applies, like keepLastMunicipalityAdmin: deleting an organization or an
- * account handles its events itself.
+ * A role doesn't go while its holder still runs events in the obec under it — they'd go on under
+ * someone who no longer organizes there (and who'd keep seeing their registrants): the organizer's
+ * own and co-organized events, and the events an obec admin founded for the obec (its pořadatel is
+ * still them). Once they've taken place or been cancelled, it can. Only when access control applies,
+ * like keepLastMunicipalityAdmin: deleting an organization or an account handles its events itself.
  */
 const keepRunningEventsOrganized: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'delete') return args
@@ -134,23 +136,44 @@ const keepRunningEventsOrganized: CollectionBeforeOperationHook = async ({ args,
 
   const removing = await req.payload.find({
     collection: 'user-roles',
-    where: { and: [id !== undefined ? { id: { equals: id } } : (where ?? {}), { role: { equals: 'organizer' } }] },
-    select: { user: true, municipality: true },
+    where: {
+      and: [id !== undefined ? { id: { equals: id } } : (where ?? {}), { role: { in: ['organizer', 'municipality_admin'] } }],
+    },
+    select: { user: true, municipality: true, role: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
     req,
   })
   for (const role of removing.docs) {
-    const running = await findRunningEvents(req, requiredRelationNumber(role.user), requiredRelationNumber(role.municipality))
+    const municipalityId = requiredRelationNumber(role.municipality)
+    const obecOrganizationId = (await municipalityOrganizationIds(req, [municipalityId])).get(String(municipalityId))
+    const asObec = role.role === 'municipality_admin'
+    // Each role answers for the events run under it: the ones its admin founded for the obec, and
+    // the rest — their own, and those their organization co-organizes — for the organizer.
+    const running = (await findRunningEvents(req, requiredRelationNumber(role.user), municipalityId)).filter(
+      (e) => (e.organizes === 'runs' && relationId(e.organization) === obecOrganizationId) === asObec,
+    )
     if (running.length > 0) {
+      const what = running.length === 1 ? 'rozjetou akci' : `rozjeté akce (${running.length})`
       throw new APIError(
-        `Organizátor má v obci ${running.length === 1 ? 'rozjetou akci' : `rozjeté akce (${running.length})`} — roli mu půjde odebrat, až proběhnou, nebo když se zruší.`,
+        asObec
+          ? `Admin obce má v obci ${what}, které je pořadatelem — roli mu půjde odebrat, až proběhnou, nebo když se zruší.`
+          : `Organizátor má v obci ${what} — roli mu půjde odebrat, až proběhnou, nebo když se zruší.`,
         409,
       )
     }
   }
   return args
+}
+
+/** Only a platform admin appoints an obec's admins; an obec's own admin may grant the organizer
+ * role in it — and only there (canCreateForAdministeredMunicipality checks the obec). */
+const canCreateRole: Access = async (args) => {
+  const { req, data } = args
+  if (req.user?.role === 'admin') return true
+  if ((data as { role?: unknown } | undefined)?.role !== 'organizer') return false
+  return canCreateForAdministeredMunicipality()(args)
 }
 
 export const UserRoles: CollectionConfig = {
@@ -165,8 +188,8 @@ export const UserRoles: CollectionConfig = {
   },
   access: {
     // Their own roles, and every role in an obec they administer — the obec's admin lists its
-    // organizers to revoke the role (Administrace obce → Žádosti), which update/delete below already
-    // allow. Without the second half that list was always empty: the right existed, the way to it didn't.
+    // organizers to revoke the role (Administrace obce → Žádosti), which delete below already
+    // allows. Without the second half that list was always empty: the right existed, the way to it didn't.
     read: async ({ req: { user, payload } }) => {
       if (!user) return false
       if (user.role === 'admin') return true
@@ -177,8 +200,11 @@ export const UserRoles: CollectionConfig = {
     },
     // create ignores any Where clause (see canCreateForAdministeredMunicipality) — must resolve
     // to a boolean checked against the submitted row's own municipality.
-    create: canCreateForAdministeredMunicipality(),
-    update: isPlatformOrMunicipalityAdmin(),
+    create: canCreateRole,
+    // A role is granted or taken away, never rewritten — turning one into another (or moving it to
+    // another obec, or person) would skip every check on revoking it (keepLastMunicipalityAdmin,
+    // keepRunningEventsOrganized) and on granting it.
+    update: () => false,
     delete: isPlatformOrMunicipalityAdmin(),
   },
   fields: [
@@ -193,10 +219,6 @@ export const UserRoles: CollectionConfig = {
       type: 'relationship',
       relationTo: 'municipalities',
       required: true,
-      // `access.update` above only gates *which* row a municipality admin may touch (one already
-      // filed under an obec they administer) — without this, they could still reassign that same
-      // row to a different obec in the same PATCH. Matches Events.municipality's field-level lock.
-      access: { update: ({ req: { user } }) => user?.role === 'admin' },
       admin: {
         description: 'The municipality this role applies to.',
       },
@@ -254,6 +276,25 @@ export const UserRoles: CollectionConfig = {
 
         if (existing.docs.length > 0) {
           throw new Error(`This user already has the "${role}" role in this municipality.`)
+        }
+
+        // The obec's admin runs events as the obec, never as an organization of it (Organizations).
+        if (role === 'organizer') {
+          const adminHere = await req.payload.count({
+            collection: 'user-roles',
+            where: {
+              and: [
+                { user: { equals: userId } },
+                { role: { equals: 'municipality_admin' } },
+                { municipality: { equals: municipality } },
+              ],
+            },
+            overrideAccess: true,
+            req,
+          })
+          if (adminHere.totalDocs > 0) {
+            throw new APIError('Admin obce pořádá akce za obec — roli organizátora v ní mít nemůže.', 400)
+          }
         }
 
         // An obec may have several municipality_admin users, but an admin may only administer

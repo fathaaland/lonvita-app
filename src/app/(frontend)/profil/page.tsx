@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -26,7 +26,6 @@ import { DeleteAccountButton } from "@/components/DeleteAccountButton";
 import { EventFeedbackCard } from "@/components/EventFeedbackCard";
 import { AttendanceRecordCard } from "@/components/AttendanceRecordCard";
 import { ProfileAvatarEditor } from "@/components/ProfileAvatarEditor";
-import { Loading } from "@/components/Loading";
 import { mayRateEvent } from "@/lib/capacity";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -196,10 +195,7 @@ function ProfileContent() {
 export default function ProfilePage() {
   return (
     <RequireAuth>
-      {/* The Google link callback lands here with ?linked / ?link-error, read via useSearchParams. */}
-      <Suspense fallback={<Loading />}>
-        <ProfileContent />
-      </Suspense>
+      <ProfileContent />
     </RequireAuth>
   );
 }

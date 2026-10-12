@@ -1,7 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
-import { isEventCreator } from '@/collections/Events'
+import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import type { Event } from '@/payload-types'
 import { relationId } from '@/lib/relations'
 
@@ -51,27 +51,98 @@ export async function resolveReview(
   return event ? { type, id: rating.id, event, volunteerId: relationId(rating.volunteer) } : null
 }
 
+/** The organization of each obec (by id) — what tells an event the obec runs. */
+async function obecOrganizationIds(payload: Payload, municipalityIds: string[], req?: PayloadRequest): Promise<Map<string, string>> {
+  if (municipalityIds.length === 0) return new Map()
+  const found = await payload.find({
+    collection: 'organizations',
+    where: { and: [{ municipality: { in: municipalityIds } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }] },
+    select: { municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  return new Map(found.docs.map((o) => [relationId(o.municipality)!, String(o.id)]))
+}
+
 /** What the viewer's standing is, looked up once for a whole list of reviews. */
-export type ComplainantContext = { viewer: Viewer; administeredIds: string[] }
+export type ComplainantContext = { viewer: Viewer; administeredIds: string[]; obecOrganizations: Map<string, string> }
 
 export async function complainantContext(payload: Payload, viewer: Viewer): Promise<ComplainantContext> {
   const administeredIds = viewer.role === 'admin' ? [] : await getAdministeredMunicipalityIds(payload, viewer.id)
-  return { viewer, administeredIds }
+  return { viewer, administeredIds, obecOrganizations: await obecOrganizationIds(payload, administeredIds) }
 }
 
 /**
- * Who may report a review to the obec: about event feedback, the event's creator (`organizer`) alone —
- * not a spolupořadatel, so a co-organized event's reviews have one voice; about a volunteer rating,
- * the volunteer. Never the obec the event belongs to, nor a platform admin — they are the ones who decide.
+ * Who may report a review: about event feedback, the event's creator alone — its pořadatel, or the
+ * obec's admins when the obec runs it (Events isEventCreator) — not a spolupořadatel, so a
+ * co-organized event's reviews have one voice; about a volunteer rating, the volunteer. Never a
+ * platform admin — they decide whenever the obec itself is a party (decidedByPlatform).
  */
 export function mayComplainAbout(review: Pick<ResolvedReview, 'type' | 'event' | 'volunteerId'>, ctx: ComplainantContext): boolean {
-  const { viewer, administeredIds } = ctx
+  const { viewer, administeredIds, obecOrganizations } = ctx
   if (viewer.role === 'admin') return false
-  const municipalityId = relationId(review.event.municipality)
-  if (municipalityId !== null && administeredIds.includes(municipalityId)) return false
-
   if (review.type === 'volunteer-rating') return review.volunteerId === String(viewer.id)
-  return isEventCreator(viewer, review.event)
+
+  if (relationId(review.event.organizer) === String(viewer.id)) return true
+  const municipalityId = relationId(review.event.municipality)
+  if (municipalityId === null || !administeredIds.includes(municipalityId)) return false
+  const obecOrganizationId = obecOrganizations.get(municipalityId)
+  return obecOrganizationId !== undefined && relationId(review.event.organization) === obecOrganizationId
+}
+
+type ComplaintParties = { municipality: unknown; event?: unknown; complainant: unknown }
+
+/**
+ * Of `complaints`, the ids the obec can't decide because it's a party to them: the event is the
+ * obec's own (the review is about the obec, or the rating came from its admin), or one of its admins
+ * complained. Nobody decides their own case — the platform admin does.
+ */
+export async function complaintsDecidedByPlatform(
+  payload: Payload,
+  complaints: (ComplaintParties & { id: number | string })[],
+  req?: PayloadRequest,
+): Promise<Set<string>> {
+  if (complaints.length === 0) return new Set()
+  const municipalityIds = [...new Set(complaints.map((c) => relationId(c.municipality)).filter((id): id is string => id !== null))]
+  const eventIds = [...new Set(complaints.map((c) => relationId(c.event)).filter((id): id is string => id !== null))]
+  const [obecOrganizations, events, admins] = await Promise.all([
+    obecOrganizationIds(payload, municipalityIds, req),
+    eventIds.length
+      ? payload.find({
+          collection: 'events',
+          where: { id: { in: eventIds } },
+          select: { organization: true },
+          depth: 0,
+          pagination: false,
+          overrideAccess: true,
+          req,
+        })
+      : Promise.resolve({ docs: [] as Pick<Event, 'id' | 'organization'>[] }),
+    payload.find({
+      collection: 'user-roles',
+      where: { and: [{ municipality: { in: municipalityIds } }, { role: { equals: 'municipality_admin' } }] },
+      select: { user: true, municipality: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+      req,
+    }),
+  ])
+  const organizationOf = new Map(events.docs.map((e) => [String(e.id), relationId(e.organization)]))
+  const adminOf = new Set(admins.docs.map((r) => `${relationId(r.municipality)}:${relationId(r.user)}`))
+
+  const result = new Set<string>()
+  for (const c of complaints) {
+    const municipalityId = relationId(c.municipality)
+    if (municipalityId === null) continue
+    const eventId = relationId(c.event)
+    const obecRunsIt =
+      eventId !== null && obecOrganizations.has(municipalityId) && organizationOf.get(eventId) === obecOrganizations.get(municipalityId)
+    if (obecRunsIt || adminOf.has(`${municipalityId}:${relationId(c.complainant)}`)) result.add(String(c.id))
+  }
+  return result
 }
 
 /**

@@ -54,12 +54,12 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
 
     muniA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Pool Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Pool Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     muniB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Pool Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Pool Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
 

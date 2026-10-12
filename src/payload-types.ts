@@ -407,7 +407,7 @@ export interface Event {
    * When the obec stepped off co-organizing the event (its own decision, no consent needed). It can never co-organize it again.
    */
   obecLeftAt?: string | null;
-  lockedForViewer?: boolean | null;
+  creatorForViewer?: boolean | null;
   deletionNeedsConsent?: boolean | null;
   volunteeringLocked?: boolean | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
@@ -1187,7 +1187,7 @@ export interface EventsSelect<T extends boolean = true> {
   coOrganizations?: T;
   coOrganizers?: T;
   obecLeftAt?: T;
-  lockedForViewer?: T;
+  creatorForViewer?: T;
   deletionNeedsConsent?: T;
   volunteeringLocked?: T;
   status?: T;

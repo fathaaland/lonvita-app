@@ -26,12 +26,12 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
 
     municipalityA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     municipalityB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
 
@@ -126,7 +126,22 @@ describe('Multi-tenant isolation (brief §A1 — "kde jsou hrany")', () => {
     ).rejects.toThrow()
   })
 
-  it("a municipality admin of A can delete A's own event", async () => {
+  it("a municipality admin of A can delete A's own event — once it's cancelled, so its registrants hear", async () => {
+    await expect(
+      payload.delete({ collection: 'events', id: eventInA.id, user: adminOfA, overrideAccess: false }),
+    ).rejects.toThrow(/nejdřív zrušte/)
+
+    await payload.update({
+      collection: 'events',
+      id: eventInA.id,
+      data: { status: 'cancelled' },
+      user: adminOfA,
+      overrideAccess: false,
+    })
+    // Cancelling by status alone takes it down and announces it all the same.
+    const cancelled = await payload.findByID({ collection: 'events', id: eventInA.id, overrideAccess: true })
+    expect(cancelled.deletedAt).toBeTruthy()
+
     const result = await payload.delete({
       collection: 'events',
       id: eventInA.id,
@@ -218,6 +233,7 @@ describe('Municipality name uniqueness (task 1 — no re-founding an obec)', () 
         rulesForCreation: 'approved_organizers',
         lat: 49.5661,
         lng: 15.9403,
+        eventRadiusKm: 15,
       },
       overrideAccess: true,
     })
@@ -236,6 +252,7 @@ describe('Municipality name uniqueness (task 1 — no re-founding an obec)', () 
           rulesForCreation: 'approved_organizers',
           lat: 50.1,
           lng: 16.1,
+          eventRadiusKm: 15,
         },
         overrideAccess: true,
       }),
@@ -260,6 +277,7 @@ describe('Municipality name uniqueness (task 1 — no re-founding an obec)', () 
         rulesForCreation: 'approved_organizers',
         lat: 50.2,
         lng: 16.2,
+        eventRadiusKm: 15,
       },
       overrideAccess: true,
     })
@@ -348,12 +366,12 @@ describe("Volunteer pool fields are the volunteer's own (Profiles)", () => {
 
     muniA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Volunteer Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Volunteer Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     muniB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Volunteer Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Volunteer Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
 
@@ -530,12 +548,12 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
 
     muniA = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test CoOrg Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test CoOrg Muni A ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     muniB = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test CoOrg Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test CoOrg Muni B ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({
@@ -680,6 +698,7 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
         reason: 'Chodím se seniory na procházky a chci je zvát přes aplikaci.',
         organizationName: '  Vycházky pro seniory ',
         organizationType: 'individual',
+        status: 'pending',
       },
       user: residentA,
       overrideAccess: false,
@@ -701,7 +720,7 @@ describe('Spolupořadatelé are organizations from the same obec (Events resolve
     await expect(
       payload.create({
         collection: 'organizer-requests',
-        data: { user: organizerB.id, municipality: muniA.id, reason: 'Chci pořádat akce i tady ve vaší obci.' },
+        data: { user: organizerB.id, municipality: muniA.id, reason: 'Chci pořádat akce i tady ve vaší obci.', status: 'pending' },
         user: organizerB,
         overrideAccess: false,
       }),
@@ -742,7 +761,7 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Ownership Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Ownership Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     cat = await payload.create({
@@ -788,7 +807,7 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
       overrideAccess: true,
     })
     const orgOf = (user: { id: number }) =>
-      orgs.docs.find((o) => (typeof o.owner === 'object' ? o.owner.id : o.owner) === user.id)!.id
+      orgs.docs.find((o) => (typeof o.owner === 'object' ? o.owner?.id : o.owner) === user.id)!.id
 
     // Trusted writes: co-organizers otherwise join only by accepting an invitation.
     adminEvent = await payload.create({
@@ -822,19 +841,18 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
     await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
   })
 
-  it("an organizer co-organizing the admin's event cannot edit it", async () => {
-    await expect(
-      payload.update({
-        collection: 'events',
-        id: adminEvent.id,
-        data: { title: 'Přepsáno hospodou' },
-        user: pub,
-        overrideAccess: false,
-      }),
-    ).rejects.toThrow()
+  it("an organizer co-organizing the admin's event edits it like everyone organizing it", async () => {
+    const edited = await payload.update({
+      collection: 'events',
+      id: adminEvent.id,
+      data: { title: 'Upraveno hospodou' },
+      user: pub,
+      overrideAccess: false,
+    })
+    expect(edited.title).toBe('Upraveno hospodou')
   })
 
-  it("an organizer co-organizing the admin's event cannot cancel it", async () => {
+  it("an organizer co-organizing the admin's event can't cancel it without the obec's consent", async () => {
     await expect(
       payload.update({
         collection: 'events',
@@ -843,14 +861,13 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
         user: pub,
         overrideAccess: false,
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/souhlasem/)
 
     const fresh = await payload.findByID({ collection: 'events', id: adminEvent.id, overrideAccess: true })
     expect(fresh.deletedAt).toBeFalsy()
-    expect(fresh.title).toBe(`Ownership Event ${STAMP}`)
   })
 
-  it("a bulk update by that organizer leaves the admin's event alone but still updates their own", async () => {
+  it('a bulk update by that organizer reaches every event they organize', async () => {
     const result = await payload.update({
       collection: 'events',
       where: { id: { in: [adminEvent.id, pubEvent.id] } },
@@ -858,10 +875,7 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
       user: pub,
       overrideAccess: false,
     })
-    expect(result.docs.map((d) => d.id)).toEqual([pubEvent.id])
-
-    const fresh = await payload.findByID({ collection: 'events', id: adminEvent.id, overrideAccess: true })
-    expect(fresh.description).toBeFalsy()
+    expect(result.docs.map((d) => d.id).sort()).toEqual([adminEvent.id, pubEvent.id].sort())
   })
 
   it("that organizer still helps run the admin's event — approving a registration works", async () => {
@@ -894,6 +908,11 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
     })
     expect(cancelled.deletedAt).toBeTruthy()
 
+    // Cancelled is final — not even the obec brings it back.
+    await expect(
+      payload.update({ collection: 'events', id: pubEvent.id, data: { deletedAt: null, status: 'active' }, user: admin, overrideAccess: true }),
+    ).rejects.toThrow(/obnovit/)
+
     await payload.update({
       collection: 'events',
       id: pubEvent.id,
@@ -925,14 +944,17 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
     ).rejects.toThrow()
   })
 
-  it('lockedForViewer tells the frontend exactly who may not edit', async () => {
+  it('creatorForViewer tells the frontend who keeps attendance and the volunteers', async () => {
     const read = (id: number, user: typeof admin) =>
       payload.findByID({ collection: 'events', id, user, overrideAccess: false })
 
-    expect((await read(adminEvent.id, pub)).lockedForViewer).toBe(true)
-    expect((await read(adminEvent.id, admin)).lockedForViewer).toBe(false)
-    expect((await read(pubEvent.id, club)).lockedForViewer).toBe(false)
-    expect((await read(pubEvent.id, pub)).lockedForViewer).toBe(false)
+    // The obec runs adminEvent — its admins are the creator, its spolupořadatel isn't.
+    expect((await read(adminEvent.id, admin)).creatorForViewer).toBe(true)
+    expect((await read(adminEvent.id, pub)).creatorForViewer).toBe(false)
+    expect((await read(pubEvent.id, pub)).creatorForViewer).toBe(true)
+    expect((await read(pubEvent.id, club)).creatorForViewer).toBe(false)
+    // Overseeing someone else's event doesn't make the obec its creator.
+    expect((await read(pubEvent.id, admin)).creatorForViewer).toBe(false)
   })
 })
 
@@ -947,7 +969,7 @@ describe('Organizer requests carry a reason (OrganizerRequests.reason)', () => {
 
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Test Reason Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403 },
+      data: { name: `Test Reason Muni ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
       overrideAccess: true,
     })
     const makeUser = async (name: string) => {
@@ -987,7 +1009,7 @@ describe('Organizer requests carry a reason (OrganizerRequests.reason)', () => {
       await expect(
         payload.create({
           collection: 'organizer-requests',
-          data: { user: applicant.id, municipality: muni.id, reason, organizationName: 'Kavárna', organizationType: 'business' },
+          data: { user: applicant.id, municipality: muni.id, reason, organizationName: 'Kavárna', organizationType: 'business', status: 'pending' },
           user: applicant,
           overrideAccess: false,
         }),
@@ -1005,6 +1027,7 @@ describe('Organizer requests carry a reason (OrganizerRequests.reason)', () => {
         reason: `  ${reason}  `,
         organizationName: 'Kavárna Na Náměstí',
         organizationType: 'business',
+        status: 'pending',
       },
       user: applicant,
       overrideAccess: false,

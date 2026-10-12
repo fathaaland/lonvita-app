@@ -7,6 +7,7 @@ import {
   getMyRoles,
   getMyAdministeredMunicipalityIds,
   getMyOrganizerMunicipalityIds,
+  getMunicipalityIdsOpenToOrganizers,
   ProfileRow,
   AppRole,
 } from "@/integrations/payload/queries";
@@ -27,6 +28,9 @@ interface AuthContextValue {
    * currently being browsed (see `viewingMunicipalityId`), not every obec platform-wide. */
   administeredMunicipalityIds: string[];
   organizerMunicipalityIds: string[];
+  /** Obce this account may found events in: every one it administers, and those where it organizes
+   * unless the obec founds its events itself ("municipality_only", Events canCreateEvent). */
+  creatableMunicipalityIds: string[];
   /** The obec the home page's switcher is currently browsing (brief §2 "uživatel není vázaný
    * lokací"), kept here (not just local to "/") so nav chrome elsewhere can tell whether the
    * signed-in admin/organizer is looking at an obec they actually hold that role in — e.g. an
@@ -46,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [administeredMunicipalityIds, setAdministeredMunicipalityIds] = useState<string[]>([]);
   const [organizerMunicipalityIds, setOrganizerMunicipalityIds] = useState<string[]>([]);
+  const [creatableMunicipalityIds, setCreatableMunicipalityIds] = useState<string[]>([]);
   const [viewingMunicipalityId, setViewingMunicipalityId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -56,10 +61,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getMyAdministeredMunicipalityIds(userId),
       getMyOrganizerMunicipalityIds(userId),
     ]);
+    const openIds = await getMunicipalityIdsOpenToOrganizers(organizerIds).catch(() => organizerIds);
     setProfile(prof);
     setRoles(roleRows);
     setAdministeredMunicipalityIds(administeredIds);
     setOrganizerMunicipalityIds(organizerIds);
+    setCreatableMunicipalityIds([...new Set([...administeredIds, ...openIds])]);
   }, []);
 
   useEffect(() => {
@@ -79,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRoles([]);
         setAdministeredMunicipalityIds([]);
         setOrganizerMunicipalityIds([]);
+        setCreatableMunicipalityIds([]);
         setViewingMunicipalityId(null);
       }
 
@@ -117,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isPrescriber: false,
         administeredMunicipalityIds,
         organizerMunicipalityIds,
+        creatableMunicipalityIds,
         viewingMunicipalityId,
         setViewingMunicipalityId,
         signOut,

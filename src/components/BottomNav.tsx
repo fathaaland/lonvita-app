@@ -15,7 +15,7 @@ export function BottomNav() {
     isAdmin,
     isOrganizer,
     administeredMunicipalityIds,
-    organizerMunicipalityIds,
+    creatableMunicipalityIds,
     viewingMunicipalityId,
   } = useAuth();
   const pathname = usePathname();
@@ -29,10 +29,11 @@ export function BottomNav() {
   // lokací"). `null` = not yet known/default, treated as "own obec". Actual creation is always
   // scoped server-side regardless of this; this only keeps the navbar from suggesting an action
   // that isn't actually available while browsing a municipality they don't administer.
+  // Where they may found events at all — an obec that founds its events itself takes none from its
+  // organizers (Events canCreateEvent).
   const canCreateHere =
-    viewingMunicipalityId == null ||
-    organizerMunicipalityIds.includes(viewingMunicipalityId) ||
-    administeredMunicipalityIds.includes(viewingMunicipalityId);
+    creatableMunicipalityIds.length > 0 &&
+    (viewingMunicipalityId == null || creatableMunicipalityIds.includes(viewingMunicipalityId));
   const canManageObecHere =
     viewingMunicipalityId == null || administeredMunicipalityIds.includes(viewingMunicipalityId);
 

@@ -56,7 +56,7 @@ export function InviteVolunteerDialog({
       const upcoming = all
         .filter(
           (e) =>
-            e.organizer_id === String(user.id) && e.status !== "cancelled" && new Date(e.date_time).getTime() > Date.now(),
+            e.creator_for_viewer && e.status !== "cancelled" && new Date(e.date_time).getTime() > Date.now(),
         )
         .sort((a, b) => a.date_time.localeCompare(b.date_time));
       const ids = upcoming.map((e) => e.id);

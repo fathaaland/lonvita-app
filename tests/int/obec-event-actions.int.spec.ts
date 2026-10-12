@@ -142,8 +142,13 @@ describe("The obec's admin acting on an organizer's event notifies the organizer
     expect(latest.message).toContain(event.title)
   })
 
-  it('deleting by the obec admin tells the organizer', async () => {
+  it('deleting by the obec admin tells the organizer — an event ahead only once cancelled', async () => {
     const event = await createOrganizersEvent()
+    await expect(
+      payload.delete({ collection: 'events', id: event.id, user: obecAdmin, overrideAccess: false }),
+    ).rejects.toThrow(/nejdřív zrušte/)
+    // Cancelled as a trusted write, so the only notice below is the deletion's.
+    await payload.update({ collection: 'events', id: event.id, data: { status: 'cancelled' }, overrideAccess: true })
     await payload.delete({ collection: 'events', id: event.id, user: obecAdmin, overrideAccess: false })
 
     const [latest] = await organizerNotifications()

@@ -2,9 +2,10 @@ import type { CollectionAfterChangeHook, CollectionBeforeValidateHook, Collectio
 import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered } from './access/shared'
-import { escapeHtml, getObecDeciders, sendNotificationToMany } from './shared/notify'
+import { escapeHtml, getObecDeciders, getPlatformDeciders, sendNotificationToMany } from './shared/notify'
 import {
   complainantContext,
+  complaintsDecidedByPlatform,
   complaintStatusByReview,
   mayComplainAbout,
   resolveReview,
@@ -60,7 +61,7 @@ const prepareComplaint: CollectionBeforeValidateHook = async ({ data, req, opera
 }
 
 /** A new complaint goes to the admins of the obec the event belongs to — they decide it (the
- * platform admins, for an obec without one). */
+ * platform admins, for an obec without one, or when the obec is itself a party to it). */
 const notifyObecOfComplaint: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
   if (operation !== 'create') return
   try {
@@ -69,7 +70,10 @@ const notifyObecOfComplaint: CollectionAfterChangeHook = async ({ doc, operation
       .catch(() => null)
     const title = event?.title ?? 'akce'
     const what = doc.reviewType === 'volunteer-rating' ? 'hodnocení dobrovolníka' : 'recenzi akce'
-    const { userIds: adminIds, requestsLink } = await getObecDeciders(req.payload, relationId(doc.municipality)!)
+    const byPlatform = (await complaintsDecidedByPlatform(req.payload, [doc], req)).has(String(doc.id))
+    const { userIds: adminIds, requestsLink } = byPlatform
+      ? await getPlatformDeciders(req.payload)
+      : await getObecDeciders(req.payload, relationId(doc.municipality)!)
     sendNotificationToMany(req.payload, adminIds, {
       title: 'Nová stížnost na recenzi',
       link: requestsLink,
@@ -86,7 +90,8 @@ const notifyObecOfComplaint: CollectionAfterChangeHook = async ({ doc, operation
 
 /**
  * An organizer's or volunteer's complaint about a review of them — event feedback from a
- * participant, or an organizer's rating of a volunteer. The obec the event belongs to decides it
+ * participant, or an organizer's rating of a volunteer. The obec the event belongs to decides it —
+ * or the platform admin, when the obec is a party (complaintsDecidedByPlatform)
  * (POST /api/review-complaints/:id/decide): upholding it removes the review (soft delete), which
  * drops it from every average computed from the reviews.
  */
