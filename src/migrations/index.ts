@@ -33,6 +33,7 @@ import * as migration_20261007_145308_participant_reliability from './20261007_1
 import * as migration_20261010_090710_pool_invitations from './20261010_090710_pool_invitations';
 import * as migration_20261011_120000_normalize_profile_phones from './20261011_120000_normalize_profile_phones';
 import * as migration_20261011_200000_data_retention_audit_log from './20261011_200000_data_retention_audit_log';
+import * as migration_20261012_123737_schema_cleanup from './20261012_123737_schema_cleanup';
 
 export const migrations = [
   {
@@ -209,5 +210,10 @@ export const migrations = [
     up: migration_20261011_200000_data_retention_audit_log.up,
     down: migration_20261011_200000_data_retention_audit_log.down,
     name: '20261011_200000_data_retention_audit_log',
+  },
+  {
+    up: migration_20261012_123737_schema_cleanup.up,
+    down: migration_20261012_123737_schema_cleanup.down,
+    name: '20261012_123737_schema_cleanup',
   },
 ];
