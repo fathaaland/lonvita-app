@@ -9,17 +9,17 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
 import { ChevronRight, Pencil, HandHeart, X } from "lucide-react";
-import { EventRow, RegistrationRow, CategoryRow, ProfileRow } from "@/lib/analytics";
+import { EventRow, CategoryRow } from "@/lib/analytics";
+import type { EventTableRow } from "@/lib/dashboard";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { CancelEventButton } from "@/components/CancelEventButton";
 import { removeVolunteeringFlag } from "@/integrations/payload/admin-queries";
 import { toast } from "sonner";
 
 interface Props {
-  events: EventRow[];
-  registrations: RegistrationRow[];
+  /** Each with its approved count and organizer's name (lib/dashboard toEventTableRows). */
+  events: EventTableRow[];
   categories: CategoryRow[];
-  profiles: ProfileRow[];
   onDeleted?: () => void;
   /** A short note on the row, e.g. which events the organization only co-organizes. */
   tagFor?: (event: EventRow) => string | null;
@@ -32,9 +32,7 @@ type Filter = "upcoming" | "past" | "all";
 
 export function EventsTable({
   events,
-  registrations,
   categories,
-  profiles,
   onDeleted,
   tagFor,
   viewerId,
@@ -60,9 +58,6 @@ export function EventsTable({
   };
 
   const cats = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-  const profs = useMemo(() => new Map(profiles.map((p) => [p.user_id, p.full_name])), [profiles]);
-  // Participants only — volunteers hold none of the places, as in Registrations' "full" status.
-  const approved = useMemo(() => registrations.filter((r) => r.status === "approved" && r.role !== "volunteer"), [registrations]);
 
   const filtered = useMemo(() => {
     const now = Date.now();
@@ -108,7 +103,7 @@ export function EventsTable({
       ) : (
         <div className="space-y-2">
           {filtered.map((e) => {
-            const a = approved.filter((r) => r.event_id === e.id).length;
+            const a = e.approved;
             const eventCats = e.category_ids.map((id) => cats.get(id)).filter((c): c is CategoryRow => Boolean(c));
             const unlimited = isUnlimitedCapacity(e.capacity);
             const fill = e.capacity && !unlimited ? Math.round((a / e.capacity) * 100) : 0;
@@ -133,7 +128,7 @@ export function EventsTable({
                           {cat.name}
                         </Badge>
                       ))}
-                      {profs.get(e.organizer_id) && <span className="truncate">· {profs.get(e.organizer_id)}</span>}
+                      {e.organizer_name && <span className="truncate">· {e.organizer_name}</span>}
                       {tagFor?.(e) && (
                         <Badge variant="outline" className="h-5 text-3xs px-1.5 font-semibold">
                           {tagFor(e)}

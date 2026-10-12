@@ -1,14 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  getMunicipalityEventsForAdmin,
-  getRegistrationsForEventIds,
-  getAllCategoriesForAdmin,
-  getMunicipalityProfilesForAdmin,
-  getFeedbackForEventIds,
+  getMunicipalityDashboard,
   getPendingRequestCountForAdmin,
+  type MunicipalityDashboardData,
 } from "@/integrations/payload/admin-queries";
 import { getMunicipality, listMunicipalities, RulesForCreation } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,17 +26,12 @@ import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
 import { UnreadBadge } from "@/components/UnreadBadge";
-import { EventRow, RegistrationRow, CategoryRow, FeedbackRow } from "@/lib/analytics";
-import type { ProfileWithDob } from "@/lib/report";
 
 function AdminContent() {
   const router = useRouter();
   const { user, profile, administeredMunicipalityIds } = useAuth();
-  const [events, setEvents] = useState<EventRow[]>([]);
-  const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
-  const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
-  const [categories, setCategories] = useState<CategoryRow[]>([]);
-  const [profiles, setProfiles] = useState<ProfileWithDob[]>([]);
+  // The numbers, worked out on the server — the page no longer downloads the obec's registrations.
+  const [dashboard, setDashboard] = useState<MunicipalityDashboardData | null>(null);
   const [muniName, setMuniName] = useState<string>("");
   const [muniId, setMuniId] = useState<string>("");
   // Someone can administer several obce — they pick which one the dashboard shows.
@@ -60,43 +52,39 @@ function AdminContent() {
   // Brief §3 "i admin obce může sám organizovat akce a chce vidět jejich výkon zvlášť."
   const [scope, setScope] = useState<"all" | "mine">("all");
 
+  // Only the latest request lands — a quick "Celá obec" → "Jen moje akce" → back mustn't end on
+  // whichever answer happened to arrive last.
+  const latestLoad = useRef(0);
+
   const load = async () => {
     if (!user) return;
     // The municipalities this account actually administers ("municipality_admin" user-roles)
     // aren't necessarily their home municipality — a superadmin can grant that role for any
     // obec. Fall back to the home municipality only if no explicit grant is found.
-    const muniId = selectedMuniId || administeredMunicipalityIds[0] || profile?.municipality_id;
-    if (!muniId) return;
-    setLoading(true);
+    const targetId = selectedMuniId || administeredMunicipalityIds[0] || profile?.municipality_id;
+    if (!targetId) return;
+    const request = ++latestLoad.current;
+    // The whole page waits only for another obec; switching the scope keeps the numbers on screen
+    // until the new ones arrive.
+    if (targetId !== muniId || !dashboard) setLoading(true);
 
-    const [evRows, cats, muni, profsRows, pendingCount] = await Promise.all([
-      getMunicipalityEventsForAdmin(muniId),
-      getAllCategoriesForAdmin(),
-      getMunicipality(muniId),
-      getMunicipalityProfilesForAdmin(muniId),
-      getPendingRequestCountForAdmin(muniId),
+    const [data, muni, pendingCount] = await Promise.all([
+      getMunicipalityDashboard(targetId, scope),
+      getMunicipality(targetId),
+      getPendingRequestCountForAdmin(targetId),
     ]);
+    if (request !== latestLoad.current) return;
 
-    const eventIds = evRows.map((e) => e.id);
-    const [regRows, feedbackRows] = await Promise.all([
-      eventIds.length ? getRegistrationsForEventIds(eventIds) : Promise.resolve([]),
-      eventIds.length ? getFeedbackForEventIds(eventIds) : Promise.resolve([]),
-    ]);
-
-    setEvents(evRows);
-    setRegistrations(regRows);
-    setFeedback(feedbackRows);
-    setCategories(cats);
-    setProfiles(profsRows);
+    setDashboard(data);
     setPendingRequests(pendingCount);
     setMuniName(muni?.name ?? "");
-    setMuniId(muniId);
+    setMuniId(targetId);
     setRulesForCreation(muni?.rules_for_creation ?? "approved_organizers");
     setLoading(false);
   };
 
   const administeredKey = administeredMunicipalityIds.join(",");
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.id, profile?.municipality_id, selectedMuniId, administeredKey]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.id, profile?.municipality_id, selectedMuniId, administeredKey, scope]);
 
   useEffect(() => {
     if (administeredMunicipalityIds.length < 2) {
@@ -114,22 +102,7 @@ function AdminContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [administeredKey]);
 
-  const scopedEvents = useMemo(
-    () => (scope === "mine" && user ? events.filter((e) => e.organizer_id === String(user.id)) : events),
-    [events, scope, user],
-  );
-  const scopedRegistrations = useMemo(() => {
-    if (scope !== "mine") return registrations;
-    const ids = new Set(scopedEvents.map((e) => e.id));
-    return registrations.filter((r) => ids.has(r.event_id));
-  }, [registrations, scope, scopedEvents]);
-  const scopedFeedback = useMemo(() => {
-    if (scope !== "mine") return feedback;
-    const regIds = new Set(scopedRegistrations.map((r) => r.id));
-    return feedback.filter((f) => regIds.has(f.registration_id));
-  }, [feedback, scope, scopedRegistrations]);
-
-  if (loading) return <><PageHeader title="Administrace" back /><Loading /></>;
+  if (loading || !dashboard) return <><PageHeader title="Administrace" back /><Loading /></>;
 
   return (
     <div className="animate-fade-in">
@@ -197,20 +170,14 @@ function AdminContent() {
             <TabsContent value="overview" className="pt-4 space-y-4">
               <div className="flex justify-end">
                 <CommunityReport
-                  events={scopedEvents}
-                  registrations={scopedRegistrations}
-                  profiles={profiles}
+                  metrics={dashboard.report}
                   municipalityName={muniName}
                   municipalityId={muniId}
                   scope={scope}
                 />
               </div>
               <AnalyticsOverview
-                events={scopedEvents}
-                registrations={scopedRegistrations}
-                feedback={scopedFeedback}
-                categories={categories}
-                profiles={profiles}
+                dashboard={dashboard}
                 municipalityName={muniName}
                 municipalityId={muniId}
                 scope={scope}
@@ -219,10 +186,8 @@ function AdminContent() {
 
             <TabsContent value="events" className="pt-4">
               <EventsTable
-                events={scopedEvents}
-                registrations={scopedRegistrations}
-                categories={categories}
-                profiles={profiles}
+                events={dashboard.events}
+                categories={dashboard.categories}
                 onDeleted={load}
                 viewerId={String(user?.id ?? "")}
               />

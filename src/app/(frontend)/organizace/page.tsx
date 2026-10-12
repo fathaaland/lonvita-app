@@ -29,6 +29,7 @@ import { CoOrganizingInvitations } from "@/components/CoOrganizingInvitations";
 import { AvatarEditor } from "@/components/AvatarEditor";
 import { OrganizationReviews } from "@/components/OrganizationReviews";
 import { EventsTable } from "@/components/admin/EventsTable";
+import { toEventTableRows } from "@/lib/dashboard";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { OrganizersDirectoryCard } from "@/components/OrganizersDirectoryCard";
 import { TypeChips } from "@/components/admin/OrganizationsTab";
@@ -169,6 +170,8 @@ function OrganizationContent() {
 
   const organization = organizations?.find((o) => o.id === selectedId) ?? null;
   const events = useMemo(() => rawEvents.map(toAnalyticsEvent), [rawEvents]);
+  // No organizer names here — the page is about one organization's own events.
+  const tableRows = useMemo(() => toEventTableRows(events, registrations, []), [events, registrations]);
   const coOrganizedIds = useMemo(
     () => new Set(rawEvents.filter((e) => e.organization?.id !== selectedId).map((e) => e.id)),
     [rawEvents, selectedId],
@@ -409,10 +412,8 @@ function OrganizationContent() {
                 </p>
               )}
               <EventsTable
-                events={events}
-                registrations={registrations}
+                events={tableRows}
                 categories={categories}
-                profiles={[]}
                 onDeleted={() => loadData(organization.id)}
                 tagFor={(e) => (coOrganizedIds.has(e.id) ? "Spolupořádáte" : null)}
                 viewerId={String(user!.id)}

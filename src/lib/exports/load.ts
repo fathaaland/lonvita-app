@@ -4,7 +4,7 @@ import { notDeleted } from '@/collections/shared/softDelete'
 import { summarizeOrganizationFeedback } from '@/lib/organization-feedback'
 
 import { toEventRow } from '@/lib/analytics'
-import type { CategoryRow, EventRow, RegistrationRow } from '@/lib/analytics'
+import type { CategoryRow, EventRow, FeedbackRow, RegistrationRow } from '@/lib/analytics'
 import type { OrganizationFeedbackSummary } from '@/lib/organization-stats'
 import type { ProfileWithDob } from '@/lib/report'
 import { relationId } from '@/lib/relations'
@@ -22,6 +22,8 @@ export async function loadRegistrations(payload: Payload, eventIds: string[]): P
   const result = await payload.find({
     collection: 'registrations',
     where: { and: [{ event: { in: eventIds } }, notDeleted] },
+    // Only what the rows below are made of — an obec's whole history can be a lot of registrations.
+    select: { event: true, user: true, status: true, createdAt: true, attendanceStatus: true, role: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
@@ -35,6 +37,26 @@ export async function loadRegistrations(payload: Payload, eventIds: string[]): P
     attendance_status: (r.attendanceStatus ?? 'not_marked') as RegistrationRow['attendance_status'],
     // Volunteers hold no place — without the role the file counted them as participants, the page didn't.
     role: r.role ?? 'participant',
+  }))
+}
+
+/** Ratings of these registrations — the ones a complaint had removed (soft-deleted) left out, as
+ * EventFeedback's own read access leaves them out of the page. */
+export async function loadFeedback(payload: Payload, registrationIds: string[]): Promise<FeedbackRow[]> {
+  if (registrationIds.length === 0) return []
+  const result = await payload.find({
+    collection: 'event-feedback',
+    where: { and: [{ registration: { in: registrationIds } }, notDeleted] },
+    select: { registration: true, satisfactionRating: true, feltWelcomeRating: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  return result.docs.map((f) => ({
+    id: String(f.id),
+    registration_id: relationId(f.registration)!,
+    satisfaction_rating: f.satisfactionRating,
+    felt_welcome_rating: f.feltWelcomeRating ?? null,
   }))
 }
 

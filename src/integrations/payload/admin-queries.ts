@@ -1,15 +1,13 @@
 /**
- * Query functions specific to the Admin dashboard (src/pages/Admin.tsx and
- * src/components/admin/*). Shaped to match src/lib/analytics.ts's EventRow/
- * RegistrationRow/CategoryRow/ProfileRow interfaces directly, since those pure
- * client-side analytics functions are unaware of Payload and expect that exact shape.
+ * Query functions specific to the admin screens (admin-obce, src/components/admin/*). The obec's
+ * statistics come worked out from the server (getMunicipalityDashboard); the rows still loaded here
+ * are shaped to match src/lib/analytics.ts's interfaces, which the pure functions expect.
  */
 import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
-import { toEventRow } from "@/lib/analytics";
-import type { EventRow, RegistrationRow, CategoryRow, FeedbackRow } from "@/lib/analytics";
-import type { ProfileWithDob } from "@/lib/report";
+import type { RegistrationRow } from "@/lib/analytics";
+import type { MunicipalityDashboard } from "@/lib/dashboard";
 import type { OrganizationType } from "@/lib/organizations";
 import { relationId } from "@/lib/relations";
 import { fullNamesByUserIds } from "./profile-names";
@@ -32,27 +30,6 @@ async function getAllForEventIds<T>(path: string, field: string, eventIds: strin
   for (let i = 0; i < eventIds.length; i += EVENT_ID_CHUNK) chunks.push(eventIds.slice(i, i + EVENT_ID_CHUNK));
   const results = await Promise.all(chunks.map((ids) => getAllDocs<T>(path, buildWhereParams({ [field]: { in: ids } }))));
   return results.flat();
-}
-
-type PayloadEventAdmin = {
-  id: number;
-  title: string;
-  dateTime: string;
-  endDateTime?: string | null;
-  capacity: number;
-  status: string;
-  categories?: (number | { id: number })[] | null;
-  organizer?: number | { id: number } | null;
-  createdAt: string;
-  isPaid?: boolean;
-  priceCents?: number | null;
-  isVolunteering?: boolean;
-};
-
-export async function getMunicipalityEventsForAdmin(municipalityId: string): Promise<EventRow[]> {
-  const where = buildWhereParams({ municipality: { equals: municipalityId } });
-  const docs = await getAllDocs<PayloadEventAdmin>("/events", where);
-  return docs.map(toEventRow);
 }
 
 type PayloadRegistrationAdmin = {
@@ -79,54 +56,12 @@ export async function getRegistrationsForEventIds(eventIds: string[]): Promise<R
   }));
 }
 
-type PayloadEventFeedbackAdmin = {
-  id: number;
-  registration: number | { id: number };
-  satisfactionRating: number;
-  feltWelcomeRating?: number | null;
-}
+/** The obec's dashboard, worked out on the server (GET /api/municipalities/:id/dashboard) — the
+ * overview for every period, the community report and the events table. */
+export type MunicipalityDashboardData = MunicipalityDashboard & { municipalityName: string };
 
-/** Feedback for every registration on these events — joined through `registration.event`,
- * since EventFeedback only relates to a registration, not directly to an event. Feeds the
- * admin overview's average-rating KPIs (US-A-08). */
-export async function getFeedbackForEventIds(eventIds: string[]): Promise<FeedbackRow[]> {
-  if (eventIds.length === 0) return [];
-  const docs = await getAllForEventIds<PayloadEventFeedbackAdmin>("/event-feedback", "registration.event", eventIds);
-  return docs.map((f) => ({
-    id: String(f.id),
-    registration_id: relationId(f.registration)!,
-    satisfaction_rating: f.satisfactionRating,
-    felt_welcome_rating: f.feltWelcomeRating ?? null,
-  }));
-}
-
-type PayloadCategoryAdmin = { id: number; name: string; icon?: string | null; color?: string | null };
-
-export async function getAllCategoriesForAdmin(): Promise<CategoryRow[]> {
-  const result = await get<PayloadListResponse<PayloadCategoryAdmin>>("/event-categories?limit=200");
-  return result.docs.map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
-}
-
-type PayloadProfileAdmin = {
-  id: number;
-  user: number | { id: number };
-  fullName: string;
-  createdAt: string;
-  dateOfBirth?: string | null;
-  over50?: boolean | null;
-};
-
-export async function getMunicipalityProfilesForAdmin(municipalityId: string): Promise<ProfileWithDob[]> {
-  const where = buildWhereParams({ municipality: { equals: municipalityId } });
-  const docs = await getAllDocs<PayloadProfileAdmin>("/profiles", where);
-  return docs.map((p) => ({
-    id: String(p.id),
-    user_id: relationId(p.user) ?? "",
-    full_name: p.fullName,
-    created_at: p.createdAt,
-    date_of_birth: p.dateOfBirth ?? null,
-    over_50: Boolean(p.over50),
-  }));
+export async function getMunicipalityDashboard(municipalityId: string, scope: "all" | "mine"): Promise<MunicipalityDashboardData> {
+  return get<MunicipalityDashboardData>(`/municipalities/${municipalityId}/dashboard?scope=${scope}`);
 }
 
 /** Cancels an event (soft-delete: sets deletedAt + status "cancelled") rather than hard-

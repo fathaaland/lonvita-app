@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,39 +42,12 @@ import { isUnlimitedCapacity } from "@/lib/capacity";
 import { useExport } from "@/hooks/useExport";
 import { useFontSize } from "@/contexts/FontSizeContext";
 import { FONT_SCALE } from "@/lib/accessibilityPrefs";
-import {
-  Period,
-  EventRow,
-  RegistrationRow,
-  CategoryRow,
-  ProfileRow,
-  FeedbackRow,
-  periodStart,
-  periodLabel,
-  filterEvents,
-  filterRegistrations,
-  computeKpis,
-  weeklySeries,
-  byCategory,
-  byDayOfWeek,
-  topOrganizers,
-  topEvents,
-  regStatusBreakdown,
-  attendanceBreakdown,
-  averageRatings,
-  fillBuckets,
-  datavitaSeries,
-  datavitaTrend,
-  DATAVITA_MIN_PARTICIPANTS,
-  DATAVITA_MIN_EVENTS,
-} from "@/lib/analytics";
+import { Period, periodLabel, DATAVITA_MIN_PARTICIPANTS, DATAVITA_MIN_EVENTS } from "@/lib/analytics";
+import type { MunicipalityDashboard } from "@/lib/dashboard";
 
 interface Props {
-  events: EventRow[];
-  registrations: RegistrationRow[];
-  feedback: FeedbackRow[];
-  categories: CategoryRow[];
-  profiles: ProfileRow[];
+  /** Worked out on the server (GET /api/municipalities/:id/dashboard), every period at once. */
+  dashboard: MunicipalityDashboard;
   municipalityName: string;
   /** For the CSV, which the worker builds from the database rather than from these props. */
   municipalityId: string;
@@ -89,11 +62,7 @@ const PERIODS: { v: Period; label: string }[] = [
 ];
 
 export function AnalyticsOverview({
-  events,
-  registrations,
-  feedback,
-  categories,
-  profiles,
+  dashboard,
   municipalityName,
   municipalityId,
   scope,
@@ -104,22 +73,18 @@ export function AnalyticsOverview({
   const { size } = useFontSize();
   const fs = (px: number) => px * FONT_SCALE[size];
 
-  const start = useMemo(() => periodStart(period), [period]);
-  const evF = useMemo(() => filterEvents(events, start), [events, start]);
-  const regF = useMemo(() => filterRegistrations(registrations, start), [registrations, start]);
-
-  const kpis = useMemo(() => computeKpis(evF, regF, profiles), [evF, regF, profiles]);
-  const series = useMemo(() => weeklySeries(events, registrations, 12), [events, registrations]);
-  const cats = useMemo(() => byCategory(evF, regF, categories), [evF, regF, categories]);
-  const dow = useMemo(() => byDayOfWeek(evF), [evF]);
-  const orgs = useMemo(() => topOrganizers(evF, regF, profiles, 5), [evF, regF, profiles]);
-  const top = useMemo(() => topEvents(evF, regF, 5), [evF, regF]);
-  const rs = useMemo(() => regStatusBreakdown(regF, events), [regF, events]);
-  const fill = useMemo(() => fillBuckets(evF, regF), [evF, regF]);
-  const dvSeries = useMemo(() => datavitaSeries(events, registrations, profiles, 26), [events, registrations, profiles]);
-  const dvTrend = useMemo(() => datavitaTrend(dvSeries), [dvSeries]);
-  const attendance = useMemo(() => attendanceBreakdown(regF), [regF]);
-  const ratings = useMemo(() => averageRatings(feedback), [feedback]);
+  const {
+    kpis,
+    categories: cats,
+    dayOfWeek: dow,
+    organizers: orgs,
+    topEvents: top,
+    status: rs,
+    fill,
+    attendance,
+  } = dashboard.periods[period];
+  const { series, ratings } = dashboard;
+  const { series: dvSeries, trend: dvTrend } = dashboard.datavita;
 
   const handleExport = () =>
     exporter.start({ kind: "municipality-events", format: "csv", params: { municipalityId, scope, period } });

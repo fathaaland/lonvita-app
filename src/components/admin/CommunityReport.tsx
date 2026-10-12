@@ -9,35 +9,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { FileText, Download, Copy, Sparkles, Image as ImageIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  EventRow, RegistrationRow,
-} from "@/lib/analytics";
-import {
-  Narrative, ProfileWithDob, ReportMetrics, ReportRow,
-  buildNarrative, buildReportRows, computeReportMetrics, datavitaParagraph, methodologyParagraph, reportTitle,
+  Narrative, ReportMetrics, ReportRow,
+  buildNarrative, buildReportRows, datavitaParagraph, methodologyParagraph, reportTitle,
 } from "@/lib/report";
 import { fileSlug } from "@/lib/exports/contracts";
 import { useExport } from "@/hooks/useExport";
 
 interface Props {
-  events: EventRow[];
-  registrations: RegistrationRow[];
-  profiles: ProfileWithDob[];
+  /** Worked out on the server with the rest of the dashboard (lib/dashboard). */
+  metrics: ReportMetrics;
   municipalityName: string;
   /** For the .docx/.pdf, which the worker renders from the database rather than from these props. */
   municipalityId: string;
   scope: "all" | "mine";
 }
 
-export function CommunityReport({ events, registrations, profiles, municipalityName, municipalityId, scope }: Props) {
+export function CommunityReport({ metrics, municipalityName, municipalityId, scope }: Props) {
   const [open, setOpen] = useState(false);
   const [narrative, setNarrative] = useState<Narrative | null>(null);
   const reportCardRef = useRef<HTMLDivElement>(null);
   const exporter = useExport();
 
-  const metrics = useMemo<ReportMetrics>(
-    () => computeReportMetrics(events, registrations, profiles),
-    [events, registrations, profiles],
-  );
   const rows = useMemo<ReportRow[]>(() => buildReportRows(metrics), [metrics]);
 
   const generate = () => {
