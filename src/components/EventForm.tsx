@@ -19,6 +19,7 @@ import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
 import { MULTI_DAY_END_MESSAGE, nextDateInputValue, toDateInputValue } from "@/lib/date";
 import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
+import { CO_ORGANIZING_INVITATION_HOURS } from "@/lib/requestDeadlines";
 
 const ACCESSIBILITY_OPTIONS = [
   { value: "wheelchair_access", label: "Bezbariérový přístup" },
@@ -424,7 +425,7 @@ export function EventForm({
       <div>
         <Label className="text-base">Spolupořadatelé <span className="font-normal text-muted-foreground">(nepovinné)</span></Label>
         <p className="text-sm text-muted-foreground mt-0.5 mb-2">
-          Pozvaná organizace se stane spolupořadatelem, až pozvánku přijme — má na to 24 hodin. Pak má k akci stejná
+          Pozvaná organizace se stane spolupořadatelem, až pozvánku přijme — má na to {CO_ORGANIZING_INVITATION_HOURS} hodin. Pak má k akci stejná
           práva jako vy.
         </p>
         <CoOrganizerPicker

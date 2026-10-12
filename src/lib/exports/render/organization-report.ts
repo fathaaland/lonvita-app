@@ -1,3 +1,4 @@
+import { APP_TIME_ZONE } from '@/lib/date'
 import { formatDecimal, formatPercent } from '@/lib/organization-stats'
 
 import { createPdf, PDF_FONT, pdfToBuffer } from './pdf'
@@ -42,7 +43,7 @@ export function renderOrganizationReportPdf({
   pdf.text(`Statistiky organizace — ${organizationName}`, marginX, y)
   y += 22
   pdf.setFont(PDF_FONT, 'italic').setFontSize(10).setTextColor(102)
-  pdf.text(`Vygenerováno ${generatedAt.toLocaleString('cs-CZ', { timeZone: 'Europe/Prague' })}`, marginX, y)
+  pdf.text(`Vygenerováno ${generatedAt.toLocaleString('cs-CZ', { timeZone: APP_TIME_ZONE })}`, marginX, y)
   pdf.setTextColor(0)
   y += 26
 

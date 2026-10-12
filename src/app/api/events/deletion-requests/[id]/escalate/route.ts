@@ -7,11 +7,7 @@ import { OPEN_STATUSES } from '@/collections/EventDeletionRequests'
 import { escapeHtml, getObecDeciders, sendNotification } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { formatPragueDateTime } from '@/lib/date'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /**
  * The requester turns to the obec after a spolupořadatel refused both deleting the event and

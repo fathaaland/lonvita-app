@@ -5,6 +5,7 @@ import L from "leaflet";
 import { MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet";
 
 import "leaflet/dist/leaflet.css";
+import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from "@/lib/map";
 
 export type MunicipalityMapPoint = {
   id: string;
@@ -92,8 +93,8 @@ export default function MunicipalitiesMap({ points, selectedId, onSelect, classN
       `}</style>
       <MapContainer center={CZECHIA_CENTER} zoom={DEFAULT_ZOOM} scrollWheelZoom={false} style={{ height: "100%", width: "100%" }}>
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution={MAP_TILE_ATTRIBUTION}
+          url={MAP_TILE_URL}
           maxZoom={19}
         />
         <FitToMarkers points={markers} />

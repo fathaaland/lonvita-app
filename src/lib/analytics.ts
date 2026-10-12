@@ -4,6 +4,7 @@
  */
 
 import { isUnlimitedCapacity } from "@/lib/capacity";
+import { relationId } from "@/lib/relations";
 
 export type Period = "7" | "30" | "90" | "all";
 
@@ -25,6 +26,41 @@ export interface EventRow {
   locked_for_viewer?: boolean;
   /** Run with other organizers — deleting needs their consent, done from the event detail. */
   deletion_needs_consent?: boolean;
+}
+
+/** An event as Payload hands it out — over REST (the dashboards) or the Local API (the exports). */
+export interface EventSource {
+  id: number | string;
+  title: string;
+  dateTime: string;
+  endDateTime?: string | null;
+  capacity: number;
+  status?: string | null;
+  categories?: unknown[] | null;
+  organizer?: unknown;
+  createdAt: string;
+  isPaid?: boolean | null;
+  priceCents?: number | null;
+  isVolunteering?: boolean | null;
+}
+
+/** The one mapping onto EventRow — the obec's dashboard, the superadmin's comparison and the
+ * exports all read events through it, so a downloaded file shows the numbers the page shows. */
+export function toEventRow(e: EventSource): EventRow {
+  return {
+    id: String(e.id),
+    title: e.title,
+    date_time: e.dateTime,
+    end_date_time: e.endDateTime ?? null,
+    capacity: e.capacity,
+    status: e.status ?? "active",
+    category_ids: (e.categories ?? []).map(relationId).filter((v): v is string => Boolean(v)),
+    organizer_id: relationId(e.organizer) ?? "",
+    created_at: e.createdAt,
+    is_paid: e.isPaid ?? undefined,
+    price_cents: e.priceCents ?? null,
+    is_volunteering: e.isVolunteering ?? undefined,
+  };
 }
 
 export interface RegistrationRow {

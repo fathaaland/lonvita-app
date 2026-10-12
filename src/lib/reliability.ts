@@ -10,6 +10,8 @@
  * Shared by the server (collections/shared/reliability) and the UI.
  */
 
+import { APP_TIME_ZONE } from "@/lib/date";
+
 export const RELIABILITY_WINDOW_MONTHS = 6;
 
 /** This many no-shows within the window and a sign-up for an event without approval waits for the
@@ -82,5 +84,5 @@ export function describeReliability(record: ReliabilityRecord): string {
 
 /** "3. 4. 2027" — when the soft limit lifts. */
 export function formatRestrictedUntil(iso: string): string {
-  return new Date(iso).toLocaleDateString("cs-CZ", { timeZone: "Europe/Prague" });
+  return new Date(iso).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE });
 }

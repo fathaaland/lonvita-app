@@ -1,8 +1,8 @@
 import { RELIABILITY_WINDOW_MONTHS } from '@/lib/reliability'
 
 /**
- * How long Lonvita keeps what — the one place the nightly data-retention job
- * (worker/src/processors/data-retention.processor.ts) and its tests take the periods from.
+ * How long Lonvita keeps what — the one place the nightly cleanups (worker/src/processors:
+ * data-retention, cleanup-notifications) and their tests take the periods from.
  * Three rules hold for all of it:
  * - nothing an overview counts is removed: approved registrations of events that took place
  *   (attendance, Datavita, reliability), rejected ones (the "Zamítnuto" chart), ratings, roles;
@@ -12,6 +12,11 @@ import { RELIABILITY_WINDOW_MONTHS } from '@/lib/reliability'
  *   20261011_200000_data_retention_audit_log, trigger `audit_log_guard`).
  */
 export const RETENTION = {
+  /** A read notification is history — a month is plenty to find it again (worker cleanup-notifications). */
+  notificationReadDays: 30,
+  /** Unread ones get longer, so nobody loses a notification they haven't even seen yet. Past this the
+   * notification is about something months gone, and the event it points at may not exist. */
+  notificationDays: 90,
   /** Audit log — at least 18 months (vyhláška č. 409/2025 Sb. § 22 odst. 5 písm. c, the stricter of
    * the two regimes of the cybersecurity act), kept for the 3-year general limitation period
    * (občanský zákoník § 629), then removed: a log with personal data in it can't be kept for ever

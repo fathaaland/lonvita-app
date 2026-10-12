@@ -5,12 +5,11 @@ import config from '@payload-config'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { ANONYMOUS_NAME } from '@/collections/shared/anonymizeUser'
+import { relationKey } from '@/lib/relations'
 
 const CANDIDATE_LIMIT = 20
 /** Invitations listed for the obec — waiting ones, and answers from the last month. */
 const RECENT_ANSWERS_DAYS = 30
-
-const relId = (value: unknown) => String(value && typeof value === 'object' ? (value as { id: unknown }).id : value)
 
 /**
  * For "Pozvat do poolu" in the obec's admin: residents of the obec who could be invited (searched by
@@ -48,7 +47,7 @@ export async function GET(request: Request) {
     pagination: false,
     overrideAccess: true,
   })
-  const pendingUserIds = new Set(invitations.docs.filter((i) => i.status === 'pending').map((i) => relId(i.user)))
+  const pendingUserIds = new Set(invitations.docs.filter((i) => i.status === 'pending').map((i) => relationKey(i.user)))
 
   const q = (params.get('q') ?? '').trim()
   const candidates =
@@ -74,11 +73,11 @@ export async function GET(request: Request) {
             overrideAccess: true,
           })
         ).docs
-          .filter((p) => !pendingUserIds.has(relId(p.user)))
+          .filter((p) => !pendingUserIds.has(relationKey(p.user)))
           .slice(0, CANDIDATE_LIMIT)
-          .map((p) => ({ user_id: relId(p.user), full_name: p.fullName }))
+          .map((p) => ({ user_id: relationKey(p.user), full_name: p.fullName }))
 
-  const invitedIds = [...new Set(invitations.docs.map((i) => relId(i.user)))]
+  const invitedIds = [...new Set(invitations.docs.map((i) => relationKey(i.user)))]
   const names =
     invitedIds.length === 0
       ? new Map<string, string>()
@@ -91,15 +90,15 @@ export async function GET(request: Request) {
               pagination: false,
               overrideAccess: true,
             })
-          ).docs.map((p) => [relId(p.user), p.fullName]),
+          ).docs.map((p) => [relationKey(p.user), p.fullName]),
         )
 
   return NextResponse.json({
     candidates,
     invitations: invitations.docs.map((i) => ({
       id: String(i.id),
-      user_id: relId(i.user),
-      full_name: names.get(relId(i.user)) ?? 'Anonymní uživatel',
+      user_id: relationKey(i.user),
+      full_name: names.get(relationKey(i.user)) ?? 'Anonymní uživatel',
       status: i.status,
       created_at: i.createdAt,
     })),

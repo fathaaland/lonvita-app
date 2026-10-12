@@ -1,12 +1,11 @@
 import type { Payload } from 'payload'
 
 import { notDeleted } from '@/collections/shared/softDelete'
-import { loadRegistrations, toEventRow } from '@/lib/exports/load'
+import { toEventRow } from '@/lib/analytics'
+import { loadRegistrations } from '@/lib/exports/load'
 import { computeOrganizationStats, type OrganizationStats } from '@/lib/organization-stats'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
-
-const toId = (value: unknown): string | null =>
-  value == null ? null : String(typeof value === 'object' ? (value as { id: unknown }).id : value)
+import { relationId } from '@/lib/relations'
 
 /** One pořadatel's profile among the obec's organizers — who they are, in their own words, and how
  * their events go. Ratings stay off it: those are the organization's own business (Organizace). */
@@ -66,7 +65,7 @@ export async function loadOrganizersDirectory(
     pagination: false,
     overrideAccess: true,
   })
-  const organizerIds = [...new Set(roles.docs.map((r) => toId(r.user)).filter((id): id is string => id !== null))]
+  const organizerIds = [...new Set(roles.docs.map((r) => relationId(r.user)).filter((id): id is string => id !== null))]
   if (organizerIds.length === 0) return []
 
   const organizations = await payload.find({
@@ -86,7 +85,7 @@ export async function loadOrganizersDirectory(
   })
   if (organizations.docs.length === 0) return []
   const organizationIds = organizations.docs.map((o) => String(o.id))
-  const ownerIds = [...new Set(organizations.docs.map((o) => toId(o.owner)).filter((id): id is string => id !== null))]
+  const ownerIds = [...new Set(organizations.docs.map((o) => relationId(o.owner)).filter((id): id is string => id !== null))]
 
   const [events, owners, ownerUsers] = await Promise.all([
     payload.find({
@@ -127,17 +126,17 @@ export async function loadOrganizersDirectory(
     payload,
     events.docs.map((e) => String(e.id)),
   )
-  const ownerProfile = new Map(owners.docs.map((p) => [toId(p.user), p]))
+  const ownerProfile = new Map(owners.docs.map((p) => [relationId(p.user), p]))
   const ownerEmail = new Map(ownerUsers.docs.map((u) => [String(u.id), u.email]))
   const now = Date.now()
 
   return organizations.docs.map((organization) => {
     const id = String(organization.id)
     const own = events.docs.filter(
-      (e) => toId(e.organization) === id || (e.coOrganizations ?? []).map(toId).includes(id),
+      (e) => relationId(e.organization) === id || (e.coOrganizations ?? []).map(relationId).includes(id),
     )
     const ownIds = new Set(own.map((e) => String(e.id)))
-    const coOrganizedIds = new Set(own.filter((e) => toId(e.organization) !== id).map((e) => String(e.id)))
+    const coOrganizedIds = new Set(own.filter((e) => relationId(e.organization) !== id).map((e) => String(e.id)))
     const { pending: _pending, ...stats } = computeOrganizationStats(
       own.map(toEventRow),
       registrations.filter((r) => ownIds.has(r.event_id)),
@@ -153,12 +152,12 @@ export async function loadOrganizersDirectory(
       type: organization.type,
       description: organization.description ?? null,
       avatar_url: organization.avatarUrl ?? null,
-      owner_name: ownerProfile.get(toId(organization.owner))?.fullName ?? null,
+      owner_name: ownerProfile.get(relationId(organization.owner))?.fullName ?? null,
       since: organization.createdAt,
-      is_own: toId(organization.owner) === String(viewerId),
+      is_own: relationId(organization.owner) === String(viewerId),
       stats,
       next_event: next ? { id: String(next.id), title: next.title, date_time: next.dateTime } : null,
-      contact: { email: ownerEmail.get(toId(organization.owner) ?? '') ?? null },
+      contact: { email: ownerEmail.get(relationId(organization.owner) ?? '') ?? null },
     }
   })
 }

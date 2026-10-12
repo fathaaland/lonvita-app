@@ -20,7 +20,8 @@ import { reliabilityOf } from './shared/reliability'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
 import { getAdministeredMunicipalityIds, isLoggedIn, isPlatformOrMunicipalityAdmin } from './access/shared'
-import { deletedAtField, notDeleted } from './shared/softDelete'
+import { deletedAtField } from './shared/softDelete'
+import { requiredRelationNumber } from '@/lib/relations'
 
 /** Who takes up the event's places: participants. A volunteer helping run it (an accepted
  * VolunteerInvitation) never uses up a participant's spot. */
@@ -308,7 +309,7 @@ const scheduleFeedbackOnUnlimitedApproval: CollectionAfterChangeHook = async ({ 
   if (context?.skipNotifications || doc.status !== 'approved') return doc
   if (operation === 'update' && previousDoc?.status === 'approved') return doc
   try {
-    const event = await req.payload.findByID({ collection: 'events', id: relId(doc.event), depth: 0, overrideAccess: true, req })
+    const event = await req.payload.findByID({ collection: 'events', id: requiredRelationNumber(doc.event), depth: 0, overrideAccess: true, req })
     if (isUnlimitedCapacity(event.capacity)) await scheduleFeedbackRequest(doc.id, event)
   } catch (error) {
     req.payload.logger.error(`Failed to schedule feedback request for registration ${doc.id}: ${error}`)
@@ -323,8 +324,8 @@ const notifyOnNoShow: CollectionAfterChangeHook = async ({ doc, previousDoc, ope
   if (context?.skipNotifications || operation !== 'update' || doc.role === 'volunteer') return doc
   if (doc.attendanceStatus !== 'no_show' || previousDoc?.attendanceStatus === 'no_show') return doc
   try {
-    const userId = relId(doc.user)
-    const eventId = relId(doc.event)
+    const userId = requiredRelationNumber(doc.user)
+    const eventId = requiredRelationNumber(doc.event)
     const [event, record] = await Promise.all([
       req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req }),
       reliabilityOf(req.payload, userId, { req }),
@@ -364,7 +365,7 @@ const notifyOnNoShow: CollectionAfterChangeHook = async ({ doc, previousDoc, ope
 const canMarkAttendance: FieldAccess = async ({ req, doc }) => {
   if (!req.user) return false
   if (!doc?.event) return req.user.role === 'admin'
-  const rights = await attendanceRights(req, relId(doc.event))
+  const rights = await attendanceRights(req, requiredRelationNumber(doc.event))
   return rights.mark || (rights.correct && doc.role !== 'volunteer' && isMarked(doc.attendanceStatus))
 }
 
@@ -381,9 +382,9 @@ async function attendanceRights(req: PayloadRequest, eventId: number | string): 
     .catch(() => null)
   const rights: AttendanceRights = { mark: false, correct: false }
   if (event && !isUnlimitedCapacity(event.capacity)) {
-    rights.mark = req.user!.role === 'admin' || String(relId(event.organizer)) === String(req.user!.id)
+    rights.mark = req.user!.role === 'admin' || String(requiredRelationNumber(event.organizer)) === String(req.user!.id)
     rights.correct = (await getAdministeredMunicipalityIds(req.payload, req.user!.id)).includes(
-      String(relId(event.municipality)),
+      String(requiredRelationNumber(event.municipality)),
     )
   }
   req.context[cacheKey] = rights
@@ -391,8 +392,6 @@ async function attendanceRights(req: PayloadRequest, eventId: number | string): 
 }
 
 const isMarked = (status: unknown) => typeof status === 'string' && status !== 'not_marked'
-
-const relId = (value: unknown) => (value && typeof value === 'object' ? (value as { id: number }).id : (value as number))
 
 /**
  * Attendance is written once and stays — the pořadatel confirms it before saving, and the feedback
@@ -417,20 +416,20 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
   const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
   if (current.attendanceStatus === data.attendanceStatus) return args
   const event = await req.payload
-    .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
+    .findByID({ collection: 'events', id: requiredRelationNumber(current.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
   if (event && isUnlimitedCapacity(event.capacity)) {
     throw new APIError('U akce s neomezenou kapacitou se docházka nevyplňuje — dobrovolníky ohodnotíte rovnou.', 400)
   }
   if (req.user.role === 'admin') return args
   const marked = isMarked(current.attendanceStatus)
-  if (marked && current.role !== 'volunteer' && (await attendanceRights(req, relId(current.event))).correct) {
+  if (marked && current.role !== 'volunteer' && (await attendanceRights(req, requiredRelationNumber(current.event))).correct) {
     if (!isMarked(data.attendanceStatus)) {
       throw new APIError('Docházku jde opravit na jinou, ne smazat.', 400)
     }
     return args
   }
-  if (!event || String(relId(event.organizer)) !== String(req.user.id)) {
+  if (!event || String(requiredRelationNumber(event.organizer)) !== String(req.user.id)) {
     throw new APIError('Docházku zapisuje jen pořadatel, který akci založil.', 403)
   }
   if (marked) {
@@ -464,19 +463,19 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
   if (current.status === data.status) return args
 
   const event = await req.payload
-    .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
+    .findByID({ collection: 'events', id: requiredRelationNumber(current.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
   const volunteer = current.role === 'volunteer'
-  const own = String(relId(current.user)) === String(req.user.id)
-  const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(relId(u))) : []
+  const own = String(requiredRelationNumber(current.user)) === String(req.user.id)
+  const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(requiredRelationNumber(u))) : []
   // The event's volunteers are its creator's alone — not a spolupořadatel's, not the obec's.
   const manages =
     event !== null &&
     !own &&
     (volunteer
-      ? String(relId(event.organizer)) === String(req.user.id)
+      ? String(requiredRelationNumber(event.organizer)) === String(req.user.id)
       : organizerIds.includes(String(req.user.id)) ||
-        (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(relId(event.municipality))))
+        (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(requiredRelationNumber(event.municipality))))
 
   if (!manages) {
     if (data.status !== 'cancelled' || !own) {
@@ -542,14 +541,14 @@ const guardOwnCancellation: CollectionBeforeOperationHook = async ({ args, opera
 
   const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
   const cancelling = data?.status === 'cancelled' && current.status !== 'cancelled'
-  const own = String(relId(current.user)) === String(req.user.id)
+  const own = String(requiredRelationNumber(current.user)) === String(req.user.id)
   if (excuse && (!cancelling || !own)) {
     throw new APIError('Omluvenku posílá jen přihlášený sám, spolu se zrušením své přihlášky.', 400)
   }
   if (!cancelling || !own) return args
 
   const event = await req.payload
-    .findByID({ collection: 'events', id: relId(current.event), depth: 0, overrideAccess: true, req })
+    .findByID({ collection: 'events', id: requiredRelationNumber(current.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
   if (event && !isRegistrationOpen(event.dateTime) && req.user.role !== 'admin') {
     throw new APIError(
@@ -577,7 +576,7 @@ const guardRegistrationWindow: CollectionBeforeOperationHook = async ({ args, op
   if (overrideAccess !== false || !data?.event || !req.user || req.user.role === 'admin') return args
 
   const event = await req.payload
-    .findByID({ collection: 'events', id: relId(data.event), depth: 0, overrideAccess: true, req })
+    .findByID({ collection: 'events', id: requiredRelationNumber(data.event), depth: 0, overrideAccess: true, req })
     .catch(() => null)
   if (event && !isRegistrationOpen(event.dateTime)) {
     throw new APIError(
@@ -625,7 +624,7 @@ const guardVolunteerDelete: CollectionBeforeOperationHook = async ({ args, opera
     overrideAccess: true,
     req,
   })
-  const eventIds = [...new Set(volunteers.docs.map((r) => relId(r.event)))]
+  const eventIds = [...new Set(volunteers.docs.map((r) => requiredRelationNumber(r.event)))]
   if (eventIds.length === 0) return args
   const events = await req.payload.find({
     collection: 'events',
@@ -636,7 +635,7 @@ const guardVolunteerDelete: CollectionBeforeOperationHook = async ({ args, opera
     overrideAccess: true,
     req,
   })
-  if (events.docs.length === eventIds.length && events.docs.every((e) => String(relId(e.organizer)) === String(req.user!.id))) {
+  if (events.docs.length === eventIds.length && events.docs.every((e) => String(requiredRelationNumber(e.organizer)) === String(req.user!.id))) {
     return args
   }
   throw new APIError('O dobrovolnících na akci rozhoduje jen pořadatel, který ji založil.', 403)
@@ -657,7 +656,7 @@ const isPlatformAdminField: FieldAccess = ({ req }) => req.user?.role === 'admin
 const attendanceAccess = { create: isPlatformAdminField, update: canMarkAttendance }
 
 const isOwnRegistrationField: FieldAccess = ({ req, doc }) =>
-  Boolean(req.user && doc?.user && String(relId(doc.user)) === String(req.user.id))
+  Boolean(req.user && doc?.user && String(requiredRelationNumber(doc.user)) === String(req.user.id))
 
 /** Registrations a user may act on: their own (to register/cancel), or any belonging to an
  * event they organize/co-organize or whose municipality they administer (to approve/reject

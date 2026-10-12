@@ -3,9 +3,7 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { canAccessMunicipality } from '@/lib/exports/access'
-
-const relationId = (value: unknown): number | null =>
-  value == null ? null : typeof value === 'object' ? (value as { id: number }).id : (value as number)
+import { relationNumber } from '@/lib/relations'
 
 /**
  * The obec's queue of complaints about reviews, oldest first — each with the review as it stands
@@ -34,9 +32,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   })
   if (complaints.docs.length === 0) return NextResponse.json({ docs: [] })
 
-  const feedbackIds = complaints.docs.map((c) => relationId(c.eventFeedback)).filter((v): v is number => v !== null)
-  const ratingIds = complaints.docs.map((c) => relationId(c.volunteerRating)).filter((v): v is number => v !== null)
-  const eventIds = [...new Set(complaints.docs.map((c) => relationId(c.event)).filter((v): v is number => v !== null))]
+  const feedbackIds = complaints.docs.map((c) => relationNumber(c.eventFeedback)).filter((v): v is number => v !== null)
+  const ratingIds = complaints.docs.map((c) => relationNumber(c.volunteerRating)).filter((v): v is number => v !== null)
+  const eventIds = [...new Set(complaints.docs.map((c) => relationNumber(c.event)).filter((v): v is number => v !== null))]
 
   const [feedback, ratings, events] = await Promise.all([
     feedbackIds.length
@@ -74,16 +72,16 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   // Everyone named in the queue, in one lookup: the complainants, the reviews' authors, the volunteers.
   const feedbackAuthor = (f: (typeof feedback.docs)[number]) =>
-    relationId(typeof f.registration === 'object' ? f.registration.user : null)
+    relationNumber(typeof f.registration === 'object' ? f.registration.user : null)
   const userIds = new Set<number>()
-  for (const c of complaints.docs) userIds.add(relationId(c.complainant)!)
+  for (const c of complaints.docs) userIds.add(relationNumber(c.complainant)!)
   for (const f of feedback.docs) {
     const author = feedbackAuthor(f)
     if (author) userIds.add(author)
   }
   for (const r of ratings.docs) {
-    userIds.add(relationId(r.ratedBy)!)
-    userIds.add(relationId(r.volunteer)!)
+    userIds.add(relationNumber(r.ratedBy)!)
+    userIds.add(relationNumber(r.volunteer)!)
   }
   const profiles = await payload.find({
     collection: 'profiles',
@@ -93,29 +91,29 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     pagination: false,
     overrideAccess: true,
   })
-  const nameOf = new Map(profiles.docs.map((p) => [relationId(p.user), p.fullName]))
+  const nameOf = new Map(profiles.docs.map((p) => [relationNumber(p.user), p.fullName]))
   const name = (userId: number | null, fallback: string) => (userId !== null && nameOf.get(userId)) || fallback
 
   const docs = complaints.docs.map((c) => {
-    const eventId = relationId(c.event)
+    const eventId = relationNumber(c.event)
     const event = eventId !== null ? eventById.get(eventId) : undefined
     const organization = event && typeof event.organization === 'object' ? event.organization : null
 
     let review: { rating: number; comment: string | null; author_name: string; subject_name: string; created_at: string } | null =
       null
     if (c.reviewType === 'volunteer-rating') {
-      const r = ratingById.get(relationId(c.volunteerRating)!)
+      const r = ratingById.get(relationNumber(c.volunteerRating)!)
       if (r) {
         review = {
           rating: r.rating,
           comment: r.comment?.trim() || null,
-          author_name: name(relationId(r.ratedBy), 'Pořadatel'),
-          subject_name: name(relationId(r.volunteer), 'Dobrovolník'),
+          author_name: name(relationNumber(r.ratedBy), 'Pořadatel'),
+          subject_name: name(relationNumber(r.volunteer), 'Dobrovolník'),
           created_at: r.createdAt,
         }
       }
     } else {
-      const f = feedbackById.get(relationId(c.eventFeedback)!)
+      const f = feedbackById.get(relationNumber(c.eventFeedback)!)
       if (f) {
         review = {
           rating: f.satisfactionRating,
@@ -133,7 +131,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       event_id: eventId !== null ? String(eventId) : null,
       event_title: event?.title ?? 'Smazaná akce',
       review,
-      complainant_name: name(relationId(c.complainant), 'Uživatel'),
+      complainant_name: name(relationNumber(c.complainant), 'Uživatel'),
       reason: c.reason,
       created_at: c.createdAt,
     }

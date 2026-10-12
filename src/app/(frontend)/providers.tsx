@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactNode } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { FontSizeProvider } from "@/contexts/FontSizeContext";
@@ -11,20 +9,15 @@ import { AppShell } from "@/components/AppShell";
 import { ClientErrorReporter } from "@/components/ClientErrorReporter";
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-
   return (
-    <QueryClientProvider client={queryClient}>
-      <FontSizeProvider>
-        <TooltipProvider>
-          <ClientErrorReporter />
-          <Toaster />
-          <Sonner />
-          <AuthProvider>
-            <AppShell>{children}</AppShell>
-          </AuthProvider>
-        </TooltipProvider>
-      </FontSizeProvider>
-    </QueryClientProvider>
+    <FontSizeProvider>
+      <TooltipProvider>
+        <ClientErrorReporter />
+        <Sonner />
+        <AuthProvider>
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
+      </TooltipProvider>
+    </FontSizeProvider>
   );
 }

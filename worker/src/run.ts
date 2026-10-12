@@ -1,5 +1,6 @@
 import 'dotenv/config'
 
+import { APP_TIME_ZONE } from '@/lib/date'
 import { logger } from '@/lib/logger'
 import { JOB_NAMES } from '@/lib/queue/contracts'
 import { getQueue } from '@/lib/queue/queues'
@@ -13,7 +14,6 @@ import { spawnQueueWorker } from './runtime/spawn-worker'
  * days, so the exact minute doesn't matter — only that it runs once a day and not during the
  * evening when people actually use the app. Prague time, not the container's UTC. */
 const CLEANUP_NOTIFICATIONS_CRON = '0 3 * * *'
-const CLEANUP_NOTIFICATIONS_TZ = 'Europe/Prague'
 /** Expired exports (7 days) — half an hour after the notification cleanup, same quiet window. */
 const CLEANUP_EXPORTS_CRON = '30 3 * * *'
 /** Time-driven statuses (finished events, expired deletion requests). Often, not nightly: the
@@ -30,7 +30,7 @@ warnIfArrayPrototypeIsPolluted('lonvita-worker')
 // schedule instead of stacking up duplicates, and changing the cron here takes effect on boot.
 await getQueue().upsertJobScheduler(
   JOB_NAMES.CLEANUP_NOTIFICATIONS,
-  { pattern: CLEANUP_NOTIFICATIONS_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  { pattern: CLEANUP_NOTIFICATIONS_CRON, tz: APP_TIME_ZONE },
   {
     name: JOB_NAMES.CLEANUP_NOTIFICATIONS,
     data: { jobType: JOB_NAMES.CLEANUP_NOTIFICATIONS, payload: {} },
@@ -39,12 +39,12 @@ await getQueue().upsertJobScheduler(
 logger.info('Notification cleanup schedule registered', {
   event: 'worker.cleanup_schedule_registered',
   pattern: CLEANUP_NOTIFICATIONS_CRON,
-  tz: CLEANUP_NOTIFICATIONS_TZ,
+  tz: APP_TIME_ZONE,
 })
 
 await getQueue().upsertJobScheduler(
   JOB_NAMES.CLEANUP_EXPORTS,
-  { pattern: CLEANUP_EXPORTS_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  { pattern: CLEANUP_EXPORTS_CRON, tz: APP_TIME_ZONE },
   {
     name: JOB_NAMES.CLEANUP_EXPORTS,
     data: { jobType: JOB_NAMES.CLEANUP_EXPORTS, payload: {} },
@@ -53,12 +53,12 @@ await getQueue().upsertJobScheduler(
 logger.info('Export cleanup schedule registered', {
   event: 'worker.cleanup_schedule_registered',
   pattern: CLEANUP_EXPORTS_CRON,
-  tz: CLEANUP_NOTIFICATIONS_TZ,
+  tz: APP_TIME_ZONE,
 })
 
 await getQueue().upsertJobScheduler(
   JOB_NAMES.SYNC_STATUSES,
-  { pattern: SYNC_STATUSES_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  { pattern: SYNC_STATUSES_CRON, tz: APP_TIME_ZONE },
   {
     name: JOB_NAMES.SYNC_STATUSES,
     data: { jobType: JOB_NAMES.SYNC_STATUSES, payload: {} },
@@ -67,12 +67,12 @@ await getQueue().upsertJobScheduler(
 logger.info('Status sync schedule registered', {
   event: 'worker.status_sync_schedule_registered',
   pattern: SYNC_STATUSES_CRON,
-  tz: CLEANUP_NOTIFICATIONS_TZ,
+  tz: APP_TIME_ZONE,
 })
 
 await getQueue().upsertJobScheduler(
   JOB_NAMES.DATA_RETENTION,
-  { pattern: DATA_RETENTION_CRON, tz: CLEANUP_NOTIFICATIONS_TZ },
+  { pattern: DATA_RETENTION_CRON, tz: APP_TIME_ZONE },
   {
     name: JOB_NAMES.DATA_RETENTION,
     data: { jobType: JOB_NAMES.DATA_RETENTION, payload: {} },
@@ -81,7 +81,7 @@ await getQueue().upsertJobScheduler(
 logger.info('Data retention schedule registered', {
   event: 'worker.cleanup_schedule_registered',
   pattern: DATA_RETENTION_CRON,
-  tz: CLEANUP_NOTIFICATIONS_TZ,
+  tz: APP_TIME_ZONE,
   mode: retentionMode(),
 })
 

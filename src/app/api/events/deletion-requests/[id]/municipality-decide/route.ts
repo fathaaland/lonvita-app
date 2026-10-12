@@ -8,11 +8,7 @@ import { getEventTeamUserIds, sendNotificationToMany } from '@/collections/share
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { announceRequesterRemoved, removeOrganizerFromEvent } from '@/collections/shared/removeOrganizer'
 import { logger, serializeError } from '@/lib/logger'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /**
  * The obec decides a request the requester escalated to it (…/escalate): `remove` takes them off

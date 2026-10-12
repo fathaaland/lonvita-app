@@ -3,6 +3,7 @@ import type { Payload, PayloadRequest } from 'payload'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { isEventCreator } from '@/collections/Events'
 import type { Event } from '@/payload-types'
+import { relationId } from '@/lib/relations'
 
 /** The two kinds of review someone can report to the obec: a participant's feedback on an event
  * (about its organizers) and an organizer's rating of a volunteer. */
@@ -18,11 +19,6 @@ export type ResolvedReview = {
   event: Event
   /** For a volunteer rating, the rated volunteer — the only one who may report it. */
   volunteerId: string | null
-}
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
 }
 
 /** The review and the event it belongs to — null when it doesn't exist or is already removed. */

@@ -3,10 +3,11 @@ import type { Payload } from 'payload'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { summarizeOrganizationFeedback } from '@/lib/organization-feedback'
 
+import { toEventRow } from '@/lib/analytics'
 import type { CategoryRow, EventRow, RegistrationRow } from '@/lib/analytics'
 import type { OrganizationFeedbackSummary } from '@/lib/organization-stats'
 import type { ProfileWithDob } from '@/lib/report'
-import type { Event } from '@/payload-types'
+import { relationId } from '@/lib/relations'
 
 /**
  * The worker's side of admin-queries.ts / queries.ts: the same rows the admin pages load over
@@ -15,26 +16,6 @@ import type { Event } from '@/payload-types'
  * when the export is requested (lib/exports/access.ts); these read with overrideAccess, so they
  * re-apply the soft-delete filters the collections' own read access would.
  */
-
-const toId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
-
-export const toEventRow = (e: Event): EventRow => ({
-  id: String(e.id),
-  title: e.title,
-  date_time: e.dateTime,
-  end_date_time: e.endDateTime ?? null,
-  capacity: e.capacity,
-  status: e.status ?? 'active',
-  category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
-  organizer_id: toId(e.organizer) ?? '',
-  created_at: e.createdAt,
-  is_paid: e.isPaid ?? undefined,
-  price_cents: e.priceCents ?? null,
-  is_volunteering: e.isVolunteering ?? undefined,
-})
 
 export async function loadRegistrations(payload: Payload, eventIds: string[]): Promise<RegistrationRow[]> {
   if (eventIds.length === 0) return []
@@ -47,8 +28,8 @@ export async function loadRegistrations(payload: Payload, eventIds: string[]): P
   })
   return result.docs.map((r) => ({
     id: String(r.id),
-    event_id: toId(r.event)!,
-    user_id: toId(r.user)!,
+    event_id: relationId(r.event)!,
+    user_id: relationId(r.user)!,
     status: r.status,
     created_at: r.createdAt,
     attendance_status: (r.attendanceStatus ?? 'not_marked') as RegistrationRow['attendance_status'],
@@ -105,7 +86,7 @@ export async function loadMunicipalityExportData(
     registrations,
     profiles: profilesResult.docs.map((p) => ({
       id: String(p.id),
-      user_id: toId(p.user) ?? '',
+      user_id: relationId(p.user) ?? '',
       full_name: p.fullName,
       created_at: p.createdAt,
       date_of_birth: p.dateOfBirth ?? null,
@@ -148,7 +129,7 @@ export async function loadOrganizationExportData(payload: Payload, organizationI
 
   const events = eventsResult.docs.map(toEventRow)
   const coOrganizedIds = new Set(
-    eventsResult.docs.filter((e) => toId(e.organization) !== organizationId).map((e) => String(e.id)),
+    eventsResult.docs.filter((e) => relationId(e.organization) !== organizationId).map((e) => String(e.id)),
   )
 
   return {

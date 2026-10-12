@@ -4,11 +4,7 @@ import { createLocalReq, getPayload } from 'payload'
 import config from '@payload-config'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { findRunningEvents } from '@/collections/shared/runningEvents'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /**
  * What the organizer still runs in the obec — the obec's admin sees it before revoking their role,

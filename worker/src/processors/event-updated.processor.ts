@@ -12,11 +12,9 @@ import { logger } from '@/lib/logger'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { EventUpdatedJobData, EventUpdatedJobResult } from '@/lib/queue/contracts'
+import { requiredRelationNumber } from '@/lib/relations'
 
 type DispatchContext = { jobId?: string }
-
-const relId = (value: unknown): number | string =>
-  typeof value === 'object' && value !== null ? (value as { id: number }).id : (value as number)
 
 /**
  * "Akce byla upravena" for every registrant — in-app and e-mail (SMS go out only when an event is
@@ -58,7 +56,7 @@ export const processEventUpdatedJob = async (
     await rescheduleEventReminders(payload, event)
   }
 
-  const { userIds } = await getEventRegistrants(payload, event.id, relId(event.organizer))
+  const { userIds } = await getEventRegistrants(payload, event.id, requiredRelationNumber(event.organizer))
   if (userIds.length === 0) return skip('no_registrants')
 
   const changedLabels = [...new Set(changedFields.map((field) => NOTIFIABLE_EDIT_FIELDS[field]))].join(', ')

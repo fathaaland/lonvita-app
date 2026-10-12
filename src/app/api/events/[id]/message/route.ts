@@ -10,13 +10,12 @@ import { EVENT_MESSAGE_MAX_LENGTH } from '@/lib/eventMessage'
 import { logger } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { consumeRateLimit } from '@/lib/security/rate-limit'
+import { relationKey } from '@/lib/relations'
 
 /** Every message is a notification and an e-mail to everyone signed up — a few per hour is plenty for
  * "sraz se přesouvá", and stops a slip of the finger (or anything worse) from mailing the same people
  * over and over. */
 const MESSAGE_RATE_LIMIT = { max: 3, windowSeconds: 60 * 60 }
-
-const relId = (value: unknown) => String(value && typeof value === 'object' ? (value as { id: unknown }).id : value)
 
 /**
  * A message from the people running the event to everyone signed up for it (pending and approved,
@@ -50,7 +49,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const runsIt =
     user.role === 'admin' ||
     eventOrganizerIds(event).includes(String(user.id)) ||
-    (await getAdministeredMunicipalityIds(payload, user.id)).includes(relId(event.municipality))
+    (await getAdministeredMunicipalityIds(payload, user.id)).includes(relationKey(event.municipality))
   if (!runsIt) return NextResponse.json({ error: 'Přihlášeným píše jen ten, kdo akci pořádá.' }, { status: 403 })
 
   if (hasEventEnded(event.dateTime, event.endDateTime)) {
@@ -74,7 +73,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     overrideAccess: true,
   })
   const team = new Set(await getEventTeamUserIds(payload, event))
-  const recipients = [...new Set(registrations.docs.map((r) => relId(r.user)))].filter((uid) => !team.has(uid))
+  const recipients = [...new Set(registrations.docs.map((r) => relationKey(r.user)))].filter((uid) => !team.has(uid))
 
   const title = `Zpráva od pořadatele: ${event.title}`
   const announcementId = `event-message-${event.id}-${Date.now()}`

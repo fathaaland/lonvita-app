@@ -12,11 +12,7 @@ import {
 } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { hasEventEnded } from '@/lib/eventEnded'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /**
  * The obec stops co-organizing an event — its own decision, no consent from the event's creator or

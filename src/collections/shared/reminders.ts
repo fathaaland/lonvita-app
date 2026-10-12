@@ -3,6 +3,7 @@ import type { Payload } from 'payload'
 import { isUnlimitedCapacity } from '@/lib/capacity'
 
 import { enqueueAttendanceReminder, enqueueEmail, enqueueFeedbackRequest, getQueue } from '@/lib/queue/queues'
+import { requiredRelationNumber } from '@/lib/relations'
 
 type RelId = number | { id: number }
 
@@ -15,8 +16,6 @@ type EventForReminders = {
   organizer: RelId
   capacity: number
 }
-
-const relId = (value: RelId): number => (typeof value === 'object' ? value.id : value)
 
 const attendanceJobId = (eventId: number | string) => `attendance-reminder-${eventId}`
 const participantJobId = (registrationId: number | string) => `reminder-${registrationId}`
@@ -109,7 +108,7 @@ export async function rescheduleEventReminders(payload: Payload, event: EventFor
   })
   for (const reg of approved.docs) {
     await removeJob(participantJobId(reg.id))
-    await scheduleParticipantReminder(payload, reg.id, relId(reg.user), event)
+    await scheduleParticipantReminder(payload, reg.id, requiredRelationNumber(reg.user), event)
     if (reg.attendanceStatus === 'attended' || isUnlimitedCapacity(event.capacity)) {
       await scheduleFeedbackRequest(reg.id, event)
     }

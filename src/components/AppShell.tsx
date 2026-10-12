@@ -6,7 +6,6 @@ import { BottomNav } from "./BottomNav";
 import { TopNav } from "./TopNav";
 import { GuestTopBar } from "./GuestTopBar";
 import { AccessibilityMenuButton } from "./AccessibilityMenuButton";
-import { PaymentTestModeBanner } from "./PaymentTestModeBanner";
 import { LonvitaLogo, BrandWave } from "./LonvitaLogo";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -29,7 +28,6 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
 
   return (
     <div className="[container-type:inline-size] min-h-screen bg-background">
-      <PaymentTestModeBanner />
       {isWide && !!user && <TopNav />}
       {isWide && !user && <GuestTopBar />}
       {/* The sign-in screens have no top bar — someone arriving from an e-mail link still needs
@@ -46,10 +44,10 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
               Objevujte, co se děje ve vašem městě.
             </p>
           </div>
-          {/* This lane spans the full viewport pre-lg and the right half from lg onward —
-              MapBreakout measures against it (via container query units) so it never overflows
-              into the branding panel. The column itself stays a reading width: a form stretched
-              across half a desktop screen is unreadable however much room there is. */}
+          {/* This lane spans the full viewport pre-lg and the right half from lg onward — a
+              container, so anything sized in container query units stays out of the branding
+              panel. The column itself stays a reading width: a form stretched across half a
+              desktop screen is unreadable however much room there is. */}
           <div className="[container-type:inline-size] lg:flex lg:min-h-screen lg:flex-col lg:justify-center">
             <div
               className={`mx-auto w-full max-w-[480px] lg:max-w-[440px] lg:px-8 lg:py-8 ${

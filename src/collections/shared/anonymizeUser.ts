@@ -9,6 +9,7 @@ import { notDeleted } from './softDelete'
 import type { AccountDeletionBlockingEvent, AccountDeletionSoleAdminObec } from '@/lib/accountDeletion'
 import { ageOn } from '@/lib/analytics'
 import { logger, serializeError } from '@/lib/logger'
+import { relationNumber } from '@/lib/relations'
 
 /** What everyone sees in place of a deleted account's name — on past events, in "Kdo dále jde",
  * as the author of a volunteer rating. */
@@ -17,9 +18,6 @@ export const ANONYMOUS_NAME = 'Anonymní uživatel'
 /** An "individual" organization carries its owner's own name — it goes with them. A business or a
  * club keeps its name: it isn't the person's. */
 export const FORMER_ORGANIZER_NAME = 'Bývalý pořadatel'
-
-const relId = (value: unknown): number | null =>
-  value == null ? null : typeof value === 'object' ? (value as { id: number }).id : (value as number)
 
 /** Events `userId` runs or co-organizes that haven't taken place yet — the account can't go while
  * there are any: they're cancelled, or left through an EventDeletionRequest, first. */
@@ -63,7 +61,7 @@ export async function findMunicipalitiesSolelyAdministeredBy(
     overrideAccess: true,
     req,
   })
-  const municipalityIds = [...new Set(own.docs.map((r) => relId(r.municipality)).filter((id): id is number => id !== null))]
+  const municipalityIds = [...new Set(own.docs.map((r) => relationNumber(r.municipality)).filter((id): id is number => id !== null))]
   if (municipalityIds.length === 0) return []
 
   const all = await payload.find({
@@ -77,7 +75,7 @@ export async function findMunicipalitiesSolelyAdministeredBy(
   })
   const adminCount = new Map<number, number>()
   for (const role of all.docs) {
-    const id = relId(role.municipality)
+    const id = relationNumber(role.municipality)
     if (id !== null) adminCount.set(id, (adminCount.get(id) ?? 0) + 1)
   }
   const sole = municipalityIds.filter((id) => adminCount.get(id) === 1)
@@ -152,13 +150,13 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
   const upcoming = active.length
     ? await payload.find({
         collection: 'events',
-        where: { and: [{ id: { in: active.map((r) => relId(r.event)) } }, { dateTime: { greater_than: nowIso } }] },
+        where: { and: [{ id: { in: active.map((r) => relationNumber(r.event)) } }, { dateTime: { greater_than: nowIso } }] },
         select: { title: true },
         ...find,
       })
     : { docs: [] }
   const upcomingIds = new Set(upcoming.docs.map((e) => e.id))
-  for (const registration of active.filter((r) => upcomingIds.has(relId(r.event)!))) {
+  for (const registration of active.filter((r) => upcomingIds.has(relationNumber(r.event)!))) {
     await payload.update({
       collection: 'registrations',
       id: registration.id,
@@ -235,7 +233,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
   }
   const mediaIds: number[] = []
   const eventMedia = await payload.find({ collection: 'event-media', where: { uploadedBy: { equals: userId } }, ...find })
-  mediaIds.push(...eventMedia.docs.map((m) => relId(m.media)).filter((id): id is number => id !== null))
+  mediaIds.push(...eventMedia.docs.map((m) => relationNumber(m.media)).filter((id): id is number => id !== null))
   if (eventMedia.docs.length > 0) {
     await payload.delete({ collection: 'event-media', where: { uploadedBy: { equals: userId } }, overrideAccess: true, req })
   }
@@ -245,7 +243,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
   const organizations = await payload.find({ collection: 'organizations', where: { owner: { equals: userId } }, ...find })
   for (const organization of organizations.docs) {
     const individual = organization.type === 'individual'
-    if (individual && relId(organization.avatar) !== null) mediaIds.push(relId(organization.avatar)!)
+    if (individual && relationNumber(organization.avatar) !== null) mediaIds.push(relationNumber(organization.avatar)!)
     await payload.db.updateOne({
       collection: 'organizations',
       id: organization.id,
@@ -277,7 +275,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
   // The profile keeps what the obec's overview counts by; the account, nothing to sign in with.
   const profile = (await payload.find({ collection: 'profiles', where: { user: { equals: userId } }, limit: 1, ...find })).docs[0]
   if (profile) {
-    if (relId(profile.avatar) !== null) mediaIds.push(relId(profile.avatar)!)
+    if (relationNumber(profile.avatar) !== null) mediaIds.push(relationNumber(profile.avatar)!)
     await payload.db.updateOne({
       collection: 'profiles',
       id: profile.id,

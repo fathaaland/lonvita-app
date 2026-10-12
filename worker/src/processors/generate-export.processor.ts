@@ -10,15 +10,13 @@ import { queueOptions } from '@/lib/queue/options'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { GenerateExportJobData, GenerateExportJobResult } from '@/lib/queue/contracts'
+import { relationKey } from '@/lib/relations'
 
 /** Long enough for the dialog's polling to have picked the file up — only an owner who closed
  * it before then gets the "report je připraven" notification. */
 export const EXPORT_READY_DELAY_MS = 60 * 1000
 
 const MAX_ERROR_LENGTH = 500
-
-const relId = (value: unknown): string =>
-  String(typeof value === 'object' && value !== null ? (value as { id: number }).id : value)
 
 /**
  * Renders the file an `exports` row describes, uploads it to S3 and marks the row done. The row
@@ -73,7 +71,7 @@ export const processGenerateExportJob = async (
   })
 
   try {
-    const built = await buildExport(payload, request.data, relId(record.owner))
+    const built = await buildExport(payload, request.data, relationKey(record.owner))
     const fileKey = exportFileKey(record.id, built.fileName)
     await uploadExportFile(fileKey, built.body, built.contentType)
 

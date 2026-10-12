@@ -5,8 +5,7 @@ import config from '@payload-config'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { eventOrganizerIds } from '@/collections/Events'
 import { loadReliability } from '@/collections/shared/reliability'
-
-const relId = (value: unknown) => String(value && typeof value === 'object' ? (value as { id: unknown }).id : value)
+import { relationKey } from '@/lib/relations'
 
 /**
  * How reliably each participant signed up for the event turns up (lib/reliability) — the badge next
@@ -28,7 +27,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const runsIt =
     user.role === 'admin' ||
     eventOrganizerIds(event).includes(String(user.id)) ||
-    (await getAdministeredMunicipalityIds(payload, user.id)).includes(relId(event.municipality))
+    (await getAdministeredMunicipalityIds(payload, user.id)).includes(relationKey(event.municipality))
   if (!runsIt) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const registrations = await payload.find({
@@ -43,7 +42,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   })
   const records = await loadReliability(
     payload,
-    registrations.docs.map((r) => relId(r.user)),
+    registrations.docs.map((r) => relationKey(r.user)),
   )
   return NextResponse.json(Object.fromEntries(records))
 }

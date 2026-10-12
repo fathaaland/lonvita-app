@@ -3,11 +3,7 @@ import { APIError } from 'payload'
 
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './notify'
 import type { Event } from '@/payload-types'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /**
  * Takes `leavingUserId` off the event, which goes on without them — the one way an organizer

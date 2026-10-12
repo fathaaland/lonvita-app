@@ -19,6 +19,7 @@ import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete
 import { getEventTeamUserIds, sendNotificationToMany } from './shared/notify'
 import { PARTICIPANTS_ONLY } from './Registrations'
 import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
+import { requiredRelationNumber } from '@/lib/relations'
 
 /** Whether another account already has `phone` (E.164) — the superadmin's create-user route asks
  * before it creates anything, the hook below on every write. */
@@ -97,8 +98,6 @@ const validateVolunteerContact: CollectionBeforeChangeHook = ({ data, originalDo
   return data
 }
 
-const relId = (value: number | { id: number }): number => (typeof value === 'object' ? value.id : value)
-
 /** Joining the pool is the answer to every invitation still waiting for one (PoolInvitations) —
  * the obec that asked hears they said yes. */
 const acceptPoolInvitations: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
@@ -106,7 +105,7 @@ const acceptPoolInvitations: CollectionAfterChangeHook = async ({ doc, previousD
   try {
     const pending = await req.payload.find({
       collection: 'pool-invitations',
-      where: { and: [{ user: { equals: relId(doc.user) } }, { status: { equals: 'pending' } }] },
+      where: { and: [{ user: { equals: requiredRelationNumber(doc.user) } }, { status: { equals: 'pending' } }] },
       depth: 0,
       pagination: false,
       overrideAccess: true,
@@ -139,7 +138,7 @@ const acceptPoolInvitations: CollectionAfterChangeHook = async ({ doc, previousD
 const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   if (operation !== 'update' || doc.isVolunteer || !previousDoc?.isVolunteer) return doc
   const { payload } = req
-  const userId = relId(doc.user)
+  const userId = requiredRelationNumber(doc.user)
   const who = doc.fullName || 'Dobrovolník'
 
   const pending = await payload.find({
@@ -160,12 +159,12 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
       req,
     })
     const invitedFor = await payload
-      .findByID({ collection: 'events', id: relId(invitation.event), depth: 0, overrideAccess: true, req })
+      .findByID({ collection: 'events', id: requiredRelationNumber(invitation.event), depth: 0, overrideAccess: true, req })
       .catch(() => null)
     const team = invitedFor ? await getEventTeamUserIds(payload, invitedFor, { exclude: [userId], req }) : []
-    sendNotificationToMany(payload, [...new Set([String(relId(invitation.invitedBy)), ...team])], {
+    sendNotificationToMany(payload, [...new Set([String(requiredRelationNumber(invitation.invitedBy)), ...team])], {
       title: invitation.kind === 'application' ? 'Nabídka dobrovolníka zrušena' : 'Pozvánka dobrovolníka zrušena',
-      link: `/akce/${relId(invitation.event)}`,
+      link: `/akce/${requiredRelationNumber(invitation.event)}`,
       message:
         invitation.kind === 'application'
           ? `${who} odešel/odešla z poolu dobrovolníků — nabídka pomoci na akci „${invitation.eventTitle}“ už neplatí.`
@@ -193,7 +192,7 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
     collection: 'events',
     where: {
       and: [
-        { id: { in: helping.docs.map((r) => relId(r.event)) } },
+        { id: { in: helping.docs.map((r) => requiredRelationNumber(r.event)) } },
         { dateTime: { greater_than: new Date().toISOString() } },
         { status: { not_equals: 'cancelled' } },
         notDeleted,
@@ -205,7 +204,7 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
     req,
   })
   for (const event of events.docs) {
-    const registration = helping.docs.find((r) => relId(r.event) === event.id)!
+    const registration = helping.docs.find((r) => requiredRelationNumber(r.event) === event.id)!
     const taken = await payload.count({
       collection: 'registrations',
       where: { and: [{ event: { equals: event.id } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },

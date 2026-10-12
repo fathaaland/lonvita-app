@@ -1,6 +1,8 @@
 import { consumeRateLimit, getClientIp } from '@/lib/security/rate-limit'
 
-const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org'
+/** The public OpenStreetMap instance unless NOMINATIM_BASE_URL names another (a hosted provider or
+ * one's own) — its usage policy, like the tiles', isn't meant for heavy production traffic. */
+const NOMINATIM_BASE_URL = process.env.NOMINATIM_BASE_URL?.trim().replace(/\/+$/, '') || 'https://nominatim.openstreetmap.org'
 
 /** Search and reverse lookups together, per client IP. A debounced search plus dragging the pin
  * around stays well inside it. */

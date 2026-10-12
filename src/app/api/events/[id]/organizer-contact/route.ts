@@ -4,8 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { isRegistrationOpen } from '@/lib/registrationCutoff'
-
-const relId = (value: unknown) => String(value && typeof value === 'object' ? (value as { id: unknown }).id : value)
+import { relationKey } from '@/lib/relations'
 
 /**
  * How to reach the event's pořadatel (who founded it) — for whoever can no longer sign up for it, or
@@ -52,7 +51,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     )
   }
 
-  const organizerId = relId(event.organizer)
+  const organizerId = relationKey(event.organizer)
   const [organizer, profile] = await Promise.all([
     payload.findByID({ collection: 'users', id: organizerId, depth: 0, overrideAccess: true }).catch(() => null),
     payload.find({

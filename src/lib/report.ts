@@ -9,6 +9,7 @@ import type {
   ProfileRow,
 } from "./analytics";
 import { approvedParticipants, computeDatavitaWindow, hasFillRate, heldEvents, isAged50Plus } from "./analytics";
+import { APP_TIME_ZONE } from "./date";
 
 export interface ProfileWithDob extends ProfileRow {
   date_of_birth?: string | null;
@@ -385,7 +386,7 @@ export function methodologyParagraph(metrics: ReportMetrics, generatedAt: Date =
   return (
     `Data z klouzavého 90denního okna (${metrics.periodFrom} – ${metrics.periodTo}), srovnání ` +
     `s předchozím 90denním oknem (${metrics.previousLabel}). Zdroj: platforma Lonvita, výpočet proběhl ` +
-    `${generatedAt.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" })}. Nezahrnuje adresy bydliště účastníků ani údaje ze ` +
+    `${generatedAt.toLocaleString("cs-CZ", { timeZone: APP_TIME_ZONE })}. Nezahrnuje adresy bydliště účastníků ani údaje ze ` +
     `sociálně-preskripční vrstvy. Kompletní metodika Datavity dostupná na vyžádání.`
   );
 }

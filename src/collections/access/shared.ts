@@ -1,4 +1,5 @@
 import type { Access, FieldAccess, PayloadRequest, Where } from 'payload'
+import { relationKey } from '@/lib/relations'
 
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
@@ -150,8 +151,6 @@ const eventsManagedBy = (req: PayloadRequest, userId: number) =>
     return events.docs.map((e) => e.id)
   })
 
-const relUserId = (value: unknown) => String(value && typeof value === 'object' ? (value as { id: number }).id : value)
-
 /** Everyone registered (in any status) for an event `userId` manages — the people on their
  * Spravovat pages. */
 const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
@@ -166,7 +165,7 @@ const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
       pagination: false,
       overrideAccess: true,
     })
-    return new Set(registrations.docs.map((r) => relUserId(r.user)))
+    return new Set(registrations.docs.map((r) => relationKey(r.user)))
   })
 
 /**
@@ -207,10 +206,10 @@ export const canReadProfile: Access = async ({ req }) => {
 
   const visible = new Set<string>(registrants)
   for (const e of organizers.docs) {
-    visible.add(relUserId(e.organizer))
-    for (const co of e.coOrganizers ?? []) visible.add(relUserId(co))
+    visible.add(relationKey(e.organizer))
+    for (const co of e.coOrganizers ?? []) visible.add(relationKey(co))
   }
-  for (const r of organizerRoles.docs) visible.add(relUserId(r.user))
+  for (const r of organizerRoles.docs) visible.add(relationKey(r.user))
 
   if (eventIds.length > 0) {
     const invitations = await payload.find({
@@ -221,7 +220,7 @@ export const canReadProfile: Access = async ({ req }) => {
       pagination: false,
       overrideAccess: true,
     })
-    for (const i of invitations.docs) visible.add(relUserId(i.volunteer))
+    for (const i of invitations.docs) visible.add(relationKey(i.volunteer))
   }
 
   const or: Where[] = [{ user: { equals: user.id } }]
@@ -245,7 +244,7 @@ export const canReadProfile: Access = async ({ req }) => {
         overrideAccess: true,
       }),
     ])
-    for (const doc of [...roles.docs, ...requests.docs]) visible.add(relUserId(doc.user))
+    for (const doc of [...roles.docs, ...requests.docs]) visible.add(relationKey(doc.user))
   }
   visible.delete('null')
   visible.delete('undefined')

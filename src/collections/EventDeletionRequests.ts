@@ -13,18 +13,12 @@ import { deletionNeedsConsent, eventOrganizerIds, lockedEventIds, administeredId
 import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { canCancelEvent, eventCancellationDeadline, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { formatPragueDateTime } from '@/lib/date'
-
-/** How long the other organizers have to answer before the request lapses (the event stays). */
-export const DELETION_CONSENT_HOURS = 24
+import { relationId } from '@/lib/relations'
+import { DELETION_CONSENT_HOURS } from '@/lib/requestDeadlines'
 
 /** Still waiting on someone until `expiresAt` — the other organizers (`pending`), or the obec once
  * the requester turned to it after a refusal (`escalated`, `expiresAt` = the event's start). */
 export const OPEN_STATUSES = ['pending', 'escalated']
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
 
 /** The requester, whoever has to consent, the obec's admins and a platform admin. */
 const canReadDeletionRequest: Access = async ({ req: { user, payload } }) => {

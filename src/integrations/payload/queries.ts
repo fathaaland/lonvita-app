@@ -15,6 +15,8 @@ import {
   type AccountDeletionSoleAdminObec,
 } from "@/lib/accountDeletion";
 import type { ReliabilityRecord } from "@/lib/reliability";
+import { relationId } from "@/lib/relations";
+import { fullNamesByUserIds } from "./profile-names";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -186,15 +188,10 @@ type PayloadEvent = {
   updatedAt?: string;
 };
 
-const toId = (value: number | { id: number } | null | undefined): string | null => {
-  if (value == null) return null;
-  return String(typeof value === "object" ? value.id : value);
-};
-
 /** Only populated (depth ≥ 1) organizations — a bare id is one that's since been deleted. */
 const mapOrganization = (o: number | PayloadOrganization | null | undefined): OrganizationRef | null =>
   o && typeof o === "object"
-    ? { id: String(o.id), name: o.name, type: o.type, owner_id: toId(o.owner), avatar_url: o.avatarUrl ?? null }
+    ? { id: String(o.id), name: o.name, type: o.type, owner_id: relationId(o.owner), avatar_url: o.avatarUrl ?? null }
     : null;
 
 const mapEvent = (e: PayloadEvent): EventRow => ({
@@ -212,12 +209,12 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   registration_approval_mode: e.registrationApprovalMode ?? "manual",
   image_url: typeof e.image === "object" && e.image ? (e.image.url ?? null) : null,
   image_position: { x: e.imagePositionX ?? 50, y: e.imagePositionY ?? 50 },
-  category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
-  organizer_id: toId(e.organizer) ?? undefined,
+  category_ids: (e.categories ?? []).map(relationId).filter((v): v is string => Boolean(v)),
+  organizer_id: relationId(e.organizer) ?? undefined,
   organization: mapOrganization(e.organization),
-  co_organizer_ids: (e.coOrganizers ?? []).map(toId).filter((v): v is string => Boolean(v)),
+  co_organizer_ids: (e.coOrganizers ?? []).map(relationId).filter((v): v is string => Boolean(v)),
   co_organizations: (e.coOrganizations ?? []).map(mapOrganization).filter((o): o is OrganizationRef => Boolean(o)),
-  municipality_id: toId(e.municipality) ?? undefined,
+  municipality_id: relationId(e.municipality) ?? undefined,
   status: e.status,
   is_hidden: e.isHidden,
   is_paid: e.isPaid,
@@ -361,8 +358,8 @@ type PayloadRegistration = {
 
 const mapRegistration = (r: PayloadRegistration): RegistrationRow => ({
   id: String(r.id),
-  event_id: toId(r.event)!,
-  user_id: toId(r.user)!,
+  event_id: relationId(r.event)!,
+  user_id: relationId(r.user)!,
   status: r.status,
   role: r.role ?? "participant",
 });
@@ -480,7 +477,7 @@ type PayloadEventFeedback = {
 
 const mapEventFeedback = (f: PayloadEventFeedback): EventFeedbackRow => ({
   id: String(f.id),
-  registration_id: toId(f.registration)!,
+  registration_id: relationId(f.registration)!,
   satisfaction_rating: f.satisfactionRating,
   felt_welcome_rating: f.feltWelcomeRating ?? null,
   met_someone_new: Boolean(f.metSomeoneNew),
@@ -533,7 +530,7 @@ export async function getEventRegistrationsWithNames(
     `/registrations?${where}&depth=0&limit=500`,
   );
 
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
+  const userIds = Array.from(new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))));
   const nameById = new Map<string, string>();
   let avatarByUser = new Map<string, string>();
   if (userIds.length) {
@@ -542,7 +539,7 @@ export async function getEventRegistrationsWithNames(
       `/profiles?${profileWhere}&depth=0&limit=500`,
     );
     for (const p of profiles.docs) {
-      const uid = toId(p.user);
+      const uid = relationId(p.user);
       if (uid) nameById.set(uid, p.fullName);
     }
     avatarByUser = await getAvatarUrlsByUser(profiles.docs);
@@ -550,11 +547,11 @@ export async function getEventRegistrationsWithNames(
 
   return result.docs.map((r) => ({
     id: String(r.id),
-    user_id: toId(r.user)!,
+    user_id: relationId(r.user)!,
     status: r.status,
     role: r.role ?? "participant",
-    full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
-    avatar_url: avatarByUser.get(toId(r.user) ?? "") ?? null,
+    full_name: nameById.get(relationId(r.user) ?? "") ?? "Účastník",
+    avatar_url: avatarByUser.get(relationId(r.user) ?? "") ?? null,
   }));
 }
 
@@ -596,7 +593,7 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
     `/registrations?${where}&depth=0&limit=500&sort=createdAt`,
   );
 
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
+  const userIds = Array.from(new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))));
   const infoById = new Map<string, { fullName: string; phone: string | null }>();
   let avatarByUser = new Map<string, string>();
   if (userIds.length) {
@@ -605,14 +602,14 @@ export async function getEventRegistrationsForManage(eventId: string): Promise<M
       `/profiles?${profileWhere}&depth=0&limit=500`,
     );
     for (const p of profiles.docs) {
-      const uid = toId(p.user);
+      const uid = relationId(p.user);
       if (uid) infoById.set(uid, { fullName: p.fullName, phone: p.phone ?? null });
     }
     avatarByUser = await getAvatarUrlsByUser(profiles.docs);
   }
 
   return result.docs.map((r) => {
-    const uid = toId(r.user)!;
+    const uid = relationId(r.user)!;
     const info = infoById.get(uid);
     return {
       id: String(r.id),
@@ -709,14 +706,14 @@ const avatarUrlOf = (media: number | PayloadMedia | null | undefined): string | 
  * populating each profile's relations (which would also drag their user docs along). */
 async function getAvatarUrlsByUser(profiles: PayloadProfile[]): Promise<Map<string, string>> {
   const urls = new Map<string, string>();
-  const mediaIds = profiles.map((p) => toId(p.avatar as number | null)).filter((v): v is string => Boolean(v));
+  const mediaIds = profiles.map((p) => relationId(p.avatar as number | null)).filter((v): v is string => Boolean(v));
   if (mediaIds.length === 0) return urls;
   const where = buildWhereParams({ id: { in: mediaIds } });
   const media = await get<PayloadListResponse<PayloadMedia>>(`/media?${where}&depth=0&limit=500`);
   const urlByMedia = new Map(media.docs.map((m) => [String(m.id), avatarUrlOf(m)]));
   for (const p of profiles) {
-    const uid = toId(p.user);
-    const url = urlByMedia.get(toId(p.avatar as number | null) ?? "");
+    const uid = relationId(p.user);
+    const url = urlByMedia.get(relationId(p.avatar as number | null) ?? "");
     if (uid && url) urls.set(uid, url);
   }
   return urls;
@@ -730,12 +727,12 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   phone_verified: Boolean(p.phoneVerified),
   notify_email: p.notifyEmail ?? true,
   notify_in_app: p.notifyInApp ?? true,
-  municipality_id: toId(p.municipality),
+  municipality_id: relationId(p.municipality),
   onboarding_completed: Boolean(p.onboardingCompleted),
   date_of_birth: p.dateOfBirth ?? null,
-  home_area_id: toId(p.homeArea),
+  home_area_id: relationId(p.homeArea),
   gender: p.gender ?? null,
-  interests: p.interests?.map((i) => toId(i)!).filter(Boolean) ?? null,
+  interests: p.interests?.map((i) => relationId(i)!).filter(Boolean) ?? null,
   is_volunteer: Boolean(p.isVolunteer),
   volunteer_focus: p.volunteerFocus ?? null,
   volunteer_note: p.volunteerNote ?? null,
@@ -744,7 +741,7 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   volunteer_contact_email: p.volunteerContactEmail ?? null,
   volunteer_allow_phone: Boolean(p.volunteerAllowPhone),
   volunteer_contact_phone: p.volunteerContactPhone ?? null,
-  volunteer_municipality_id: toId(p.volunteerMunicipality),
+  volunteer_municipality_id: relationId(p.volunteerMunicipality),
 });
 
 export type VolunteerRow = {
@@ -806,8 +803,8 @@ export async function getVolunteerRatingsForEvent(eventId: string): Promise<Map<
   >(`/volunteer-ratings?${where}&depth=0&limit=200`);
   return new Map(
     result.docs.map((r) => [
-      toId(r.registration)!,
-      { id: String(r.id), registration_id: toId(r.registration)!, rating: r.rating, comment: r.comment ?? null },
+      relationId(r.registration)!,
+      { id: String(r.id), registration_id: relationId(r.registration)!, rating: r.rating, comment: r.comment ?? null },
     ]),
   );
 }
@@ -881,7 +878,7 @@ export async function getMyPoolInvitations(userId: string): Promise<MyPoolInvita
   const result = await get<PayloadListResponse<PayloadPoolInvitation>>(`/pool-invitations?${where}&depth=1&limit=20`);
   return result.docs.map((i) => ({
     id: String(i.id),
-    municipality_id: toId(i.municipality) ?? "",
+    municipality_id: relationId(i.municipality) ?? "",
     municipality_name: typeof i.municipality === "object" ? i.municipality.name : "",
     message: i.message ?? null,
   }));
@@ -933,18 +930,18 @@ export async function getMyVolunteerInvitations(userId: string): Promise<Volunte
     `/volunteer-invitations?${where}&depth=1&limit=100`,
   );
   const names = await getFullNamesByUserIds(
-    [...new Set(result.docs.map((r) => toId(r.invitedBy)).filter((v): v is string => Boolean(v)))],
+    [...new Set(result.docs.map((r) => relationId(r.invitedBy)).filter((v): v is string => Boolean(v)))],
   );
   return result.docs
     .map((r) => {
       const event = typeof r.event === "object" ? r.event : null;
       return {
         id: String(r.id),
-        event_id: toId(r.event) ?? "",
+        event_id: relationId(r.event) ?? "",
         event_title: r.eventTitle,
         event_date_time: event?.dateTime ?? null,
         event_location: event?.locationText ?? null,
-        invited_by_name: names.get(toId(r.invitedBy) ?? "") ?? "Pořadatel",
+        invited_by_name: names.get(relationId(r.invitedBy) ?? "") ?? "Pořadatel",
         message: r.message ?? null,
       };
     })
@@ -1020,18 +1017,18 @@ export async function getPendingVolunteerInvitationsForEvent(eventId: string): P
   const result = await get<PayloadListResponse<{ id: number; volunteer: number | { id: number }; createdAt: string }>>(
     `/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`,
   );
-  const userIds = [...new Set(result.docs.map((r) => toId(r.volunteer)).filter((v): v is string => Boolean(v)))];
+  const userIds = [...new Set(result.docs.map((r) => relationId(r.volunteer)).filter((v): v is string => Boolean(v)))];
   const names = new Map<string, string>();
   if (userIds.length > 0) {
     const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
       `/profiles?${buildWhereParams({ user: { in: userIds } })}&depth=0&limit=100`,
     );
-    for (const p of profiles.docs) names.set(toId(p.user) ?? "", p.fullName);
+    for (const p of profiles.docs) names.set(relationId(p.user) ?? "", p.fullName);
   }
   return result.docs.map((r) => ({
     id: String(r.id),
-    user_id: toId(r.volunteer) ?? "",
-    full_name: names.get(toId(r.volunteer) ?? "") ?? "Dobrovolník",
+    user_id: relationId(r.volunteer) ?? "",
+    full_name: names.get(relationId(r.volunteer) ?? "") ?? "Dobrovolník",
     created_at: r.createdAt,
   }));
 }
@@ -1053,7 +1050,7 @@ export async function getVolunteerOffersForEvent(eventId: string): Promise<Volun
   >(`/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`);
   return Promise.all(
     result.docs.map(async (r) => {
-      const userId = toId(r.volunteer) ?? "";
+      const userId = relationId(r.volunteer) ?? "";
       const card = await getVolunteerDetail(userId).catch(() => null);
       return {
         id: String(r.id),
@@ -1081,7 +1078,7 @@ export async function getEventIdsUserIsOn(userId: string, eventIds: string[]): P
   const result = await get<PayloadListResponse<{ event: number | { id: number } }>>(
     `/registrations?${where}&depth=0&limit=200`,
   );
-  return new Set(result.docs.map((r) => toId(r.event)!).filter(Boolean));
+  return new Set(result.docs.map((r) => relationId(r.event)!).filter(Boolean));
 }
 
 /** Which of these events the volunteer already has a pending invitation or offer to help for — so
@@ -1096,7 +1093,7 @@ export async function getPendingVolunteerInvitationEventIds(volunteerUserId: str
   const result = await get<PayloadListResponse<{ event: number | { id: number } }>>(
     `/volunteer-invitations?${where}&depth=0&limit=200`,
   );
-  return new Set(result.docs.map((r) => toId(r.event)!).filter(Boolean));
+  return new Set(result.docs.map((r) => relationId(r.event)!).filter(Boolean));
 }
 
 export type VolunteerShiftRow = {
@@ -1139,17 +1136,7 @@ export async function getMyVolunteerShifts(userId: string): Promise<VolunteerShi
 }
 
 /** Display names for a list of user ids (e.g. co-organizers on an event detail page). */
-export async function getFullNamesByUserIds(userIds: string[]): Promise<Map<string, string>> {
-  const names = new Map<string, string>();
-  if (userIds.length === 0) return names;
-  const where = buildWhereParams({ user: { in: userIds } });
-  const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&depth=0&limit=200`);
-  for (const p of result.docs) {
-    const uid = toId(p.user);
-    if (uid) names.set(uid, p.fullName);
-  }
-  return names;
-}
+export const getFullNamesByUserIds = fullNamesByUserIds;
 
 /** An organization that can be invited to co-organize — with its own photo/logo, if it has one. */
 export type CoOrganizerCandidate = OrganizationRef & { avatar_url: string | null };
@@ -1176,7 +1163,7 @@ export async function setOnboardingMunicipality(municipalityId: string): Promise
 
 export async function getMyProfile(userId: string): Promise<ProfileRow | null> {
   const where = buildWhereParams({ user: { equals: userId } });
-  // depth=1 for the avatar's URL; every other relation is read through toId, object or not.
+  // depth=1 for the avatar's URL; every other relation is read through relationId, object or not.
   const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&limit=1&depth=1`);
   return result.docs[0] ? mapProfile(result.docs[0]) : null;
 }
@@ -1239,7 +1226,7 @@ export async function getMyOrganizerRequests(userId: string): Promise<{ id: stri
   return result.docs.map((r) => ({
     id: String(r.id),
     status: r.status,
-    municipality_id: toId(r.municipality)!,
+    municipality_id: relationId(r.municipality)!,
   }));
 }
 
@@ -1319,14 +1306,14 @@ export async function getLatestEventDeletionRequest(eventId: string): Promise<Ev
   const r = result.docs[0];
   if (!r) return null;
   const ids = (v: PayloadEventDeletionRequest["approvers"]) =>
-    (v ?? []).map(toId).filter((x): x is string => Boolean(x));
+    (v ?? []).map(relationId).filter((x): x is string => Boolean(x));
   return {
     id: String(r.id),
     status: r.status,
-    requested_by_id: toId(r.requestedBy)!,
+    requested_by_id: relationId(r.requestedBy)!,
     approver_ids: ids(r.approvers),
     approved_by_ids: ids(r.approvedBy),
-    rejected_by_id: toId(r.rejectedBy ?? null),
+    rejected_by_id: relationId(r.rejectedBy ?? null),
     municipality_consent: Boolean(r.municipalityConsent),
     municipality_approved: Boolean(r.municipalityApprovedBy),
     expires_at: r.expiresAt,
@@ -1400,9 +1387,9 @@ export async function getMyOrganizations(userId: string, administeredMunicipalit
       id: String(o.id),
       name: o.name,
       type: o.type,
-      municipality_id: toId(o.municipality) ?? "",
+      municipality_id: relationId(o.municipality) ?? "",
       municipality_name: typeof o.municipality === "object" ? o.municipality.name : "",
-      is_own: toId(o.owner) === userId,
+      is_own: relationId(o.owner) === userId,
       avatar_url: o.avatarUrl ?? null,
       description: o.description ?? null,
     }))

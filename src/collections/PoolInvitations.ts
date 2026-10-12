@@ -4,18 +4,11 @@ import { APIError } from 'payload'
 import { canCreateForAdministeredMunicipality, canReadOwnOrAdministered, getAdministeredMunicipalityIds } from './access/shared'
 import { escapeHtml, sendNotification } from './shared/notify'
 import { ANONYMOUS_NAME } from './shared/anonymizeUser'
-
-export const POOL_INVITATION_MESSAGE_MAX_LENGTH = 300
-
-/** After a "no", the obec waits this long before asking the same person again. */
-export const POOL_INVITATION_DECLINE_COOLDOWN_DAYS = 30
+import { relationNumber } from '@/lib/relations'
+import { POOL_INVITATION_DECLINE_COOLDOWN_DAYS } from '@/lib/requestDeadlines'
+import { POOL_INVITATION_MESSAGE_MAX_LENGTH } from '@/lib/validation'
 
 const DAY_MS = 24 * 60 * 60 * 1000
-
-const relId = (value: unknown): number | null => {
-  if (value == null) return null
-  return Number(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
 
 /**
  * An obec's admin asks one of its residents to join the volunteer pool. Joining stays the person's
@@ -28,8 +21,8 @@ const validateNewInvitation: CollectionBeforeChangeHook = async ({ data, operati
   const { payload, user } = req
   if (!user) throw new APIError('Nejste přihlášeni.', 401)
 
-  const inviteeId = relId(data.user)
-  const municipalityId = relId(data.municipality)
+  const inviteeId = relationNumber(data.user)
+  const municipalityId = relationNumber(data.municipality)
   if (!inviteeId || !municipalityId) throw new APIError('Chybí, koho a za kterou obec zvete.', 400)
   if (inviteeId === Number(user.id)) throw new APIError('Do poolu se přihlásíte sami v profilu.', 400)
 
@@ -43,7 +36,7 @@ const validateNewInvitation: CollectionBeforeChangeHook = async ({ data, operati
       req,
     })
   ).docs[0]
-  if (!profile || profile.fullName === ANONYMOUS_NAME || relId(profile.municipality) !== municipalityId) {
+  if (!profile || profile.fullName === ANONYMOUS_NAME || relationNumber(profile.municipality) !== municipalityId) {
     throw new APIError('Do poolu můžete zvát jen obyvatele své obce.', 400)
   }
   if (profile.isVolunteer) throw new APIError('Tenhle člověk už v poolu je.', 400)
@@ -97,12 +90,12 @@ const guardDecision: CollectionBeforeChangeHook = async ({ data, operation, orig
   if (!context.acceptingPoolInvitation) {
     const { user, payload } = req
     if (!user) throw new APIError('Nejste přihlášeni.', 401)
-    const invitee = String(relId(originalDoc.user)) === String(user.id)
+    const invitee = String(relationNumber(originalDoc.user)) === String(user.id)
     if (data.status === 'declined') {
       if (!invitee) throw new APIError('Pozvánku může odmítnout jen pozvaný.', 403)
     } else if (data.status === 'withdrawn') {
       const administered = await getAdministeredMunicipalityIds(payload, user.id)
-      if (user.role !== 'admin' && !administered.includes(String(relId(originalDoc.municipality)))) {
+      if (user.role !== 'admin' && !administered.includes(String(relationNumber(originalDoc.municipality)))) {
         throw new APIError('Pozvánku může stáhnout jen obec, která ji poslala.', 403)
       }
     } else {
@@ -130,14 +123,14 @@ const fullNameOf = async (req: Parameters<CollectionAfterChangeHook>[0]['req'], 
 const notifyOnInvitation: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
   try {
     const municipality = await req.payload
-      .findByID({ collection: 'municipalities', id: relId(doc.municipality)!, depth: 0, overrideAccess: true, req })
+      .findByID({ collection: 'municipalities', id: relationNumber(doc.municipality)!, depth: 0, overrideAccess: true, req })
       .catch(() => null)
     const obec = municipality?.name ?? 'Vaše obec'
 
     if (operation === 'create') {
       const note = doc.message ? ` Vzkaz: „${doc.message}“` : ''
       await sendNotification(req.payload, {
-        userId: relId(doc.user)!,
+        userId: relationNumber(doc.user)!,
         title: 'Pozvánka do poolu dobrovolníků',
         link: '/profil',
         message: `Obec ${obec} vás zve do poolu dobrovolníků — pořadatelé by vás pak mohli oslovit, když budou potřebovat pomoc.${note} Přijmout nebo odmítnout ji můžete v profilu.`,
@@ -153,8 +146,8 @@ const notifyOnInvitation: CollectionAfterChangeHook = async ({ doc, previousDoc,
     }
 
     if (operation === 'update' && previousDoc?.status === 'pending' && (doc.status === 'accepted' || doc.status === 'declined')) {
-      const who = (await fullNameOf(req, relId(doc.user))) ?? 'Pozvaný'
-      const inviterId = relId(doc.invitedBy)
+      const who = (await fullNameOf(req, relationNumber(doc.user))) ?? 'Pozvaný'
+      const inviterId = relationNumber(doc.invitedBy)
       if (inviterId) {
         await sendNotification(req.payload, {
           userId: inviterId,

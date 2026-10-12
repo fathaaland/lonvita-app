@@ -5,9 +5,7 @@ import { logger } from '@/lib/logger'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { FeedbackRequestJobData, FeedbackRequestJobResult } from '@/lib/queue/contracts'
-
-const relId = (value: unknown): number | string =>
-  typeof value === 'object' && value !== null ? (value as { id: number }).id : (value as number)
+import { requiredRelationNumber } from '@/lib/relations'
 
 /** Where the notification opens — "Moje akce" with this registration's rating dialog already up
  * (the `hodnotit` param is read by moje-akce/page.tsx). */
@@ -34,7 +32,7 @@ export const processFeedbackRequestJob = async (data: FeedbackRequestJobData): P
   const event = await payload
     .findByID({
       collection: 'events',
-      id: relId(registration.event),
+      id: requiredRelationNumber(registration.event),
       depth: 0,
       overrideAccess: true,
     })
@@ -44,7 +42,7 @@ export const processFeedbackRequestJob = async (data: FeedbackRequestJobData): P
   // Attended — or, on an event with unlimited capacity (no attendance), still signed up at its end.
   if (!mayRateEvent(registration, event)) return skip('not_attended')
 
-  const userId = relId(registration.user)
+  const userId = requiredRelationNumber(registration.user)
   const link = feedbackLink(registration.id)
   const [feedback, alreadyAsked] = await Promise.all([
     payload.count({ collection: 'event-feedback', where: { registration: { equals: registration.id } }, overrideAccess: true }),

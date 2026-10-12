@@ -1,14 +1,10 @@
 import { logger } from '@/lib/logger'
 
+import { BATCH_SIZE, inBatches } from '../runtime/batches'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { SyncStatusesJobResult } from '@/lib/queue/contracts'
 import type { CollectionSlug, Payload, Where } from 'payload'
-
-/** Bounded batches, like the cleanups: a backlog (the worker was down for a week) shouldn't turn
- * into one huge write. Whatever is left past MAX_BATCHES waits for the next run. */
-const BATCH_SIZE = 500
-const MAX_BATCHES = 100
 
 /** An event is over once its end — or, without one, its start — has passed (the same rule as
  * Events' deriveFinishedStatus). Cancelled ones stay cancelled. */
@@ -45,8 +41,7 @@ async function setStatus(
   where: Where,
   status: string,
 ): Promise<number> {
-  let updated = 0
-  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+  return inBatches(async () => {
     const docs = await payload.db.updateMany({
       collection,
       where,
@@ -54,11 +49,8 @@ async function setStatus(
       limit: BATCH_SIZE,
       select: { id: true },
     })
-    const count = docs?.length ?? 0
-    updated += count
-    if (count < BATCH_SIZE) break
-  }
-  return updated
+    return docs?.length ?? 0
+  })
 }
 
 /**

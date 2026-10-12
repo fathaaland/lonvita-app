@@ -36,6 +36,7 @@ import { haversineDistanceKm } from '@/lib/geo/distance'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 import type { Event } from '@/payload-types'
+import { relationId } from '@/lib/relations'
 
 /**
  * Brief §3 "Pravidla pro vznik akcí" — a municipality picks one of two modes
@@ -71,11 +72,6 @@ const canCreateEvent: Access = async ({ req, data }) => {
 
   const organizerIds = await getOrganizerMunicipalityIds(payload, user.id)
   return organizerIds.includes(municipalityId)
-}
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
 }
 
 export type EventOwnership = {

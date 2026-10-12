@@ -7,14 +7,12 @@
 import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
-import type { EventRow, RegistrationRow, CategoryRow, ProfileRow, FeedbackRow } from "@/lib/analytics";
+import { toEventRow } from "@/lib/analytics";
+import type { EventRow, RegistrationRow, CategoryRow, FeedbackRow } from "@/lib/analytics";
 import type { ProfileWithDob } from "@/lib/report";
 import type { OrganizationType } from "@/lib/organizations";
-
-const toId = (value: number | { id: number } | null | undefined): string | null => {
-  if (value == null) return null;
-  return String(typeof value === "object" ? value.id : value);
-};
+import { relationId } from "@/lib/relations";
+import { fullNamesByUserIds } from "./profile-names";
 
 /** Every page of a list, not just the first — the statistics must not quietly stop at a limit. */
 async function getAllDocs<T>(path: string, where: string): Promise<T[]> {
@@ -54,20 +52,7 @@ type PayloadEventAdmin = {
 export async function getMunicipalityEventsForAdmin(municipalityId: string): Promise<EventRow[]> {
   const where = buildWhereParams({ municipality: { equals: municipalityId } });
   const docs = await getAllDocs<PayloadEventAdmin>("/events", where);
-  return docs.map((e) => ({
-    id: String(e.id),
-    title: e.title,
-    date_time: e.dateTime,
-    end_date_time: e.endDateTime ?? null,
-    capacity: e.capacity,
-    status: e.status,
-    category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
-    organizer_id: toId(e.organizer) ?? "",
-    created_at: e.createdAt,
-    is_paid: e.isPaid,
-    price_cents: e.priceCents ?? null,
-    is_volunteering: e.isVolunteering,
-  }));
+  return docs.map(toEventRow);
 }
 
 type PayloadRegistrationAdmin = {
@@ -85,8 +70,8 @@ export async function getRegistrationsForEventIds(eventIds: string[]): Promise<R
   const docs = await getAllForEventIds<PayloadRegistrationAdmin>("/registrations", "event", eventIds);
   return docs.map((r) => ({
     id: String(r.id),
-    event_id: toId(r.event)!,
-    user_id: toId(r.user)!,
+    event_id: relationId(r.event)!,
+    user_id: relationId(r.user)!,
     status: r.status,
     created_at: r.createdAt,
     attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
@@ -109,7 +94,7 @@ export async function getFeedbackForEventIds(eventIds: string[]): Promise<Feedba
   const docs = await getAllForEventIds<PayloadEventFeedbackAdmin>("/event-feedback", "registration.event", eventIds);
   return docs.map((f) => ({
     id: String(f.id),
-    registration_id: toId(f.registration)!,
+    registration_id: relationId(f.registration)!,
     satisfaction_rating: f.satisfactionRating,
     felt_welcome_rating: f.feltWelcomeRating ?? null,
   }));
@@ -136,7 +121,7 @@ export async function getMunicipalityProfilesForAdmin(municipalityId: string): P
   const docs = await getAllDocs<PayloadProfileAdmin>("/profiles", where);
   return docs.map((p) => ({
     id: String(p.id),
-    user_id: toId(p.user) ?? "",
+    user_id: relationId(p.user) ?? "",
     full_name: p.fullName,
     created_at: p.createdAt,
     date_of_birth: p.dateOfBirth ?? null,
@@ -189,23 +174,13 @@ export async function getOrganizerRequestsForAdmin(municipalityId: string): Prom
   const query = buildQuery({ depth: 0, sort: "createdAt", limit: 200 });
   const result = await get<PayloadListResponse<PayloadOrganizerRequestAdmin>>(`/organizer-requests?${where}&${query}`);
 
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
-  }
+  const userIds = result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v));
+  const nameById = await fullNamesByUserIds(userIds);
 
   return result.docs.map((r) => ({
     id: String(r.id),
-    user_id: toId(r.user)!,
-    full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
+    user_id: relationId(r.user)!,
+    full_name: nameById.get(relationId(r.user) ?? "") ?? "Účastník",
     status: r.status as OrganizerRequestAdminRow["status"],
     reason: r.reason ?? null,
     organization_name: r.organizationName ?? null,
@@ -273,21 +248,6 @@ type PayloadCoOrganizingRequest = {
   expiresAt: string;
 };
 
-/** Names behind user ids, from their profiles (anyone without one is left out). */
-async function fullNamesByUserIds(userIds: string[]): Promise<Map<string, string>> {
-  const nameById = new Map<string, string>();
-  if (userIds.length === 0) return nameById;
-  const profileWhere = buildWhereParams({ user: { in: [...new Set(userIds)] } });
-  const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-    `/profiles?${profileWhere}&depth=0&limit=500`,
-  );
-  for (const p of profiles.docs) {
-    const uid = toId(p.user);
-    if (uid) nameById.set(uid, p.fullName);
-  }
-  return nameById;
-}
-
 async function listPendingCoOrganizingRequests(
   filter: Parameters<typeof buildWhereParams>[0],
 ): Promise<CoOrganizingRequestAdminRow[]> {
@@ -300,16 +260,16 @@ async function listPendingCoOrganizingRequests(
   const result = await get<PayloadListResponse<PayloadCoOrganizingRequest>>(`/co-organizing-requests?${where}&${query}`);
 
   const nameById = await fullNamesByUserIds(
-    result.docs.map((r) => toId(r.requestedBy)).filter((v): v is string => Boolean(v)),
+    result.docs.map((r) => relationId(r.requestedBy)).filter((v): v is string => Boolean(v)),
   );
 
   return result.docs.map((r) => ({
     id: String(r.id),
-    event_id: toId(r.event) ?? "",
+    event_id: relationId(r.event) ?? "",
     event_title: r.eventTitle,
     organization_name: r.organizationName,
-    requested_by_name: nameById.get(toId(r.requestedBy) ?? "") ?? "Organizátor",
-    municipality_id: toId(r.municipality)!,
+    requested_by_name: nameById.get(relationId(r.requestedBy) ?? "") ?? "Organizátor",
+    municipality_id: relationId(r.municipality)!,
     created_at: r.createdAt,
     expires_at: r.expiresAt,
   }));
@@ -399,18 +359,18 @@ export async function getEscalatedDeletionRequestsForAdmin(
     `/event-deletion-requests?${where}&${query}`,
   );
   const nameById = await fullNamesByUserIds(
-    result.docs.flatMap((r) => [toId(r.requestedBy), toId(r.rejectedBy ?? null)]).filter((v): v is string => Boolean(v)),
+    result.docs.flatMap((r) => [relationId(r.requestedBy), relationId(r.rejectedBy ?? null)]).filter((v): v is string => Boolean(v)),
   );
   return result.docs.map((r) => {
-    const requesterId = toId(r.requestedBy) ?? "";
+    const requesterId = relationId(r.requestedBy) ?? "";
     const event = r.event && typeof r.event === "object" ? r.event : null;
     return {
       id: String(r.id),
-      event_id: toId(r.event ?? null) ?? "",
+      event_id: relationId(r.event ?? null) ?? "",
       event_title: r.eventTitle,
       requested_by_name: nameById.get(requesterId) ?? "Organizátor",
-      rejected_by_name: nameById.get(toId(r.rejectedBy ?? null) ?? "") ?? "spolupořadatel",
-      requester_is_organizer: Boolean(event && toId(event.organizer) === requesterId),
+      rejected_by_name: nameById.get(relationId(r.rejectedBy ?? null) ?? "") ?? "spolupořadatel",
+      requester_is_organizer: Boolean(event && relationId(event.organizer) === requesterId),
       escalated_at: r.escalatedAt,
       expires_at: r.expiresAt,
     };
@@ -442,36 +402,30 @@ export async function getOrganizersForAdmin(municipalityId: string): Promise<Org
   const query = buildQuery({ depth: 0, sort: "createdAt", limit: 500 });
   const result = await get<PayloadListResponse<PayloadUserRoleAdmin>>(`/user-roles?${where}&${query}`);
 
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
+  const userIds = Array.from(new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))));
+  let nameById = new Map<string, string>();
   const organizationByOwner = new Map<string, { id: string; name: string }>();
   if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
     const organizationWhere = buildWhereParams({ owner: { in: userIds }, municipality: { equals: municipalityId } });
-    const [profiles, organizations] = await Promise.all([
-      get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-        `/profiles?${profileWhere}&depth=0&limit=500`,
-      ),
+    const [names, organizations] = await Promise.all([
+      fullNamesByUserIds(userIds),
       get<PayloadListResponse<{ id: number; name: string; owner?: number | { id: number } | null }>>(
         `/organizations?${organizationWhere}&depth=0&limit=500`,
       ).catch(() => ({ docs: [] })),
     ]);
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
+    nameById = names;
     for (const o of organizations.docs) {
-      const owner = toId(o.owner);
+      const owner = relationId(o.owner);
       if (owner) organizationByOwner.set(owner, { id: String(o.id), name: o.name });
     }
   }
 
   return result.docs.map((r) => {
-    const organization = organizationByOwner.get(toId(r.user) ?? "");
+    const organization = organizationByOwner.get(relationId(r.user) ?? "");
     return {
       id: String(r.id),
-      user_id: toId(r.user)!,
-      full_name: nameById.get(toId(r.user) ?? "") ?? "Organizátor",
+      user_id: relationId(r.user)!,
+      full_name: nameById.get(relationId(r.user) ?? "") ?? "Organizátor",
       organization_id: organization?.id ?? null,
       organization_name: organization?.name ?? null,
     };

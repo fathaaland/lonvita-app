@@ -2,6 +2,9 @@
  * Datum a čas v češtině.
  */
 
+/** The obec's time — what dates are shown and the scheduled jobs run in, whatever the server's clock says. */
+export const APP_TIME_ZONE = "Europe/Prague";
+
 const MONTHS = ["ledna", "února", "března", "dubna", "května", "června",
   "července", "srpna", "září", "října", "listopadu", "prosince"];
 const WEEKDAYS = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"];
@@ -48,7 +51,7 @@ export function toDateInputValue(date: Date | string = new Date()): string {
  * (emails, notifications) where the reader's timezone can't be inferred from their browser. */
 export function formatPragueDateTime(iso: string): string {
   return new Date(iso).toLocaleString("cs-CZ", {
-    timeZone: "Europe/Prague",
+    timeZone: APP_TIME_ZONE,
     day: "numeric",
     month: "numeric",
     year: "numeric",
@@ -58,7 +61,7 @@ export function formatPragueDateTime(iso: string): string {
 }
 
 const PRAGUE_PARTS = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Europe/Prague",
+  timeZone: APP_TIME_ZONE,
   year: "numeric",
   month: "numeric",
   day: "numeric",

@@ -16,15 +16,9 @@ import { escapeHtml, getEventTeamUserIds, getObecDeciders, sendNotification, sen
 import { writeAuditLog } from './shared/auditLog'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
+import { relationId } from '@/lib/relations'
+import { CO_ORGANIZING_INVITATION_HOURS } from '@/lib/requestDeadlines'
 
-/** How long an invited organization has to accept — never past the event's start. Whoever doesn't
- * accept in time isn't on the event; the inviter may invite them again. */
-export const CO_ORGANIZING_INVITATION_HOURS = 24
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
 
 /** The requester, whoever answers for the invited organization (its owner, or for the obec its
  * admins — who also see every invitation in their obec) and a platform admin. */

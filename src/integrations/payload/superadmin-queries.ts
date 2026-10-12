@@ -7,14 +7,12 @@ import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
 import type { OrganizerRequestAdminRow } from "./admin-queries";
+import { toEventRow } from "@/lib/analytics";
 import type { EventRow, RegistrationRow } from "@/lib/analytics";
 import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from "@/lib/report";
 import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
-
-const toId = (value: number | { id: number } | null | undefined): string | null => {
-  if (value == null) return null;
-  return String(typeof value === "object" ? value.id : value);
-};
+import { relationId } from "@/lib/relations";
+import { fullNamesByUserIds } from "./profile-names";
 
 // --- Municipalities ---------------------------------------------------------------------
 
@@ -126,10 +124,10 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
   ]);
 
   const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
-  const profileByUserId = new Map(profilesRes.docs.map((p) => [toId(p.user)!, p]));
+  const profileByUserId = new Map(profilesRes.docs.map((p) => [relationId(p.user)!, p]));
   const rolesByUserId = new Map<string, PayloadUserRoleRaw[]>();
   for (const r of rolesRes.docs) {
-    const uid = toId(r.user)!;
+    const uid = relationId(r.user)!;
     if (!rolesByUserId.has(uid)) rolesByUserId.set(uid, []);
     rolesByUserId.get(uid)!.push(r);
   }
@@ -137,7 +135,7 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
   return usersRes.docs.map((u) => {
     const uid = String(u.id);
     const profile = profileByUserId.get(uid);
-    const homeMuniId = profile ? toId(profile.municipality) : null;
+    const homeMuniId = profile ? relationId(profile.municipality) : null;
     return {
       id: uid,
       email: u.email,
@@ -149,9 +147,9 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
       dateOfBirth: profile?.dateOfBirth ? profile.dateOfBirth.slice(0, 10) : null,
       gender: profile?.gender ?? "neuvedeno",
       phone: profile?.phone ?? null,
-      interestIds: (profile?.interests ?? []).map(toId).filter((v): v is string => Boolean(v)),
+      interestIds: (profile?.interests ?? []).map(relationId).filter((v): v is string => Boolean(v)),
       communityRoles: (rolesByUserId.get(uid) ?? []).map((r) => {
-        const municipalityId = toId(r.municipality)!;
+        const municipalityId = relationId(r.municipality)!;
         return {
           userRoleId: String(r.id),
           role: r.role,
@@ -292,8 +290,8 @@ const toOrganizationRow = (o: PayloadOrganizationRaw): SuperAdminOrganizationRow
   id: String(o.id),
   name: o.name,
   type: o.type,
-  ownerId: toId(o.owner),
-  municipalityId: toId(o.municipality)!,
+  ownerId: relationId(o.owner),
+  municipalityId: relationId(o.municipality)!,
 });
 
 export async function listOrganizationsForSuperAdmin(): Promise<SuperAdminOrganizationRow[]> {
@@ -357,25 +355,15 @@ export async function getAllOrganizerRequestsForSuperAdmin(): Promise<SuperAdmin
   ]);
   const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
 
-  const userIds = Array.from(new Set(result.docs.map((r) => toId(r.user)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
-    for (const p of profiles.docs) {
-      const uid = toId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
-    }
-  }
+  const userIds = result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v));
+  const nameById = await fullNamesByUserIds(userIds);
 
   return result.docs.map((r) => {
-    const municipalityId = toId(r.municipality)!;
+    const municipalityId = relationId(r.municipality)!;
     return {
       id: String(r.id),
-      user_id: toId(r.user)!,
-      full_name: nameById.get(toId(r.user) ?? "") ?? "Účastník",
+      user_id: relationId(r.user)!,
+      full_name: nameById.get(relationId(r.user) ?? "") ?? "Účastník",
       status: r.status as OrganizerRequestAdminRow["status"],
       reason: r.reason ?? null,
       organization_name: r.organizationName ?? null,
@@ -444,22 +432,9 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
   const eventsByMuni = new Map<string, EventRow[]>();
   const eventMuniById = new Map<string, string>();
   for (const e of eventsRes.docs) {
-    const muniId = toId(e.municipality);
+    const muniId = relationId(e.municipality);
     if (!muniId) continue;
-    const row: EventRow = {
-      id: String(e.id),
-      title: e.title,
-      date_time: e.dateTime,
-      end_date_time: e.endDateTime ?? null,
-      capacity: e.capacity,
-      status: e.status,
-      category_ids: (e.categories ?? []).map(toId).filter((v): v is string => Boolean(v)),
-      organizer_id: toId(e.organizer) ?? "",
-      created_at: e.createdAt,
-      is_paid: e.isPaid,
-      price_cents: e.priceCents ?? null,
-      is_volunteering: e.isVolunteering,
-    };
+    const row = toEventRow(e);
     eventMuniById.set(row.id, muniId);
     if (!eventsByMuni.has(muniId)) eventsByMuni.set(muniId, []);
     eventsByMuni.get(muniId)!.push(row);
@@ -467,13 +442,13 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
 
   const regsByMuni = new Map<string, RegistrationRow[]>();
   for (const r of regsRes.docs) {
-    const eventId = toId(r.event);
+    const eventId = relationId(r.event);
     const muniId = eventId ? eventMuniById.get(eventId) : undefined;
     if (!muniId) continue;
     const row: RegistrationRow = {
       id: String(r.id),
       event_id: eventId!,
-      user_id: toId(r.user)!,
+      user_id: relationId(r.user)!,
       status: r.status,
       created_at: r.createdAt,
       attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
@@ -485,11 +460,11 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
 
   const profilesByMuni = new Map<string, ProfileWithDob[]>();
   for (const p of profilesRes.docs) {
-    const muniId = toId(p.municipality);
+    const muniId = relationId(p.municipality);
     if (!muniId) continue;
     const row: ProfileWithDob = {
       id: String(p.id),
-      user_id: toId(p.user) ?? "",
+      user_id: relationId(p.user) ?? "",
       full_name: p.fullName,
       created_at: p.createdAt,
       date_of_birth: p.dateOfBirth ?? null,

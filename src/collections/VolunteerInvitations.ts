@@ -16,11 +16,7 @@ import { isEventCreator } from './Events'
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleParticipantReminder } from './shared/reminders'
 import { notDeleted } from './shared/softDelete'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /** How long a note between the organizer and the volunteer may be. */
 const MESSAGE_MAX_LENGTH = 500

@@ -3,15 +3,11 @@ import type { Payload } from 'payload'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 
 import type { ExportRequest } from './contracts'
+import { relationId } from '@/lib/relations'
 
 type Viewer = { id: number; role?: string | null }
 
 export type AccessResult = 'allowed' | 'forbidden' | 'missing'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
 
 /** The obec's dashboard — its municipality_admin, or a platform admin. */
 export async function canAccessMunicipality(payload: Payload, viewer: Viewer, municipalityId: string): Promise<boolean> {

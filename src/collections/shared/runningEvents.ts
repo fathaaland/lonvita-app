@@ -3,11 +3,7 @@ import type { PayloadRequest, Where } from 'payload'
 import { notYetEnded } from '../Events'
 import { notDeleted } from './softDelete'
 import type { Event } from '@/payload-types'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /** An event the organizer still runs in the obec — as its pořadatel, or through their organization
  * among its spolupořadatelé. */

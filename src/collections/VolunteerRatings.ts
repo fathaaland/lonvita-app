@@ -3,11 +3,7 @@ import { APIError } from 'payload'
 
 import { deletedAtField, notDeleted } from './shared/softDelete'
 import { isUnlimitedCapacity } from '@/lib/capacity'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 const COMMENT_MAX_LENGTH = 500
 

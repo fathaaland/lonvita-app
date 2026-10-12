@@ -5,9 +5,7 @@ import { logger } from '@/lib/logger'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { ExportReadyJobData, ExportReadyJobResult } from '@/lib/queue/contracts'
-
-const relId = (value: unknown): number | string =>
-  typeof value === 'object' && value !== null ? (value as { id: number }).id : (value as number)
+import { requiredRelationNumber } from '@/lib/relations'
 
 /**
  * The fallback half of "dialog polls, notification if you left": runs a minute after the export
@@ -33,7 +31,7 @@ export const processExportReadyJob = async (data: ExportReadyJobData): Promise<E
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
 
   await sendNotification(payload, {
-    userId: relId(record.owner),
+    userId: requiredRelationNumber(record.owner),
     title: 'Report je připraven',
     message: `${label} je připraven ke stažení. Odkaz platí ${EXPORT_RETENTION_DAYS} dní.`,
     link,

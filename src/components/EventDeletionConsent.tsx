@@ -29,6 +29,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { formatEventDateTime } from "@/lib/date";
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from "@/lib/eventCancellation";
+import { DELETION_CONSENT_HOURS } from "@/lib/requestDeadlines";
 
 interface Props {
   eventId: string;
@@ -102,7 +103,7 @@ export function EventDeletionConsent({
     setBusy(true);
     try {
       await requestEventDeletion(eventId);
-      toast.success(`Žádost odeslána. ${obecCoOrganizes ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} 24 hodin na odpověď.`);
+      toast.success(`Žádost odeslána. ${obecCoOrganizes ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} ${DELETION_CONSENT_HOURS} hodin na odpověď.`);
       setAsking(false);
       await load();
     } catch (error) {
@@ -316,7 +317,7 @@ export function EventDeletionConsent({
               <AlertDialogDescription>
                 Akci pořádáte {obecCoOrganizes ? "s obcí" : "se spolupořadateli"}, takže se smaže jen s{" "}
                 {obecCoOrganizes ? "souhlasem obce (a případných dalších spolupořadatelů)" : "jejich souhlasem"}. Dostanou
-                upozornění a mají 24 hodin na odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou
+                upozornění a mají {DELETION_CONSENT_HOURS} hodin na odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou
                 upozornění. Spolupořadatel si také může akci ponechat — vy ji pak opustíte. Když nesouhlasí nebo
                 neodpoví, akce zůstane.
               </AlertDialogDescription>

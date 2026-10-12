@@ -10,6 +10,7 @@ import { Search, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import "leaflet/dist/leaflet.css";
+import { MAP_TILE_ATTRIBUTION, MAP_TILE_URL } from "@/lib/map";
 
 export type PickedLocation = { lat: number; lng: number; label: string };
 
@@ -161,8 +162,8 @@ export function LocationPicker({ value, onChange, initialCenter, existingPoints 
         `}</style>
         <MapContainer center={position} zoom={value ? 15 : 12} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution={MAP_TILE_ATTRIBUTION}
+            url={MAP_TILE_URL}
             maxZoom={19}
           />
           <RecenterOnChange position={position} />

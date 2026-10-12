@@ -6,14 +6,12 @@ import { getWorkerPayload } from '../runtime/payload'
 import { processEmailJob } from './email.processor'
 
 import type { AttendanceReminderJobData, AttendanceReminderJobResult } from '@/lib/queue/contracts'
+import { requiredRelationNumber } from '@/lib/relations'
 
 type DispatchContext = {
   jobId?: string
   attemptsMade?: number
 }
-
-const relId = (value: unknown): number | string =>
-  typeof value === 'object' && value !== null ? (value as { id: number }).id : (value as number)
 
 /**
  * E-mails the organizer the "vyplňte docházku" nudge scheduled by `scheduleAttendanceReminder` —
@@ -62,7 +60,7 @@ export const processAttendanceReminderJob = async (
   if (unmarked.totalDocs === 0) return skip('already_marked')
 
   const organizer = await payload
-    .findByID({ collection: 'users', id: relId(event.organizer), depth: 0, overrideAccess: true })
+    .findByID({ collection: 'users', id: requiredRelationNumber(event.organizer), depth: 0, overrideAccess: true })
     .catch(() => null)
   if (!organizer?.email) return skip('organizer_without_email')
 

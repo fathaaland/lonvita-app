@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { POOL_INVITATION_MESSAGE_MAX_LENGTH } from "@/lib/validation";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const MESSAGE_MAX_LENGTH = 300;
 
 const STATUS_LABELS: Record<PoolInvitationAdminRow["status"], string> = {
   pending: "Čeká na odpověď",
@@ -189,7 +189,7 @@ export function PoolInvitationsCard({ municipalityId }: { municipalityId: string
             <Textarea
               id="pool-invitation-message"
               value={message}
-              onChange={(e) => setMessage(e.target.value.slice(0, MESSAGE_MAX_LENGTH))}
+              onChange={(e) => setMessage(e.target.value.slice(0, POOL_INVITATION_MESSAGE_MAX_LENGTH))}
               placeholder="Např. Hledáme řidiče na odvozy seniorů k lékaři."
               rows={3}
             />

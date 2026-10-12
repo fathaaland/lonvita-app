@@ -6,9 +6,7 @@ import { notDeleted } from '@/collections/shared/softDelete'
 import { canAccessOrganization } from '@/lib/exports/access'
 import { findOrganizationEvents } from '@/lib/organization-feedback'
 import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
-
-const relationId = (value: unknown): number | null =>
-  value == null ? null : typeof value === 'object' ? (value as { id: number }).id : (value as number)
+import { relationNumber } from '@/lib/relations'
 
 /**
  * The individual reviews participants left on the organization's events — the stars and the comment,
@@ -54,7 +52,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   const docs = feedback.docs.flatMap((f) => {
     const registration = typeof f.registration === 'object' ? f.registration : null
-    const event = eventById.get(relationId(registration?.event)!)
+    const event = eventById.get(relationNumber(registration?.event)!)
     if (!event) return []
     const status = statuses.get(String(f.id)) ?? null
     return [

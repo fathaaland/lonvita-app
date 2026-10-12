@@ -7,9 +7,7 @@ import {
   type ReliabilityEntry,
   type ReliabilityRecord,
 } from '@/lib/reliability'
-
-const relId = (value: unknown): string =>
-  String(value && typeof value === 'object' ? (value as { id: unknown }).id : value)
+import { relationKey } from '@/lib/relations'
 
 /**
  * The participants' reliability (lib/reliability), by user id — everyone asked for gets a record.
@@ -52,7 +50,7 @@ export async function loadReliability(
     collection: 'events',
     where: {
       and: [
-        { id: { in: [...new Set(registrations.docs.map((r) => relId(r.event)))] } },
+        { id: { in: [...new Set(registrations.docs.map((r) => relationKey(r.event)))] } },
         { dateTime: { greater_than_equal: reliabilityWindowStart(now).toISOString() } },
       ],
     },
@@ -66,7 +64,7 @@ export async function loadReliability(
 
   const entries = new Map<string, ReliabilityEntry[]>()
   for (const registration of registrations.docs) {
-    const at = startOf.get(relId(registration.event))
+    const at = startOf.get(relationKey(registration.event))
     if (!at) continue
     const kind =
       registration.attendanceStatus === 'attended'
@@ -74,7 +72,7 @@ export async function loadReliability(
         : registration.attendanceStatus === 'no_show'
           ? 'no_show'
           : 'excused'
-    const userId = relId(registration.user)
+    const userId = relationKey(registration.user)
     entries.set(userId, [...(entries.get(userId) ?? []), { kind, at }])
   }
   for (const [userId, list] of entries) records.set(userId, summarizeReliability(list, now))

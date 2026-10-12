@@ -19,9 +19,7 @@ import { notYetEnded, obecRole, releasePlacesOfTeam } from './Events'
 import { notDeleted } from './shared/softDelete'
 import { findRunningEvents } from './shared/runningEvents'
 import type { OrganizationType } from '@/lib/organizations'
-
-const relId = (value: number | { id: number }): number =>
-  typeof value === 'object' ? value.id : value
+import { requiredRelationNumber } from '@/lib/relations'
 
 /** Municipalities.adminUser mirrors the most recently granted "municipality_admin" role for that
  * obec (null once none is left) — the superadmin panel only ever writes user-roles rows, so without
@@ -48,7 +46,7 @@ async function syncMunicipalityAdminUser(
   await req.payload.update({
     collection: 'municipalities',
     id: municipalityId,
-    data: { adminUser: latest.docs[0] ? relId(latest.docs[0].user) : null },
+    data: { adminUser: latest.docs[0] ? requiredRelationNumber(latest.docs[0].user) : null },
     overrideAccess: true,
     context: { skipAdminUserSync: true },
     req,
@@ -62,8 +60,8 @@ async function syncMunicipalityAdminUser(
  */
 const notifyNewAdminOfWaitingRequests: CollectionAfterChangeHook = async ({ doc, previousDoc, req }) => {
   if (doc.role !== 'municipality_admin') return doc
-  const municipalityId = relId(doc.municipality)
-  if (previousDoc?.role === 'municipality_admin' && relId(previousDoc.municipality) === municipalityId) return doc
+  const municipalityId = requiredRelationNumber(doc.municipality)
+  if (previousDoc?.role === 'municipality_admin' && requiredRelationNumber(previousDoc.municipality) === municipalityId) return doc
 
   const now = new Date().toISOString()
   const count = (collection: 'organizer-requests' | 'co-organizing-requests' | 'event-deletion-requests' | 'review-complaints', where: Where[]) =>
@@ -94,7 +92,7 @@ const notifyNewAdminOfWaitingRequests: CollectionAfterChangeHook = async ({ doc,
     .catch(() => null)
   const obec = municipality ? `Obec ${municipality.name}` : 'Obec'
   sendNotification(req.payload, {
-    userId: relId(doc.user),
+    userId: requiredRelationNumber(doc.user),
     title: 'Na vyřízení čekají žádosti',
     link: '/admin-obce?tab=requests',
     message: `${obec} má na vyřízení — ${parts.join(', ')}. Najdete je v Přehledu obce v sekci Žádosti.`,
@@ -135,7 +133,7 @@ const keepLastMunicipalityAdmin: CollectionBeforeOperationHook = async ({ args, 
 
   const removedPerObec = new Map<number, number>()
   for (const role of removing.docs) {
-    const municipalityId = relId(role.municipality)
+    const municipalityId = requiredRelationNumber(role.municipality)
     removedPerObec.set(municipalityId, (removedPerObec.get(municipalityId) ?? 0) + 1)
   }
   for (const [municipalityId, removed] of removedPerObec) {
@@ -176,7 +174,7 @@ const keepRunningEventsOrganized: CollectionBeforeOperationHook = async ({ args,
     req,
   })
   for (const role of removing.docs) {
-    const running = await findRunningEvents(req, relId(role.user), relId(role.municipality))
+    const running = await findRunningEvents(req, requiredRelationNumber(role.user), requiredRelationNumber(role.municipality))
     if (running.length > 0) {
       throw new APIError(
         `Organizátor má v obci ${running.length === 1 ? 'rozjetou akci' : `rozjeté akce (${running.length})`} — roli mu půjde odebrat, až proběhnou, nebo když se zruší.`,
@@ -318,9 +316,9 @@ export const UserRoles: CollectionConfig = {
     afterChange: [
       async ({ doc, previousDoc, req }) => {
         const municipalityIds = new Set<number>()
-        if (doc.role === 'municipality_admin') municipalityIds.add(relId(doc.municipality))
+        if (doc.role === 'municipality_admin') municipalityIds.add(requiredRelationNumber(doc.municipality))
         if (previousDoc?.role === 'municipality_admin')
-          municipalityIds.add(relId(previousDoc.municipality))
+          municipalityIds.add(requiredRelationNumber(previousDoc.municipality))
         for (const municipalityId of municipalityIds) {
           await syncMunicipalityAdminUser(req, municipalityId)
         }
@@ -335,8 +333,8 @@ export const UserRoles: CollectionConfig = {
       async ({ doc, req }) => {
         if (doc.role !== 'municipality_admin') return doc
 
-        const userId = relId(doc.user)
-        const municipalityId = relId(doc.municipality)
+        const userId = requiredRelationNumber(doc.user)
+        const municipalityId = requiredRelationNumber(doc.municipality)
         const profiles = await req.payload.find({
           collection: 'profiles',
           where: { user: { equals: userId } },
@@ -348,7 +346,7 @@ export const UserRoles: CollectionConfig = {
         const profile = profiles.docs[0]
         if (!profile) return doc
 
-        const currentMunicipalityId = profile.municipality == null ? null : relId(profile.municipality)
+        const currentMunicipalityId = profile.municipality == null ? null : requiredRelationNumber(profile.municipality)
         if (currentMunicipalityId !== municipalityId) {
           await req.payload.update({
             collection: 'profiles',
@@ -364,10 +362,10 @@ export const UserRoles: CollectionConfig = {
       // their own place on one that's still ahead goes (Events releasePlacesOfTeam).
       async ({ doc, previousDoc, req }) => {
         if (doc.role !== 'municipality_admin') return doc
-        const municipalityId = relId(doc.municipality)
-        if (previousDoc?.role === 'municipality_admin' && relId(previousDoc.municipality) === municipalityId) return doc
+        const municipalityId = requiredRelationNumber(doc.municipality)
+        if (previousDoc?.role === 'municipality_admin' && requiredRelationNumber(previousDoc.municipality) === municipalityId) return doc
 
-        const userId = relId(doc.user)
+        const userId = requiredRelationNumber(doc.user)
         const [registrations, invitations] = await Promise.all([
           req.payload.find({
             collection: 'registrations',
@@ -388,7 +386,7 @@ export const UserRoles: CollectionConfig = {
             req,
           }),
         ])
-        const eventIds = [...new Set([...registrations.docs, ...invitations.docs].map((r) => relId(r.event)))]
+        const eventIds = [...new Set([...registrations.docs, ...invitations.docs].map((r) => requiredRelationNumber(r.event)))]
         if (eventIds.length === 0) return doc
 
         const events = await req.payload.find({
@@ -422,8 +420,8 @@ export const UserRoles: CollectionConfig = {
       | { name?: string; type?: OrganizationType; description?: string | null }
       | undefined
         await ensureOrganization(req, {
-          owner: relId(doc.user),
-          municipality: relId(doc.municipality),
+          owner: requiredRelationNumber(doc.user),
+          municipality: requiredRelationNumber(doc.municipality),
           name: requested?.name,
           type: requested?.type,
           description: requested?.description,
@@ -441,7 +439,7 @@ export const UserRoles: CollectionConfig = {
           targetId: doc.id,
           municipality:
             typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
-          metadata: { grantedTo: relId(doc.user), role: doc.role },
+          metadata: { grantedTo: requiredRelationNumber(doc.user), role: doc.role },
         })
       },
     ],
@@ -451,16 +449,16 @@ export const UserRoles: CollectionConfig = {
     afterDelete: [
       async ({ doc, req }) => {
         if (doc.role === 'municipality_admin')
-          await syncMunicipalityAdminUser(req, relId(doc.municipality))
+          await syncMunicipalityAdminUser(req, requiredRelationNumber(doc.municipality))
         return doc
       },
       // Someone else took the role away (the obec's admin, or the platform admin) — the holder hears
       // it, rather than finding out from a "Vytvořit" button that's no longer there.
       async ({ doc, req, context }) => {
-        if (context?.accountDeleted || context?.deletingMunicipality || !req.user || String(req.user.id) === String(relId(doc.user))) return
+        if (context?.accountDeleted || context?.deletingMunicipality || !req.user || String(req.user.id) === String(requiredRelationNumber(doc.user))) return
         if (doc.role !== 'organizer' && doc.role !== 'municipality_admin') return
         const municipality = await req.payload
-          .findByID({ collection: 'municipalities', id: relId(doc.municipality), depth: 0, overrideAccess: true, req })
+          .findByID({ collection: 'municipalities', id: requiredRelationNumber(doc.municipality), depth: 0, overrideAccess: true, req })
           .catch(() => null)
         const obec = municipality ? `obci ${municipality.name}` : 'obci'
         const what = doc.role === 'organizer' ? 'roli organizátora' : 'roli admina obce'
@@ -469,7 +467,7 @@ export const UserRoles: CollectionConfig = {
             ? 'Nové akce tam zakládat nemůžete. S dotazy se obraťte na obec.'
             : 'Administraci obce už neuvidíte.'
         sendNotification(req.payload, {
-          userId: relId(doc.user),
+          userId: requiredRelationNumber(doc.user),
           title: doc.role === 'organizer' ? 'Role organizátora odebrána' : 'Role admina obce odebrána',
           link: '/profil',
           message: `V ${obec} vám byla odebrána ${what}. ${after}`,
@@ -488,7 +486,7 @@ export const UserRoles: CollectionConfig = {
           targetId: doc.id,
           municipality:
             typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality,
-          metadata: { revokedFrom: relId(doc.user), role: doc.role },
+          metadata: { revokedFrom: requiredRelationNumber(doc.user), role: doc.role },
         })
       },
     ],

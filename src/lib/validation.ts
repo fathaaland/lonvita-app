@@ -12,6 +12,9 @@ export const isValidPassword = (value: string | null | undefined): value is stri
 export const ORGANIZER_REASON_MIN_LENGTH = 20
 export const ORGANIZER_REASON_MAX_LENGTH = 1000
 
+/** How long the obec's note to someone it invites into the volunteer pool may be. */
+export const POOL_INVITATION_MESSAGE_MAX_LENGTH = 300
+
 /** Bounds for the reason an organizer or volunteer gives when reporting a review to the obec. */
 export const REVIEW_COMPLAINT_REASON_MIN_LENGTH = 10
 export const REVIEW_COMPLAINT_REASON_MAX_LENGTH = 1000

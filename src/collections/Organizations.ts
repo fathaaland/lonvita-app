@@ -23,6 +23,7 @@ import {
   isOrganizationType,
   type OrganizationType,
 } from '@/lib/organizations'
+import { requiredRelationNumber } from '@/lib/relations'
 
 /** The owner renames their own organization; the obec's admins and a platform admin may too. */
 const canUpdateOrganization: Access = async ({ req: { user, payload } }) => {
@@ -35,8 +36,6 @@ const canUpdateOrganization: Access = async ({ req: { user, payload } }) => {
 }
 
 const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } | null } }) => user?.role === 'admin'
-
-const relId = (value: number | { id: number }): number => (typeof value === 'object' ? value.id : value)
 
 const validateOrganization: CollectionBeforeValidateHook = async ({ data, req, operation, originalDoc }) => {
   if (!data) return data
@@ -129,8 +128,8 @@ const syncAvatarUrl: CollectionBeforeChangeHook = async ({ data, req }) => {
  * (ensureOrganization) then finds this organization and leaves it be. Same `req`, same transaction. */
 const grantOrganizerRole: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
   if (operation !== 'create' || !doc.owner) return doc
-  const owner = relId(doc.owner)
-  const municipality = relId(doc.municipality)
+  const owner = requiredRelationNumber(doc.owner)
+  const municipality = requiredRelationNumber(doc.municipality)
   const roles = await req.payload.find({
     collection: 'user-roles',
     where: {
@@ -167,8 +166,8 @@ const grantOrganizerRole: CollectionAfterChangeHook = async ({ doc, operation, r
 const cleanupOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
   const { payload } = req
   const organization = await payload.findByID({ collection: 'organizations', id, depth: 0, overrideAccess: true, req })
-  const owner = organization.owner ? relId(organization.owner) : null
-  const municipality = relId(organization.municipality)
+  const owner = organization.owner ? requiredRelationNumber(organization.owner) : null
+  const municipality = requiredRelationNumber(organization.municipality)
 
   if (organization.type === MUNICIPALITY_ORGANIZATION_TYPE) {
     // It goes only with the obec itself (Municipalities cleanup) — its events go with the obec too.
@@ -203,8 +202,8 @@ const cleanupOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
       collection: 'events',
       id: event.id,
       data: {
-        coOrganizations: (event.coOrganizations ?? []).map(relId).filter((orgId) => orgId !== Number(id)),
-        coOrganizers: (event.coOrganizers ?? []).map(relId).filter((userId) => userId !== owner),
+        coOrganizations: (event.coOrganizations ?? []).map(requiredRelationNumber).filter((orgId) => orgId !== Number(id)),
+        coOrganizers: (event.coOrganizers ?? []).map(requiredRelationNumber).filter((userId) => userId !== owner),
       },
       req,
     })
@@ -368,7 +367,7 @@ export async function municipalityOrganizationIds(
       req,
     })
     for (const id of missing) cache.set(id, null)
-    for (const doc of found.docs) cache.set(String(relId(doc.municipality)), String(doc.id))
+    for (const doc of found.docs) cache.set(String(requiredRelationNumber(doc.municipality)), String(doc.id))
   }
   const result = new Map<string, string>()
   for (const id of municipalityIds.map(String)) {

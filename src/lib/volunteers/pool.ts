@@ -3,6 +3,7 @@ import type { Payload } from 'payload'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
 import type { Profile } from '@/payload-types'
+import { relationNumber } from '@/lib/relations'
 
 type Viewer = { id: number; role?: string | null }
 
@@ -13,9 +14,6 @@ const avatarUrlOf = (media: unknown): string | null =>
   media && typeof media === 'object'
     ? ((media as AvatarMedia).sizes?.avatar?.url ?? (media as AvatarMedia).url ?? null)
     : null
-
-const relId = (value: unknown): number | null =>
-  value == null ? null : typeof value === 'object' ? (value as { id: number }).id : (value as number)
 
 /** One volunteer as organizers see them — on the pool table, the volunteer map and their card.
  * Contact only on the channels the volunteer allowed. */
@@ -65,7 +63,7 @@ export async function ratingsByVolunteer(
   })
   const sums = new Map<number, { sum: number; count: number }>()
   for (const r of ratings.docs) {
-    const id = relId(r.volunteer)!
+    const id = relationNumber(r.volunteer)!
     const s = sums.get(id) ?? { sum: 0, count: 0 }
     sums.set(id, { sum: s.sum + r.rating, count: s.count + 1 })
   }
@@ -99,7 +97,7 @@ export async function helpingOnEvents(payload: Payload, userIds: (number | strin
     collection: 'events',
     where: {
       and: [
-        { id: { in: [...new Set(registrations.docs.map((r) => relId(r.event)))] } },
+        { id: { in: [...new Set(registrations.docs.map((r) => relationNumber(r.event)))] } },
         { status: { not_equals: 'cancelled' } },
         notDeleted,
         {
@@ -116,12 +114,12 @@ export async function helpingOnEvents(payload: Payload, userIds: (number | strin
     overrideAccess: true,
   })
   const ongoing = new Set(events.docs.map((e) => e.id))
-  return new Set(registrations.docs.filter((r) => ongoing.has(relId(r.event)!)).map((r) => String(relId(r.user))))
+  return new Set(registrations.docs.filter((r) => ongoing.has(relationNumber(r.event)!)).map((r) => String(relationNumber(r.user))))
 }
 
 /** Profiles read at depth 1 (avatar, volunteerMunicipality populated) → the volunteers' cards. */
 export async function toVolunteerCards(payload: Payload, profiles: Profile[], viewer: Viewer): Promise<VolunteerCard[]> {
-  const userIds = profiles.map((p) => relId(p.user)!)
+  const userIds = profiles.map((p) => relationNumber(p.user)!)
   const [ratings, administeredIds, helping] = await Promise.all([
     ratingsByVolunteer(payload, userIds),
     viewer.role === 'admin' ? Promise.resolve([] as string[]) : getAdministeredMunicipalityIds(payload, viewer.id),
@@ -129,7 +127,7 @@ export async function toVolunteerCards(payload: Payload, profiles: Profile[], vi
   ])
 
   return profiles.map((p) => {
-    const userId = relId(p.user)!
+    const userId = relationNumber(p.user)!
     const place = typeof p.volunteerMunicipality === 'object' ? p.volunteerMunicipality : null
     return {
       id: String(p.id),

@@ -10,11 +10,7 @@ import { writeAuditLog } from '@/collections/shared/auditLog'
 import { announceRequesterRemoved, removeOrganizerFromEvent } from '@/collections/shared/removeOrganizer'
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { logger, serializeError } from '@/lib/logger'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 const DECISIONS = ['approve', 'reject', 'remove-requester'] as const
 type Decision = (typeof DECISIONS)[number]

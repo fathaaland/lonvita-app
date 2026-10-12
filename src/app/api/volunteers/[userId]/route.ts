@@ -8,9 +8,7 @@ import { notDeleted } from '@/collections/shared/softDelete'
 import { isUnlimitedCapacity } from '@/lib/capacity'
 import { organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
 import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
-
-const relId = (value: unknown): number | null =>
-  value == null ? null : typeof value === 'object' ? (value as { id: number }).id : (value as number)
+import { relationNumber } from '@/lib/relations'
 
 /**
  * A volunteer's card — what organizers look at before inviting someone, and what the volunteer sees
@@ -74,7 +72,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
 
   // Who rated — the organization they run the event as reads better than a person's name, but the
   // name is what we have for everyone; one lookup for all of them.
-  const raterIds = [...new Set(ratings.docs.map((r) => relId(r.ratedBy)!))]
+  const raterIds = [...new Set(ratings.docs.map((r) => relationNumber(r.ratedBy)!))]
   const raters =
     raterIds.length > 0
       ? await payload.find({
@@ -86,9 +84,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
           overrideAccess: true,
         })
       : { docs: [] }
-  const raterName = new Map(raters.docs.map((p) => [relId(p.user), p.fullName]))
+  const raterName = new Map(raters.docs.map((p) => [relationNumber(p.user), p.fullName]))
 
-  const eventIds = registrations.docs.map((r) => relId(r.event)!)
+  const eventIds = registrations.docs.map((r) => relationNumber(r.event)!)
   const events =
     eventIds.length > 0
       ? await payload.find({
@@ -102,7 +100,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
         })
       : { docs: [] }
   const attendedEventIds = new Set(
-    registrations.docs.filter((r) => r.attendanceStatus === 'attended').map((r) => relId(r.event)),
+    registrations.docs.filter((r) => r.attendanceStatus === 'attended').map((r) => relationNumber(r.event)),
   )
   const now = Date.now()
 
@@ -119,9 +117,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
       id: String(r.id),
       rating: r.rating,
       comment: r.comment ?? null,
-      event_id: String(relId(r.event)),
+      event_id: String(relationNumber(r.event)),
       event_title: r.eventTitle,
-      rated_by_name: raterName.get(relId(r.ratedBy)) ?? 'Pořadatel',
+      rated_by_name: raterName.get(relationNumber(r.ratedBy)) ?? 'Pořadatel',
       created_at: r.createdAt,
       complaint_status: complaints.get(String(r.id))?.status ?? null,
       can_complain: complaints.get(String(r.id))?.canComplain ?? false,
@@ -151,7 +149,7 @@ async function reviewComplaintsFor(
     complainantContext(payload, viewer),
     payload.find({
       collection: 'events',
-      where: { id: { in: [...new Set(ratings.map((r) => relId(r.event)!))] } },
+      where: { id: { in: [...new Set(ratings.map((r) => relationNumber(r.event)!))] } },
       depth: 0,
       pagination: false,
       overrideAccess: true,
@@ -160,11 +158,11 @@ async function reviewComplaintsFor(
   const eventById = new Map(events.docs.map((e) => [e.id, e]))
   for (const r of ratings) {
     const status = statuses.get(String(r.id)) ?? null
-    const event = eventById.get(relId(r.event)!)
+    const event = eventById.get(relationNumber(r.event)!)
     const canComplain =
       status === null &&
       event !== undefined &&
-      mayComplainAbout({ type: 'volunteer-rating', event, volunteerId: String(relId(r.volunteer)) }, ctx)
+      mayComplainAbout({ type: 'volunteer-rating', event, volunteerId: String(relationNumber(r.volunteer)) }, ctx)
     result.set(String(r.id), { status, canComplain })
   }
   return result

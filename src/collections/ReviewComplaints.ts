@@ -11,11 +11,7 @@ import {
   type ReviewType,
 } from '@/lib/review-complaints'
 import { REVIEW_COMPLAINT_REASON_MAX_LENGTH, REVIEW_COMPLAINT_REASON_MIN_LENGTH } from '@/lib/validation'
-
-const relationId = (value: unknown): string | null => {
-  if (value == null) return null
-  return String(typeof value === 'object' ? (value as { id: unknown }).id : value)
-}
+import { relationId } from '@/lib/relations'
 
 /**
  * The client names only the review and the reason — everything else is derived from the review and

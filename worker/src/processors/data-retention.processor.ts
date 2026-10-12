@@ -5,16 +5,13 @@ import { recordAuditLog, type WriteAuditLogInput } from '@/collections/shared/au
 import { logger, serializeError } from '@/lib/logger'
 import { daysBefore, hoursBefore, monthsBefore, RETENTION, retentionMode, type RetentionMode } from '@/lib/retention/policy'
 
+import { BATCH_SIZE, MAX_BATCHES } from '../runtime/batches'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { DataRetentionJobResult, DataRetentionStepResult } from '@/lib/queue/contracts'
 import type { SQL } from 'drizzle-orm'
 import type { CollectionSlug, Payload, PayloadRequest } from 'payload'
-
-/** Bounded batches, like the other cleanups — a backlog that built up over months spreads over the
- * following nights instead of turning into one huge transaction. */
-const BATCH_SIZE = 500
-const MAX_BATCHES = 100
+import { relationNumber } from '@/lib/relations'
 
 /** Every delete this job makes passes this — nobody hears about a cancelled event going for good
  * (Events notifyOrganizersOnObecDelete), and the deletion hooks know it isn't a person's doing. */
@@ -91,9 +88,6 @@ const deleteUploads: Step['purge'] = (payload, step, ids) =>
     return deleted.length
   })
 
-const relId = (value: unknown): number | null =>
-  value == null ? null : Number(typeof value === 'object' ? (value as { id: unknown }).id : value)
-
 /** One at a time, each in a transaction of its own: deleting an event runs its cleanup
  * (Events cleanupEventRelations — registrations, invitations, ratings, photos) and takes its cover
  * off S3. Its own entry says what it was, since the row is all there was of it. */
@@ -110,7 +104,7 @@ const deleteEvents: Step['purge'] = async (payload, step, ids) => {
             action: 'events.purge',
             targetCollection: 'events',
             targetId: id,
-            municipality: relId(event.municipality),
+            municipality: relationNumber(event.municipality),
             metadata: { step: step.name, rule: step.rule, title: event.title, dateTime: event.dateTime, cancelledAt: event.deletedAt ?? null },
           },
           { req },
