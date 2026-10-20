@@ -15,7 +15,7 @@ import { Loading } from "@/components/Loading";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { BarChart3, CalendarRange, HandHeart, ClipboardList, Settings } from "lucide-react";
+import { BarChart3, CalendarRange, HandHeart, ClipboardList, Download, Settings } from "lucide-react";
 import { AnalyticsOverview } from "@/components/admin/AnalyticsOverview";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { CommunityReport } from "@/components/admin/CommunityReport";
@@ -23,6 +23,8 @@ import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { PoolInvitationsCard } from "@/components/admin/PoolInvitationsCard";
 import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
+import { ImportPanel } from "@/components/admin/ImportPanel";
+import { countPendingImportCandidates } from "@/integrations/payload/import-queries";
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
 import { UnreadBadge } from "@/components/UnreadBadge";
@@ -40,6 +42,8 @@ function AdminContent() {
   const [rulesForCreation, setRulesForCreation] = useState<RulesForCreation>("approved_organizers");
   const [loading, setLoading] = useState(true);
   const [pendingRequests, setPendingRequests] = useState(0);
+  // Imported events waiting to be taken over (ImportPanel).
+  const [pendingImports, setPendingImports] = useState(0);
   // A notification can open a section straight away — e.g. "?tab=requests" for something waiting
   // on the obec's approval.
   const tabParam = useSearchParams().get("tab");
@@ -68,15 +72,17 @@ function AdminContent() {
     // until the new ones arrive.
     if (targetId !== muniId || !dashboard) setLoading(true);
 
-    const [data, muni, pendingCount] = await Promise.all([
+    const [data, muni, pendingCount, importCount] = await Promise.all([
       getMunicipalityDashboard(targetId, scope),
       getMunicipality(targetId),
       getPendingRequestCountForAdmin(targetId),
+      countPendingImportCandidates(targetId).catch(() => 0),
     ]);
     if (request !== latestLoad.current) return;
 
     setDashboard(data);
     setPendingRequests(pendingCount);
+    setPendingImports(importCount);
     setMuniName(muni?.name ?? "");
     setMuniId(targetId);
     setRulesForCreation(muni?.rules_for_creation ?? "approved_organizers");
@@ -108,7 +114,7 @@ function AdminContent() {
     <div className="animate-fade-in">
       <PageHeader title="Přehled obce" back />
       <div className="px-4 py-5 md:flex md:gap-6 md:items-start">
-        <AdminSideNav value={tab} onChange={setTab} badges={{ requests: pendingRequests }} />
+        <AdminSideNav value={tab} onChange={setTab} badges={{ requests: pendingRequests, import: pendingImports }} />
 
         <div className="flex-1 min-w-0">
           {muniOptions.length > 1 && (
@@ -124,7 +130,7 @@ function AdminContent() {
             </Select>
           )}
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="w-full h-12 grid grid-cols-5 md:hidden">
+            <TabsList className="w-full h-12 grid grid-cols-6 md:hidden">
               <TabsTrigger value="overview" className="gap-1" aria-label="Přehled">
                 <BarChart3 className="h-4 w-4" />
               </TabsTrigger>
@@ -141,6 +147,14 @@ function AdminContent() {
               >
                 <ClipboardList className="h-4 w-4" />
                 <UnreadBadge count={pendingRequests} className="-top-1 right-1" ringClassName="ring-muted" />
+              </TabsTrigger>
+              <TabsTrigger
+                value="import"
+                className="relative gap-1"
+                aria-label={pendingImports > 0 ? `Import akcí, čeká na převzetí: ${pendingImports}` : "Import akcí"}
+              >
+                <Download className="h-4 w-4" />
+                <UnreadBadge count={pendingImports} className="-top-1 right-1" ringClassName="ring-muted" />
               </TabsTrigger>
               <TabsTrigger value="settings" className="gap-1" aria-label="Nastavení">
                 <Settings className="h-4 w-4" />
@@ -200,6 +214,10 @@ function AdminContent() {
 
             <TabsContent value="requests" className="pt-4">
               <RequestsTable key={muniId} municipalityId={muniId} onPendingCountChange={setPendingRequests} />
+            </TabsContent>
+
+            <TabsContent value="import" className="pt-4">
+              {muniId && <ImportPanel key={muniId} municipalityId={muniId} onPendingCountChange={setPendingImports} />}
             </TabsContent>
 
             <TabsContent value="settings" className="pt-4">

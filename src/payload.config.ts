@@ -31,6 +31,8 @@ import { VolunteerInvitations } from './collections/VolunteerInvitations'
 import { VolunteerRatings } from './collections/VolunteerRatings'
 import { ReviewComplaints } from './collections/ReviewComplaints'
 import { PoolInvitations } from './collections/PoolInvitations'
+import { EventSources } from './collections/EventSources'
+import { EventImportCandidates } from './collections/EventImportCandidates'
 import { writeAuditLog } from './collections/shared/auditLog'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError } from './lib/logger'
@@ -127,6 +129,8 @@ export default buildConfig({
     VolunteerRatings,
     ReviewComplaints,
     PoolInvitations,
+    EventSources,
+    EventImportCandidates,
   ].map(withCrudLogging),
   hooks: {
     afterError: [
@@ -199,6 +203,17 @@ export default buildConfig({
           extraConfig: (table) => ({
             // The feed and the obec's overview: one obec's events by date.
             municipalityByDate: index('events_municipality_date_time_idx').on(table.municipality, table.dateTime),
+          }),
+        })
+        extendTable({
+          table: schema.tables.event_import_candidates,
+          extraConfig: (table) => ({
+            // The same event found again on the next pass over its source — or by two imports running
+            // at once — is the one candidate, whatever was decided about it (lib/import/pipeline).
+            oneCandidatePerEvent: uniqueIndex('event_import_candidates_municipality_key_idx').on(
+              table.municipality,
+              table.externalKey,
+            ),
           }),
         })
         extendTable({

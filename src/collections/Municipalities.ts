@@ -115,6 +115,9 @@ const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) =
     'event-deletion-requests',
     'review-complaints',
     'pool-invitations',
+    // Candidates point at the sources — they go first.
+    'event-import-candidates',
+    'event-sources',
     'user-roles',
   ] as const) {
     await payload.delete({ collection, where: ofObec, overrideAccess: true, context, req })

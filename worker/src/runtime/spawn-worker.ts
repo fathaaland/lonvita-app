@@ -34,6 +34,7 @@ export const spawnQueueWorker = (): QueueWorker => {
         dispatchJobByType(job.data, {
           jobId: job.id,
           attemptsMade: job.attemptsMade,
+          attempts: job.opts.attempts,
         }),
       )
     },

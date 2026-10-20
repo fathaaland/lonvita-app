@@ -64,6 +64,22 @@ export type EventFormValues = {
   isHidden: boolean;
 };
 
+/** Starting values for a new event (EventForm `prefill`) — times as the inputs take them, empty when unknown. */
+export type EventFormPrefill = {
+  title: string;
+  description: string;
+  date: string;
+  time: string;
+  endDate: string;
+  endTime: string;
+  location: PickedLocation | null;
+  categoryIds: string[];
+  capacity: number;
+  registrationApprovalMode: "auto" | "manual";
+  isPaid: boolean;
+  priceCzk: number | null;
+};
+
 const toLocalTime = (iso: string) => new Date(iso).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
 
 const chipClass = (active: boolean) =>
@@ -78,6 +94,8 @@ interface Props {
   userId: string;
   /** Present when editing an existing event — prefills every field. */
   initial?: EventRow;
+  /** A new event's starting values — an imported one the admin completes before taking it over. */
+  prefill?: EventFormPrefill;
   municipalityId: string;
   municipalityCenter: [number, number];
   /** The viewer acts for the obec (its admin, or a platform admin) — may take any spolupořadatel off. */
@@ -99,6 +117,7 @@ interface Props {
 export function EventForm({
   userId,
   initial,
+  prefill,
   municipalityId,
   municipalityCenter,
   isObecAdmin,
@@ -109,29 +128,44 @@ export function EventForm({
   onSubmit,
 }: Props) {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
-  const [form, setForm] = useState({
-    title: initial?.title ?? "",
-    description: initial?.description ?? "",
-    date: initial ? toDateInputValue(initial.date_time) : "",
-    time: initial ? toLocalTime(initial.date_time) : "",
-    endDate: initial?.end_date_time ? toDateInputValue(initial.end_date_time) : "",
-    endTime: initial?.end_date_time ? toLocalTime(initial.end_date_time) : "",
-    capacity: String(initial?.capacity ?? 10),
-    priceCzk: initial?.price_cents ? String(initial.price_cents / 100) : "",
-  });
+  const [form, setForm] = useState(
+    !initial && prefill
+      ? {
+          title: prefill.title,
+          description: prefill.description,
+          date: prefill.date,
+          time: prefill.time,
+          endDate: prefill.endDate,
+          endTime: prefill.endTime,
+          capacity: String(prefill.capacity),
+          priceCzk: prefill.priceCzk ? String(prefill.priceCzk) : "",
+        }
+      : {
+          title: initial?.title ?? "",
+          description: initial?.description ?? "",
+          date: initial ? toDateInputValue(initial.date_time) : "",
+          time: initial ? toLocalTime(initial.date_time) : "",
+          endDate: initial?.end_date_time ? toDateInputValue(initial.end_date_time) : "",
+          endTime: initial?.end_date_time ? toLocalTime(initial.end_date_time) : "",
+          capacity: String(initial?.capacity ?? 10),
+          priceCzk: initial?.price_cents ? String(initial.price_cents / 100) : "",
+        },
+  );
   const [location, setLocation] = useState<PickedLocation | null>(
     initial && initial.lat != null && initial.lng != null
       ? { lat: initial.lat, lng: initial.lng, label: initial.location_text }
-      : null,
+      : (prefill?.location ?? null),
   );
-  const [categoryIds, setCategoryIds] = useState<string[]>(initial?.category_ids ?? []);
+  const [categoryIds, setCategoryIds] = useState<string[]>(initial?.category_ids ?? prefill?.categoryIds ?? []);
   const [accessibilityTags, setAccessibilityTags] = useState<string[]>(initial?.accessibility_tags ?? []);
   const [isVolunteering, setIsVolunteering] = useState(Boolean(initial?.is_volunteering));
-  const [isMultiDay, setIsMultiDay] = useState(Boolean(initial?.end_date_time));
-  const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(initial?.registration_approval_mode ?? "manual");
+  const [isMultiDay, setIsMultiDay] = useState(Boolean(initial?.end_date_time ?? prefill?.endDate));
+  const [approvalMode, setApprovalMode] = useState<"auto" | "manual">(
+    initial?.registration_approval_mode ?? prefill?.registrationApprovalMode ?? "manual",
+  );
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
-  const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? 0));
-  const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid));
+  const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? prefill?.capacity ?? 0));
+  const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid ?? prefill?.isPaid));
   const [isHidden, setIsHidden] = useState(Boolean(initial?.is_hidden));
   const [imageId, setImageId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initial?.image_url ?? null);

@@ -1,6 +1,7 @@
 import 'dotenv/config'
 
 import { APP_TIME_ZONE } from '@/lib/date'
+import { SOURCE_SCAN_INTERVAL_HOURS } from '@/lib/import/contracts'
 import { logger } from '@/lib/logger'
 import { JOB_NAMES } from '@/lib/queue/contracts'
 import { getQueue } from '@/lib/queue/queues'
@@ -22,6 +23,8 @@ const SYNC_STATUSES_CRON = '*/15 * * * *'
 /** Data retention (lib/retention/policy.ts) — after the two cleanups, still in the quiet window.
  * Deletes only with DATA_RETENTION_MODE=enforce; until then each night just reports what's due. */
 const DATA_RETENTION_CRON = '0 4 * * *'
+/** Event sources (EventSources) — every SOURCE_SCAN_INTERVAL_HOURS, off the full hour. */
+const SCAN_EVENT_SOURCES_CRON = `20 */${SOURCE_SCAN_INTERVAL_HOURS} * * *`
 
 logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
@@ -83,6 +86,20 @@ logger.info('Data retention schedule registered', {
   pattern: DATA_RETENTION_CRON,
   tz: APP_TIME_ZONE,
   mode: retentionMode(),
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.SCAN_EVENT_SOURCES,
+  { pattern: SCAN_EVENT_SOURCES_CRON, tz: APP_TIME_ZONE },
+  {
+    name: JOB_NAMES.SCAN_EVENT_SOURCES,
+    data: { jobType: JOB_NAMES.SCAN_EVENT_SOURCES, payload: {} },
+  },
+)
+logger.info('Event source scan schedule registered', {
+  event: 'worker.import_schedule_registered',
+  pattern: SCAN_EVENT_SOURCES_CRON,
+  tz: APP_TIME_ZONE,
 })
 
 const worker = spawnQueueWorker()

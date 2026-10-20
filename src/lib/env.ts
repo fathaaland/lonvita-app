@@ -27,6 +27,11 @@ const ENV_VARS: EnvVar[] = [
     required: false,
   },
   {
+    key: 'ANTHROPIC_API_KEY',
+    description: 'Claude API — the worker reads events out of web pages, PDFs and pasted text (iCal and schema.org sources work without it)',
+    required: false,
+  },
+  {
     key: 'DATA_RETENTION_MODE',
     description: 'Worker data retention — "enforce" deletes what is due; unset, it only reports (dry run)',
     required: false,

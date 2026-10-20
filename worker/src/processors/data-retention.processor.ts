@@ -126,6 +126,19 @@ const deleteEvents: Step['purge'] = async (payload, step, ids) => {
  */
 const STEPS: Step[] = [
   {
+    // Imported events found on a source (EventImportCandidates) — once the event itself is long
+    // over, the candidate has nothing left to decide or to keep the source from offering again.
+    name: 'past-import-candidates',
+    collection: 'event-import-candidates',
+    rule: `event started ${RETENTION.decidedRequestDays}+ days ago`,
+    select: (c, afterId, limit) => sql`
+      SELECT r.id FROM event_import_candidates r
+      WHERE r.starts_at < ${c.decidedRequest}::timestamptz
+        AND r.id > ${afterId}
+      ORDER BY r.id LIMIT ${limit}`,
+    purge: deleteRows,
+  },
+  {
     name: 'decided-co-organizing-invitations',
     collection: 'co-organizing-requests',
     rule: `decided or lapsed ${RETENTION.decidedRequestDays}+ days ago, event started`,

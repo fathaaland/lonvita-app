@@ -7,6 +7,7 @@ import {
   CalendarRange,
   HandHeart,
   ClipboardList,
+  Download,
   Settings,
   LucideIcon,
 } from "lucide-react";
@@ -16,6 +17,7 @@ export const ADMIN_NAV: { value: string; label: string; icon: LucideIcon }[] = [
   { value: "events", label: "Akce", icon: CalendarRange },
   { value: "volunteers", label: "Dobrovolníci", icon: HandHeart },
   { value: "requests", label: "Žádosti", icon: ClipboardList },
+  { value: "import", label: "Import akcí", icon: Download },
   { value: "settings", label: "Nastavení", icon: Settings },
 ];
 

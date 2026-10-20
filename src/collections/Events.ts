@@ -565,6 +565,15 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
   return data
 }
 
+/** An event created from an imported candidate (lib/import/approve) remembers where it was taken
+ * from — set from the approval's own `context`, never from the client. */
+const stampImportedFrom: CollectionBeforeChangeHook = ({ data, operation, req }) => {
+  if (operation !== 'create' || !data) return data
+  const importedFrom = req.context?.importedFrom
+  data.importedFrom = typeof importedFrom === 'string' && /^https?:\/\//.test(importedFrom) ? importedFrom : null
+  return data
+}
+
 /** Only resolved for a signed-in viewer — the administered obce it needs are looked up once per
  * request, and the obec's organization only for an admin of the event's obec. */
 const resolveCreatorForViewer: FieldHook = async ({ req, siblingData }) => {
@@ -1355,10 +1364,22 @@ export const Events: CollectionConfig = {
         position: 'sidebar',
       },
     },
+    {
+      // Set once (stampImportedFrom) — never by the client.
+      name: 'importedFrom',
+      type: 'text',
+      access: { create: () => false, update: () => false },
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description: "The page the event was imported from (EventImportCandidates) — shown on the event as its source.",
+      },
+    },
   ],
   hooks: {
     beforeOperation: [guardUpcomingDelete],
     beforeChange: [
+      stampImportedFrom,
       sealCancellation,
       guardCancellationWindow,
       validateEventDates,

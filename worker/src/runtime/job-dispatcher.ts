@@ -10,7 +10,9 @@ import { processEventUpdatedJob } from '../processors/event-updated.processor'
 import { processExportReadyJob } from '../processors/export-ready.processor'
 import { processFeedbackRequestJob } from '../processors/feedback-request.processor'
 import { processGenerateExportJob } from '../processors/generate-export.processor'
+import { processImportEventsJob } from '../processors/import-events.processor'
 import { processPasswordResetJob } from '../processors/password-reset.processor'
+import { processScanEventSourcesJob } from '../processors/scan-event-sources.processor'
 import { processSmsJob } from '../processors/sms.processor'
 import { processSyncStatusesJob } from '../processors/sync-statuses.processor'
 
@@ -25,14 +27,17 @@ import type {
   ExportReadyJobResult,
   FeedbackRequestJobResult,
   GenerateExportJobResult,
+  ImportEventsJobResult,
   PasswordResetJobResult,
   QueueJobEnvelope,
+  ScanEventSourcesJobResult,
   SyncStatusesJobResult,
 } from '@/lib/queue/contracts'
 
 type DispatchContext = {
   jobId?: string
   attemptsMade?: number
+  attempts?: number
 }
 
 type JobResult =
@@ -48,6 +53,8 @@ type JobResult =
   | SyncStatusesJobResult
   | AttendanceReminderJobResult
   | DataRetentionJobResult
+  | ScanEventSourcesJobResult
+  | ImportEventsJobResult
   | void
 
 export const dispatchJobByType = async (
@@ -93,6 +100,12 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.DATA_RETENTION:
       return processDataRetentionJob()
+
+    case JOB_NAMES.SCAN_EVENT_SOURCES:
+      return processScanEventSourcesJob()
+
+    case JOB_NAMES.IMPORT_EVENTS:
+      return processImportEventsJob(job.payload, context)
 
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)

@@ -14,6 +14,7 @@ import type {
   ExportReadyJobData,
   FeedbackRequestJobData,
   GenerateExportJobData,
+  ImportEventsJobData,
   JobName,
   PasswordResetJobData,
   QueueJobEnvelope,
@@ -96,4 +97,8 @@ export async function enqueuePasswordReset(data: PasswordResetJobData, options?:
 
 export async function enqueueAttendanceReminder(data: AttendanceReminderJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.ATTENDANCE_REMINDER, payload: data }, options)
+}
+
+export async function enqueueImportEvents(data: ImportEventsJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.IMPORT_EVENTS, payload: data }, options)
 }

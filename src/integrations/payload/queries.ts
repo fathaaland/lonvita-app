@@ -141,6 +141,8 @@ export type EventRow = {
   deletion_needs_consent: boolean;
   /** The obec stopped co-organizing it — it can never come back to it (leaveCoOrganizingAsObec). */
   obec_left: boolean;
+  /** The page the event was imported from (lib/import), or null for one made in the app. */
+  imported_from: string | null;
   /** Versions the generated share images (eventShareImagePath), so an edit shows up in them. */
   updated_at: string | null;
 };
@@ -184,6 +186,7 @@ type PayloadEvent = {
   deletionNeedsConsent?: boolean | null;
   volunteeringLocked?: boolean | null;
   obecLeftAt?: string | null;
+  importedFrom?: string | null;
   updatedAt?: string;
 };
 
@@ -222,6 +225,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   deletion_needs_consent: Boolean(e.deletionNeedsConsent),
   volunteering_locked: Boolean(e.volunteeringLocked),
   obec_left: Boolean(e.obecLeftAt),
+  imported_from: e.importedFrom ?? null,
   updated_at: e.updatedAt ?? null,
 });
 

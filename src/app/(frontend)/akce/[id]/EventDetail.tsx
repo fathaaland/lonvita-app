@@ -450,6 +450,14 @@ function EventDetailContent() {
         <div>
           <h2 className="text-lg font-bold mb-2">Popis akce</h2>
           <p className="text-base leading-relaxed whitespace-pre-line text-foreground/90">{event.description}</p>
+          {event.imported_from && (
+            <p className="text-sm text-muted-foreground mt-2">
+              Převzato z{" "}
+              <a href={event.imported_from} target="_blank" rel="noopener noreferrer nofollow" className="underline">
+                {new URL(event.imported_from).hostname.replace(/^www\./, "")}
+              </a>
+            </p>
+          )}
         </div>
 
         <div>

@@ -1,3 +1,5 @@
+import type { ImportInput } from '@/lib/import/contracts'
+
 export const QUEUE_NAME = 'lonvita' as const
 
 export const JOB_NAMES = {
@@ -14,6 +16,8 @@ export const JOB_NAMES = {
   SYNC_STATUSES: 'sync-statuses',
   ATTENDANCE_REMINDER: 'attendance-reminder',
   DATA_RETENTION: 'data-retention',
+  SCAN_EVENT_SOURCES: 'scan-event-sources',
+  IMPORT_EVENTS: 'import-events',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -218,6 +222,30 @@ export type AttendanceReminderJobResult = {
 }
 
 /**
+ * Every few hours: queues an IMPORT_EVENTS job for each enabled event source (EventSources).
+ * Enqueued only by the worker's own scheduler.
+ */
+export type ScanEventSourcesJobData = Record<string, never>
+
+export type ScanEventSourcesJobResult = {
+  queued: number
+}
+
+/**
+ * Reads events out of one input — a saved source, a pasted program, an uploaded file — into
+ * EventImportCandidates for the obec's admin to approve (lib/import/pipeline). Carries only what
+ * to read; the file itself waits in S3 (lib/import/storage).
+ */
+export type ImportEventsJobData = ImportInput
+
+export type ImportEventsJobResult = {
+  found: number
+  created: number
+  updated: number
+  skipped?: string
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -239,3 +267,5 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.SYNC_STATUSES; payload: SyncStatusesJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.ATTENDANCE_REMINDER; payload: AttendanceReminderJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.DATA_RETENTION; payload: DataRetentionJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.SCAN_EVENT_SOURCES; payload: ScanEventSourcesJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.IMPORT_EVENTS; payload: ImportEventsJobData } & Traced)

@@ -89,6 +89,8 @@ export interface Config {
     'volunteer-ratings': VolunteerRating;
     'review-complaints': ReviewComplaint;
     'pool-invitations': PoolInvitation;
+    'event-sources': EventSource;
+    'event-import-candidates': EventImportCandidate;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -118,6 +120,8 @@ export interface Config {
     'volunteer-ratings': VolunteerRatingsSelect<false> | VolunteerRatingsSelect<true>;
     'review-complaints': ReviewComplaintsSelect<false> | ReviewComplaintsSelect<true>;
     'pool-invitations': PoolInvitationsSelect<false> | PoolInvitationsSelect<true>;
+    'event-sources': EventSourcesSelect<false> | EventSourcesSelect<true>;
+    'event-import-candidates': EventImportCandidatesSelect<false> | EventImportCandidatesSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -444,6 +448,10 @@ export interface Event {
    * Soft-delete marker — preserves attendance history when an event is removed.
    */
   deletedAt?: string | null;
+  /**
+   * The page the event was imported from (EventImportCandidates) — shown on the event as its source.
+   */
+  importedFrom?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -880,6 +888,90 @@ export interface PoolInvitation {
   createdAt: string;
 }
 /**
+ * Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-sources".
+ */
+export interface EventSource {
+  id: number;
+  municipality: number | Municipality;
+  url: string;
+  label?: string | null;
+  enabled?: boolean | null;
+  createdBy?: (number | null) | User;
+  format?: ('ical' | 'jsonld' | 'html' | 'feed' | 'pdf' | 'image') | null;
+  lastRunAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
+  lastFoundCount?: number | null;
+  consecutiveFailures?: number | null;
+  lastContentHash?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Imported events waiting for the obec admin (docs/import-akci-z-webu.md). Written by the worker, decided via /api/import/candidates.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-import-candidates".
+ */
+export interface EventImportCandidate {
+  id: number;
+  municipality: number | Municipality;
+  source?: (number | null) | EventSource;
+  origin: 'source' | 'text' | 'file';
+  /**
+   * The source address or the uploaded file name.
+   */
+  originLabel?: string | null;
+  /**
+   * Who pasted the text or uploaded the file.
+   */
+  requestedBy?: (number | null) | User;
+  externalKey: string;
+  status: 'pending' | 'approved' | 'rejected';
+  title: string;
+  description?: string | null;
+  startsAt: string;
+  /**
+   * The source states the start time.
+   */
+  timeKnown?: boolean | null;
+  endsAt?: string | null;
+  locationText?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  /**
+   * The event's own page on the source.
+   */
+  detailUrl?: string | null;
+  categories?: (number | EventCategory)[] | null;
+  isPaid?: boolean | null;
+  priceCzk?: number | null;
+  warnings?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * A similar event already in Lonvita.
+   */
+  duplicateOf?: (number | null) | Event;
+  /**
+   * The event created on approval.
+   */
+  event?: (number | null) | Event;
+  decidedBy?: (number | null) | User;
+  decidedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -990,6 +1082,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'pool-invitations';
         value: number | PoolInvitation;
+      } | null)
+    | ({
+        relationTo: 'event-sources';
+        value: number | EventSource;
+      } | null)
+    | ({
+        relationTo: 'event-import-candidates';
+        value: number | EventImportCandidate;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1200,6 +1300,7 @@ export interface EventsSelect<T extends boolean = true> {
   isPaid?: T;
   priceCents?: T;
   deletedAt?: T;
+  importedFrom?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1452,6 +1553,58 @@ export interface PoolInvitationsSelect<T extends boolean = true> {
   invitedBy?: T;
   message?: T;
   status?: T;
+  decidedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-sources_select".
+ */
+export interface EventSourcesSelect<T extends boolean = true> {
+  municipality?: T;
+  url?: T;
+  label?: T;
+  enabled?: T;
+  createdBy?: T;
+  format?: T;
+  lastRunAt?: T;
+  lastSuccessAt?: T;
+  lastError?: T;
+  lastFoundCount?: T;
+  consecutiveFailures?: T;
+  lastContentHash?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "event-import-candidates_select".
+ */
+export interface EventImportCandidatesSelect<T extends boolean = true> {
+  municipality?: T;
+  source?: T;
+  origin?: T;
+  originLabel?: T;
+  requestedBy?: T;
+  externalKey?: T;
+  status?: T;
+  title?: T;
+  description?: T;
+  startsAt?: T;
+  timeKnown?: T;
+  endsAt?: T;
+  locationText?: T;
+  lat?: T;
+  lng?: T;
+  detailUrl?: T;
+  categories?: T;
+  isPaid?: T;
+  priceCzk?: T;
+  warnings?: T;
+  duplicateOf?: T;
+  event?: T;
+  decidedBy?: T;
   decidedAt?: T;
   updatedAt?: T;
   createdAt?: T;
