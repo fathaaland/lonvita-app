@@ -350,6 +350,101 @@ describe('Consents ownership (GDPR foundation, brief §A3)', () => {
   })
 })
 
+describe("Event categories are the platform admin's to manage", () => {
+  let user: { id: number; email: string; role: string }
+  let superadmin: { id: number; email: string; role: string }
+  let category: { id: number; name: string }
+
+  beforeAll(async () => {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+    user = await payload.create({
+      collection: 'users',
+      data: { email: `category-user-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+      overrideAccess: true,
+    })
+    superadmin = await payload.create({
+      collection: 'users',
+      data: { email: `category-admin-${STAMP}@test.local`, password: 'test1234', role: 'admin' },
+      overrideAccess: true,
+    })
+    category = await payload.create({
+      collection: 'event-categories',
+      data: { name: `Category ${STAMP}` },
+      overrideAccess: true,
+    })
+  })
+
+  afterAll(async () => {
+    await payload
+      .delete({
+        collection: 'event-categories',
+        where: { name: { like: `${STAMP}` } },
+        overrideAccess: true,
+      })
+      .catch(() => {})
+    await payload.delete({ collection: 'users', id: user.id, overrideAccess: true }).catch(() => {})
+    await payload
+      .delete({ collection: 'users', id: superadmin.id, overrideAccess: true })
+      .catch(() => {})
+  })
+
+  it('anyone may read them, signed out too', async () => {
+    const result = await payload.find({
+      collection: 'event-categories',
+      where: { id: { equals: category.id } },
+      overrideAccess: false,
+    })
+    expect(result.docs).toHaveLength(1)
+  })
+
+  it('a signed-in user cannot create, rename or delete one', async () => {
+    await expect(
+      payload.create({
+        collection: 'event-categories',
+        data: { name: `Spam ${STAMP}` },
+        user,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+    await expect(
+      payload.update({
+        collection: 'event-categories',
+        id: category.id,
+        data: { name: `Renamed ${STAMP}` },
+        user,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+    await expect(
+      payload.delete({
+        collection: 'event-categories',
+        id: category.id,
+        user,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow()
+
+    const unchanged = await payload.findByID({
+      collection: 'event-categories',
+      id: category.id,
+      overrideAccess: true,
+    })
+    expect(unchanged.name).toBe(category.name)
+  })
+
+  it('a platform admin can', async () => {
+    const renamed = await payload.update({
+      collection: 'event-categories',
+      id: category.id,
+      data: { name: `Admin renamed ${STAMP}` },
+      user: superadmin,
+      overrideAccess: false,
+    })
+    expect(renamed.name).toBe(`Admin renamed ${STAMP}`)
+  })
+})
+
 describe("Volunteer pool fields are the volunteer's own (Profiles)", () => {
   let muniA: { id: number }
   let muniB: { id: number }

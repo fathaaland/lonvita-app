@@ -1,6 +1,7 @@
 import type { CollectionConfig } from 'payload'
 
-import { isLoggedIn } from './access/shared'
+const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } | null } }) =>
+  user?.role === 'admin'
 
 export const EventCategories: CollectionConfig = {
   slug: 'event-categories',
@@ -14,9 +15,12 @@ export const EventCategories: CollectionConfig = {
   },
   access: {
     read: () => true,
-    create: isLoggedIn,
-    update: isLoggedIn,
-    delete: isLoggedIn,
+    // One list for the whole platform — every event and profile points at it. Nothing in the app
+    // writes it (the seed goes through the Local API); renaming or removing a category is the
+    // platform admin's call, never any signed-in user's.
+    create: platformAdminOnly,
+    update: platformAdminOnly,
+    delete: platformAdminOnly,
   },
   fields: [
     {
