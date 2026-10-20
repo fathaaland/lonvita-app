@@ -35,6 +35,7 @@ import * as migration_20261011_120000_normalize_profile_phones from './20261011_
 import * as migration_20261011_200000_data_retention_audit_log from './20261011_200000_data_retention_audit_log';
 import * as migration_20261012_123737_schema_cleanup from './20261012_123737_schema_cleanup';
 import * as migration_20261012_125500_roles_and_recurrence_cleanup from './20261012_125500_roles_and_recurrence_cleanup';
+import * as migration_20261020_210404_event_import from './20261020_210404_event_import';
 
 export const migrations = [
   {
@@ -221,5 +222,10 @@ export const migrations = [
     up: migration_20261012_125500_roles_and_recurrence_cleanup.up,
     down: migration_20261012_125500_roles_and_recurrence_cleanup.down,
     name: '20261012_125500_roles_and_recurrence_cleanup',
+  },
+  {
+    up: migration_20261020_210404_event_import.up,
+    down: migration_20261020_210404_event_import.down,
+    name: '20261020_210404_event_import',
   },
 ];
