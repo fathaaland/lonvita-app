@@ -57,9 +57,10 @@ export const looksLikeIcal = (text: string): boolean => /^\s*BEGIN:VCALENDAR/i.t
 /**
  * The upcoming events of an iCalendar feed (Google Calendar's "secret address in iCal format", an
  * Outlook publish link, a WordPress calendar plugin's export). A recurring event is spelled out into
- * its single dates over the next IMPORT_LIMITS.recurrenceDaysAhead days.
+ * its single dates over the next IMPORT_LIMITS.recurrenceDaysAhead days. Nothing starting after
+ * `until` (default: IMPORT_LIMITS.horizonDays ahead).
  */
-export function parseIcal(text: string, now: Date = new Date()): ExtractedEvent[] {
+export function parseIcal(text: string, now: Date = new Date(), until?: string): ExtractedEvent[] {
   const root = new ICAL.Component(ICAL.parse(text))
   for (const vtimezone of root.getAllSubcomponents('vtimezone')) {
     try {
@@ -70,7 +71,7 @@ export function parseIcal(text: string, now: Date = new Date()): ExtractedEvent[
   }
 
   const today = pragueToday(now)
-  const horizon = addDays(today, IMPORT_LIMITS.horizonDays)
+  const horizon = until ?? addDays(today, IMPORT_LIMITS.horizonDays)
   const recurrenceHorizon = addDays(today, IMPORT_LIMITS.recurrenceDaysAhead)
   const events: ExtractedEvent[] = []
 

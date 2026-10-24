@@ -19,7 +19,7 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
 }))
 
 import { approveCandidate, rejectCandidate } from '@/lib/import/approve'
-import { IMPORT_USER_AGENT, type ExtractedEvent } from '@/lib/import/contracts'
+import { IMPORT_LIMITS, IMPORT_USER_AGENT, type ExtractedEvent } from '@/lib/import/contracts'
 import {
   ImportFetchError,
   isAllowedByRobots,
@@ -185,6 +185,12 @@ describe('Import — reading events out of a source', () => {
 
     expect(events.some((e) => e.title === 'Už proběhla')).toBe(false)
     expect(events.find((e) => e.title === 'Zrušená beseda')?.cancelled).toBe(true)
+
+    // A source's window: nothing starting after its last day.
+    const windowed = parseIcal(ics, new Date(), inDays(6))
+    expect(windowed.some((e) => e.title === 'Koncert v kostele')).toBe(true)
+    expect(windowed.some((e) => e.title === 'Výstava obrazů')).toBe(false)
+    expect(windowed.every((e) => e.start.date <= inDays(6))).toBe(true)
   })
 
   it('reads schema.org Events a page declares, nested in @graph too', () => {
@@ -625,7 +631,13 @@ describe('Import — candidates, approval and access', () => {
       fetchUrl: async (url, options) => {
         asked.push(options?.validators ?? null)
         if (options?.validators?.etag === '"v1"') {
-          return { url, contentType: '', body: Buffer.alloc(0), notModified: true, validators: options.validators }
+          return {
+            url,
+            contentType: '',
+            body: Buffer.alloc(0),
+            notModified: true,
+            validators: options.validators,
+          }
         }
         return {
           url,
@@ -636,7 +648,11 @@ describe('Import — candidates, approval and access', () => {
       },
       extractWithAi: ai,
     })
-    const first = await readUrl('https://obec.test/beseda', { aiContext: context.aiContext }, fakeDeps)
+    const first = await readUrl(
+      'https://obec.test/beseda',
+      { aiContext: context.aiContext },
+      fakeDeps,
+    )
     expect(first.validators).toEqual({ etag: '"v1"', lastModified: null })
     expect(ai).toHaveBeenCalledTimes(1)
 
@@ -901,6 +917,53 @@ describe('Import — candidates, approval and access', () => {
     expect(afterFailure.consecutiveFailures).toBe(1)
   })
 
+  it("a source is read only a few weeks ahead — the AI isn't asked for later events, nor are they kept", async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec.test/kalendar-na-pul-roku' },
+      overrideAccess: true,
+    })
+    try {
+      const askedUntil: (string | undefined)[] = []
+      const result = await processImportEventsJob(
+        { kind: 'source', sourceId: source.id, trigger: 'weekly' },
+        {},
+        deps({
+          fetchUrl: async (url) => ({
+            url,
+            contentType: 'text/html',
+            body: Buffer.from('<html><body><p>Program akcí na celý rok</p></body></html>'),
+          }),
+          extractWithAi: async (_input, context) => {
+            askedUntil.push(context.until)
+            // A model that ignored the window — what it wrote beyond it still isn't kept.
+            return [
+              event({ title: 'Blízký koncert', start: { date: inDays(10), time: '18:00' } }),
+              event({ title: 'Podzimní ples', start: { date: inDays(60), time: '20:00' } }),
+            ]
+          },
+        }),
+      )
+      expect(askedUntil).toEqual([inDays(IMPORT_LIMITS.sourceWindowDays)])
+      expect(result).toMatchObject({ created: 1 })
+      const kept = await payload.find({
+        collection: 'event-import-candidates',
+        where: { source: { equals: source.id } },
+        depth: 0,
+        overrideAccess: true,
+      })
+      expect(kept.docs.map((c) => c.title)).toEqual(['Blízký koncert'])
+    } finally {
+      await payload
+        .delete({
+          collection: 'event-import-candidates',
+          where: { source: { equals: source.id } },
+          overrideAccess: true,
+        })
+        .catch(() => {})
+    }
+  })
+
   it('every run is on the record, and every AI call on the obec’s usage ledger — up to its monthly cap', async () => {
     const source = await payload.create({
       collection: 'event-sources',
@@ -1034,11 +1097,26 @@ describe('Import — candidates, approval and access', () => {
         deps(),
       )
     const ples = (o: Partial<ExtractedEvent> = {}) =>
-      event({ title: 'Hasičský ples', externalId: 'ples@obec', start: { date: inDays(30), time: '20:00' }, ...o })
+      event({
+        title: 'Hasičský ples',
+        externalId: 'ples@obec',
+        start: { date: inDays(30), time: '20:00' },
+        ...o,
+      })
     const trh = (o: Partial<ExtractedEvent> = {}) =>
-      event({ title: 'Farmářský trh', externalId: 'trh@obec', start: { date: inDays(31), time: '08:00' }, ...o })
+      event({
+        title: 'Farmářský trh',
+        externalId: 'trh@obec',
+        start: { date: inDays(31), time: '08:00' },
+        ...o,
+      })
     const besidka = (o: Partial<ExtractedEvent> = {}) =>
-      event({ title: 'Vánoční besídka', externalId: 'besidka@obec', start: { date: inDays(32), time: '16:00' }, ...o })
+      event({
+        title: 'Vánoční besídka',
+        externalId: 'besidka@obec',
+        start: { date: inDays(32), time: '16:00' },
+        ...o,
+      })
     const ofSource = async () =>
       new Map(
         (
@@ -1056,8 +1134,10 @@ describe('Import — candidates, approval and access', () => {
 
     expect((await pass([ples(), trh(), besidka()])).created).toBe(3)
     let found = await ofSource()
-    const plesEvent = (await approveCandidate(payload, admin, found.get('Hasičský ples')!.id)).eventId
-    const trhEvent = (await approveCandidate(payload, admin, found.get('Farmářský trh')!.id)).eventId
+    const plesEvent = (await approveCandidate(payload, admin, found.get('Hasičský ples')!.id))
+      .eventId
+    const trhEvent = (await approveCandidate(payload, admin, found.get('Farmářský trh')!.id))
+      .eventId
     const besidkaEvent = (await approveCandidate(payload, admin, found.get('Vánoční besídka')!.id))
       .eventId
     // The obec moves the market's start in Lonvita by hand.
@@ -1087,7 +1167,9 @@ describe('Import — candidates, approval and access', () => {
     expect((await eventOf(besidkaEvent)).status).toBe('active')
     found = await ofSource()
     expect(found.size).toBe(3)
-    expect(found.get('Farmářský trh')!.syncNotices).toEqual([{ code: 'changed', fields: ['start'] }])
+    expect(found.get('Farmářský trh')!.syncNotices).toEqual([
+      { code: 'changed', fields: ['start'] },
+    ])
     expect(found.get('Vánoční besídka')!.syncNotices).toEqual([{ code: 'cancelled_at_source' }])
     expect(found.get('Hasičský ples')!.syncNeedsReview).toBe(false)
 
@@ -1104,7 +1186,10 @@ describe('Import — candidates, approval and access', () => {
 
     // The besídka drops out of the calendar, which still lists the days around it — after two passes
     // the obec is told; the event stays.
-    const later = [ples({ start: { date: inDays(33), time: '19:00' } }), trh({ start: { date: inDays(31), time: '07:30' } })]
+    const later = [
+      ples({ start: { date: inDays(33), time: '19:00' } }),
+      trh({ start: { date: inDays(31), time: '07:30' } }),
+    ]
     expect((await pass(later)).needsReview).toBe(0)
     expect((await pass(later)).needsReview).toBe(1)
     found = await ofSource()

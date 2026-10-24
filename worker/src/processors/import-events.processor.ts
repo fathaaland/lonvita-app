@@ -2,10 +2,11 @@ import type { Payload } from 'payload'
 
 import { getMunicipalityAdminUserIds, sendNotificationToMany } from '@/collections/shared/notify'
 import { ImportAiError } from '@/lib/import/ai'
-import { isFullPass, isImportFileType, type SourceTrigger } from '@/lib/import/contracts'
+import { IMPORT_LIMITS, isFullPass, isImportFileType, type SourceTrigger } from '@/lib/import/contracts'
 import { ImportFetchError } from '@/lib/import/fetch'
 import { defaultImportDeps, ImportReadError, loadImportContext, readUrl, storeCandidates, type ImportDeps } from '@/lib/import/pipeline'
 import { deleteImportFile, downloadImportFile } from '@/lib/import/storage'
+import { addDays, pragueToday } from '@/lib/import/time'
 import { emptyTotals, isOverAiBudget, meterAi, type UsageTotals } from '@/lib/import/usage'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId, relationNumber } from '@/lib/relations'
@@ -121,15 +122,19 @@ async function processSource(
     { overBudget: await isOverAiBudget(payload, municipalityId, now), totals },
   )
 
+  // Only the next weeks (IMPORT_LIMITS.sourceWindowDays) — each pass takes what came into the window.
+  const until = addDays(pragueToday(now), IMPORT_LIMITS.sourceWindowDays)
+  const aiContext = { ...importContext.aiContext, until }
+
   try {
     const read = await readUrl(
       source.url,
       // A full pass reads the page whether it changed or not.
       isFullPass(trigger)
-        ? { aiContext: importContext.aiContext }
+        ? { aiContext }
         : {
             previousHash: source.lastContentHash,
-            aiContext: importContext.aiContext,
+            aiContext,
             previous: {
               format: source.format,
               validators: { etag: source.etag ?? null, lastModified: source.lastModified ?? null },
@@ -148,6 +153,7 @@ async function processSource(
             originLabel: source.url,
             sourceId: source.id,
             requestedBy: null,
+            until,
             fullPass: isFullPass(trigger),
             format: read.format,
           },

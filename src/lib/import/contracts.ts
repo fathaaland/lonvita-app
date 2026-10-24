@@ -138,8 +138,13 @@ export const IMPORT_LIMITS = {
   aiMonthlyBudgetUsd: 5,
   /** How far ahead a recurring schedule is spelled out into single dates. */
   recurrenceDaysAhead: 60,
-  /** How far ahead events are taken at all. */
+  /** How far ahead a pasted program or an uploaded file is taken — the admin brought all of it. */
   horizonDays: 365,
+  /** How far ahead a source's events are taken on each pass. A sliding window: the weekly full pass
+   * adds the week that just came into it, so a calendar months ahead comes in a week at a time —
+   * still about three to four weeks before each event — and the AI never writes out (pays output
+   * tokens for) what lies beyond it. */
+  sourceWindowDays: 28,
 } as const
 
 export const IMPORT_FILE_TYPES = [

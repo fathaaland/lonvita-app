@@ -66,7 +66,10 @@ import { addDays, pragueToday, pragueWallTimeToIso } from './time'
  */
 
 export type ImportDeps = {
-  fetchUrl: (url: string, options?: { validators?: HttpValidators | null }) => Promise<FetchedResource>
+  fetchUrl: (
+    url: string,
+    options?: { validators?: HttpValidators | null },
+  ) => Promise<FetchedResource>
   extractWithAi: (input: AiInput, context: AiContext) => Promise<ExtractedEvent[]>
   extractDetailsWithAi: typeof extractEventDetailsWithAi
   aiAvailable: () => boolean
@@ -181,7 +184,7 @@ async function readResource(
   const text = decodeBody(resource)
   if (looksLikeIcal(text)) {
     return {
-      events: parseIcal(text, deps.now()),
+      events: parseIcal(text, deps.now(), aiContext.until),
       format: 'ical',
       contentHash: contentHash(text),
       unchanged: false,
@@ -210,7 +213,7 @@ async function readResource(
     try {
       const calendar = decodeBody(await deps.fetchUrl(feed))
       if (!looksLikeIcal(calendar)) continue
-      fromFeeds.push(...parseIcal(calendar, deps.now()))
+      fromFeeds.push(...parseIcal(calendar, deps.now(), aiContext.until))
       feedRead = true
     } catch (error) {
       logger.info('Embedded calendar not readable', {
@@ -248,6 +251,9 @@ export type StoreInput = {
   originLabel: string | null
   sourceId: number | null
   requestedBy: number | null
+  /** The last day events are taken up to — a source's window (IMPORT_LIMITS.sourceWindowDays).
+   * Unset: IMPORT_LIMITS.horizonDays. */
+  until?: string
   /** The weekly or a hand-started pass — taken-over events are checked on their own pages too. */
   fullPass?: boolean
   /** What the source was read as — a calendar's titles are exact enough to sync (lib/import/sync). */
@@ -361,7 +367,7 @@ export async function storeCandidates(
 ): Promise<StoreResult> {
   const now = deps.now()
   const nowIso = now.toISOString()
-  const horizon = addDays(pragueToday(now), IMPORT_LIMITS.horizonDays)
+  const horizon = input.until ?? addDays(pragueToday(now), IMPORT_LIMITS.horizonDays)
   const { municipality } = input
   const result: StoreResult = { created: 0, updated: 0, createdIds: [], synced: 0, needsReview: 0 }
 
@@ -427,7 +433,10 @@ export async function storeCandidates(
       ? findCandidates({ sourceRef: { in: [...refCount.keys()] } })
       : Promise.resolve({ docs: [] }),
     findCandidates({
-      and: [{ startsAt: { greater_than_equal: earliest } }, { startsAt: { less_than_equal: latest } }],
+      and: [
+        { startsAt: { greater_than_equal: earliest } },
+        { startsAt: { less_than_equal: latest } },
+      ],
     }),
     payload.find({
       collection: 'event-categories',
