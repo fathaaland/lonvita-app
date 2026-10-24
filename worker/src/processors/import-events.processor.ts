@@ -22,7 +22,6 @@ type DispatchContext = {
 }
 
 const IMPORT_LINK = '/admin-obce?tab=import'
-const ORGANIZER_IMPORT_LINK = '/import'
 
 /** A failure the source or the input causes — said to the owner, not retried. */
 const isExpected = (error: unknown) =>
@@ -37,7 +36,6 @@ const countLabel = (n: number) => (n === 1 ? '1 novou akci' : n >= 2 && n <= 4 ?
 
 type RunStart = {
   municipality: number
-  organization: number | null
   source: number | null
   trigger: SourceTrigger | 'text' | 'file'
   requestedBy: number | null
@@ -85,17 +83,9 @@ async function finishRun(payload: Payload, runId: number | null, end: RunEnd, to
     )
 }
 
-/** Who looks after what a source brings: the obec's admins, or the organizer who owns its organization. */
-async function ownersOf(payload: Payload, source: { municipality: unknown; organization?: unknown }) {
-  const organizationId = relationId(source.organization)
-  if (!organizationId) {
-    return { userIds: await getMunicipalityAdminUserIds(payload, relationNumber(source.municipality)!), link: IMPORT_LINK }
-  }
-  const organization = await payload
-    .findByID({ collection: 'organizations', id: organizationId, depth: 0, overrideAccess: true })
-    .catch(() => null)
-  const ownerId = relationId(organization?.owner)
-  return { userIds: ownerId ? [ownerId] : [], link: ORGANIZER_IMPORT_LINK }
+/** Who looks after what a source brings: the obec's admins. */
+async function ownersOf(payload: Payload, source: { municipality: unknown }) {
+  return { userIds: await getMunicipalityAdminUserIds(payload, relationNumber(source.municipality)!), link: IMPORT_LINK }
 }
 
 async function processSource(
@@ -109,24 +99,25 @@ async function processSource(
     .findByID({ collection: 'event-sources', id: data.sourceId, depth: 0, overrideAccess: true })
     .catch(() => null)
   if (!source || !source.enabled) return { found: 0, created: 0, updated: 0, skipped: 'source_gone_or_disabled' }
+  // An organizer's source from before import became the obec's alone (collections/access/import).
+  if (relationId(source.organization)) return { found: 0, created: 0, updated: 0, skipped: 'organizer_source' }
   const municipalityId = relationNumber(source.municipality)!
   const importContext = await loadImportContext(payload, municipalityId)
   if (!importContext) return { found: 0, created: 0, updated: 0, skipped: 'municipality_gone' }
 
   const now = deps.now()
   const runAt = now.toISOString()
-  const organizationId = relationNumber(source.organization)
   const requestedBy = relationNumber(data.requestedBy)
   const runId = await startRun(
     payload,
-    { municipality: municipalityId, organization: organizationId, source: source.id, trigger, requestedBy, jobId: context.jobId },
+    { municipality: municipalityId, source: source.id, trigger, requestedBy, jobId: context.jobId },
     now,
   )
   const totals = emptyTotals()
   const metered = meterAi(
     deps,
     payload,
-    { municipality: municipalityId, organization: organizationId, user: requestedBy, eventSource: source.id, importRun: runId },
+    { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
     { overBudget: await isOverAiBudget(payload, municipalityId, now), totals },
   )
 
@@ -157,7 +148,6 @@ async function processSource(
             originLabel: source.url,
             sourceId: source.id,
             requestedBy: null,
-            organizationId,
             fullPass: isFullPass(trigger),
             format: read.format,
           },
@@ -252,7 +242,7 @@ async function processManual(
   const requestedBy = Number(data.requestedBy)
   const runId = await startRun(
     payload,
-    { municipality: municipalityId, organization: null, source: null, trigger: data.kind, requestedBy, jobId: context.jobId },
+    { municipality: municipalityId, source: null, trigger: data.kind, requestedBy, jobId: context.jobId },
     now,
   )
   const totals = emptyTotals()

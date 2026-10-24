@@ -1,15 +1,15 @@
-"use client";
+'use client'
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext";
-import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
-import { LonvitaLogo } from "@/components/LonvitaLogo";
-import { UnreadBadge, unreadLabel } from "@/components/UnreadBadge";
-import { SignOutButton } from "@/components/SignOutButton";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { Bell, LogOut } from "lucide-react";
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useAuth } from '@/contexts/AuthContext'
+import { useUnreadNotificationCount } from '@/hooks/useUnreadNotificationCount'
+import { LonvitaLogo } from '@/components/LonvitaLogo'
+import { UnreadBadge, unreadLabel } from '@/components/UnreadBadge'
+import { SignOutButton } from '@/components/SignOutButton'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { Bell, LogOut } from 'lucide-react'
 
 /**
  * Horní navigace zobrazená pouze na "wide" stránkách (Admin, Manage)
@@ -25,13 +25,13 @@ export function TopNav() {
     creatableMunicipalityIds,
     viewingMunicipalityId,
     profile,
-  } = useAuth();
-  const pathname = usePathname();
-  const unreadCount = useUnreadNotificationCount();
+  } = useAuth()
+  const pathname = usePathname()
+  const unreadCount = useUnreadNotificationCount()
 
   // The /superadmin panel IS the entire app for a platform superadmin — no other section
   // to navigate to, so no top bar at all (it has its own header with a logout action).
-  if (!user || isSuperAdmin) return null;
+  if (!user || isSuperAdmin) return null
 
   // `viewingMunicipalityId` is the obec the home page's switcher is currently browsing — not
   // necessarily one this admin/organizer actually holds a role in (brief §"uživatel není vázaný
@@ -42,23 +42,21 @@ export function TopNav() {
   // organizers (Events canCreateEvent).
   const canCreateHere =
     creatableMunicipalityIds.length > 0 &&
-    (viewingMunicipalityId == null || creatableMunicipalityIds.includes(viewingMunicipalityId));
+    (viewingMunicipalityId == null || creatableMunicipalityIds.includes(viewingMunicipalityId))
   const canManageObecHere =
-    viewingMunicipalityId == null || administeredMunicipalityIds.includes(viewingMunicipalityId);
+    viewingMunicipalityId == null || administeredMunicipalityIds.includes(viewingMunicipalityId)
 
   const links: { to: string; label: string; end?: boolean }[] = [
-    { to: "/", label: "Domů", end: true },
-    { to: "/moje-akce", label: "Moje akce" },
-    ...(isOrganizer && canCreateHere ? [{ to: "/vytvorit", label: "Vytvořit" }] : []),
-    ...(isAdmin && canManageObecHere ? [{ to: "/admin-obce", label: "Přehled obce" }] : []),
+    { to: '/', label: 'Domů', end: true },
+    { to: '/moje-akce', label: 'Moje akce' },
+    ...(isOrganizer && canCreateHere ? [{ to: '/vytvorit', label: 'Vytvořit' }] : []),
+    ...(isAdmin && canManageObecHere ? [{ to: '/admin-obce', label: 'Přehled obce' }] : []),
     // The organization they run events as — the obec's own one for its admin.
-    ...(isOrganizer ? [{ to: "/organizace", label: "Organizace" }] : []),
-    // The calendars on their own web the events are taken over from (an obec admin's: in Přehled obce).
-    ...(isOrganizer ? [{ to: "/import", label: "Import akcí" }] : []),
+    ...(isOrganizer ? [{ to: '/organizace', label: 'Organizace' }] : []),
     // Their own card in the volunteer pool — there only while they're in it.
-    ...(profile?.is_volunteer ? [{ to: `/dobrovolnik/${user.id}`, label: "Dobrovolník" }] : []),
-    { to: "/profil", label: "Profil" },
-  ];
+    ...(profile?.is_volunteer ? [{ to: `/dobrovolnik/${user.id}`, label: 'Dobrovolník' }] : []),
+    { to: '/profil', label: 'Profil' },
+  ]
 
   return (
     <header className="hidden sm:block sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
@@ -68,27 +66,27 @@ export function TopNav() {
         </Link>
         <nav className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
           {links.map((l) => {
-            const isActive = l.end ? pathname === l.to : pathname.startsWith(l.to);
+            const isActive = l.end ? pathname === l.to : pathname.startsWith(l.to)
             return (
               <Link
                 key={l.to}
                 href={l.to}
                 className={cn(
-                  "px-3 py-2 rounded-md text-sm font-semibold whitespace-nowrap transition-colors",
+                  'px-3 py-2 rounded-md text-sm font-semibold whitespace-nowrap transition-colors',
                   isActive
-                    ? "bg-brand-purple-pale text-brand-purple-dark"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                    ? 'bg-brand-purple-pale text-brand-purple-dark'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted',
                 )}
               >
                 {l.label}
               </Link>
-            );
+            )
           })}
         </nav>
         <Link
           href="/oznameni"
           className="relative h-9 w-9 rounded-md inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          aria-label={unreadCount > 0 ? `Oznámení, ${unreadLabel(unreadCount)}` : "Oznámení"}
+          aria-label={unreadCount > 0 ? `Oznámení, ${unreadLabel(unreadCount)}` : 'Oznámení'}
         >
           <Bell className="h-5 w-5" />
           <UnreadBadge count={unreadCount} className="-top-1 -right-1.5" />
@@ -101,5 +99,5 @@ export function TopNav() {
         </SignOutButton>
       </div>
     </header>
-  );
+  )
 }

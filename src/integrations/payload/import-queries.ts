@@ -4,16 +4,14 @@ import type { ImportWarning, SyncNotice } from '@/lib/import/contracts'
 import { relationId } from '@/lib/relations'
 
 /** Importing events from obce's websites, files and pasted programs (docs/import-akci-z-webu.md).
- * Everything belongs to an obec, or — with `organizationId` — to an organizer's organization
- * (collections/access/import). */
+ * Everything belongs to an obec (collections/access/import). */
 
 type WhereClause = Parameters<typeof buildWhereParams>[0]
 
-/** The obec's own records, or the organization's. */
-const ownerWhere = (municipalityId: string, organizationId?: string | null): WhereClause =>
-  organizationId
-    ? { organization: { equals: organizationId } }
-    : { municipality: { equals: municipalityId }, organization: { exists: false } }
+/** The obec's records. */
+const ownerWhere = (municipalityId: string): WhereClause => ({
+  municipality: { equals: municipalityId },
+})
 
 export type ImportSourceRow = {
   id: string
@@ -51,11 +49,8 @@ const mapSource = (s: PayloadSource): ImportSourceRow => ({
   last_found_count: s.lastFoundCount ?? null,
 })
 
-export async function listImportSources(
-  municipalityId: string,
-  organizationId?: string | null,
-): Promise<ImportSourceRow[]> {
-  const where = buildWhereParams(ownerWhere(municipalityId, organizationId))
+export async function listImportSources(municipalityId: string): Promise<ImportSourceRow[]> {
+  const where = buildWhereParams(ownerWhere(municipalityId))
   const result = await get<PayloadListResponse<PayloadSource>>(
     `/event-sources?${where}&${buildQuery({ depth: 0, limit: 50, sort: 'createdAt' })}`,
   )
@@ -65,11 +60,10 @@ export async function listImportSources(
 export async function addImportSource(
   municipalityId: string,
   url: string,
-  { label, organizationId }: { label?: string; organizationId?: string | null } = {},
+  { label }: { label?: string } = {},
 ): Promise<ImportSourceRow> {
   const doc = await post<PayloadSource>('/event-sources', {
     municipality: Number(municipalityId),
-    ...(organizationId ? { organization: Number(organizationId) } : {}),
     url,
     label: label?.trim() || undefined,
     // The form asks first: the web is theirs, or its operator lets them take events from it.
@@ -172,9 +166,9 @@ const mapCandidate = (c: PayloadCandidate): ImportCandidateRow => ({
   municipality_id: relationId(c.municipality)!,
 })
 
-const pendingWhere = (municipalityId: string, organizationId?: string | null) =>
+const pendingWhere = (municipalityId: string) =>
   buildWhereParams({
-    ...ownerWhere(municipalityId, organizationId),
+    ...ownerWhere(municipalityId),
     status: { equals: 'pending' },
     startsAt: { greater_than: new Date().toISOString() },
   })
@@ -182,20 +176,16 @@ const pendingWhere = (municipalityId: string, organizationId?: string | null) =>
 /** The obec's candidates still waiting for a decision whose start is ahead, soonest first. */
 export async function listPendingImportCandidates(
   municipalityId: string,
-  organizationId?: string | null,
 ): Promise<ImportCandidateRow[]> {
   const result = await get<PayloadListResponse<PayloadCandidate>>(
-    `/event-import-candidates?${pendingWhere(municipalityId, organizationId)}&${buildQuery({ depth: 0, limit: 300, sort: 'startsAt' })}`,
+    `/event-import-candidates?${pendingWhere(municipalityId)}&${buildQuery({ depth: 0, limit: 300, sort: 'startsAt' })}`,
   )
   return result.docs.map(mapCandidate)
 }
 
-export async function countPendingImportCandidates(
-  municipalityId: string,
-  organizationId?: string | null,
-): Promise<number> {
+export async function countPendingImportCandidates(municipalityId: string): Promise<number> {
   const result = await get<PayloadListResponse<{ id: number }>>(
-    `/event-import-candidates?${pendingWhere(municipalityId, organizationId)}&${buildQuery({ depth: 0, limit: 1 })}`,
+    `/event-import-candidates?${pendingWhere(municipalityId)}&${buildQuery({ depth: 0, limit: 1 })}`,
   )
   return result.totalDocs
 }
@@ -285,12 +275,9 @@ type PayloadSyncCandidate = {
   noticedAt?: string | null
 }
 
-export async function listSyncNotices(
-  municipalityId: string,
-  organizationId?: string | null,
-): Promise<ImportSyncRow[]> {
+export async function listSyncNotices(municipalityId: string): Promise<ImportSyncRow[]> {
   const where = buildWhereParams({
-    ...ownerWhere(municipalityId, organizationId),
+    ...ownerWhere(municipalityId),
     status: { equals: 'approved' },
     syncNeedsReview: { equals: true },
   })

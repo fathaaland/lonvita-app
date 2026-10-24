@@ -5,44 +5,24 @@ import { relationId } from '@/lib/relations'
 import { getAdministeredMunicipalityIds } from './shared'
 
 /**
- * Everything about importing events (EventSources, EventImportCandidates, ImportRuns) belongs either
- * to an obec — its admins look after it and take events over as the obec — or to an organizer's
- * organization, whose owner takes them over as the organizer. Neither sees the other's: an obec's
- * admin doesn't decide what the café's calendar brings. A platform admin sees all of it.
+ * Everything about importing events (EventSources, EventImportCandidates, ImportRuns) belongs to an
+ * obec — its admins look after it and take events over as the obec. Organizers don't import: what
+ * the obec's calendar brings is the obec's business. A platform admin sees all of it.
+ *
+ * Records still carrying an `organization` (organizers' sources from before) belong to no obec
+ * admin — they wait for the migration that removes them.
  */
-
-/** Organizations the user owns (and hasn't had deleted). */
-export async function getOwnedOrganizationIds(
-  payload: Payload,
-  userId: number | string,
-): Promise<string[]> {
-  const result = await payload.find({
-    collection: 'organizations',
-    where: { and: [{ owner: { equals: userId } }, { deletedAt: { exists: false } }] },
-    select: {},
-    depth: 0,
-    limit: 50,
-    overrideAccess: true,
-  })
-  return result.docs.map((doc) => String(doc.id))
-}
 
 export const canAccessImportRecords: Access = async ({ req }) => {
   const { user, payload } = req
   if (!user) return false
   if (user.role === 'admin') return true
-  const [administered, owned] = await Promise.all([
-    getAdministeredMunicipalityIds(payload, user.id),
-    getOwnedOrganizationIds(payload, user.id),
-  ])
-  const or: Where[] = []
-  if (administered.length > 0) {
-    or.push({
-      and: [{ municipality: { in: administered } }, { organization: { exists: false } }],
-    })
+  const administered = await getAdministeredMunicipalityIds(payload, user.id)
+  if (administered.length === 0) return false
+  const where: Where = {
+    and: [{ municipality: { in: administered } }, { organization: { exists: false } }],
   }
-  if (owned.length > 0) or.push({ organization: { in: owned } })
-  return or.length > 0 ? { or } : false
+  return where
 }
 
 /** The single-record form: whether `user` looks after what belongs to `owner`. */
@@ -52,9 +32,7 @@ export async function mayManageImport(
   owner: { municipality: unknown; organization?: unknown },
 ): Promise<boolean> {
   if (user.role === 'admin') return true
-  const organizationId = relationId(owner.organization)
-  if (organizationId)
-    return (await getOwnedOrganizationIds(payload, user.id)).includes(organizationId)
+  if (relationId(owner.organization)) return false
   const municipalityId = relationId(owner.municipality)
   return (
     Boolean(municipalityId) &&

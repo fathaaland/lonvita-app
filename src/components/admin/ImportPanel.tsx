@@ -360,19 +360,16 @@ function SyncRow({ row, onDecided }: { row: ImportSyncRow; onDecided: () => void
 }
 
 /**
- * "Import akcí" (docs/import-akci-z-webu.md) — of an obec (its dashboard) or, with `organizationId`,
- * of an organizer's organization (the /import page): the web pages and calendars its events are
- * read from each night, the events found — none of which reaches Lonvita until the owner takes it
- * over — and the taken-over ones whose source changed in a way the import left to the owner. An
- * obec also imports from pasted text or a file.
+ * "Import akcí" (docs/import-akci-z-webu.md) of an obec, in its dashboard: the web pages and
+ * calendars its events are read from each night, the events found — none of which reaches Lonvita
+ * until an admin takes it over — and the taken-over ones whose source changed in a way the import
+ * left to the admins. The obec also imports from pasted text or a file.
  */
 export function ImportPanel({
   municipalityId,
-  organizationId,
   onPendingCountChange,
 }: {
   municipalityId: string
-  organizationId?: string | null
   onPendingCountChange?: (n: number) => void
 }) {
   const [sources, setSources] = useState<ImportSourceRow[]>([])
@@ -389,16 +386,16 @@ export function ImportPanel({
 
   const load = useCallback(async () => {
     const [s, c, r] = await Promise.all([
-      listImportSources(municipalityId, organizationId),
-      listPendingImportCandidates(municipalityId, organizationId),
-      listSyncNotices(municipalityId, organizationId),
+      listImportSources(municipalityId),
+      listPendingImportCandidates(municipalityId),
+      listSyncNotices(municipalityId),
     ])
     setSources(s)
     setCandidates(c)
     setSyncRows(r)
     onPendingCountChange?.(c.length + r.length)
     setLoading(false)
-  }, [municipalityId, organizationId, onPendingCountChange])
+  }, [municipalityId, onPendingCountChange])
 
   useEffect(() => {
     load().catch(() => setLoading(false))
@@ -421,7 +418,7 @@ export function ImportPanel({
     if (!url.trim() || !consent) return
     setBusy('source')
     try {
-      await addImportSource(municipalityId, url.trim(), { organizationId })
+      await addImportSource(municipalityId, url.trim())
       setUrl('')
       setConsent(false)
       toast.success('Zdroj přidán — prochází se, nové akce se tu objeví za chvíli.')
@@ -491,12 +488,11 @@ export function ImportPanel({
             <p className="font-bold">Zdroje akcí</p>
           </div>
           <p className="text-sm text-muted-foreground">
-            {organizationId
-              ? 'Vložte odkaz na stránku, kde zveřejňujete svůj program akcí — kalendář na vašem webu nebo veřejný Google Kalendář.'
-              : 'Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář.'}{' '}
-            Lonvita ji každou noc zkontroluje, jednou týdně projde celou a nové akce vám nabídne k
-            převzetí. Akce, které už jste převzali, upraví podle webu, pokud jste je v Lonvitě
-            neměnili. Facebook projít nejde.
+            Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí —
+            třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář. Lonvita ji každou noc
+            zkontroluje, jednou týdně projde celou a nové akce vám nabídne k převzetí. Akce, které
+            už jste převzali, upraví podle webu, pokud jste je v Lonvitě neměnili. Facebook projít
+            nejde.
           </p>
           <form onSubmit={addSource} className="space-y-2">
             <div className="flex gap-2">
@@ -534,49 +530,47 @@ export function ImportPanel({
         </CardContent>
       </Card>
 
-      {!organizationId && (
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Type className="h-5 w-5 text-primary" />
-              <p className="font-bold">Jednorázový import</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Program, který na webu není — z e-mailu, zpravodaje, plakátu. Vložte text, nebo
-              nahrajte PDF či fotku (do 4 MB).
-            </p>
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              maxLength={IMPORT_LIMITS.textMaxChars}
-              placeholder="Např. „So 14. 11. v 19:00 – Martinská zábava, sokolovna, vstupné 150 Kč…“"
-              className="min-h-28"
-              aria-label="Text programu"
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Type className="h-5 w-5 text-primary" />
+            <p className="font-bold">Jednorázový import</p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Program, který na webu není — z e-mailu, zpravodaje, plakátu. Vložte text, nebo nahrajte
+            PDF či fotku (do 4 MB).
+          </p>
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={IMPORT_LIMITS.textMaxChars}
+            placeholder="Např. „So 14. 11. v 19:00 – Martinská zábava, sokolovna, vstupné 150 Kč…“"
+            className="min-h-28"
+            aria-label="Text programu"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={submitText} disabled={busy === 'text' || text.trim().length < 20}>
+              Načíst akce z textu
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => fileInput.current?.click()}
+              disabled={busy === 'file'}
+              className="gap-2"
+            >
+              <FileUp className="h-4 w-4" />
+              {busy === 'file' ? 'Nahrávám…' : 'Nahrát PDF nebo fotku'}
+            </Button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => submitFile(e.target.files?.[0])}
             />
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={submitText} disabled={busy === 'text' || text.trim().length < 20}>
-                Načíst akce z textu
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => fileInput.current?.click()}
-                disabled={busy === 'file'}
-                className="gap-2"
-              >
-                <FileUp className="h-4 w-4" />
-                {busy === 'file' ? 'Nahrávám…' : 'Nahrát PDF nebo fotku'}
-              </Button>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="application/pdf,image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={(e) => submitFile(e.target.files?.[0])}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </CardContent>
+      </Card>
 
       {syncRows.length > 0 && (
         <Card>

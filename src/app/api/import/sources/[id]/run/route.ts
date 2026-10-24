@@ -10,7 +10,7 @@ import { consumeRateLimit } from '@/lib/security/rate-limit'
 
 /**
  * Reads an event source now instead of at the next scheduled pass — "Projít teď" next to it.
- * For whoever looks after the source (access/import) — the obec's admin or the organizer.
+ * For the obec's admin who looks after the source (access/import).
  *
  * POST /api/import/sources/:id/run → { queued: true }
  */

@@ -1,12 +1,11 @@
 import type {
-  Access,
   CollectionAfterChangeHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
 } from 'payload'
 import { APIError } from 'payload'
 
-import { canAccessImportRecords, getOwnedOrganizationIds } from './access/import'
+import { canAccessImportRecords } from './access/import'
 import { canCreateForAdministeredMunicipality } from './access/shared'
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
@@ -17,23 +16,10 @@ import { relationId } from '@/lib/relations'
 
 const SOURCE_URL_MAX_LENGTH = 2000
 
-/** An obec's admin adds sources for the obec; an organizer for their own organization. */
-const canCreateSource: Access = async (args) => {
-  const { user, payload } = args.req
-  if (!user) return false
-  if (user.role === 'admin') return true
-  const organizationId = relationId(
-    (args.data as { organization?: unknown } | undefined)?.organization,
-  )
-  if (organizationId)
-    return (await getOwnedOrganizationIds(payload, user.id)).includes(organizationId)
-  return canCreateForAdministeredMunicipality()(args)
-}
-
-/** The client names the owner (the obec, or an organization — whose obec it then is), the address,
- * a label, and confirms the web is theirs or they may take events from it — the rest is the
- * system's. The address must be a public web address (fetch normalizeSourceUrl), once per owner, and
- * an owner keeps at most IMPORT_LIMITS.sourcesPerMunicipality / sourcesPerOrganization of them. */
+/** The client names the obec, the address, a label, and confirms the web is theirs or they may take
+ * events from it — the rest is the system's. The address must be a public web address (fetch
+ * normalizeSourceUrl), once per obec, and an obec keeps at most IMPORT_LIMITS.sourcesPerMunicipality
+ * of them. */
 const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (operation !== 'create' || !data) return data
   const raw = typeof data.url === 'string' ? data.url : ''
@@ -53,30 +39,14 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
     )
   }
 
-  const organizationId = relationId(data.organization)
-  let municipalityId = relationId(data.municipality)
-  if (organizationId) {
-    const organization = await req.payload
-      .findByID({
-        collection: 'organizations',
-        id: organizationId,
-        depth: 0,
-        overrideAccess: true,
-        req,
-      })
-      .catch(() => null)
-    if (!organization || organization.deletedAt) throw new APIError('Organizace neexistuje.', 400)
-    municipalityId = relationId(organization.municipality)
-  }
+  const municipalityId = relationId(data.municipality)
   if (!municipalityId) throw new APIError('Chybí obec.', 400)
 
   const existing = await req.payload.find({
     collection: 'event-sources',
-    where: organizationId
-      ? { organization: { equals: organizationId } }
-      : {
-          and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }],
-        },
+    where: {
+      and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }],
+    },
     select: { url: true },
     depth: 0,
     pagination: false,
@@ -84,20 +54,14 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
     req,
   })
   if (existing.docs.some((s) => s.url === url)) throw new APIError('Tenhle zdroj už máte.', 400)
-  const limit = organizationId
-    ? IMPORT_LIMITS.sourcesPerOrganization
-    : IMPORT_LIMITS.sourcesPerMunicipality
+  const limit = IMPORT_LIMITS.sourcesPerMunicipality
   if (existing.docs.length >= limit) {
-    throw new APIError(
-      `${organizationId ? 'Organizace' : 'Obec'} může mít nejvýš ${limit} zdrojů akcí.`,
-      400,
-    )
+    throw new APIError(`Obec může mít nejvýš ${limit} zdrojů akcí.`, 400)
   }
 
   const label = typeof data.label === 'string' ? data.label.trim().slice(0, 120) : ''
   return {
     municipality: Number(municipalityId),
-    organization: organizationId ? Number(organizationId) : null,
     url,
     label: label || new URL(url).hostname.replace(/^www\./, ''),
     enabled: data.enabled !== false,
@@ -119,11 +83,7 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
       targetId: doc.id,
       municipality: Number(relationId(doc.municipality)),
       // The owner's word that they may take events from the web — kept with who gave it.
-      metadata: {
-        url: doc.url,
-        organization: relationId(doc.organization),
-        ownerConsent: Boolean(doc.ownerConsentAt),
-      },
+      metadata: { url: doc.url, ownerConsent: Boolean(doc.ownerConsentAt) },
     })
   }
   if ((operation === 'create' && doc.enabled) || switchedOn) {
@@ -148,6 +108,9 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
 }
 
 const systemField = { create: () => false, update: () => false }
+/** Organizers' sources from before import became the obec's alone — nothing sets it any more, and a
+ * migration removes it. */
+const retiredField = { ...systemField, read: () => false }
 const hiddenSystemField = {
   read: ({ req }: { req: { user?: { role?: string } | null } }) => req.user?.role === 'admin',
   create: () => false,
@@ -156,7 +119,7 @@ const hiddenSystemField = {
 
 /**
  * A page events are read from — the obec's own web calendar, the cultural centre's program, a public
- * Google Calendar — kept by an obec, or by an organizer for their organization (access/import). The
+ * Google Calendar — kept by an obec, looked after by its admins (access/import). The
  * worker checks every enabled one each night and reads it through once a week (and right after it's
  * added); what it finds waits for the owner in EventImportCandidates, and events already taken over
  * from it are kept in step with it (lib/import/sync).
@@ -169,13 +132,13 @@ export const EventSources: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'label',
-    defaultColumns: ['label', 'municipality', 'organization', 'enabled', 'lastRunAt', 'lastError'],
+    defaultColumns: ['label', 'municipality', 'enabled', 'lastRunAt', 'lastError'],
     description:
-      "Web pages and calendars an obec's or organizer's events are imported from (docs/import-akci-z-webu.md).",
+      "Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).",
   },
   access: {
     read: canAccessImportRecords,
-    create: canCreateSource,
+    create: canCreateForAdministeredMunicipality(),
     update: canAccessImportRecords,
     delete: canAccessImportRecords,
   },
@@ -189,12 +152,12 @@ export const EventSources: CollectionConfig = {
       access: { update: () => false },
     },
     {
-      // An organizer's source — events go in as theirs. Empty: the obec's own.
       name: 'organization',
       type: 'relationship',
       relationTo: 'organizations',
       index: true,
-      access: { update: () => false },
+      access: retiredField,
+      admin: { hidden: true },
     },
     // Fixed once added — a different address is a different source.
     {

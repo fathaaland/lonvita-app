@@ -1112,7 +1112,7 @@ describe('Import — candidates, approval and access', () => {
     expect((await eventOf(besidkaEvent)).status).toBe('active')
   })
 
-  it("an organizer's own calendar is theirs — its events wait for them and go in as theirs", async () => {
+  it("import is the obec's alone — an organizer neither adds sources nor sees or takes over candidates", async () => {
     const organizer = await payload.create({
       collection: 'users',
       data: { email: `import-organizer-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -1135,91 +1135,80 @@ describe('Import — candidates, approval and access', () => {
       overrideAccess: true,
     })
     try {
-      // Not someone else's organization.
-      await expect(
-        payload.create({
-          collection: 'event-sources',
-          data: {
-            organization: cafe.id,
-            url: 'https://kavarna.test/program',
-            ownerConsent: true,
-          } as never,
-          user: admin,
-          overrideAccess: false,
-        }),
-      ).rejects.toThrow()
-      const source = await payload.create({
-        collection: 'event-sources',
-        data: {
-          organization: cafe.id,
-          url: 'https://kavarna.test/program',
-          ownerConsent: true,
-        } as never,
-        user: organizer,
-        overrideAccess: false,
-      })
-      expect(relationNumber(source.municipality)).toBe(obec.id)
-
-      const context = (await loadImportContext(payload, obec.id))!
-      // The obec's own calendar lists the same concert — each owner gets their own candidate.
-      const concert = event({ title: 'Jazz v kavárně', start: { date: inDays(18), time: '20:00' } })
-      for (const organizationId of [cafe.id, null]) {
-        const stored = await storeCandidates(
-          payload,
-          {
-            municipality: context.municipality,
-            events: [concert],
-            origin: 'source',
-            originLabel: source.url,
-            sourceId: source.id,
-            requestedBy: null,
-            organizationId,
-          },
-          deps(),
-        )
-        expect(stored.created).toBe(1)
+      for (const data of [
+        { municipality: obec.id, url: 'https://kavarna.test/program', ownerConsent: true },
+        { organization: cafe.id, url: 'https://kavarna.test/program', ownerConsent: true },
+      ]) {
+        await expect(
+          payload.create({
+            collection: 'event-sources',
+            data: data as never,
+            user: organizer,
+            overrideAccess: false,
+          }),
+        ).rejects.toThrow()
       }
 
-      const seenByOrganizer = await payload.find({
-        collection: 'event-import-candidates',
-        where: { title: { equals: 'Jazz v kavárně' } },
-        user: organizer,
-        overrideAccess: false,
+      const context = (await loadImportContext(payload, obec.id))!
+      const stored = await storeCandidates(
+        payload,
+        {
+          municipality: context.municipality,
+          events: [event({ title: 'Jazz v kavárně', start: { date: inDays(18), time: '20:00' } })],
+          origin: 'text',
+          originLabel: null,
+          sourceId: null,
+          requestedBy: null,
+        },
+        deps(),
+      )
+      expect(stored.created).toBe(1)
+      const obecs = stored.createdIds[0]
+      await expect(
+        payload.find({
+          collection: 'event-import-candidates',
+          where: { id: { equals: obecs } },
+          user: organizer,
+          overrideAccess: false,
+        }),
+      ).rejects.toMatchObject({ status: 403 })
+      await expect(approveCandidate(payload, organizer, obecs)).rejects.toMatchObject({
+        status: 403,
       })
-      expect(seenByOrganizer.docs).toHaveLength(1)
-      const theirs = seenByOrganizer.docs[0]
+
+      // An organizer's candidate from before is nobody's but the platform admin's.
+      const legacy = await payload.create({
+        collection: 'event-import-candidates',
+        data: {
+          municipality: obec.id,
+          organization: cafe.id,
+          origin: 'source',
+          status: 'pending',
+          externalKey: `org${cafe.id}:legacy`,
+          title: 'Starý kavárenský návrh',
+          startsAt: new Date(Date.now() + 20 * 86_400_000).toISOString(),
+        },
+        overrideAccess: true,
+      })
       const seenByObec = await payload.find({
         collection: 'event-import-candidates',
-        where: { id: { equals: theirs.id } },
+        where: { id: { equals: legacy.id } },
         user: admin,
         overrideAccess: false,
       })
       expect(seenByObec.docs).toHaveLength(0)
-      await expect(approveCandidate(payload, admin, theirs.id)).rejects.toMatchObject({
-        status: 403,
-      })
-
-      const { eventId } = await approveCandidate(payload, organizer, theirs.id)
-      const created = await payload.findByID({
-        collection: 'events',
-        id: eventId,
-        depth: 0,
-        overrideAccess: true,
-      })
-      expect(created.organizer).toBe(organizer.id)
-      expect(created.organization).toBe(cafe.id)
+      for (const user of [admin, organizer]) {
+        await expect(approveCandidate(payload, user, legacy.id)).rejects.toMatchObject({
+          status: 403,
+        })
+      }
     } finally {
       await payload
         .delete({
           collection: 'event-import-candidates',
-          where: { organization: { equals: cafe.id } },
-          overrideAccess: true,
-        })
-        .catch(() => {})
-      await payload
-        .delete({
-          collection: 'event-sources',
-          where: { organization: { equals: cafe.id } },
+          where: {
+            or: [{ organization: { equals: cafe.id } }, { title: { equals: 'Jazz v kavárně' } }],
+          },
           overrideAccess: true,
         })
         .catch(() => {})

@@ -172,8 +172,8 @@ export default function ImportApprovalPage({ params }: { params: Promise<{ id: s
   const { id } = use(params)
   return (
     <RequireAuth>
-      {/* An obec's admin, or an organizer for a candidate of their own calendar (lib/import/approve). */}
-      <RequireRole role="organizer">
+      {/* An obec's admin — the event is taken over as the obec (lib/import/approve). */}
+      <RequireRole role="municipality_admin">
         <ImportApprovalContent id={id} />
       </RequireRole>
     </RequireAuth>

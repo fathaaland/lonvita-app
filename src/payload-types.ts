@@ -896,7 +896,7 @@ export interface PoolInvitation {
   createdAt: string;
 }
 /**
- * Web pages and calendars an obec's or organizer's events are imported from (docs/import-akci-z-webu.md).
+ * Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "event-sources".

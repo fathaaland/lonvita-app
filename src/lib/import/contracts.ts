@@ -115,8 +115,6 @@ export type ImportInput =
 export const IMPORT_LIMITS = {
   /** Sources one obec may keep. */
   sourcesPerMunicipality: 10,
-  /** Sources one organizer's organization may keep. */
-  sourcesPerOrganization: 3,
   /** A pasted program. */
   textMaxChars: 50_000,
   /** An uploaded file — under Vercel's 4.5 MB request body limit. */

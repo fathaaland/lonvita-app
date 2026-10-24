@@ -207,8 +207,9 @@ Proměnné prostředí (worker): `ANTHROPIC_API_KEY` (bez něj jen iCal a schema
 
 ## Implementace (v2, rozpracováno od 2026-10-24)
 
-Rozhodnutí: import je v **paušálu**, spotřeba AI se eviduje **na obec** (i u zdrojů organizátorů), zdroje se
-kontrolují **denně i týdně**, import vytváří **jen návrhy** (nic se nezveřejní ani nezruší samo).
+Rozhodnutí: import je v **paušálu**, spotřeba AI se eviduje **na obec**, zdroje se kontrolují **denně i
+týdně**, import vytváří **jen návrhy** (nic se nezveřejní ani nezruší samo). Import je **jen pro obec** —
+zdroje přidává a akce přebírá admin obce, organizátoři vlastní zdroje nemají (rozhodnuto 2026-10-24).
 
 | Část | Kde |
 |---|---|
@@ -217,7 +218,7 @@ kontrolují **denně i týdně**, import vytváří **jen návrhy** (nic se nezv
 | Měření importu a fair-use limit obce (`IMPORT_LIMITS.aiMonthlyBudgetUsd`; po vyčerpání jen iCal a schema.org) | `src/lib/import/usage.ts` (`meterAi`, `isOverAiBudget`) |
 | Historie běhů (spouštěč, výsledek, chyba, počty, tokeny, cena); retence 180 dní | `ImportRuns` (`import-runs`), krok `old-import-runs` v data-retention |
 | Rozvrh: každou půlnoc kontrola (AI jen při změně řádků s datem — `eventLinesOf`), noc na pondělí plný průchod; „Zkontrolovat teď“ = plný průchod, max. 5× denně na zdroj | `scan-event-sources`, `SourceTrigger` v `contracts.ts` |
-| Zdroje organizátorů: zdroj i návrhy patří organizaci, vidí a převezme je jen její vlastník, akce se založí za něj; souhlas provozovatele webu při přidání zdroje | `access/import.ts`, `EventSources.organization`, `ownerConsentAt` |
+| Jen admin obce: zdroje, návrhy i běhy vidí a spravuje admin obce (a správce platformy); souhlas provozovatele webu při přidání zdroje | `access/import.ts`, `ownerConsentAt` |
+| Dřívější zdroje organizátorů: sloupec `organization` už nic nezapisuje, záznamy s ním nevidí žádný admin obce a worker je přeskakuje; smaže je následná migrace | `EventSources/EventImportCandidates/ImportRuns.organization` |
 
-Zbývá: synchronizace převzatých akcí (pole `sourceRef`, `syncNotices`… už v kolekci), stránka „Import akcí“ pro
-organizátora a položka v navigaci, migrace.
+Zbývá: migrace, která odstraní sloupce `organization` (až bude v produkci kód, který je nepoužívá).

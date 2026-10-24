@@ -19,10 +19,9 @@ import { pragueToday, pragueWallTimeToIso } from './time'
  * cost us, and the fair-use cap (IMPORT_LIMITS.aiMonthlyBudgetUsd) is read off it.
  */
 
-/** Whose import a call was made for — an organizer's sources count against their obec. */
+/** Whose import a call was made for. */
 export type UsageAttribution = {
   municipality: number
-  organization?: number | null
   user?: number | null
   eventSource?: number | null
   importRun?: number | null
@@ -97,7 +96,6 @@ export function meterAi<D extends MeteredAi>(
     await recordUsageEvent(payload, {
       municipalityId: attribution.municipality,
       userId: attribution.user,
-      organizationId: attribution.organization,
       eventSourceId: attribution.eventSource,
       importRunId: attribution.importRun,
       provider: 'anthropic',

@@ -6,7 +6,7 @@ const systemOnly = () => false
 
 /**
  * An event found on a web calendar (EventSources), in a pasted program or an uploaded file, waiting
- * for its owner — the obec's admins, or the organizer whose source found it (access/import). Nothing
+ * for the obec's admins (access/import). Nothing
  * reaches the events without them: approving creates the event through the collection's own checks,
  * as them (lib/import/approve), rejecting sets it aside. Once taken over it stays as the link
  * between the event and its source: each pass brings the event's date, time and place in step with
@@ -22,7 +22,7 @@ export const EventImportCandidates: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'startsAt', 'municipality', 'organization', 'status', 'createdAt'],
+    defaultColumns: ['title', 'startsAt', 'municipality', 'status', 'createdAt'],
     description:
       'Imported events waiting for their owner, and the link of taken-over ones to their source (docs/import-akci-z-webu.md). Written by the worker, decided via /api/import/candidates.',
   },
@@ -41,11 +41,14 @@ export const EventImportCandidates: CollectionConfig = {
       index: true,
     },
     {
-      // Found on an organizer's source — theirs to take over, as the organizer. Empty: the obec's.
+      // Organizers' candidates from before import became the obec's alone — nothing sets it any
+      // more, and a migration removes it.
       name: 'organization',
       type: 'relationship',
       relationTo: 'organizations',
       index: true,
+      access: { read: systemOnly, create: systemOnly, update: systemOnly },
+      admin: { hidden: true },
     },
     { name: 'source', type: 'relationship', relationTo: 'event-sources', index: true },
     {

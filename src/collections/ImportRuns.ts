@@ -44,7 +44,16 @@ export const ImportRuns: CollectionConfig = {
       required: true,
       index: true,
     },
-    { name: 'organization', type: 'relationship', relationTo: 'organizations', index: true },
+    {
+      // Runs of organizers' sources from before import became the obec's alone — a migration
+      // removes it.
+      name: 'organization',
+      type: 'relationship',
+      relationTo: 'organizations',
+      index: true,
+      access: { read: systemOnly, create: systemOnly, update: systemOnly },
+      admin: { hidden: true },
+    },
     { name: 'source', type: 'relationship', relationTo: 'event-sources', index: true },
     {
       name: 'trigger',
