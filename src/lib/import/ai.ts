@@ -189,7 +189,15 @@ async function callModel<T extends z.ZodType>(
   { purpose, meter }: { purpose: AiUsage['purpose']; meter?: AiMeter },
 ): Promise<z.infer<T>> {
   const record = async (usage: AiUsage) => {
-    logger.info('Import AI call', { event: 'import.ai_call', ...usage })
+    // Not "…Tokens" — the logger masks any key with "token" in it as a secret.
+    const { inputTokens, outputTokens, cachedInputTokens, ...call } = usage
+    logger.info('Import AI call', {
+      event: 'import.ai_call',
+      ...call,
+      usageIn: inputTokens,
+      usageOut: outputTokens,
+      usageCached: cachedInputTokens,
+    })
     await meter?.(usage).catch((error) =>
       logger.error('Import AI usage not recorded', {
         event: 'import.ai_usage_unrecorded',

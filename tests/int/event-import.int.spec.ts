@@ -19,7 +19,7 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
 }))
 
 import { approveCandidate, rejectCandidate } from '@/lib/import/approve'
-import type { ExtractedEvent } from '@/lib/import/contracts'
+import { IMPORT_USER_AGENT, type ExtractedEvent } from '@/lib/import/contracts'
 import {
   ImportFetchError,
   isAllowedByRobots,
@@ -90,6 +90,10 @@ describe('Import — fetching only from the public internet', () => {
     ]) {
       expect(() => normalizeSourceUrl(url), url).toThrow(ImportFetchError)
     }
+  })
+
+  it('names itself in plain ASCII — a header with anything else is never sent', () => {
+    expect(IMPORT_USER_AGENT).toMatch(/^[\x20-\x7e]+$/)
   })
 
   it("respects robots.txt — our group if it names us, else '*', longest rule wins", () => {

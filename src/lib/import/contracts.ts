@@ -157,7 +157,8 @@ export const isImportFileType = (value: unknown): value is ImportFileType =>
   IMPORT_FILE_TYPES.includes(value as ImportFileType)
 
 /** The User-Agent the worker fetches with — names us and where to find out who we are. */
-export const IMPORT_USER_AGENT = 'LonvitaBot/1.0 (+https://lonvita.cz; import kalendáře akcí obce)'
+// ASCII only — an HTTP header can't carry anything else (fetch refuses the request outright).
+export const IMPORT_USER_AGENT = 'LonvitaBot/1.0 (+https://lonvita.cz; event calendar import)'
 
 /** The robots.txt token we answer to, besides "*". */
 export const IMPORT_ROBOTS_TOKEN = 'lonvitabot'

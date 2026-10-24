@@ -3,6 +3,8 @@ import { BlockList, isIP } from 'node:net'
 
 import { Agent, fetch as undiciFetch } from 'undici'
 
+import { logger, serializeError } from '@/lib/logger'
+
 import { IMPORT_LIMITS, IMPORT_ROBOTS_TOKEN, IMPORT_USER_AGENT } from './contracts'
 
 /**
@@ -235,6 +237,14 @@ export async function fetchPublic(
         throw new ImportFetchError('Tahle adresa není veřejná.', 'blocked_address')
       if ((error as Error).name === 'TimeoutError')
         throw new ImportFetchError('Stránka neodpověděla včas.', 'timeout')
+      // What the owner sees is generic; what actually broke goes to the log.
+      logger.warn('Import fetch failed', {
+        event: 'import.fetch_failed',
+        host: url.host,
+        ...serializeError(error),
+        cause: (error as { cause?: { code?: string; message?: string } }).cause?.code ??
+          (error as { cause?: { message?: string } }).cause?.message,
+      })
       throw new ImportFetchError('Stránku se nepodařilo načíst.', 'network')
     }
 
