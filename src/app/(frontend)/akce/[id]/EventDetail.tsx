@@ -181,7 +181,13 @@ function EventDetailContent() {
   // Everyone organizing it edits it, the obec on it or not. Once it has taken place, nobody edits it
   // any more (Events canUpdateEvent).
   const hasEnded = event?.status === "finished";
-  const canEdit = canManage && !hasEnded;
+  // An admin of a neighbouring obec (mikroregion) co-organizing it as the obec edits it too.
+  const coOrganizingNeighbour = Boolean(
+    event?.co_organizations.some(
+      (o) => isMunicipalityOrganization(o) && !!o.municipality_id && administeredMunicipalityIds.includes(o.municipality_id),
+    ),
+  );
+  const canEdit = (canManage || coOrganizingNeighbour) && !hasEnded;
   const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
   const obecRuns = isMunicipalityOrganization(event?.organization);
   // Whoever runs the event takes part in it automatically — the obec's admins too whenever the obec

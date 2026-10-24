@@ -34,6 +34,7 @@ import {
 import { MULTI_DAY_END_MESSAGE, pragueDateKey } from '@/lib/date'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { haversineDistanceKm } from '@/lib/geo/distance'
+import { inSameRegion } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 import type { Event } from '@/payload-types'
@@ -213,8 +214,12 @@ const canUpdateEvent: Access = async ({ req }) => {
   const administeredIds = await administeredIdsFor(req, user.id)
   const or: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
   // Not someone's draft — that's theirs until they publish it.
-  if (administeredIds.length > 0)
+  if (administeredIds.length > 0) {
     or.push({ and: [{ isDraft: { not_equals: true } }, { municipality: { in: administeredIds } }] })
+    // A neighbour in the mikroregion co-organizing the event as the obec.
+    const obecOrganizationIds = [...(await municipalityOrganizationIds(req, administeredIds)).values()]
+    if (obecOrganizationIds.length > 0) or.push({ coOrganizations: { in: obecOrganizationIds } })
+  }
   const where: Where = { and: [...open, { or }] }
   return where
 }
@@ -228,7 +233,11 @@ export async function mayEditEvent(
 ): Promise<boolean> {
   if (hasEventEnded(event.dateTime, event.endDateTime)) return false
   if (user.role === 'admin' || eventOrganizerIds(event).includes(String(user.id))) return true
-  return (await administeredIdsFor(req, user.id)).includes(relationId(event.municipality) ?? '')
+  const administeredIds = await administeredIdsFor(req, user.id)
+  if (administeredIds.includes(relationId(event.municipality) ?? '')) return true
+  // An admin of an obec that co-organizes it (a neighbour in the mikroregion).
+  const obecOrganizationIds = new Set((await municipalityOrganizationIds(req, administeredIds)).values())
+  return ((event.coOrganizations ?? []) as unknown[]).some((id) => obecOrganizationIds.has(relationId(id) ?? ''))
 }
 
 /** Whether `user` must go through an EventDeletionRequest (the others' consent) rather than
@@ -483,7 +492,8 @@ const requireOrganizerRole: CollectionBeforeChangeHook = async ({ data, req, ope
 }
 
 /**
- * Spolupořadatelé are organizations of the same obec (Organizations.ts) — "Kavárna NMNM", not its
+ * Spolupořadatelé are organizations of the same obec or of its mikroregion (Organizations.ts,
+ * lib/microregions) — "Kavárna NMNM", not its
  * owner, or the obec's own organization. Nobody becomes one without their own consent: whoever may
  * edit the event invites an organization (CoOrganizingRequests), and it joins once its owner — for
  * the obec, one of its admins — accepts. That acceptance is the one trusted path that adds one,
@@ -553,12 +563,18 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
   }
   const obecLeft = !municipalityChanged && Boolean(data.obecLeftAt ?? originalDoc?.obecLeftAt)
 
-  const addedOwnerIds: string[] = []
+  /** Owners of newly added organizations, each with the obec they organize in. */
+  const addedOwners: { ownerId: string; municipalityId: string }[] = []
   for (const id of ids) {
     const organization = byId.get(id)
     const added = !previousIds.has(id)
-    if (!organization || (added && (organization.deletedAt || relationId(organization.municipality) !== municipalityId))) {
-      throw new APIError('Spolupořadatelem může být jen organizace z téhle obce.', 400)
+    if (
+      !organization ||
+      (added &&
+        (organization.deletedAt ||
+          !(await inSameRegion(req.payload, relationId(organization.municipality), municipalityId, req))))
+    ) {
+      throw new APIError('Spolupořadatelem může být jen organizace z téhle obce nebo z jejího mikroregionu.', 400)
     }
     if (organization.type === MUNICIPALITY_ORGANIZATION_TYPE) {
       if (id === eventOrganizationId) {
@@ -572,7 +588,7 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
       if (ownerId === organizerId || id === eventOrganizationId) {
         throw new APIError('Vlastní organizaci nelze přidat jako spolupořadatele — akci už pořádáte.', 400)
       }
-      if (added) addedOwnerIds.push(ownerId)
+      if (added) addedOwners.push({ ownerId, municipalityId: relationId(organization.municipality)! })
     }
     if (added && req.user && !req.context?.coOrganizingApproved) {
       throw new APIError(
@@ -582,13 +598,15 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
     }
   }
 
-  if (addedOwnerIds.length > 0) {
+  if (addedOwners.length > 0) {
+    const addedOwnerIds = addedOwners.map((o) => o.ownerId)
+    // Each still organizing in their organization's own obec.
     const roles = await req.payload.find({
       collection: 'user-roles',
       where: {
         and: [
           { user: { in: addedOwnerIds } },
-          { municipality: { equals: municipalityId } },
+          { municipality: { in: [...new Set(addedOwners.map((o) => o.municipalityId))] } },
           { role: { equals: 'organizer' } },
         ],
       },
@@ -597,8 +615,8 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
       overrideAccess: true,
       req,
     })
-    const withRole = new Set(roles.docs.map((r) => relationId(r.user)))
-    if (addedOwnerIds.some((id) => !withRole.has(id))) {
+    const withRole = new Set(roles.docs.map((r) => `${relationId(r.user)}@${relationId(r.municipality)}`))
+    if (addedOwners.some((o) => !withRole.has(`${o.ownerId}@${o.municipalityId}`))) {
       throw new APIError('Tahle organizace už v obci nepořádá — její pořadatel nemá roli organizátora.', 400)
     }
   }

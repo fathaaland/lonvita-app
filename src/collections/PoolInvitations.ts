@@ -7,6 +7,7 @@ import { ANONYMOUS_NAME } from './shared/anonymizeUser'
 import { relationNumber } from '@/lib/relations'
 import { POOL_INVITATION_DECLINE_COOLDOWN_DAYS } from '@/lib/requestDeadlines'
 import { POOL_INVITATION_MESSAGE_MAX_LENGTH } from '@/lib/validation'
+import { inSameRegion } from '@/lib/microregions'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -36,8 +37,12 @@ const validateNewInvitation: CollectionBeforeChangeHook = async ({ data, operati
       req,
     })
   ).docs[0]
-  if (!profile || profile.fullName === ANONYMOUS_NAME || relationNumber(profile.municipality) !== municipalityId) {
-    throw new APIError('Do poolu můžete zvát jen obyvatele své obce.', 400)
+  if (
+    !profile ||
+    profile.fullName === ANONYMOUS_NAME ||
+    !(await inSameRegion(payload, relationNumber(profile.municipality), municipalityId, req))
+  ) {
+    throw new APIError('Do poolu můžete zvát jen obyvatele své obce nebo jejího mikroregionu.', 400)
   }
   if (profile.isVolunteer) throw new APIError('Tenhle člověk už v poolu je.', 400)
 

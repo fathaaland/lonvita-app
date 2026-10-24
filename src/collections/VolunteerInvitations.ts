@@ -17,6 +17,7 @@ import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMa
 import { scheduleParticipantReminder } from './shared/reminders'
 import { notDeleted } from './shared/softDelete'
 import { relationId } from '@/lib/relations'
+import { inSameRegion } from '@/lib/microregions'
 
 /** How long a note between the organizer and the volunteer may be. */
 const MESSAGE_MAX_LENGTH = 500
@@ -223,6 +224,16 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
       application
         ? 'Pomoc nabízí jen dobrovolníci z poolu — přidat se můžete v profilu.'
         : 'Tenhle člověk není v poolu dobrovolníků.',
+      400,
+    )
+  }
+  // A volunteer helps in their own obec (the one on their volunteer card) and its mikroregion.
+  const helpsIn = relationId(profile.volunteerMunicipality ?? profile.municipality)
+  if (!(await inSameRegion(payload, helpsIn, relationId(event.municipality), req))) {
+    throw new APIError(
+      application
+        ? 'Pomáhat můžete jen v obci z vaší dobrovolnické karty nebo v jejím mikroregionu.'
+        : 'Tenhle dobrovolník pomáhá v jiné obci — zvát jde jen dobrovolníky z obce akce nebo jejího mikroregionu.',
       400,
     )
   }

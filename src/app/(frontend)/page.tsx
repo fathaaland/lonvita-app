@@ -7,6 +7,7 @@ import {
   getUpcomingEvents,
   getActiveRegistrationCountsByEvent,
   listMunicipalities,
+  getRegionMunicipalityIds,
   MunicipalityRow,
 } from "@/integrations/payload/queries";
 import { useAuth } from "@/contexts/AuthContext";
@@ -165,7 +166,13 @@ function IndexContent() {
       // A failed load shows the empty state rather than an unhandled rejection and a stuck spinner.
       const [cats, ev] = await Promise.all([
         getEventCategories().catch(() => [] as Category[]),
-        getUpcomingEvents(viewing === ALL ? null : viewing).catch(() => []),
+        // The obec and the rest of its mikroregion — their events show to each other's residents.
+        (viewing === ALL
+          ? getUpcomingEvents(null)
+          : getRegionMunicipalityIds(viewing)
+              .catch(() => [viewing])
+              .then((ids) => getUpcomingEvents(ids))
+        ).catch(() => []),
       ]);
       const counts = await getActiveRegistrationCountsByEvent(ev.map((e) => e.id)).catch(() => new Map<string, number>());
 
@@ -231,10 +238,14 @@ function IndexContent() {
   // briefly flash on screen) for one frame first.
   if (isSuperAdmin || authLoading || !viewingReady || needsOnboarding) return <Loading />;
 
-  // In the "Všechny obce" view each card says which obec the event belongs to.
+  // In the "Všechny obce" view each card says which obec the event belongs to — and in an obec's
+  // view, an event of a neighbour in its mikroregion.
   const toCard = (e: HomeEvent): EventCardData => ({
     ...e,
-    municipality_name: showAll && e.municipality_id ? municipalityNameById.get(e.municipality_id) : undefined,
+    municipality_name:
+      e.municipality_id && (showAll || e.municipality_id !== viewing)
+        ? municipalityNameById.get(e.municipality_id)
+        : undefined,
   });
 
   const allMunicipalitiesButton = (

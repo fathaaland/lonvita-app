@@ -33,6 +33,7 @@ import { VolunteerRatings } from './collections/VolunteerRatings'
 import { ReviewComplaints } from './collections/ReviewComplaints'
 import { PoolInvitations } from './collections/PoolInvitations'
 import { EventSources } from './collections/EventSources'
+import { Microregions } from './collections/Microregions'
 import { EventImportCandidates } from './collections/EventImportCandidates'
 import { ImportRuns } from './collections/ImportRuns'
 import { UsageEvents } from './collections/UsageEvents'
@@ -162,6 +163,7 @@ export default buildConfig({
     VolunteerRatings,
     ReviewComplaints,
     PoolInvitations,
+    Microregions,
     EventSources,
     EventImportCandidates,
     ImportRuns,

@@ -6,7 +6,7 @@ import config from '@payload-config'
 import type { VolunteerRating } from '@/payload-types'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { isUnlimitedCapacity } from '@/lib/capacity'
-import { organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
+import { organizesSomewhere, toVolunteerCards, volunteerReachOf } from '@/lib/volunteers/pool'
 import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
 import { relationNumber } from '@/lib/relations'
 
@@ -43,6 +43,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
     })
   ).docs[0]
   if (!profile) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // Only where the volunteer helps — their obec and its mikroregion (volunteerReachOf).
+  if (!isSelf) {
+    const reach = await volunteerReachOf(payload, viewer)
+    const helpsIn = relationNumber(profile.volunteerMunicipality)
+    if (reach && (!helpsIn || !reach.includes(helpsIn))) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+  }
 
   const [[card], ratings, registrations] = await Promise.all([
     toVolunteerCards(payload, [profile], viewer),

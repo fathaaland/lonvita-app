@@ -5,7 +5,7 @@ import config from '@payload-config'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { sendNotification } from '@/collections/shared/notify'
-import { helpingOnEvents, organizesSomewhere, toVolunteerCards } from '@/lib/volunteers/pool'
+import { helpingOnEvents, organizesSomewhere, toVolunteerCards, volunteerReachOf } from '@/lib/volunteers/pool'
 
 type Body = {
   userId?: number
@@ -13,8 +13,8 @@ type Body = {
 }
 
 /**
- * The volunteer pool — one for the whole platform (a volunteer isn't tied to an obec), listed for
- * everyone who organizes anywhere: each volunteer with where they help (the volunteer map), their
+ * The volunteer pool, listed for everyone who organizes anywhere — the volunteers who help in the
+ * obce they organize in or those obce's mikroregions (volunteerReachOf; a platform admin all): each volunteer with where they help (the volunteer map), their
  * average rating from organizers, and their contact only on the channels they allowed. The volunteer
  * fields on Profiles can't be read over REST by anyone but the volunteer (see
  * `canReadVolunteerFields`), so this endpoint is how the dashboards see the pool.
@@ -29,9 +29,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  const reach = await volunteerReachOf(payload, actor)
   const profiles = await payload.find({
     collection: 'profiles',
-    where: { and: [{ isVolunteer: { equals: true } }, notDeleted] },
+    where: {
+      and: [
+        { isVolunteer: { equals: true } },
+        notDeleted,
+        ...(reach ? [{ volunteerMunicipality: { in: reach } }] : []),
+      ],
+    },
     sort: '-volunteerSince',
     pagination: false,
     depth: 1,

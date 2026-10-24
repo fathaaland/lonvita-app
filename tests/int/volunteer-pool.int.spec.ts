@@ -31,6 +31,7 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
   let resident: TestUser
   let category: { id: number } | undefined
   let eventId: number | undefined
+  let region: { id: number } | undefined
 
   const tokenOf = async (user: TestUser) =>
     (await payload.login({ collection: 'users', data: { email: user.email, password: 'test1234' } })).token
@@ -108,6 +109,7 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
 
   afterAll(async () => {
     const userIds = [adminA.id, organizerB.id, emailOnly.id, phoneOnly.id, resident.id]
+    if (region) await payload.delete({ collection: 'microregions', id: region.id, overrideAccess: true }).catch(() => {})
     if (eventId) {
       await payload.delete({ collection: 'registrations', where: { event: { equals: eventId } }, overrideAccess: true }).catch(() => {})
       await payload.delete({ collection: 'events', id: eventId, overrideAccess: true }).catch(() => {})
@@ -123,10 +125,19 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
     }
   })
 
-  it('is one pool for the whole platform — an organizer of another obec sees everyone', async () => {
+  it("reaches the volunteers of the organizer's own obec — and of its mikroregion once there is one", async () => {
     const response = await listAs(organizerB)
     expect(response.status).toBe(200)
-    const rows = ((await response.json()) as { docs: PoolRow[] }).docs
+    const alone = ((await response.json()) as { docs: PoolRow[] }).docs
+    expect(rowOf(alone, phoneOnly)).toBeTruthy()
+    expect(rowOf(alone, emailOnly)).toBeUndefined()
+
+    region = await payload.create({
+      collection: 'microregions',
+      data: { name: `Pool region ${STAMP}`, municipalities: [muniA.id, muniB.id] },
+      overrideAccess: true,
+    })
+    const rows = ((await (await listAs(organizerB)).json()) as { docs: PoolRow[] }).docs
     expect(rowOf(rows, emailOnly)?.location?.name).toBe(`Test Pool Muni A ${STAMP}`)
     expect(rowOf(rows, emailOnly)?.rating).toBeNull()
     expect(rowOf(rows, phoneOnly)).toBeTruthy()

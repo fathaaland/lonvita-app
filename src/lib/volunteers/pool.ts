@@ -3,7 +3,8 @@ import type { Payload } from 'payload'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
 import type { Profile } from '@/payload-types'
-import { relationNumber } from '@/lib/relations'
+import { regionMunicipalityIds } from '@/lib/microregions'
+import { relationId, relationNumber } from '@/lib/relations'
 
 type Viewer = { id: number; role?: string | null }
 
@@ -44,6 +45,25 @@ export async function organizesSomewhere(payload: Payload, viewer: Viewer): Prom
     overrideAccess: true,
   })
   return roles.totalDocs > 0
+}
+
+/** Where the viewer may reach volunteers: the obce they organize in and the rest of those obce's
+ * mikroregions (lib/microregions) — null for a platform admin, who sees the whole pool. A volunteer
+ * helps where their volunteer card says, and nowhere else. */
+export async function volunteerReachOf(payload: Payload, viewer: Viewer): Promise<number[] | null> {
+  if (viewer.role === 'admin') return null
+  const roles = await payload.find({
+    collection: 'user-roles',
+    where: { and: [{ user: { equals: viewer.id } }, { role: { in: ['municipality_admin', 'organizer'] } }] },
+    select: { municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  const own = [...new Set(roles.docs.map((r) => relationId(r.municipality)).filter((id): id is string => id !== null))]
+  const reach = new Set<string>()
+  for (const id of own) for (const m of await regionMunicipalityIds(payload, id)) reach.add(m)
+  return [...reach].map(Number)
 }
 
 /** Average rating and count per volunteer (user id). */

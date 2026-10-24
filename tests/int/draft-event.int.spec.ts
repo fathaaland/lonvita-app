@@ -119,7 +119,7 @@ describe('A draft event', () => {
     await expect(
       payload.create({
         collection: 'volunteer-invitations',
-        data: { event: eventId, user: stranger.id, kind: 'invitation' } as never,
+        data: { event: eventId, volunteer: stranger.id, kind: 'invitation' } as never,
         user: organizer,
         overrideAccess: false,
       }),

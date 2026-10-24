@@ -89,6 +89,7 @@ export interface Config {
     'volunteer-ratings': VolunteerRating;
     'review-complaints': ReviewComplaint;
     'pool-invitations': PoolInvitation;
+    microregions: Microregion;
     'event-sources': EventSource;
     'event-import-candidates': EventImportCandidate;
     'import-runs': ImportRun;
@@ -124,6 +125,7 @@ export interface Config {
     'volunteer-ratings': VolunteerRatingsSelect<false> | VolunteerRatingsSelect<true>;
     'review-complaints': ReviewComplaintsSelect<false> | ReviewComplaintsSelect<true>;
     'pool-invitations': PoolInvitationsSelect<false> | PoolInvitationsSelect<true>;
+    microregions: MicroregionsSelect<false> | MicroregionsSelect<true>;
     'event-sources': EventSourcesSelect<false> | EventSourcesSelect<true>;
     'event-import-candidates': EventImportCandidatesSelect<false> | EventImportCandidatesSelect<true>;
     'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
@@ -899,6 +901,18 @@ export interface PoolInvitation {
   createdAt: string;
 }
 /**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "microregions".
+ */
+export interface Microregion {
+  id: number;
+  name: string;
+  mainMunicipality?: (number | null) | Municipality;
+  municipalities: (number | Municipality)[];
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -1277,6 +1291,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'pool-invitations';
         value: number | PoolInvitation;
+      } | null)
+    | ({
+        relationTo: 'microregions';
+        value: number | Microregion;
       } | null)
     | ({
         relationTo: 'event-sources';
@@ -1767,6 +1785,17 @@ export interface PoolInvitationsSelect<T extends boolean = true> {
   message?: T;
   status?: T;
   decidedAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "microregions_select".
+ */
+export interface MicroregionsSelect<T extends boolean = true> {
+  name?: T;
+  mainMunicipality?: T;
+  municipalities?: T;
   updatedAt?: T;
   createdAt?: T;
 }

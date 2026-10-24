@@ -103,6 +103,8 @@ export type OrganizationRef = {
   owner_id: string | null;
   /** The organization's own photo or logo — set on its "Organizace" page. */
   avatar_url?: string | null;
+  /** Its obec — for the obec's own organization, whose admins answer for it. */
+  municipality_id?: string | null;
 };
 
 export type EventRow = {
@@ -154,6 +156,7 @@ type PayloadOrganization = {
   name: string;
   type: AnyOrganizationType;
   owner?: number | { id: number } | null;
+  municipality?: number | { id: number } | null;
   avatarUrl?: string | null;
   description?: string | null;
 };
@@ -194,7 +197,14 @@ type PayloadEvent = {
 /** Only populated (depth ≥ 1) organizations — a bare id is one that's since been deleted. */
 const mapOrganization = (o: number | PayloadOrganization | null | undefined): OrganizationRef | null =>
   o && typeof o === "object"
-    ? { id: String(o.id), name: o.name, type: o.type, owner_id: relationId(o.owner), avatar_url: o.avatarUrl ?? null }
+    ? {
+        id: String(o.id),
+        name: o.name,
+        type: o.type,
+        owner_id: relationId(o.owner),
+        avatar_url: o.avatarUrl ?? null,
+        municipality_id: relationId(o.municipality),
+      }
     : null;
 
 const mapEvent = (e: PayloadEvent): EventRow => ({
@@ -230,11 +240,23 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   updated_at: e.updatedAt ?? null,
 });
 
-/** Upcoming (not cancelled) events for a municipality — or, with `null`, across every
- * municipality ("bez obce" users, the "Všechny obce" view) — ordered by date, category populated. */
-export async function getUpcomingEvents(municipalityId: string | null): Promise<EventRow[]> {
+/** The obce that share one view with `municipalityId` — its mikroregion (Microregions), itself
+ * included; just itself when it has none. */
+export async function getRegionMunicipalityIds(municipalityId: string): Promise<string[]> {
+  const where = buildWhereParams({ municipalities: { in: [municipalityId] } });
+  const result = await get<PayloadListResponse<{ municipalities?: (number | { id: number })[] }>>(
+    `/microregions?${where}&depth=0&limit=1`,
+  );
+  const ids = (result.docs[0]?.municipalities ?? []).map((m) => String(typeof m === "object" ? m.id : m));
+  return ids.includes(municipalityId) ? ids : [municipalityId];
+}
+
+/** Upcoming (not cancelled) events for some municipalities — an obec and its mikroregion — or, with
+ * `null`, across every municipality ("bez obce" users, the "Všechny obce" view) — ordered by date,
+ * category populated. */
+export async function getUpcomingEvents(municipalityIds: string[] | null): Promise<EventRow[]> {
   const where = buildWhereParams({
-    ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
+    ...(municipalityIds ? { municipality: { in: municipalityIds } } : {}),
     status: { not_equals: "cancelled" },
     isDraft: { not_equals: true },
     dateTime: { greater_than: new Date().toISOString() },

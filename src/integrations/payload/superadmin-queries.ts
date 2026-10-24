@@ -488,3 +488,55 @@ export async function getMunicipalityComparison(): Promise<MunicipalityCompariso
     return { municipality_id: muniId, municipality_name: m.name, metrics };
   });
 }
+
+// --- Mikroregiony (Microregions) ---------------------------------------------------------------
+
+export type MicroregionRow = {
+  id: string;
+  name: string;
+  main_municipality_id: string | null;
+  municipality_ids: string[];
+};
+
+type PayloadMicroregion = {
+  id: number;
+  name: string;
+  mainMunicipality?: number | { id: number } | null;
+  municipalities?: (number | { id: number })[] | null;
+};
+
+const idOf = (value: number | { id: number }) => String(typeof value === "object" ? value.id : value);
+
+const mapMicroregion = (r: PayloadMicroregion): MicroregionRow => ({
+  id: String(r.id),
+  name: r.name,
+  main_municipality_id: r.mainMunicipality ? idOf(r.mainMunicipality) : null,
+  municipality_ids: (r.municipalities ?? []).map(idOf),
+});
+
+export async function listMicroregions(): Promise<MicroregionRow[]> {
+  const result = await get<PayloadListResponse<PayloadMicroregion>>(
+    `/microregions?${buildQuery({ depth: 0, limit: 500, sort: "name" })}`,
+  );
+  return result.docs.map(mapMicroregion);
+}
+
+export type MicroregionInput = { name: string; mainMunicipalityId: string; municipalityIds: string[] };
+
+const microregionBody = (input: MicroregionInput) => ({
+  name: input.name,
+  mainMunicipality: Number(input.mainMunicipalityId),
+  municipalities: input.municipalityIds.map(Number),
+});
+
+export async function createMicroregion(input: MicroregionInput): Promise<void> {
+  await post("/microregions", microregionBody(input));
+}
+
+export async function updateMicroregion(id: string, input: MicroregionInput): Promise<void> {
+  await patch(`/microregions/${id}`, microregionBody(input));
+}
+
+export async function deleteMicroregion(id: string): Promise<void> {
+  await del(`/microregions/${id}`);
+}

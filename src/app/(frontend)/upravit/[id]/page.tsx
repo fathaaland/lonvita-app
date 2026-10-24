@@ -57,8 +57,13 @@ function EditEventContent() {
         // it runs the event (Events guardIsVolunteering). Set straight away, no obec approval.
         setVolunteering(isSuperAdmin || ev.creator_for_viewer ? "set" : "none");
         // Everyone organizing it edits it. Once it has taken place, nobody does (Events canUpdateEvent).
+        // An admin of a neighbouring obec (mikroregion) that co-organizes the event as the obec.
+        const coOrganizingObec = ev.co_organizations.some(
+          (o) => isMunicipalityOrganization(o) && !!o.municipality_id && adminIds.includes(o.municipality_id),
+        );
         setCanEdit(
-          ev.status !== "finished" && (isAdminHere || ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)),
+          ev.status !== "finished" &&
+            (isAdminHere || coOrganizingObec || ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)),
         );
       }
       setEvent(ev);

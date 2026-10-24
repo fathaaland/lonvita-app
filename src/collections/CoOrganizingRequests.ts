@@ -15,6 +15,7 @@ import { administeredIdsFor, mayEditEvent } from './Events'
 import { escapeHtml, getEventTeamUserIds, getObecDeciders, sendNotification, sendNotificationToMany } from './shared/notify'
 import { writeAuditLog } from './shared/auditLog'
 import { hasEventEnded } from '@/lib/eventEnded'
+import { inSameRegion } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import { relationId } from '@/lib/relations'
 import { CO_ORGANIZING_INVITATION_HOURS } from '@/lib/requestDeadlines'
@@ -90,8 +91,13 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
         .findByID({ collection: 'organizations', id: organizationId, depth: 0, overrideAccess: true, req })
         .catch(() => null)
     : null
-  if (!organization || organization.deletedAt || relationId(organization.municipality) !== municipalityId) {
-    throw new APIError('Spolupořadatelem může být jen organizace z téhle obce.', 400)
+  const organizationMunicipalityId = organization ? relationId(organization.municipality) : null
+  if (
+    !organization ||
+    organization.deletedAt ||
+    !(await inSameRegion(payload, organizationMunicipalityId, municipalityId, req))
+  ) {
+    throw new APIError('Spolupořadatelem může být jen organizace z téhle obce nebo z jejího mikroregionu.', 400)
   }
   const isObec = organization.type === MUNICIPALITY_ORGANIZATION_TYPE
   if (relationId(event.organization) === String(organization.id)) {
@@ -135,7 +141,9 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   return {
     event: event.id,
     eventTitle: event.title,
-    municipality: Number(municipalityId),
+    // The invited organization's obec — for the obec's own organization, its admins decide (and a
+    // neighbour in the mikroregion is invited as itself, not as the event's obec).
+    municipality: Number(organizationMunicipalityId),
     organization: organization.id,
     organizationName: organization.name,
     organizationOwner: isObec ? null : Number(relationId(organization.owner)),

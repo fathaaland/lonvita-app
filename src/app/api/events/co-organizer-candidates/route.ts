@@ -3,13 +3,15 @@ import { getPayload, type Where } from 'payload'
 
 import config from '@payload-config'
 import { notDeleted } from '@/collections/shared/softDelete'
+import { regionMunicipalityIds } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 const ORGANIZING_ROLES = ['municipality_admin', 'organizer'] as const
 
 /**
- * Which organizations can be invited to co-organize an event in this obec — the obec's own one
- * first, then its organizers' organizations (the café, the club, a single person's "Vycházky pro
+ * Which organizations can be invited to co-organize an event in this obec — from the obec and the
+ * other obce of its mikroregion (lib/microregions): the event's obec's own one first, then the
+ * neighbouring obce, then the organizers' organizations (the café, the club, a single person's "Vycházky pro
  * seniory") by name, never the requester's own — each with its own photo/logo, set on its
  * "Organizace" page. Each joins only once it accepts (CoOrganizingRequests). An organization
  * whose owner has since lost the organizer role isn't offered. Only someone who organizes in the obec
@@ -29,10 +31,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Chybí obec.' }, { status: 400 })
   }
 
+  const region = (await regionMunicipalityIds(payload, municipalityId)).map(Number)
   const roles = await payload.find({
     collection: 'user-roles',
     where: {
-      and: [{ municipality: { equals: municipalityId } }, { role: { in: [...ORGANIZING_ROLES] } }],
+      and: [{ municipality: { in: region } }, { role: { in: [...ORGANIZING_ROLES] } }],
     },
     depth: 0,
     pagination: false,
@@ -40,36 +43,53 @@ export async function GET(request: Request) {
   })
   const userIdOf = (r: (typeof roles.docs)[number]) => (typeof r.user === 'object' ? r.user.id : r.user)
 
-  if (actor.role !== 'admin' && !roles.docs.some((r) => userIdOf(r) === actor.id)) {
+  const municipalityOf = (r: (typeof roles.docs)[number]) =>
+    typeof r.municipality === 'object' ? r.municipality.id : r.municipality
+  // Only someone organizing in the event's own obec lists its candidates.
+  if (
+    actor.role !== 'admin' &&
+    !roles.docs.some((r) => userIdOf(r) === actor.id && municipalityOf(r) === municipalityId)
+  ) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-  const organizerIds = [
-    ...new Set(roles.docs.filter((r) => r.role === 'organizer').map(userIdOf)),
-  ].filter((id) => id !== actor.id)
-
+  // An organization is offered in its own obec, while its owner organizes there.
   const offered: Where[] = [{ type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }]
-  if (organizerIds.length > 0) offered.push({ owner: { in: organizerIds } })
+  for (const id of region) {
+    const owners = [
+      ...new Set(
+        roles.docs
+          .filter((r) => r.role === 'organizer' && municipalityOf(r) === id)
+          .map(userIdOf)
+          .filter((userId) => userId !== actor.id),
+      ),
+    ]
+    if (owners.length > 0) offered.push({ and: [{ municipality: { equals: id } }, { owner: { in: owners } }] })
+  }
 
   const organizations = await payload.find({
     collection: 'organizations',
-    where: { and: [{ municipality: { equals: municipalityId } }, { or: offered }, notDeleted] },
+    where: { and: [{ municipality: { in: region } }, { or: offered }, notDeleted] },
     sort: 'name',
     depth: 0,
     pagination: false,
     overrideAccess: true,
   })
 
+  const municipalityIdOf = (o: (typeof organizations.docs)[number]) =>
+    typeof o.municipality === 'object' ? o.municipality.id : o.municipality
   const docs = organizations.docs.map((o) => ({
     id: String(o.id),
+    municipality_id: String(municipalityIdOf(o)),
     name: o.name,
     type: o.type,
     owner_id: o.owner ? String(typeof o.owner === 'object' ? o.owner.id : o.owner) : null,
     avatar_url: o.avatarUrl ?? null,
   }))
-  // The obec first — it's the one every pořadatel can ask, whoever else organizes here.
-  docs.sort(
-    (a, b) => Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) - Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE),
-  )
+  // The event's own obec first — the one every pořadatel can ask — then the neighbouring obce, then
+  // the organizations (by name, as sorted).
+  const rank = (d: (typeof docs)[number]) =>
+    d.type === MUNICIPALITY_ORGANIZATION_TYPE ? (d.municipality_id === String(municipalityId) ? 0 : 1) : 2
+  docs.sort((a, b) => rank(a) - rank(b))
 
   return NextResponse.json({ docs })
 }
