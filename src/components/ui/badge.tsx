@@ -18,7 +18,7 @@ const badgeVariants = cva(
         purple: "border-transparent bg-brand-purple-pale text-brand-purple-dark",
         sage: "border-transparent bg-brand-sage-pale text-[hsl(120_25%_28%)]",
         sand: "border-transparent bg-brand-sand-pale text-brand-graphite-mid",
-        dark: "border-transparent bg-brand-graphite text-[hsl(var(--brand-ivory))]",
+        dark: "border-transparent bg-brand-graphite text-[hsl(var(--brand-ivory))] dark:bg-muted",
       },
     },
     defaultVariants: {

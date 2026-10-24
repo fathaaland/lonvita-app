@@ -1,20 +1,50 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 import { useFontSize } from "@/contexts/FontSizeContext";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Type, Contrast } from "lucide-react";
+import { Type, Contrast, Monitor, Moon, Sun } from "lucide-react";
 
 const SIZE_LABELS = { normal: "Běžné písmo", large: "Větší písmo", xlarge: "Největší písmo" } as const;
 
-/** Font size + high-contrast toggle (US-H-07). Shared between the guest menu and /profil so
- * both signed-out and signed-in users reach the same controls. */
+const THEMES = [
+  { value: "light", label: "Světlý", icon: Sun },
+  { value: "dark", label: "Tmavý", icon: Moon },
+  { value: "system", label: "Podle systému", icon: Monitor },
+] as const;
+
+/** Font size, light/dark appearance and high-contrast toggle (US-H-07). Shared between the guest
+ * menu and /profil so both signed-out and signed-in users reach the same controls. */
 export function AccessibilityControls() {
   const { size, setSize, highContrast, setHighContrast } = useFontSize();
+  const { theme, setTheme } = useTheme();
+  // The stored theme is only known in the browser — no button is pressed until then.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   return (
     <div className="space-y-4">
+      <div className="space-y-3">
+        <div className="eyebrow"><Moon className="h-3 w-3" /> Vzhled</div>
+        <div className="grid grid-cols-3 gap-2">
+          {THEMES.map(({ value, label, icon: Icon }) => (
+            <Button
+              key={value}
+              variant={mounted && theme === value ? "default" : "outline"}
+              onClick={() => setTheme(value)}
+              className="h-12 flex-col gap-0.5 text-xs"
+              aria-pressed={mounted && theme === value}
+            >
+              <Icon className="h-4 w-4" aria-hidden />
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-3">
         <div className="eyebrow"><Type className="h-3 w-3" /> Velikost písma</div>
         <div className="grid grid-cols-3 gap-2">

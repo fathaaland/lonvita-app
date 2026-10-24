@@ -130,6 +130,26 @@
     --border: 0 0% 25%;
     --input: 0 0% 25%;
     --ring: 298 60% 72%;
+
+    /* Brand tints used as surfaces and text (bg-brand-*-pale, text-brand-purple-dark) */
+    --brand-purple-pale: 298 30% 25%;
+    --brand-purple-dark: 298 60% 80%;
+    --brand-sand-pale: 30 8% 22%;
+    --brand-sage-pale: 100 15% 22%;
+    --brand-graphite-mid: 30 18% 80%;
+
+    --sidebar-background: 0 0% 12%;
+    --sidebar-foreground: var(--brand-ivory);
+    --sidebar-accent: 298 30% 25%;
+    --sidebar-accent-foreground: 298 60% 80%;
+    --sidebar-border: 0 0% 25%;
+
+    --shadow-sm: 0 2px 6px -2px hsl(0 0% 0% / 0.4);
+    --shadow-md: 0 6px 16px -4px hsl(0 0% 0% / 0.45);
+    --shadow-lg: 0 18px 36px -12px hsl(0 0% 0% / 0.5);
+    --shadow-card: 0 4px 18px -8px hsl(0 0% 0% / 0.5);
+
+    color-scheme: dark;
   }
 
   /* US-H-07 — pure black-on-white plus stronger borders/focus rings, well past WCAG AA,
