@@ -93,6 +93,8 @@ export interface Config {
     'event-import-candidates': EventImportCandidate;
     'import-runs': ImportRun;
     'usage-events': UsageEvent;
+    'system-logs': SystemLog;
+    'security-events': SecurityEvent;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -126,6 +128,8 @@ export interface Config {
     'event-import-candidates': EventImportCandidatesSelect<false> | EventImportCandidatesSelect<true>;
     'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
     'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
+    'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
+    'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -647,7 +651,7 @@ export interface AuditLog {
    */
   userAgent?: string | null;
   /**
-   * The request id — the same one in the application logs (BetterStack).
+   * The request id — the same one in System Logs and Security Events.
    */
   correlationId?: string | null;
   updatedAt: string;
@@ -1088,6 +1092,72 @@ export interface UsageEvent {
   createdAt: string;
 }
 /**
+ * Warnings, errors and notable events of the app and the worker. Kept 90 days. The correlation id joins every line of one request or job.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "system-logs".
+ */
+export interface SystemLog {
+  id: number;
+  level: 'info' | 'warn' | 'error' | 'fatal';
+  event?: string | null;
+  message: string;
+  service: string;
+  environment?: string | null;
+  correlationId?: string | null;
+  userId?: number | null;
+  municipalityId?: number | null;
+  errorName?: string | null;
+  errorMessage?: string | null;
+  errorStack?: string | null;
+  /**
+   * Every other field of the line.
+   */
+  context?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Sign-ins (failed ones too), sign-outs, password resets and rate limits. Kept 12 months; copied nightly to the write-once audit bucket.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "security-events".
+ */
+export interface SecurityEvent {
+  id: number;
+  event: string;
+  outcome: 'success' | 'failure';
+  message: string;
+  userId?: number | null;
+  userEmail?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  service?: string | null;
+  correlationId?: string | null;
+  /**
+   * Every other field of the line.
+   */
+  context?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -1214,6 +1284,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'usage-events';
         value: number | UsageEvent;
+      } | null)
+    | ({
+        relationTo: 'system-logs';
+        value: number | SystemLog;
+      } | null)
+    | ({
+        relationTo: 'security-events';
+        value: number | SecurityEvent;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1800,6 +1878,44 @@ export interface UsageEventsSelect<T extends boolean = true> {
   costUsd?: T;
   status?: T;
   requestId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "system-logs_select".
+ */
+export interface SystemLogsSelect<T extends boolean = true> {
+  level?: T;
+  event?: T;
+  message?: T;
+  service?: T;
+  environment?: T;
+  correlationId?: T;
+  userId?: T;
+  municipalityId?: T;
+  errorName?: T;
+  errorMessage?: T;
+  errorStack?: T;
+  context?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "security-events_select".
+ */
+export interface SecurityEventsSelect<T extends boolean = true> {
+  event?: T;
+  outcome?: T;
+  message?: T;
+  userId?: T;
+  userEmail?: T;
+  ip?: T;
+  userAgent?: T;
+  service?: T;
+  correlationId?: T;
+  context?: T;
   updatedAt?: T;
   createdAt?: T;
 }

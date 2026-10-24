@@ -2,7 +2,7 @@
 
 /**
  * Browser half of the logger. Deliberately imports nothing from `./index` or `./correlation`:
- * those pull in `async_hooks` and the BetterStack transport, neither of which belongs in a
+ * those pull in `async_hooks` and the database sink, neither of which belongs in a
  * client bundle. The only thing shared is the wire format of `/api/log`.
  */
 

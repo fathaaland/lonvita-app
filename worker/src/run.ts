@@ -25,6 +25,9 @@ const DATA_RETENTION_CRON = '0 4 * * *'
 /** Event sources (EventSources) — every midnight the nightly check; the night to Monday the weekly
  * full pass (scan-event-sources decides which). */
 const SCAN_EVENT_SOURCES_CRON = '0 0 * * *'
+/** Audit trail copy (export-audit-trail) — past midnight UTC in either Prague offset, so the day it
+ * writes (UTC) is finished; before data retention, which may remove rows the copy should hold. */
+const EXPORT_AUDIT_TRAIL_CRON = '30 2 * * *'
 
 logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
@@ -100,6 +103,21 @@ logger.info('Event source scan schedule registered', {
   event: 'worker.import_schedule_registered',
   pattern: SCAN_EVENT_SOURCES_CRON,
   tz: APP_TIME_ZONE,
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.EXPORT_AUDIT_TRAIL,
+  { pattern: EXPORT_AUDIT_TRAIL_CRON, tz: APP_TIME_ZONE },
+  {
+    name: JOB_NAMES.EXPORT_AUDIT_TRAIL,
+    data: { jobType: JOB_NAMES.EXPORT_AUDIT_TRAIL, payload: {} },
+  },
+)
+logger.info('Audit trail export schedule registered', {
+  event: 'worker.audit_export_schedule_registered',
+  pattern: EXPORT_AUDIT_TRAIL_CRON,
+  tz: APP_TIME_ZONE,
+  bucket: process.env.AUDIT_EXPORT_BUCKET?.trim() || null,
 })
 
 const worker = spawnQueueWorker()

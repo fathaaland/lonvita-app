@@ -21,6 +21,8 @@ const cutoffsFor = (now: Date) => ({
   now: now.toISOString(),
   decidedRequest: daysBefore(now, RETENTION.decidedRequestDays).toISOString(),
   importRun: daysBefore(now, RETENTION.importRunDays).toISOString(),
+  systemLog: daysBefore(now, RETENTION.systemLogDays).toISOString(),
+  securityEvent: monthsBefore(now, RETENTION.securityEventMonths).toISOString(),
   organizerRequest: monthsBefore(now, RETENTION.organizerRequestMonths).toISOString(),
   staleEventData: monthsBefore(now, RETENTION.staleEventDataMonths).toISOString(),
   orphanMedia: hoursBefore(now, RETENTION.orphanMediaGraceHours).toISOString(),
@@ -147,6 +149,29 @@ const STEPS: Step[] = [
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM import_runs r
       WHERE r.started_at < ${c.importRun}::timestamptz
+        AND r.id > ${afterId}
+      ORDER BY r.id LIMIT ${limit}`,
+    purge: deleteRows,
+  },
+  {
+    name: 'old-system-logs',
+    collection: 'system-logs',
+    rule: `logged ${RETENTION.systemLogDays}+ days ago`,
+    select: (c, afterId, limit) => sql`
+      SELECT r.id FROM system_logs r
+      WHERE r.created_at < ${c.systemLog}::timestamptz
+        AND r.id > ${afterId}
+      ORDER BY r.id LIMIT ${limit}`,
+    purge: deleteRows,
+  },
+  {
+    // Already in the write-once audit bucket, which keeps them longer (export-audit-trail).
+    name: 'old-security-events',
+    collection: 'security-events',
+    rule: `logged ${RETENTION.securityEventMonths}+ months ago`,
+    select: (c, afterId, limit) => sql`
+      SELECT r.id FROM security_events r
+      WHERE r.created_at < ${c.securityEvent}::timestamptz
         AND r.id > ${afterId}
       ORDER BY r.id LIMIT ${limit}`,
     purge: deleteRows,

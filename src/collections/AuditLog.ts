@@ -99,7 +99,7 @@ export const AuditLog: CollectionConfig = {
     {
       name: 'correlationId',
       type: 'text',
-      admin: { description: 'The request id — the same one in the application logs (BetterStack).', position: 'sidebar' },
+      admin: { description: 'The request id — the same one in System Logs and Security Events.', position: 'sidebar' },
     },
   ],
   hooks: {

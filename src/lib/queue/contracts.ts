@@ -18,6 +18,7 @@ export const JOB_NAMES = {
   DATA_RETENTION: 'data-retention',
   SCAN_EVENT_SOURCES: 'scan-event-sources',
   IMPORT_EVENTS: 'import-events',
+  EXPORT_AUDIT_TRAIL: 'export-audit-trail',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -247,6 +248,22 @@ export type ImportEventsJobResult = {
 }
 
 /**
+ * Nightly: each finished day of the audit log and the security events goes, as one JSON Lines file,
+ * to the write-once audit bucket (AUDIT_EXPORT_BUCKET, S3 Object Lock) — the copy outside the app
+ * that vyhláška č. 409/2025 Sb. § 22 odst. 5 asks for. Days already there are skipped, so a missed
+ * night is caught up. Enqueued only by the worker's own scheduler.
+ */
+export type ExportAuditTrailJobData = Record<string, never>
+
+export type ExportAuditTrailJobResult = {
+  /** Days written this run (YYYY-MM-DD, UTC). */
+  exported: string[]
+  /** Days that failed — tried again the next night. */
+  failed: string[]
+  skipped?: 'not_configured'
+}
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -257,7 +274,10 @@ type Traced = { correlationId?: string }
 export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.SEND_EMAIL; payload: EmailJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SEND_SMS; payload: SmsJobData } & Traced)
-  | ({ jobType: typeof JOB_NAMES.CLEANUP_NOTIFICATIONS; payload: CleanupNotificationsJobData } & Traced)
+  | ({
+      jobType: typeof JOB_NAMES.CLEANUP_NOTIFICATIONS
+      payload: CleanupNotificationsJobData
+    } & Traced)
   | ({ jobType: typeof JOB_NAMES.FEEDBACK_REQUEST; payload: FeedbackRequestJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.GENERATE_EXPORT; payload: GenerateExportJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.EXPORT_READY; payload: ExportReadyJobData } & Traced)
@@ -270,3 +290,4 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.DATA_RETENTION; payload: DataRetentionJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SCAN_EVENT_SOURCES; payload: ScanEventSourcesJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.IMPORT_EVENTS; payload: ImportEventsJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.EXPORT_AUDIT_TRAIL; payload: ExportAuditTrailJobData } & Traced)

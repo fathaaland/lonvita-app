@@ -16,6 +16,7 @@ import {
 
 import type {
   UsageDashboardData,
+  UsageDashboardImportRun,
   UsageDashboardModelBreakdown,
   UsageDashboardOperationBreakdown,
 } from '@/lib/usage/dashboard-aggregation'
@@ -123,6 +124,26 @@ const buildQuery = (params: Record<string, string | undefined>): string => {
 }
 
 const modelKey = (row: UsageDashboardModelBreakdown) => `${row.provider} / ${row.model}`
+
+const dateTimeFormatter = new Intl.DateTimeFormat('cs-CZ', {
+  dateStyle: 'short',
+  timeStyle: 'short',
+  timeZone: 'Europe/Prague',
+})
+
+/** Mirrors the `trigger` options of the import-runs collection. */
+const IMPORT_TRIGGER_LABELS: Record<string, string> = {
+  daily: 'Nightly check',
+  weekly: 'Weekly full pass',
+  manual: 'Checked by hand',
+  new_source: 'New source',
+  text: 'Pasted text',
+  file: 'Uploaded file',
+}
+
+/** What the run read — the source's address, or what the admin handed in. */
+const importRunSubject = (row: UsageDashboardImportRun): string =>
+  row.sourceUrl || row.sourceLabel || IMPORT_TRIGGER_LABELS[row.trigger] || row.trigger
 
 export const UsageDashboardClient = () => {
   const [from, setFrom] = useState(defaultFromInputValue)
@@ -559,6 +580,52 @@ export const UsageDashboardClient = () => {
               <tr>
                 <td style={tdStyle} colSpan={5}>
                   No usage in this range.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={sectionStyle}>
+        <div style={sectionHeadingStyle}>Event imports</div>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>When</th>
+              <th style={thStyle}>Municipality</th>
+              <th style={thStyle}>What</th>
+              <th style={thStyle}>Trigger</th>
+              <th style={thStyle}>Status</th>
+              <th style={thStyle}>Found / created</th>
+              <th style={thStyle}>AI calls</th>
+              <th style={thStyle}>Tokens in / out</th>
+              <th style={thStyle}>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data?.importRuns ?? []).map((row: UsageDashboardImportRun) => (
+              <tr key={row.id}>
+                <td style={tdStyle}>{dateTimeFormatter.format(new Date(row.startedAt))}</td>
+                <td style={tdStyle}>{row.municipalityName ?? '—'}</td>
+                <td style={{ ...tdStyle, wordBreak: 'break-all' }}>{importRunSubject(row)}</td>
+                <td style={tdStyle}>{IMPORT_TRIGGER_LABELS[row.trigger] ?? row.trigger}</td>
+                <td style={tdStyle}>{row.status}</td>
+                <td style={tdStyle}>
+                  {numberFormatter.format(row.found)} / {numberFormatter.format(row.created)}
+                </td>
+                <td style={tdStyle}>{numberFormatter.format(row.aiCalls)}</td>
+                <td style={tdStyle}>
+                  {numberFormatter.format(row.inputTokens)} /{' '}
+                  {numberFormatter.format(row.outputTokens)}
+                </td>
+                <td style={tdStyle}>{usdFormatter.format(row.costUsd)}</td>
+              </tr>
+            ))}
+            {data && data.importRuns.length === 0 && (
+              <tr>
+                <td style={tdStyle} colSpan={9}>
+                  No imports in this range.
                 </td>
               </tr>
             )}

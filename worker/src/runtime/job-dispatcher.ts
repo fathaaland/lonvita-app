@@ -7,6 +7,7 @@ import { processDataRetentionJob } from '../processors/data-retention.processor'
 import { processEmailJob } from '../processors/email.processor'
 import { processEventCancelledJob } from '../processors/event-cancelled.processor'
 import { processEventUpdatedJob } from '../processors/event-updated.processor'
+import { processExportAuditTrailJob } from '../processors/export-audit-trail.processor'
 import { processExportReadyJob } from '../processors/export-ready.processor'
 import { processFeedbackRequestJob } from '../processors/feedback-request.processor'
 import { processGenerateExportJob } from '../processors/generate-export.processor'
@@ -24,6 +25,7 @@ import type {
   EmailJobResult,
   EventCancelledJobResult,
   EventUpdatedJobResult,
+  ExportAuditTrailJobResult,
   ExportReadyJobResult,
   FeedbackRequestJobResult,
   GenerateExportJobResult,
@@ -55,6 +57,7 @@ type JobResult =
   | DataRetentionJobResult
   | ScanEventSourcesJobResult
   | ImportEventsJobResult
+  | ExportAuditTrailJobResult
   | void
 
 export const dispatchJobByType = async (

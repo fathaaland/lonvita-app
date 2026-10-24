@@ -46,11 +46,32 @@ export type UsageDashboardOperationBreakdown = {
   unpricedCount: number
 }
 
+/** One import (`import_runs`) — what it read and what its AI calls cost, for the log. */
+export type UsageDashboardImportRun = {
+  id: number
+  startedAt: string
+  municipalityName: string | null
+  trigger: string
+  status: string
+  sourceUrl: string | null
+  sourceLabel: string | null
+  found: number
+  created: number
+  aiCalls: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number
+}
+
+/** The log shows the newest runs of the range; the totals above still cover all of it. */
+const IMPORT_RUNS_LIMIT = 200
+
 export type UsageDashboardData = {
   summary: UsageDashboardSummary
   timeSeries: UsageDashboardTimeSeriesPoint[]
   byModel: UsageDashboardModelBreakdown[]
   byOperationType: UsageDashboardOperationBreakdown[]
+  importRuns: UsageDashboardImportRun[]
 }
 
 const buildWhereClause = (filters: UsageDashboardFilters): SQL => {
@@ -70,6 +91,23 @@ const buildWhereClause = (filters: UsageDashboardFilters): SQL => {
   return sql.join(conditions, sql` AND `)
 }
 
+const buildImportRunsWhereClause = (filters: UsageDashboardFilters): SQL => {
+  const conditions: SQL[] = [
+    sql`r.started_at >= ${filters.from.toISOString()}`,
+    sql`r.started_at < ${filters.to.toISOString()}`,
+  ]
+
+  if (filters.municipalityId !== undefined) {
+    conditions.push(sql`r.municipality_id = ${filters.municipalityId}`)
+  }
+
+  if (filters.userId !== undefined) {
+    conditions.push(sql`r.requested_by_id = ${filters.userId}`)
+  }
+
+  return sql.join(conditions, sql` AND `)
+}
+
 /**
  * Aggregates `usage_events` with raw SQL (`GROUP BY`) rather than `payload.find()` + JS
  * reduce, since the ledger is append-only and expected to grow indefinitely — fetching every
@@ -84,8 +122,8 @@ export async function getUsageDashboardData(
   const db = (payload.db as unknown as PostgresAdapter).drizzle
   const where = buildWhereClause(filters)
 
-  const [summaryResult, timeSeriesResult, byModelResult, byOperationTypeResult] = await Promise.all(
-    [
+  const [summaryResult, timeSeriesResult, byModelResult, byOperationTypeResult, importRunsResult] =
+    await Promise.all([
       db.execute(sql`
         SELECT
           COUNT(*)::int AS total_requests,
@@ -137,8 +175,29 @@ export async function getUsageDashboardData(
         GROUP BY operation_type
         ORDER BY cost_usd DESC
       `),
-    ],
-  )
+      db.execute(sql`
+        SELECT
+          r.id,
+          r.started_at,
+          m.name AS municipality_name,
+          r.trigger,
+          r.status,
+          s.url AS source_url,
+          s.label AS source_label,
+          COALESCE(r.found, 0)::int AS found,
+          COALESCE(r.created, 0)::int AS created,
+          COALESCE(r.ai_calls, 0)::int AS ai_calls,
+          COALESCE(r.input_tokens, 0)::float8 AS input_tokens,
+          COALESCE(r.output_tokens, 0)::float8 AS output_tokens,
+          COALESCE(r.cost_usd, 0)::float8 AS cost_usd
+        FROM import_runs r
+        LEFT JOIN municipalities m ON m.id = r.municipality_id
+        LEFT JOIN event_sources s ON s.id = r.source_id
+        WHERE ${buildImportRunsWhereClause(filters)}
+        ORDER BY r.started_at DESC
+        LIMIT ${IMPORT_RUNS_LIMIT}
+      `),
+    ])
 
   const summaryRow = summaryResult.rows[0] as
     | {
@@ -212,5 +271,37 @@ export async function getUsageDashboardData(
     unpricedCount: row.unpriced_count,
   }))
 
-  return { summary, timeSeries, byModel, byOperationType }
+  const importRuns = (
+    importRunsResult.rows as {
+      id: number
+      started_at: string | Date
+      municipality_name: string | null
+      trigger: string
+      status: string
+      source_url: string | null
+      source_label: string | null
+      found: number
+      created: number
+      ai_calls: number
+      input_tokens: number
+      output_tokens: number
+      cost_usd: number
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    startedAt: new Date(row.started_at).toISOString(),
+    municipalityName: row.municipality_name,
+    trigger: row.trigger,
+    status: row.status,
+    sourceUrl: row.source_url,
+    sourceLabel: row.source_label,
+    found: row.found,
+    created: row.created,
+    aiCalls: row.ai_calls,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    costUsd: row.cost_usd,
+  }))
+
+  return { summary, timeSeries, byModel, byOperationType, importRuns }
 }

@@ -38,6 +38,15 @@ export const RETENTION = {
   /** An event import run (ImportRuns) — the history next to a source, and what support looks at
    * when one misbehaves. What its AI calls cost stays on the usage-events ledger. */
   importRunDays: 180,
+  /** System logs (SystemLogs) — diagnostics; a problem older than a quarter is fixed or forgotten. */
+  systemLogDays: 90,
+  /** Security events (SecurityEvents) — sign-ins and rate limits. A year shows a pattern across
+   * seasons; the nightly copy in the write-once audit bucket outlives the row (worker
+   * export-audit-trail, RETENTION.auditExportMonths). */
+  securityEventMonths: 12,
+  /** How long the write-once audit bucket locks each night's copy of the audit log and security
+   * events — the floor of vyhláška č. 409/2025 Sb. § 22 odst. 5 písm. c, kept outside the app. */
+  auditExportMonths: 18,
 } as const
 
 /** `enforce` removes; anything else (the default) only counts what would go and logs it — every new
@@ -53,6 +62,8 @@ export const monthsBefore = (now: Date, months: number): Date => {
   return date
 }
 
-export const daysBefore = (now: Date, days: number): Date => new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+export const daysBefore = (now: Date, days: number): Date =>
+  new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
 
-export const hoursBefore = (now: Date, hours: number): Date => new Date(now.getTime() - hours * 60 * 60 * 1000)
+export const hoursBefore = (now: Date, hours: number): Date =>
+  new Date(now.getTime() - hours * 60 * 60 * 1000)

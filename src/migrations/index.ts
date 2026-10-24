@@ -36,6 +36,7 @@ import * as migration_20261011_200000_data_retention_audit_log from './20261011_
 import * as migration_20261012_123737_schema_cleanup from './20261012_123737_schema_cleanup';
 import * as migration_20261012_125500_roles_and_recurrence_cleanup from './20261012_125500_roles_and_recurrence_cleanup';
 import * as migration_20261024_093154_event_import from './20261024_093154_event_import';
+import * as migration_20261024_144847_system_logs_security_events from './20261024_144847_system_logs_security_events';
 
 export const migrations = [
   {
@@ -226,6 +227,11 @@ export const migrations = [
   {
     up: migration_20261024_093154_event_import.up,
     down: migration_20261024_093154_event_import.down,
-    name: '20261024_093154_event_import'
+    name: '20261024_093154_event_import',
+  },
+  {
+    up: migration_20261024_144847_system_logs_security_events.up,
+    down: migration_20261024_144847_system_logs_security_events.down,
+    name: '20261024_144847_system_logs_security_events'
   },
 ];

@@ -35,9 +35,12 @@ import { EventSources } from './collections/EventSources'
 import { EventImportCandidates } from './collections/EventImportCandidates'
 import { ImportRuns } from './collections/ImportRuns'
 import { UsageEvents } from './collections/UsageEvents'
+import { SystemLogs } from './collections/SystemLogs'
+import { SecurityEvents } from './collections/SecurityEvents'
 import { writeAuditLog } from './collections/shared/auditLog'
 import { s3ClientConfig } from './lib/s3/client'
-import { logger, serializeError } from './lib/logger'
+import { logger, serializeError, setLogSink } from './lib/logger'
+import { createDatabaseLogSink } from './lib/logger/db-sink'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
 import { withCrudLogging } from './lib/logger/collection-logger'
 import { runSeed } from './lib/seed/run'
@@ -88,6 +91,10 @@ const auditRefusal = ({
 
 export default buildConfig({
   onInit: async (payload) => {
+    // From here on, warnings, errors, notable events and sign-ins are kept in system-logs and
+    // security-events — in every process that builds Payload (the app and the worker alike).
+    setLogSink(createDatabaseLogSink(payload))
+
     // Once per boot, in every process that builds Payload: a deployment missing a variable fails
     // somewhere far from the cause (an e-mail that never leaves, a 500 on the first upload).
     const env = validateEnv()
@@ -158,6 +165,8 @@ export default buildConfig({
     EventImportCandidates,
     ImportRuns,
     UsageEvents,
+    SystemLogs,
+    SecurityEvents,
   ].map(withCrudLogging),
   hooks: {
     afterError: [
@@ -184,7 +193,7 @@ export default buildConfig({
         auditRefusal({ error, req, collection: collection?.slug })
 
         // Handing the id back means a user can quote the number from the screen and it maps
-        // straight onto one line in BetterStack.
+        // straight onto one line in System Logs.
         return { response: { errors: [{ message: error.message }], correlationId } }
       },
     ],
