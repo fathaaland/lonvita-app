@@ -7,6 +7,7 @@ import {
   killTransaction,
 } from 'payload'
 
+import { getOwnedOrganizationIds, mayManageImport } from '@/collections/access/import'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { UNLIMITED_CAPACITY } from '@/lib/capacity'
@@ -17,7 +18,8 @@ import type { EventImportCandidate, User } from '@/payload-types'
 import { IMPORT_WARNINGS, isReadyToApprove, type ImportWarning } from './contracts'
 
 /**
- * Approving an imported candidate is founding the event — as the obec, by its admin, through the
+ * Approving an imported candidate is founding the event — as the obec, by its admin, or for one an
+ * organizer's source found, as that organizer — through the
  * Events collection with access control on (`overrideAccess: false`): every rule a hand-made event
  * meets (a future start, a place inside the obec's area, a category, the organizer role) holds for an
  * imported one too, and nothing here opens a way around them. The candidate is marked approved in
@@ -62,12 +64,14 @@ async function loadForDecision(
     })
     .catch(() => null)
   if (!candidate) throw new APIError('Akce k převzetí neexistuje.', 404)
-  const municipalityId = relationId(candidate.municipality)!
-  const administers = (await getAdministeredMunicipalityIds(payload, Number(user.id))).includes(
-    municipalityId,
-  )
-  if (!administers && user.role !== 'admin')
-    throw new APIError('O akcích k převzetí rozhoduje admin obce.', 403)
+  if (!(await mayManageImport(payload, user, candidate))) {
+    throw new APIError(
+      candidate.organization
+        ? 'O akcích z kalendáře organizace rozhoduje její pořadatel.'
+        : 'O akcích k převzetí rozhoduje admin obce.',
+      403,
+    )
+  }
   if (candidate.status !== 'pending') throw new APIError('O téhle akci už bylo rozhodnuto.', 409)
   return candidate
 }
@@ -140,7 +144,12 @@ export async function approveCandidate(
 ): Promise<{ eventId: number }> {
   const candidate = await loadForDecision(payload, user, candidateId)
   const municipalityId = Number(relationId(candidate.municipality))
-  if (
+  const organizationId = relationId(candidate.organization)
+  if (organizationId) {
+    // The event is founded as the organizer — by the one who owns the organization (resolveOrganizations).
+    if (!(await getOwnedOrganizationIds(payload, user.id)).includes(organizationId))
+      throw new APIError('Akci za organizaci převezme její pořadatel.', 403)
+  } else if (
     !(await getAdministeredMunicipalityIds(payload, Number(user.id))).includes(
       String(municipalityId),
     )

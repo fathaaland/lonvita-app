@@ -102,7 +102,7 @@ export const dispatchJobByType = async (
       return processDataRetentionJob()
 
     case JOB_NAMES.SCAN_EVENT_SOURCES:
-      return processScanEventSourcesJob()
+      return processScanEventSourcesJob(job.payload)
 
     case JOB_NAMES.IMPORT_EVENTS:
       return processImportEventsJob(job.payload, context)

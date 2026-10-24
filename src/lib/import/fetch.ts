@@ -171,7 +171,13 @@ export type FetchedResource = {
   url: string
   contentType: string
   body: Buffer
+  /** The server's word that the version asked about (`validators`) is still current — no body. */
+  notModified?: boolean
+  /** What identifies this version — asked back next time (HTTP ETag, Last-Modified). */
+  validators?: HttpValidators
 }
+
+export type HttpValidators = { etag: string | null; lastModified: string | null }
 
 const isBlockedCause = (error: unknown): boolean => {
   let current: unknown = error
@@ -205,7 +211,8 @@ export async function fetchPublic(
   {
     maxBytes = IMPORT_LIMITS.fetchMaxBytes,
     accept = '*/*',
-  }: { maxBytes?: number; accept?: string } = {},
+    validators,
+  }: { maxBytes?: number; accept?: string; validators?: HttpValidators | null } = {},
 ): Promise<FetchedResource> {
   let url = normalizeSourceUrl(rawUrl)
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -218,6 +225,8 @@ export async function fetchPublic(
           'User-Agent': IMPORT_USER_AGENT,
           Accept: accept,
           'Accept-Language': 'cs,en;q=0.5',
+          ...(validators?.etag ? { 'If-None-Match': validators.etag } : {}),
+          ...(validators?.lastModified ? { 'If-Modified-Since': validators.lastModified } : {}),
         },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
@@ -234,6 +243,23 @@ export async function fetchPublic(
       url = normalizeSourceUrl(new URL(response.headers.get('location')!, url).toString())
       continue
     }
+    const current: HttpValidators = {
+      etag: response.headers.get('etag'),
+      lastModified: response.headers.get('last-modified'),
+    }
+    if (response.status === 304 && validators) {
+      await response.body?.cancel().catch(() => {})
+      return {
+        url: url.toString(),
+        contentType: '',
+        body: Buffer.alloc(0),
+        notModified: true,
+        validators: {
+          etag: current.etag ?? validators.etag,
+          lastModified: current.lastModified ?? validators.lastModified,
+        },
+      }
+    }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
       throw new ImportFetchError(`Stránka vrátila chybu ${response.status}.`, 'http_error')
@@ -243,6 +269,7 @@ export async function fetchPublic(
       url: url.toString(),
       contentType: (response.headers.get('content-type') ?? '').toLowerCase(),
       body,
+      validators: current,
     }
   }
   throw new ImportFetchError('Stránka přesměrovává příliš mnohokrát.', 'network')

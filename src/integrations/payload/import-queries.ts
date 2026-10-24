@@ -1,9 +1,19 @@
 import { buildQuery, buildWhereParams, del, get, patch, post, PayloadApiError } from './client'
 import type { PayloadListResponse } from './client'
-import type { ImportWarning } from '@/lib/import/contracts'
+import type { ImportWarning, SyncNotice } from '@/lib/import/contracts'
 import { relationId } from '@/lib/relations'
 
-/** Importing events from obce's websites, files and pasted programs (docs/import-akci-z-webu.md). */
+/** Importing events from obce's websites, files and pasted programs (docs/import-akci-z-webu.md).
+ * Everything belongs to an obec, or — with `organizationId` — to an organizer's organization
+ * (collections/access/import). */
+
+type WhereClause = Parameters<typeof buildWhereParams>[0]
+
+/** The obec's own records, or the organization's. */
+const ownerWhere = (municipalityId: string, organizationId?: string | null): WhereClause =>
+  organizationId
+    ? { organization: { equals: organizationId } }
+    : { municipality: { equals: municipalityId }, organization: { exists: false } }
 
 export type ImportSourceRow = {
   id: string
@@ -41,8 +51,11 @@ const mapSource = (s: PayloadSource): ImportSourceRow => ({
   last_found_count: s.lastFoundCount ?? null,
 })
 
-export async function listImportSources(municipalityId: string): Promise<ImportSourceRow[]> {
-  const where = buildWhereParams({ municipality: { equals: municipalityId } })
+export async function listImportSources(
+  municipalityId: string,
+  organizationId?: string | null,
+): Promise<ImportSourceRow[]> {
+  const where = buildWhereParams(ownerWhere(municipalityId, organizationId))
   const result = await get<PayloadListResponse<PayloadSource>>(
     `/event-sources?${where}&${buildQuery({ depth: 0, limit: 50, sort: 'createdAt' })}`,
   )
@@ -52,12 +65,15 @@ export async function listImportSources(municipalityId: string): Promise<ImportS
 export async function addImportSource(
   municipalityId: string,
   url: string,
-  label?: string,
+  { label, organizationId }: { label?: string; organizationId?: string | null } = {},
 ): Promise<ImportSourceRow> {
   const doc = await post<PayloadSource>('/event-sources', {
     municipality: Number(municipalityId),
+    ...(organizationId ? { organization: Number(organizationId) } : {}),
     url,
     label: label?.trim() || undefined,
+    // The form asks first: the web is theirs, or its operator lets them take events from it.
+    ownerConsent: true,
   })
   return mapSource(doc)
 }
@@ -156,9 +172,9 @@ const mapCandidate = (c: PayloadCandidate): ImportCandidateRow => ({
   municipality_id: relationId(c.municipality)!,
 })
 
-const pendingWhere = (municipalityId: string) =>
+const pendingWhere = (municipalityId: string, organizationId?: string | null) =>
   buildWhereParams({
-    municipality: { equals: municipalityId },
+    ...ownerWhere(municipalityId, organizationId),
     status: { equals: 'pending' },
     startsAt: { greater_than: new Date().toISOString() },
   })
@@ -166,16 +182,20 @@ const pendingWhere = (municipalityId: string) =>
 /** The obec's candidates still waiting for a decision whose start is ahead, soonest first. */
 export async function listPendingImportCandidates(
   municipalityId: string,
+  organizationId?: string | null,
 ): Promise<ImportCandidateRow[]> {
   const result = await get<PayloadListResponse<PayloadCandidate>>(
-    `/event-import-candidates?${pendingWhere(municipalityId)}&${buildQuery({ depth: 0, limit: 300, sort: 'startsAt' })}`,
+    `/event-import-candidates?${pendingWhere(municipalityId, organizationId)}&${buildQuery({ depth: 0, limit: 300, sort: 'startsAt' })}`,
   )
   return result.docs.map(mapCandidate)
 }
 
-export async function countPendingImportCandidates(municipalityId: string): Promise<number> {
+export async function countPendingImportCandidates(
+  municipalityId: string,
+  organizationId?: string | null,
+): Promise<number> {
   const result = await get<PayloadListResponse<{ id: number }>>(
-    `/event-import-candidates?${pendingWhere(municipalityId)}&${buildQuery({ depth: 0, limit: 1 })}`,
+    `/event-import-candidates?${pendingWhere(municipalityId, organizationId)}&${buildQuery({ depth: 0, limit: 1 })}`,
   )
   return result.totalDocs
 }
@@ -236,4 +256,62 @@ export async function approveImportCandidates(
 
 export async function rejectImportCandidate(id: string): Promise<void> {
   await post(`/import/candidates/${id}/reject`)
+}
+
+/** A taken-over event its source changed in a way the import left to its owner (lib/import/sync). */
+export type ImportSyncRow = {
+  id: string
+  event_id: string | null
+  title: string
+  starts_at: string
+  time_known: boolean
+  location_text: string | null
+  detail_url: string | null
+  origin_label: string | null
+  notices: SyncNotice[]
+  noticed_at: string | null
+}
+
+type PayloadSyncCandidate = {
+  id: number
+  event?: number | { id: number } | null
+  title: string
+  startsAt: string
+  timeKnown?: boolean | null
+  locationText?: string | null
+  detailUrl?: string | null
+  originLabel?: string | null
+  syncNotices?: unknown
+  noticedAt?: string | null
+}
+
+export async function listSyncNotices(
+  municipalityId: string,
+  organizationId?: string | null,
+): Promise<ImportSyncRow[]> {
+  const where = buildWhereParams({
+    ...ownerWhere(municipalityId, organizationId),
+    status: { equals: 'approved' },
+    syncNeedsReview: { equals: true },
+  })
+  const result = await get<PayloadListResponse<PayloadSyncCandidate>>(
+    `/event-import-candidates?${where}&${buildQuery({ depth: 0, limit: 100, sort: '-noticedAt' })}`,
+  )
+  return result.docs.map((c) => ({
+    id: String(c.id),
+    event_id: relationId(c.event),
+    title: c.title,
+    starts_at: c.startsAt,
+    time_known: c.timeKnown !== false,
+    location_text: c.locationText ?? null,
+    detail_url: c.detailUrl ?? null,
+    origin_label: c.originLabel ?? null,
+    notices: Array.isArray(c.syncNotices) ? (c.syncNotices as SyncNotice[]) : [],
+    noticed_at: c.noticedAt ?? null,
+  }))
+}
+
+/** "Převzít z webu" or "Beru na vědomí". */
+export async function decideSyncNotices(id: string, action: 'apply' | 'dismiss'): Promise<void> {
+  await post(`/import/candidates/${id}/sync`, { action })
 }

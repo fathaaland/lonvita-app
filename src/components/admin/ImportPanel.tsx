@@ -17,16 +17,19 @@ import {
   addImportSource,
   approveImportCandidate,
   approveImportCandidates,
+  decideSyncNotices,
   deleteImportSource,
   importFromFile,
   importFromText,
   listImportSources,
   listPendingImportCandidates,
+  listSyncNotices,
   rejectImportCandidate,
   runImportSource,
   setImportSourceEnabled,
   type ImportCandidateRow,
   type ImportSourceRow,
+  type ImportSyncRow,
 } from '@/integrations/payload/import-queries'
 import { getEventCategories } from '@/integrations/payload/queries'
 import { PayloadApiError } from '@/integrations/payload/client'
@@ -35,8 +38,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ConfirmDeleteButton } from '@/components/ConfirmDeleteButton'
-import { IMPORT_LIMITS, IMPORT_WARNINGS, isReadyToApprove } from '@/lib/import/contracts'
+import {
+  IMPORT_LIMITS,
+  IMPORT_WARNINGS,
+  isReadyToApprove,
+  SYNC_FIELD_LABELS,
+  SYNC_NOTICES,
+} from '@/lib/import/contracts'
 import { formatEventDate, formatEventDateTime } from '@/lib/date'
 
 /** After the admin asks for a read, the panel looks for its results this long. */
@@ -277,38 +287,118 @@ function CandidateRow({
   )
 }
 
+/** A taken-over event its source changed in a way the import left to the owner (lib/import/sync). */
+function SyncRow({ row, onDecided }: { row: ImportSyncRow; onDecided: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const canApply = row.notices.some((n) => n.code === 'changed' || n.code === 'not_applied')
+
+  const decide = async (action: 'apply' | 'dismiss') => {
+    setBusy(true)
+    try {
+      await decideSyncNotices(row.id, action)
+      if (action === 'apply') toast.success(`Akce „${row.title}“ je upravená podle webu.`)
+      onDecided()
+    } catch (error) {
+      toast.error(errorText(error, 'Změnu se nepodařilo uložit.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const when = row.time_known ? formatEventDateTime(row.starts_at) : formatEventDate(row.starts_at)
+  return (
+    <li className="py-3 space-y-1.5">
+      <p className="font-semibold">{row.title}</p>
+      <ul className="space-y-0.5">
+        {row.notices.map((n) => (
+          <li
+            key={n.code}
+            className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" aria-hidden />
+            <span>
+              {SYNC_NOTICES[n.code] ?? n.code}
+              {n.fields &&
+                n.fields.length > 0 &&
+                ` (${n.fields.map((f) => SYNC_FIELD_LABELS[f] ?? f).join(', ')})`}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {canApply && (
+        <p className="text-xs text-muted-foreground">
+          Na webu teď: {when} · {row.location_text ?? 'místo neuvedeno'}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {canApply && (
+          <Button size="sm" onClick={() => decide('apply')} disabled={busy}>
+            Převzít z webu
+          </Button>
+        )}
+        {row.event_id && (
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/upravit/${row.event_id}`}>Upravit akci</Link>
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={() => decide('dismiss')} disabled={busy}>
+          Beru na vědomí
+        </Button>
+        {row.detail_url && (
+          <a
+            href={row.detail_url}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground underline ml-auto"
+          >
+            na webu <ExternalLink className="h-3 w-3" aria-hidden />
+          </a>
+        )}
+      </div>
+    </li>
+  )
+}
+
 /**
- * "Import akcí" in the obec's dashboard (docs/import-akci-z-webu.md): the web pages and calendars the
- * obec's events are read from every few hours, a one-off import from pasted text or a file, and the
- * events found — none of which reaches the obec's events until its admin takes it over.
+ * "Import akcí" (docs/import-akci-z-webu.md) — of an obec (its dashboard) or, with `organizationId`,
+ * of an organizer's organization (the /import page): the web pages and calendars its events are
+ * read from each night, the events found — none of which reaches Lonvita until the owner takes it
+ * over — and the taken-over ones whose source changed in a way the import left to the owner. An
+ * obec also imports from pasted text or a file.
  */
 export function ImportPanel({
   municipalityId,
+  organizationId,
   onPendingCountChange,
 }: {
   municipalityId: string
+  organizationId?: string | null
   onPendingCountChange?: (n: number) => void
 }) {
   const [sources, setSources] = useState<ImportSourceRow[]>([])
   const [candidates, setCandidates] = useState<ImportCandidateRow[]>([])
+  const [syncRows, setSyncRows] = useState<ImportSyncRow[]>([])
   const [categoryNames, setCategoryNames] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [url, setUrl] = useState('')
+  const [consent, setConsent] = useState(false)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState<'source' | 'text' | 'file' | 'bulk' | null>(null)
   const pollUntil = useRef(0)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
-    const [s, c] = await Promise.all([
-      listImportSources(municipalityId),
-      listPendingImportCandidates(municipalityId),
+    const [s, c, r] = await Promise.all([
+      listImportSources(municipalityId, organizationId),
+      listPendingImportCandidates(municipalityId, organizationId),
+      listSyncNotices(municipalityId, organizationId),
     ])
     setSources(s)
     setCandidates(c)
-    onPendingCountChange?.(c.length)
+    setSyncRows(r)
+    onPendingCountChange?.(c.length + r.length)
     setLoading(false)
-  }, [municipalityId, onPendingCountChange])
+  }, [municipalityId, organizationId, onPendingCountChange])
 
   useEffect(() => {
     load().catch(() => setLoading(false))
@@ -328,11 +418,12 @@ export function ImportPanel({
 
   const addSource = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!url.trim()) return
+    if (!url.trim() || !consent) return
     setBusy('source')
     try {
-      await addImportSource(municipalityId, url.trim())
+      await addImportSource(municipalityId, url.trim(), { organizationId })
       setUrl('')
+      setConsent(false)
       toast.success('Zdroj přidán — prochází se, nové akce se tu objeví za chvíli.')
       startPolling()
       await load()
@@ -400,25 +491,38 @@ export function ImportPanel({
             <p className="font-bold">Zdroje akcí</p>
           </div>
           <p className="text-sm text-muted-foreground">
-            Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí —
-            třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář. Lonvita ji projde
-            každých pár hodin a nové akce vám nabídne k převzetí. Facebook projít nejde.
+            {organizationId
+              ? 'Vložte odkaz na stránku, kde zveřejňujete svůj program akcí — kalendář na vašem webu nebo veřejný Google Kalendář.'
+              : 'Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář.'}{' '}
+            Lonvita ji každou noc zkontroluje, jednou týdně projde celou a nové akce vám nabídne k
+            převzetí. Akce, které už jste převzali, upraví podle webu, pokud jste je v Lonvitě
+            neměnili. Facebook projít nejde.
           </p>
-          <form onSubmit={addSource} className="flex gap-2">
-            <Input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://www.obec.cz/kalendar-akci"
-              className="h-11"
-              aria-label="Adresa stránky s akcemi"
-            />
-            <Button
-              type="submit"
-              className="h-11 shrink-0"
-              disabled={busy === 'source' || !url.trim()}
-            >
-              Přidat
-            </Button>
+          <form onSubmit={addSource} className="space-y-2">
+            <div className="flex gap-2">
+              <Input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://www.obec.cz/kalendar-akci"
+                className="h-11"
+                aria-label="Adresa stránky s akcemi"
+              />
+              <Button
+                type="submit"
+                className="h-11 shrink-0"
+                disabled={busy === 'source' || !url.trim() || !consent}
+              >
+                Přidat
+              </Button>
+            </div>
+            <label className="flex items-start gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={consent}
+                onCheckedChange={(v) => setConsent(v === true)}
+                className="mt-0.5"
+              />
+              <span>Web provozujeme my, nebo nám jeho provozovatel převzetí akcí dovolil.</span>
+            </label>
           </form>
           {sources.length > 0 && (
             <ul className="divide-y divide-border">
@@ -430,47 +534,69 @@ export function ImportPanel({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Type className="h-5 w-5 text-primary" />
-            <p className="font-bold">Jednorázový import</p>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Program, který na webu není — z e-mailu, zpravodaje, plakátu. Vložte text, nebo nahrajte
-            PDF či fotku (do 4 MB).
-          </p>
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            maxLength={IMPORT_LIMITS.textMaxChars}
-            placeholder="Např. „So 14. 11. v 19:00 – Martinská zábava, sokolovna, vstupné 150 Kč…“"
-            className="min-h-28"
-            aria-label="Text programu"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={submitText} disabled={busy === 'text' || text.trim().length < 20}>
-              Načíst akce z textu
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => fileInput.current?.click()}
-              disabled={busy === 'file'}
-              className="gap-2"
-            >
-              <FileUp className="h-4 w-4" />
-              {busy === 'file' ? 'Nahrávám…' : 'Nahrát PDF nebo fotku'}
-            </Button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={(e) => submitFile(e.target.files?.[0])}
+      {!organizationId && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Type className="h-5 w-5 text-primary" />
+              <p className="font-bold">Jednorázový import</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Program, který na webu není — z e-mailu, zpravodaje, plakátu. Vložte text, nebo
+              nahrajte PDF či fotku (do 4 MB).
+            </p>
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={IMPORT_LIMITS.textMaxChars}
+              placeholder="Např. „So 14. 11. v 19:00 – Martinská zábava, sokolovna, vstupné 150 Kč…“"
+              className="min-h-28"
+              aria-label="Text programu"
             />
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={submitText} disabled={busy === 'text' || text.trim().length < 20}>
+                Načíst akce z textu
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => fileInput.current?.click()}
+                disabled={busy === 'file'}
+                className="gap-2"
+              >
+                <FileUp className="h-4 w-4" />
+                {busy === 'file' ? 'Nahrávám…' : 'Nahrát PDF nebo fotku'}
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => submitFile(e.target.files?.[0])}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {syncRows.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              <p className="font-bold">Změny u převzatých akcí ({syncRows.length})</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Web akci změnil a Lonvita ji sama neupravila — buď jste ji tu mezitím změnili, nebo
+              změna potřebuje vaše doplnění. Zrušit akci kvůli webu musíte vždy sami.
+            </p>
+            <ul className="divide-y divide-border">
+              {syncRows.map((r) => (
+                <SyncRow key={r.id} row={r} onDecided={() => load()} />
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-4 space-y-3">

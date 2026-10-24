@@ -78,7 +78,7 @@ export function parseIcal(text: string, now: Date = new Date()): ExtractedEvent[
     vevent: InstanceType<typeof ICAL.Component>,
     start: IcalTime,
     end: IcalTime | null,
-    occurrenceKey: string,
+    occurrenceKey: string | null,
   ) => {
     const event = new ICAL.Event(vevent)
     const startWall = toWallTime(start)
@@ -103,18 +103,20 @@ export function parseIcal(text: string, now: Date = new Date()): ExtractedEvent[
       isPaid: null,
       priceCzk: null,
       cancelled: status === 'CANCELLED',
-      externalId: event.uid ? `${event.uid}#${occurrenceKey}` : null,
+      externalId: event.uid ? (occurrenceKey ? `${event.uid}#${occurrenceKey}` : event.uid) : null,
     })
   }
 
   for (const vevent of root.getAllSubcomponents('vevent')) {
-    // An overridden occurrence (RECURRENCE-ID) is listed as its own VEVENT — taken as it is.
+    // An overridden occurrence (RECURRENCE-ID) is listed as its own VEVENT — taken as it is. The
+    // occurrence is known by when it was scheduled (RECURRENCE-ID, the rule's own date), a single
+    // event by its UID alone — so one moved to another day is still the same one.
     const event = new ICAL.Event(vevent)
     if (!event.startDate) continue
     if (!event.isRecurring() || vevent.hasProperty('recurrence-id')) {
       const key = vevent.hasProperty('recurrence-id')
         ? String(vevent.getFirstPropertyValue('recurrence-id'))
-        : event.startDate.toString()
+        : null
       push(vevent, event.startDate, event.endDate ?? null, key)
       continue
     }

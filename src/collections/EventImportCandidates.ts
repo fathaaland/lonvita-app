@@ -1,15 +1,18 @@
 import type { CollectionConfig } from 'payload'
 
-import { isPlatformOrMunicipalityAdmin } from './access/shared'
+import { canAccessImportRecords } from './access/import'
 
 const systemOnly = () => false
 
 /**
- * An event found on an obec's web (EventSources), in a pasted program or an uploaded file, waiting
- * for the obec's admin. Nothing reaches the obec's events without them: approving creates the event
- * through the collection's own checks, as the admin (lib/import/approve), rejecting sets it aside.
- * Written only by the worker and those two routes; `externalKey` keeps the same event from coming
- * back on every pass over its source — whatever was decided about it.
+ * An event found on a web calendar (EventSources), in a pasted program or an uploaded file, waiting
+ * for its owner — the obec's admins, or the organizer whose source found it (access/import). Nothing
+ * reaches the events without them: approving creates the event through the collection's own checks,
+ * as them (lib/import/approve), rejecting sets it aside. Once taken over it stays as the link
+ * between the event and its source: each pass brings the event's date, time and place in step with
+ * the source where nobody changed them in Lonvita, and notes for the owner what it didn't
+ * (lib/import/sync). Written only by the worker and the /api/import routes; `externalKey` keeps the
+ * same event from coming back on every pass over its source — whatever was decided about it.
  */
 export const EventImportCandidates: CollectionConfig = {
   slug: 'event-import-candidates',
@@ -19,12 +22,12 @@ export const EventImportCandidates: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'startsAt', 'municipality', 'status', 'createdAt'],
+    defaultColumns: ['title', 'startsAt', 'municipality', 'organization', 'status', 'createdAt'],
     description:
-      'Imported events waiting for the obec admin (docs/import-akci-z-webu.md). Written by the worker, decided via /api/import/candidates.',
+      'Imported events waiting for their owner, and the link of taken-over ones to their source (docs/import-akci-z-webu.md). Written by the worker, decided via /api/import/candidates.',
   },
   access: {
-    read: isPlatformOrMunicipalityAdmin(),
+    read: canAccessImportRecords,
     create: systemOnly,
     update: systemOnly,
     delete: ({ req: { user } }) => user?.role === 'admin',
@@ -35,6 +38,13 @@ export const EventImportCandidates: CollectionConfig = {
       type: 'relationship',
       relationTo: 'municipalities',
       required: true,
+      index: true,
+    },
+    {
+      // Found on an organizer's source — theirs to take over, as the organizer. Empty: the obec's.
+      name: 'organization',
+      type: 'relationship',
+      relationTo: 'organizations',
       index: true,
     },
     { name: 'source', type: 'relationship', relationTo: 'event-sources', index: true },
@@ -61,6 +71,13 @@ export const EventImportCandidates: CollectionConfig = {
     },
     { name: 'externalKey', type: 'text', required: true, index: true },
     {
+      // What the event is known by on its source whatever its date — the iCal UID, its own page —
+      // so an event moved to another day is still the same one (lib/import/normalize sourceRefOf).
+      name: 'sourceRef',
+      type: 'text',
+      index: true,
+    },
+    {
       name: 'status',
       type: 'select',
       required: true,
@@ -72,6 +89,7 @@ export const EventImportCandidates: CollectionConfig = {
         { label: 'Rejected', value: 'rejected' },
       ],
     },
+    // As the source last said — for a taken-over event, what the next pass compares the source with.
     { name: 'title', type: 'text', required: true },
     { name: 'description', type: 'textarea' },
     { name: 'startsAt', type: 'date', required: true, index: true },
@@ -117,6 +135,34 @@ export const EventImportCandidates: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     { name: 'decidedAt', type: 'date', admin: { position: 'sidebar' } },
+    // --- Keeping a taken-over event in step with its source (lib/import/sync) ----------------
+    {
+      // lib/import/contracts SyncNotice[] — what the owner should look at.
+      name: 'syncNotices',
+      type: 'json',
+    },
+    {
+      // Whether `syncNotices` holds anything — what the import panel lists them by.
+      name: 'syncNeedsReview',
+      type: 'checkbox',
+      defaultValue: false,
+      index: true,
+    },
+    { name: 'noticedAt', type: 'date' },
+    { name: 'lastSyncedAt', type: 'date', admin: { position: 'sidebar' } },
+    {
+      // The last pass whose source still listed it.
+      name: 'lastSeenAt',
+      type: 'date',
+      admin: { position: 'sidebar' },
+    },
+    {
+      // Passes in a row it was missing from a source that still lists events around its date.
+      name: 'missingCount',
+      type: 'number',
+      defaultValue: 0,
+      admin: { position: 'sidebar' },
+    },
   ],
   timestamps: true,
 }

@@ -115,8 +115,9 @@ const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) =
     'event-deletion-requests',
     'review-complaints',
     'pool-invitations',
-    // Candidates point at the sources — they go first.
+    // Candidates and runs point at the sources — they go first.
     'event-import-candidates',
+    'import-runs',
     'event-sources',
     'user-roles',
   ] as const) {

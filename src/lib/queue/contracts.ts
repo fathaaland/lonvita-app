@@ -222,10 +222,11 @@ export type AttendanceReminderJobResult = {
 }
 
 /**
- * Every few hours: queues an IMPORT_EVENTS job for each enabled event source (EventSources).
- * Enqueued only by the worker's own scheduler.
+ * Each midnight: queues an IMPORT_EVENTS job for each enabled event source (EventSources) — the
+ * nightly check, or the night to Monday the full pass (`trigger` forces one). Enqueued only by the
+ * worker's own scheduler.
  */
-export type ScanEventSourcesJobData = Record<string, never>
+export type ScanEventSourcesJobData = { trigger?: 'daily' | 'weekly' }
 
 export type ScanEventSourcesJobResult = {
   queued: number

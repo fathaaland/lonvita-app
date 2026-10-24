@@ -1,33 +1,45 @@
-import { SOURCE_SCAN_INTERVAL_HOURS } from '@/lib/import/contracts'
+import { APP_TIME_ZONE } from '@/lib/date'
+import { pragueToday } from '@/lib/import/time'
 import { logger } from '@/lib/logger'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 
 import { getWorkerPayload } from '../runtime/payload'
 
-import type { ScanEventSourcesJobResult } from '@/lib/queue/contracts'
+import type { ScanEventSourcesJobData, ScanEventSourcesJobResult } from '@/lib/queue/contracts'
+
+/** Spread over the night rather than all at once — the AI and Nominatim are shared. */
+const SPACING_MS = 15_000
+
+/** The night to Monday is the weekly full pass. */
+const isWeeklyNight = (now: Date) =>
+  new Intl.DateTimeFormat('en-US', { timeZone: APP_TIME_ZONE, weekday: 'short' }).format(now) === 'Mon'
 
 /**
- * Every SOURCE_SCAN_INTERVAL_HOURS: one import-events job per enabled source. The job id carries the
- * slot, so a scheduler firing twice (two workers, a restart) doesn't read a source twice in a row.
+ * Each midnight one import-events job per enabled source — the nightly check (the AI only reads a
+ * page that changed), or on the night to Monday the full pass. The job id carries the night, so a scheduler
+ * firing twice (two workers, a restart) doesn't read a source twice.
  */
-export const processScanEventSourcesJob = async (now: Date = new Date()): Promise<ScanEventSourcesJobResult> => {
+export const processScanEventSourcesJob = async (
+  data: ScanEventSourcesJobData = {},
+  now: Date = new Date(),
+): Promise<ScanEventSourcesJobResult> => {
+  const trigger = data.trigger ?? (isWeeklyNight(now) ? 'weekly' : 'daily')
   const payload = await getWorkerPayload()
   const sources = await payload.find({
     collection: 'event-sources',
     where: { enabled: { equals: true } },
-    select: { municipality: true },
+    select: {},
     depth: 0,
     pagination: false,
     overrideAccess: true,
   })
-  const slot = Math.floor(now.getTime() / (SOURCE_SCAN_INTERVAL_HOURS * 60 * 60 * 1000))
+  const night = pragueToday(now)
   for (const [index, source] of sources.docs.entries()) {
-    // Spread over a few minutes rather than all at once — the AI and Nominatim are shared.
     await enqueueImportEvents(
-      { kind: 'source', sourceId: source.id },
-      { jobId: `import-source-${source.id}-${slot}`, delay: index * 20_000 },
+      { kind: 'source', sourceId: source.id, trigger },
+      { jobId: `import-source-${source.id}-${night}`, delay: index * SPACING_MS },
     )
   }
-  logger.info('Event sources queued', { event: 'import.sources_queued', count: sources.docs.length })
+  logger.info('Event sources queued', { event: 'import.sources_queued', trigger, count: sources.docs.length })
   return { queued: sources.docs.length }
 }

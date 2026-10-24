@@ -204,3 +204,20 @@ Rozhodnutí v1:
 
 Proměnné prostředí (worker): `ANTHROPIC_API_KEY` (bez něj jen iCal a schema.org), volitelně `IMPORT_AI_MODEL`
 (výchozí `claude-haiku-5-5`).
+
+## Implementace (v2, rozpracováno od 2026-10-24)
+
+Rozhodnutí: import je v **paušálu**, spotřeba AI se eviduje **na obec** (i u zdrojů organizátorů), zdroje se
+kontrolují **denně i týdně**, import vytváří **jen návrhy** (nic se nezveřejní ani nezruší samo).
+
+| Část | Kde |
+|---|---|
+| Účtování AI — převzato 1:1 z hbai-app (tenant → obec): kniha `usage-events` (jen zápis, cena v okamžiku volání, i neúspěšná volání), ceník, `recordUsageEvent`, SQL agregace | `src/collections/UsageEvents.ts`, `src/lib/providers/usage-pricing.ts`, `src/lib/usage/record-usage.ts`, `src/lib/usage/dashboard-aggregation.ts` |
+| Usage & Cost Dashboard v Payload adminu (jen správce platformy) | `/admin/usage-dashboard`, `GET /api/admin/usage-dashboard`, `src/components/admin/usage-dashboard-*` |
+| Měření importu a fair-use limit obce (`IMPORT_LIMITS.aiMonthlyBudgetUsd`; po vyčerpání jen iCal a schema.org) | `src/lib/import/usage.ts` (`meterAi`, `isOverAiBudget`) |
+| Historie běhů (spouštěč, výsledek, chyba, počty, tokeny, cena); retence 180 dní | `ImportRuns` (`import-runs`), krok `old-import-runs` v data-retention |
+| Rozvrh: každou půlnoc kontrola (AI jen při změně řádků s datem — `eventLinesOf`), noc na pondělí plný průchod; „Zkontrolovat teď“ = plný průchod, max. 5× denně na zdroj | `scan-event-sources`, `SourceTrigger` v `contracts.ts` |
+| Zdroje organizátorů: zdroj i návrhy patří organizaci, vidí a převezme je jen její vlastník, akce se založí za něj; souhlas provozovatele webu při přidání zdroje | `access/import.ts`, `EventSources.organization`, `ownerConsentAt` |
+
+Zbývá: synchronizace převzatých akcí (pole `sourceRef`, `syncNotices`… už v kolekci), stránka „Import akcí“ pro
+organizátora a položka v navigaci, migrace.

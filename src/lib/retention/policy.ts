@@ -35,6 +35,9 @@ export const RETENTION = {
   decidedRequestDays: 90,
   /** A decided organizer-role request — the applicant sees its outcome on their profile meanwhile. */
   organizerRequestMonths: 12,
+  /** An event import run (ImportRuns) — the history next to a source, and what support looks at
+   * when one misbehaves. What its AI calls cost stays on the usage-events ledger. */
+  importRunDays: 180,
 } as const
 
 /** `enforce` removes; anything else (the default) only counts what would go and logs it — every new

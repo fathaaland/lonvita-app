@@ -33,6 +33,8 @@ import { ReviewComplaints } from './collections/ReviewComplaints'
 import { PoolInvitations } from './collections/PoolInvitations'
 import { EventSources } from './collections/EventSources'
 import { EventImportCandidates } from './collections/EventImportCandidates'
+import { ImportRuns } from './collections/ImportRuns'
+import { UsageEvents } from './collections/UsageEvents'
 import { writeAuditLog } from './collections/shared/auditLog'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError } from './lib/logger'
@@ -48,7 +50,15 @@ const dirname = path.dirname(filename)
  * (vyhláška č. 409/2025 Sb. § 22 odst. 3 písm. a, c, d, h — "including unsuccessful attempts"). */
 const REFUSALS_AUDITED = new Set(['users', 'user-roles', 'audit-log', 'municipalities'])
 
-const auditRefusal = ({ error, req, collection }: { error: unknown; req?: PayloadRequest; collection?: string }) => {
+const auditRefusal = ({
+  error,
+  req,
+  collection,
+}: {
+  error: unknown
+  req?: PayloadRequest
+  collection?: string
+}) => {
   if (!req || !collection || !REFUSALS_AUDITED.has(collection)) return
   const status = (error as { status?: number }).status
   let pathname = ''
@@ -66,7 +76,12 @@ const auditRefusal = ({ error, req, collection }: { error: unknown; req?: Payloa
     actor: req.user ? Number(req.user.id) : null,
     targetCollection: collection,
     targetId: (req.routeParams?.id as string | undefined) ?? '-',
-    metadata: { status, method: req.method, path: pathname, message: error instanceof Error ? error.message : null },
+    metadata: {
+      status,
+      method: req.method,
+      path: pathname,
+      message: error instanceof Error ? error.message : null,
+    },
     source: req,
   })
 }
@@ -102,6 +117,16 @@ export default buildConfig({
     importMap: {
       baseDir: path.resolve(dirname),
     },
+    components: {
+      // What the AI calls cost (usage-events) — platform admins only.
+      afterNavLinks: ['@/components/admin/usage-dashboard-nav-link#UsageDashboardNavLink'],
+      views: {
+        usageDashboard: {
+          Component: '@/components/admin/usage-dashboard-view#UsageDashboardView',
+          path: '/usage-dashboard',
+        },
+      },
+    },
   },
   // Every collection gets the same CRUD trail (create/update/delete at info, reads at debug),
   // applied here rather than collection by collection so a new collection is covered the moment
@@ -131,11 +156,14 @@ export default buildConfig({
     PoolInvitations,
     EventSources,
     EventImportCandidates,
+    ImportRuns,
+    UsageEvents,
   ].map(withCrudLogging),
   hooks: {
     afterError: [
       ({ error, req, collection }) => {
-        const user = req?.user as { id?: number | string; email?: string; role?: string } | undefined
+        const user = req?.user as
+          { id?: number | string; email?: string; role?: string } | undefined
         const correlationId = correlationIdFromHeaders(req?.headers)
 
         // The last net: anything Payload throws and nobody caught — a failed login, a rejected
@@ -202,7 +230,10 @@ export default buildConfig({
           table: schema.tables.events,
           extraConfig: (table) => ({
             // The feed and the obec's overview: one obec's events by date.
-            municipalityByDate: index('events_municipality_date_time_idx').on(table.municipality, table.dateTime),
+            municipalityByDate: index('events_municipality_date_time_idx').on(
+              table.municipality,
+              table.dateTime,
+            ),
           }),
         })
         extendTable({
@@ -213,6 +244,21 @@ export default buildConfig({
             oneCandidatePerEvent: uniqueIndex('event_import_candidates_municipality_key_idx').on(
               table.municipality,
               table.externalKey,
+            ),
+          }),
+        })
+        extendTable({
+          table: schema.tables.usage_events,
+          extraConfig: (table) => ({
+            // The usage dashboard and the import fair-use cap: one obec's (and user's) calls by date.
+            municipalityByDate: index('usage_events_municipality_created_at_idx').on(
+              table.municipality,
+              table.createdAt,
+            ),
+            municipalityUserByDate: index('usage_events_municipality_user_created_at_idx').on(
+              table.municipality,
+              table.user,
+              table.createdAt,
             ),
           }),
         })

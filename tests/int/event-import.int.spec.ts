@@ -38,7 +38,9 @@ import { similarTitles } from '@/lib/import/normalize'
 import { loadImportContext, readUrl, storeCandidates, type ImportDeps } from '@/lib/import/pipeline'
 import { addDays, pragueToday, pragueWallTimeToIso } from '@/lib/import/time'
 import { UNLIMITED_CAPACITY } from '@/lib/capacity'
-import { enqueueImportEvents } from '@/lib/queue/queues'
+import { relationNumber } from '@/lib/relations'
+import { applySourceChanges, dismissSyncNotices } from '@/lib/import/sync'
+import { enqueueEventUpdated, enqueueImportEvents } from '@/lib/queue/queues'
 import type { User } from '@/payload-types'
 
 import { processImportEventsJob } from '../../worker/src/processors/import-events.processor'
@@ -410,31 +412,49 @@ describe('Import — candidates, approval and access', () => {
   })
 
   it("an obec's admin adds sources for their own obec only — public web addresses, each once", async () => {
+    // Only with the owner's word that the web is theirs, or that they may take events from it.
+    await expect(
+      payload.create({
+        collection: 'event-sources',
+        data: { municipality: obec.id, url: 'www.import-obec.cz/kalendar' },
+        user: admin,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow('Potvrďte')
     const source = await payload.create({
       collection: 'event-sources',
-      data: { municipality: obec.id, url: 'www.import-obec.cz/kalendar' },
+      data: {
+        municipality: obec.id,
+        url: 'www.import-obec.cz/kalendar',
+        ownerConsent: true,
+      } as never,
       user: admin,
       overrideAccess: false,
     })
     expect(source.url).toBe('https://www.import-obec.cz/kalendar')
     expect(source.label).toBe('import-obec.cz')
+    expect(source.ownerConsentAt).toBeTruthy()
     expect(vi.mocked(enqueueImportEvents)).toHaveBeenCalledWith(
-      { kind: 'source', sourceId: source.id },
+      { kind: 'source', sourceId: source.id, trigger: 'new_source', requestedBy: admin.id },
       expect.anything(),
     )
 
     await expect(
       payload.create({
         collection: 'event-sources',
-        data: { municipality: obec.id, url: 'https://www.import-obec.cz/kalendar' },
+        data: {
+          municipality: obec.id,
+          url: 'https://www.import-obec.cz/kalendar',
+          ownerConsent: true,
+        } as never,
         user: admin,
         overrideAccess: false,
       }),
-    ).rejects.toThrow('už obec má')
+    ).rejects.toThrow('už máte')
     await expect(
       payload.create({
         collection: 'event-sources',
-        data: { municipality: obec.id, url: 'http://localhost:3000/' },
+        data: { municipality: obec.id, url: 'http://localhost:3000/', ownerConsent: true } as never,
         user: admin,
         overrideAccess: false,
       }),
@@ -442,7 +462,7 @@ describe('Import — candidates, approval and access', () => {
     await expect(
       payload.create({
         collection: 'event-sources',
-        data: { municipality: obec.id, url: 'https://cizi.cz/' },
+        data: { municipality: obec.id, url: 'https://cizi.cz/', ownerConsent: true } as never,
         user: otherAdmin,
         overrideAccess: false,
       }),
@@ -450,7 +470,7 @@ describe('Import — candidates, approval and access', () => {
     await expect(
       payload.create({
         collection: 'event-sources',
-        data: { municipality: obec.id, url: 'https://x.cz/' },
+        data: { municipality: obec.id, url: 'https://x.cz/', ownerConsent: true } as never,
         user: resident,
         overrideAccess: false,
       }),
@@ -590,6 +610,43 @@ describe('Import — candidates, approval and access', () => {
       fakeDeps,
     )
     expect(again.unchanged).toBe(true)
+    expect(ai).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks the server whether a page the AI read changed — and reads nothing when it says no', async () => {
+    const context = (await loadImportContext(payload, obec.id))!
+    const asked: unknown[] = []
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async () => [event({ title: 'Z webu' })])
+    const fakeDeps = deps({
+      fetchUrl: async (url, options) => {
+        asked.push(options?.validators ?? null)
+        if (options?.validators?.etag === '"v1"') {
+          return { url, contentType: '', body: Buffer.alloc(0), notModified: true, validators: options.validators }
+        }
+        return {
+          url,
+          contentType: 'text/html',
+          body: Buffer.from('<main><p>21. 11. Beseda v knihovně</p></main>'),
+          validators: { etag: '"v1"', lastModified: null },
+        }
+      },
+      extractWithAi: ai,
+    })
+    const first = await readUrl('https://obec.test/beseda', { aiContext: context.aiContext }, fakeDeps)
+    expect(first.validators).toEqual({ etag: '"v1"', lastModified: null })
+    expect(ai).toHaveBeenCalledTimes(1)
+
+    const again = await readUrl(
+      'https://obec.test/beseda',
+      {
+        previousHash: first.contentHash,
+        aiContext: context.aiContext,
+        previous: { format: first.format, validators: first.validators },
+      },
+      fakeDeps,
+    )
+    expect(again).toMatchObject({ unchanged: true, format: 'html', contentHash: first.contentHash })
+    expect(asked).toEqual([null, { etag: '"v1"', lastModified: null }])
     expect(ai).toHaveBeenCalledTimes(1)
   })
 
@@ -838,6 +895,331 @@ describe('Import — candidates, approval and access', () => {
     })
     expect(afterFailure.lastError).toContain('robots.txt')
     expect(afterFailure.consecutiveFailures).toBe(1)
+  })
+
+  it('every run is on the record, and every AI call on the obec’s usage ledger — up to its monthly cap', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec.test/program-ucet' },
+      overrideAccess: true,
+    })
+    const page = { contentType: 'text/html', body: '<main><p>20. 11. Koncert v kostele</p></main>' }
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async (_input, context) => {
+      await context.meter?.({
+        purpose: 'events',
+        model: 'claude-haiku-5-5',
+        requestId: 'req_test',
+        status: 'success',
+        inputTokens: 20_000,
+        outputTokens: 2_000,
+        cachedInputTokens: 0,
+      })
+      return [event({ title: 'Koncert v kostele', start: { date: inDays(26), time: '18:00' } })]
+    })
+    const fakeDeps = deps({
+      fetchUrl: async (url) => ({
+        url,
+        contentType: page.contentType,
+        body: Buffer.from(page.body),
+      }),
+      extractWithAi: ai,
+    })
+
+    const result = await processImportEventsJob(
+      { kind: 'source', sourceId: source.id, trigger: 'manual', requestedBy: admin.id },
+      { jobId: 'job-ucet' },
+      fakeDeps,
+    )
+    expect(result.created).toBe(1)
+
+    const [run] = (
+      await payload.find({
+        collection: 'import-runs',
+        where: { source: { equals: source.id } },
+        overrideAccess: true,
+      })
+    ).docs
+    expect(run).toMatchObject({
+      trigger: 'manual',
+      status: 'success',
+      found: 1,
+      created: 1,
+      aiCalls: 1,
+      jobId: 'job-ucet',
+    })
+    // 20k in × $0.10 + 2k out × $0.50 per million.
+    expect(run.costUsd).toBeCloseTo(0.003, 9)
+
+    const [call] = (
+      await payload.find({
+        collection: 'usage-events',
+        where: { importRun: { equals: run.id } },
+        depth: 0,
+        overrideAccess: true,
+      })
+    ).docs
+    expect(call).toMatchObject({
+      municipality: obec.id,
+      user: admin.id,
+      eventSource: source.id,
+      provider: 'anthropic',
+      model: 'claude-haiku-5-5',
+      operationType: 'event_import',
+      source: 'worker',
+      status: 'success',
+      requestId: 'req_test',
+      totalTokens: 22_000,
+    })
+    expect(call.costUsd).toBeCloseTo(0.003, 9)
+    // Nobody reads the ledger but a platform admin.
+    await expect(
+      payload.find({ collection: 'usage-events', user: admin, overrideAccess: false }),
+    ).rejects.toThrow()
+
+    // Past the obec's fair-use cap the AI isn't called at all — and the owner is told why.
+    await payload.create({
+      collection: 'usage-events',
+      data: {
+        municipality: obec.id,
+        provider: 'anthropic',
+        model: 'claude-haiku-5-5',
+        operationType: 'event_import',
+        source: 'worker',
+        usageKind: 'tokens',
+        costUsd: 1_000,
+        status: 'success',
+      },
+      overrideAccess: true,
+    })
+    ai.mockClear()
+    const capped = await processImportEventsJob(
+      { kind: 'source', sourceId: source.id, trigger: 'manual' },
+      {},
+      fakeDeps,
+    )
+    expect(capped.skipped).toBe('read_failed')
+    expect(ai).not.toHaveBeenCalled()
+    const afterCap = await payload.findByID({
+      collection: 'event-sources',
+      id: source.id,
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(afterCap.lastError).toContain('limit')
+  })
+
+  it('keeps a taken-over event in step with its calendar — never over what was changed in Lonvita', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec.test/kalendar.ics' },
+      overrideAccess: true,
+    })
+    const context = (await loadImportContext(payload, obec.id))!
+    const pass = (events: ExtractedEvent[]) =>
+      storeCandidates(
+        payload,
+        {
+          municipality: context.municipality,
+          events,
+          origin: 'source',
+          originLabel: source.url,
+          sourceId: source.id,
+          requestedBy: null,
+          format: 'ical',
+        },
+        deps(),
+      )
+    const ples = (o: Partial<ExtractedEvent> = {}) =>
+      event({ title: 'Hasičský ples', externalId: 'ples@obec', start: { date: inDays(30), time: '20:00' }, ...o })
+    const trh = (o: Partial<ExtractedEvent> = {}) =>
+      event({ title: 'Farmářský trh', externalId: 'trh@obec', start: { date: inDays(31), time: '08:00' }, ...o })
+    const besidka = (o: Partial<ExtractedEvent> = {}) =>
+      event({ title: 'Vánoční besídka', externalId: 'besidka@obec', start: { date: inDays(32), time: '16:00' }, ...o })
+    const ofSource = async () =>
+      new Map(
+        (
+          await payload.find({
+            collection: 'event-import-candidates',
+            where: { source: { equals: source.id } },
+            depth: 0,
+            pagination: false,
+            overrideAccess: true,
+          })
+        ).docs.map((c) => [c.title, c]),
+      )
+    const eventOf = (id: number) =>
+      payload.findByID({ collection: 'events', id, depth: 0, overrideAccess: true })
+
+    expect((await pass([ples(), trh(), besidka()])).created).toBe(3)
+    let found = await ofSource()
+    const plesEvent = (await approveCandidate(payload, admin, found.get('Hasičský ples')!.id)).eventId
+    const trhEvent = (await approveCandidate(payload, admin, found.get('Farmářský trh')!.id)).eventId
+    const besidkaEvent = (await approveCandidate(payload, admin, found.get('Vánoční besídka')!.id))
+      .eventId
+    // The obec moves the market's start in Lonvita by hand.
+    await payload.update({
+      collection: 'events',
+      id: trhEvent,
+      data: { dateTime: pragueWallTimeToIso(inDays(31), '09:00') },
+      user: admin,
+      overrideAccess: false,
+    })
+
+    // The calendar moves the ball to another day, changes the market's start, calls off the besídka.
+    vi.mocked(enqueueEventUpdated).mockClear()
+    const second = await pass([
+      ples({ start: { date: inDays(33), time: '19:00' } }),
+      trh({ start: { date: inDays(31), time: '07:30' } }),
+      besidka({ cancelled: true }),
+    ])
+    expect(second).toMatchObject({ created: 0, synced: 1, needsReview: 2 })
+    // The ball follows its calendar (the same UID on another day) — and its registrants hear about it.
+    expect((await eventOf(plesEvent)).dateTime).toBe(pragueWallTimeToIso(inDays(33), '19:00'))
+    expect(vi.mocked(enqueueEventUpdated)).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: plesEvent }),
+    )
+    // The market keeps what the obec set; the besídka isn't cancelled by the import.
+    expect((await eventOf(trhEvent)).dateTime).toBe(pragueWallTimeToIso(inDays(31), '09:00'))
+    expect((await eventOf(besidkaEvent)).status).toBe('active')
+    found = await ofSource()
+    expect(found.size).toBe(3)
+    expect(found.get('Farmářský trh')!.syncNotices).toEqual([{ code: 'changed', fields: ['start'] }])
+    expect(found.get('Vánoční besídka')!.syncNotices).toEqual([{ code: 'cancelled_at_source' }])
+    expect(found.get('Hasičský ples')!.syncNeedsReview).toBe(false)
+
+    // The obec takes the web's version of the market over, and sets the besídka's notice aside.
+    await expect(
+      applySourceChanges(payload, otherAdmin, found.get('Farmářský trh')!.id),
+    ).rejects.toMatchObject({ status: 403 })
+    await applySourceChanges(payload, admin, found.get('Farmářský trh')!.id)
+    expect((await eventOf(trhEvent)).dateTime).toBe(pragueWallTimeToIso(inDays(31), '07:30'))
+    await dismissSyncNotices(payload, admin, found.get('Vánoční besídka')!.id)
+    found = await ofSource()
+    expect(found.get('Farmářský trh')!.syncNeedsReview).toBe(false)
+    expect(found.get('Vánoční besídka')!.syncNotices).toEqual([])
+
+    // The besídka drops out of the calendar, which still lists the days around it — after two passes
+    // the obec is told; the event stays.
+    const later = [ples({ start: { date: inDays(33), time: '19:00' } }), trh({ start: { date: inDays(31), time: '07:30' } })]
+    expect((await pass(later)).needsReview).toBe(0)
+    expect((await pass(later)).needsReview).toBe(1)
+    found = await ofSource()
+    expect(found.get('Vánoční besídka')!.syncNotices).toEqual([{ code: 'missing_at_source' }])
+    expect((await eventOf(besidkaEvent)).status).toBe('active')
+  })
+
+  it("an organizer's own calendar is theirs — its events wait for them and go in as theirs", async () => {
+    const organizer = await payload.create({
+      collection: 'users',
+      data: { email: `import-organizer-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+      overrideAccess: true,
+    })
+    await payload.create({
+      collection: 'profiles',
+      data: { user: organizer.id, fullName: 'Kavárník', municipality: obec.id },
+      overrideAccess: true,
+    })
+    // Created with the organizer role in the obec (Organizations grantOrganizerRole).
+    const cafe = await payload.create({
+      collection: 'organizations',
+      data: {
+        name: `Kavárna ${STAMP}`,
+        type: 'business',
+        owner: organizer.id,
+        municipality: obec.id,
+      },
+      overrideAccess: true,
+    })
+    try {
+      // Not someone else's organization.
+      await expect(
+        payload.create({
+          collection: 'event-sources',
+          data: {
+            organization: cafe.id,
+            url: 'https://kavarna.test/program',
+            ownerConsent: true,
+          } as never,
+          user: admin,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow()
+      const source = await payload.create({
+        collection: 'event-sources',
+        data: {
+          organization: cafe.id,
+          url: 'https://kavarna.test/program',
+          ownerConsent: true,
+        } as never,
+        user: organizer,
+        overrideAccess: false,
+      })
+      expect(relationNumber(source.municipality)).toBe(obec.id)
+
+      const context = (await loadImportContext(payload, obec.id))!
+      // The obec's own calendar lists the same concert — each owner gets their own candidate.
+      const concert = event({ title: 'Jazz v kavárně', start: { date: inDays(18), time: '20:00' } })
+      for (const organizationId of [cafe.id, null]) {
+        const stored = await storeCandidates(
+          payload,
+          {
+            municipality: context.municipality,
+            events: [concert],
+            origin: 'source',
+            originLabel: source.url,
+            sourceId: source.id,
+            requestedBy: null,
+            organizationId,
+          },
+          deps(),
+        )
+        expect(stored.created).toBe(1)
+      }
+
+      const seenByOrganizer = await payload.find({
+        collection: 'event-import-candidates',
+        where: { title: { equals: 'Jazz v kavárně' } },
+        user: organizer,
+        overrideAccess: false,
+      })
+      expect(seenByOrganizer.docs).toHaveLength(1)
+      const theirs = seenByOrganizer.docs[0]
+      const seenByObec = await payload.find({
+        collection: 'event-import-candidates',
+        where: { id: { equals: theirs.id } },
+        user: admin,
+        overrideAccess: false,
+      })
+      expect(seenByObec.docs).toHaveLength(0)
+      await expect(approveCandidate(payload, admin, theirs.id)).rejects.toMatchObject({
+        status: 403,
+      })
+
+      const { eventId } = await approveCandidate(payload, organizer, theirs.id)
+      const created = await payload.findByID({
+        collection: 'events',
+        id: eventId,
+        depth: 0,
+        overrideAccess: true,
+      })
+      expect(created.organizer).toBe(organizer.id)
+      expect(created.organization).toBe(cafe.id)
+    } finally {
+      await payload
+        .delete({
+          collection: 'event-import-candidates',
+          where: { organization: { equals: cafe.id } },
+          overrideAccess: true,
+        })
+        .catch(() => {})
+      await payload
+        .delete({
+          collection: 'event-sources',
+          where: { organization: { equals: cafe.id } },
+          overrideAccess: true,
+        })
+        .catch(() => {})
+    }
   })
 
   it('deleting the obec takes its sources and candidates along', async () => {

@@ -50,12 +50,57 @@ export function externalKeyOf(
   event: Pick<ExtractedEvent, 'externalId' | 'detailUrl' | 'title' | 'start'>,
 ): string {
   if (event.externalId) return `id:${hash(`${event.externalId}|${event.start.date}`)}`
-  if (event.detailUrl) {
-    const url = new URL(event.detailUrl)
-    url.hash = ''
-    return `url:${hash(`${url.host.replace(/^www\./, '')}${url.pathname.replace(/\/+$/, '')}${url.search}|${event.start.date}`)}`
-  }
+  if (event.detailUrl) return `url:${hash(`${pageOf(event.detailUrl)}|${event.start.date}`)}`
   return `title:${hash(`${normalizeText(event.title)}|${event.start.date}`)}`
+}
+
+const pageOf = (detailUrl: string): string => {
+  const url = new URL(detailUrl)
+  url.hash = ''
+  return `${url.host.replace(/^www\./, '')}${url.pathname.replace(/\/+$/, '')}${url.search}`
+}
+
+/**
+ * What the event is known by on its source whatever its date — the source's own id, else its own
+ * page — so one moved to another day is still recognised; null when only its name and date say
+ * which one it is. The weekly yoga whose dates share one page shares one ref too: the pipeline
+ * follows a ref only when one event of the pass and one known candidate have it.
+ */
+export function sourceRefOf(
+  event: Pick<ExtractedEvent, 'externalId' | 'detailUrl'>,
+): string | null {
+  if (event.externalId) return `id:${hash(event.externalId)}`
+  if (event.detailUrl) return `url:${hash(pageOf(event.detailUrl))}`
+  return null
+}
+
+const MONTHS =
+  /\b(ledna|unora|brezna|dubna|kvetna|cervna|cervence|srpna|zari|rijna|listopadu|prosince|leden|unor|brezen|duben|kveten|cerven|cervenec|srpen|rijen|listopad|prosinec)\b/
+const NUMERIC_DATE = /\b\d{1,2}\.\s?\d{1,2}\.|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}\b/
+/** Dated lines that change on their own, without any event changing. */
+const NOISE = /aktualiz|posledni (zmena|uprava)|vygenerovan|dnes je|pocasi|navstev|copyright/
+
+/**
+ * The part of a page's text that says when events are — every line with a date or a time, with the
+ * lines around it (the name above, the place below). Its fingerprint is what decides whether the AI
+ * reads the page again: news, a weather box or a visit counter changing elsewhere don't make it.
+ * A change it misses (a place on a line of its own, far from the date) the weekly full pass catches.
+ */
+export function eventLinesOf(text: string): string {
+  const lines = text.split('\n').map((l) => l.trim())
+  const keep = new Set<number>()
+  lines.forEach((line, i) => {
+    const plain = normalizeText(line)
+    if (NOISE.test(plain)) return
+    if (NUMERIC_DATE.test(line) || MONTHS.test(plain)) {
+      for (const j of [i - 1, i, i + 1]) if (j >= 0 && j < lines.length) keep.add(j)
+    }
+  })
+  return [...keep]
+    .sort((a, b) => a - b)
+    .map((i) => lines[i])
+    .filter(Boolean)
+    .join('\n')
 }
 
 /** The place as one line — "Sokolovna, Nádražní 12" — or null when the source names none. */

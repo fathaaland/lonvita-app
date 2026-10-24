@@ -20,6 +20,7 @@ const RETENTION_CONTEXT = { skipNotifications: true, dataRetention: true }
 const cutoffsFor = (now: Date) => ({
   now: now.toISOString(),
   decidedRequest: daysBefore(now, RETENTION.decidedRequestDays).toISOString(),
+  importRun: daysBefore(now, RETENTION.importRunDays).toISOString(),
   organizerRequest: monthsBefore(now, RETENTION.organizerRequestMonths).toISOString(),
   staleEventData: monthsBefore(now, RETENTION.staleEventDataMonths).toISOString(),
   orphanMedia: hoursBefore(now, RETENTION.orphanMediaGraceHours).toISOString(),
@@ -134,6 +135,18 @@ const STEPS: Step[] = [
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM event_import_candidates r
       WHERE r.starts_at < ${c.decidedRequest}::timestamptz
+        AND r.id > ${afterId}
+      ORDER BY r.id LIMIT ${limit}`,
+    purge: deleteRows,
+  },
+  {
+    // The history of event import runs — the usage-events rows they point at stay, unlinked.
+    name: 'old-import-runs',
+    collection: 'import-runs',
+    rule: `run started ${RETENTION.importRunDays}+ days ago`,
+    select: (c, afterId, limit) => sql`
+      SELECT r.id FROM import_runs r
+      WHERE r.started_at < ${c.importRun}::timestamptz
         AND r.id > ${afterId}
       ORDER BY r.id LIMIT ${limit}`,
     purge: deleteRows,

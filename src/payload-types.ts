@@ -91,6 +91,8 @@ export interface Config {
     'pool-invitations': PoolInvitation;
     'event-sources': EventSource;
     'event-import-candidates': EventImportCandidate;
+    'import-runs': ImportRun;
+    'usage-events': UsageEvent;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -122,6 +124,8 @@ export interface Config {
     'pool-invitations': PoolInvitationsSelect<false> | PoolInvitationsSelect<true>;
     'event-sources': EventSourcesSelect<false> | EventSourcesSelect<true>;
     'event-import-candidates': EventImportCandidatesSelect<false> | EventImportCandidatesSelect<true>;
+    'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
+    'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -888,7 +892,7 @@ export interface PoolInvitation {
   createdAt: string;
 }
 /**
- * Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).
+ * Web pages and calendars an obec's or organizer's events are imported from (docs/import-akci-z-webu.md).
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "event-sources".
@@ -896,10 +900,12 @@ export interface PoolInvitation {
 export interface EventSource {
   id: number;
   municipality: number | Municipality;
+  organization?: (number | null) | Organization;
   url: string;
   label?: string | null;
   enabled?: boolean | null;
   createdBy?: (number | null) | User;
+  ownerConsentAt?: string | null;
   format?: ('ical' | 'jsonld' | 'html' | 'feed' | 'pdf' | 'image') | null;
   lastRunAt?: string | null;
   lastSuccessAt?: string | null;
@@ -907,11 +913,13 @@ export interface EventSource {
   lastFoundCount?: number | null;
   consecutiveFailures?: number | null;
   lastContentHash?: string | null;
+  etag?: string | null;
+  lastModified?: string | null;
   updatedAt: string;
   createdAt: string;
 }
 /**
- * Imported events waiting for the obec admin (docs/import-akci-z-webu.md). Written by the worker, decided via /api/import/candidates.
+ * Imported events waiting for their owner, and the link of taken-over ones to their source (docs/import-akci-z-webu.md). Written by the worker, decided via /api/import/candidates.
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "event-import-candidates".
@@ -919,6 +927,7 @@ export interface EventSource {
 export interface EventImportCandidate {
   id: number;
   municipality: number | Municipality;
+  organization?: (number | null) | Organization;
   source?: (number | null) | EventSource;
   origin: 'source' | 'text' | 'file';
   /**
@@ -930,6 +939,7 @@ export interface EventImportCandidate {
    */
   requestedBy?: (number | null) | User;
   externalKey: string;
+  sourceRef?: string | null;
   status: 'pending' | 'approved' | 'rejected';
   title: string;
   description?: string | null;
@@ -968,6 +978,112 @@ export interface EventImportCandidate {
   event?: (number | null) | Event;
   decidedBy?: (number | null) | User;
   decidedAt?: string | null;
+  syncNotices?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  syncNeedsReview?: boolean | null;
+  noticedAt?: string | null;
+  lastSyncedAt?: string | null;
+  lastSeenAt?: string | null;
+  missingCount?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * History of event import runs (docs/import-akci-z-webu.md).
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "import-runs".
+ */
+export interface ImportRun {
+  id: number;
+  municipality: number | Municipality;
+  organization?: (number | null) | Organization;
+  source?: (number | null) | EventSource;
+  trigger: 'daily' | 'weekly' | 'manual' | 'new_source' | 'text' | 'file';
+  requestedBy?: (number | null) | User;
+  status: 'running' | 'success' | 'unchanged' | 'failed' | 'skipped';
+  startedAt: string;
+  finishedAt?: string | null;
+  format?: string | null;
+  error?: string | null;
+  errorCode?: string | null;
+  found?: number | null;
+  created?: number | null;
+  /**
+   * Pending candidates brought in step with the source.
+   */
+  updated?: number | null;
+  /**
+   * Taken-over events changed after their source.
+   */
+  synced?: number | null;
+  /**
+   * Taken-over events the owner has to look at.
+   */
+  needsReview?: number | null;
+  aiCalls?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  /**
+   * USD, from usage-events at the price of the day.
+   */
+  costUsd?: number | null;
+  jobId?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "usage-events".
+ */
+export interface UsageEvent {
+  id: number;
+  municipality?: (number | null) | Municipality;
+  /**
+   * Empty for system/background jobs with no interactive user.
+   */
+  user?: (number | null) | User;
+  organization?: (number | null) | Organization;
+  eventSource?: (number | null) | EventSource;
+  importRun?: (number | null) | ImportRun;
+  provider: string;
+  model: string;
+  operationType: 'event_import' | 'event_import_details';
+  source: 'api' | 'worker';
+  usageKind: 'tokens' | 'search_units';
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cachedInputTokens?: number | null;
+  reasoningTokens?: number | null;
+  totalTokens?: number | null;
+  /**
+   * Used when usageKind is search_units (e.g. Cohere rerank).
+   */
+  searchUnits?: number | null;
+  /**
+   * Price snapshot at call time.
+   */
+  inputPricePerMTok?: number | null;
+  /**
+   * Price snapshot at call time.
+   */
+  outputPricePerMTok?: number | null;
+  /**
+   * Null when pricing is unknown for this model.
+   */
+  costUsd?: number | null;
+  status: 'success' | 'error' | 'aborted';
+  /**
+   * The provider's request id (Anthropic request-id) — what its own records know the call by.
+   */
+  requestId?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1090,6 +1206,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'event-import-candidates';
         value: number | EventImportCandidate;
+      } | null)
+    | ({
+        relationTo: 'import-runs';
+        value: number | ImportRun;
+      } | null)
+    | ({
+        relationTo: 'usage-events';
+        value: number | UsageEvent;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1563,10 +1687,12 @@ export interface PoolInvitationsSelect<T extends boolean = true> {
  */
 export interface EventSourcesSelect<T extends boolean = true> {
   municipality?: T;
+  organization?: T;
   url?: T;
   label?: T;
   enabled?: T;
   createdBy?: T;
+  ownerConsentAt?: T;
   format?: T;
   lastRunAt?: T;
   lastSuccessAt?: T;
@@ -1574,6 +1700,8 @@ export interface EventSourcesSelect<T extends boolean = true> {
   lastFoundCount?: T;
   consecutiveFailures?: T;
   lastContentHash?: T;
+  etag?: T;
+  lastModified?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1583,11 +1711,13 @@ export interface EventSourcesSelect<T extends boolean = true> {
  */
 export interface EventImportCandidatesSelect<T extends boolean = true> {
   municipality?: T;
+  organization?: T;
   source?: T;
   origin?: T;
   originLabel?: T;
   requestedBy?: T;
   externalKey?: T;
+  sourceRef?: T;
   status?: T;
   title?: T;
   description?: T;
@@ -1606,6 +1736,70 @@ export interface EventImportCandidatesSelect<T extends boolean = true> {
   event?: T;
   decidedBy?: T;
   decidedAt?: T;
+  syncNotices?: T;
+  syncNeedsReview?: T;
+  noticedAt?: T;
+  lastSyncedAt?: T;
+  lastSeenAt?: T;
+  missingCount?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "import-runs_select".
+ */
+export interface ImportRunsSelect<T extends boolean = true> {
+  municipality?: T;
+  organization?: T;
+  source?: T;
+  trigger?: T;
+  requestedBy?: T;
+  status?: T;
+  startedAt?: T;
+  finishedAt?: T;
+  format?: T;
+  error?: T;
+  errorCode?: T;
+  found?: T;
+  created?: T;
+  updated?: T;
+  synced?: T;
+  needsReview?: T;
+  aiCalls?: T;
+  inputTokens?: T;
+  outputTokens?: T;
+  costUsd?: T;
+  jobId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "usage-events_select".
+ */
+export interface UsageEventsSelect<T extends boolean = true> {
+  municipality?: T;
+  user?: T;
+  organization?: T;
+  eventSource?: T;
+  importRun?: T;
+  provider?: T;
+  model?: T;
+  operationType?: T;
+  source?: T;
+  usageKind?: T;
+  inputTokens?: T;
+  outputTokens?: T;
+  cachedInputTokens?: T;
+  reasoningTokens?: T;
+  totalTokens?: T;
+  searchUnits?: T;
+  inputPricePerMTok?: T;
+  outputPricePerMTok?: T;
+  costUsd?: T;
+  status?: T;
+  requestId?: T;
   updatedAt?: T;
   createdAt?: T;
 }

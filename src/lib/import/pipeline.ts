@@ -1,4 +1,4 @@
-import type { Payload } from 'payload'
+import type { Payload, Where } from 'payload'
 
 import { pragueDateKey } from '@/lib/date'
 import { logger, serializeError } from '@/lib/logger'
@@ -23,6 +23,7 @@ import {
   decodeBody,
   fetchPublic,
   type FetchedResource,
+  type HttpValidators,
   type RobotsCache,
 } from './fetch'
 import {
@@ -42,11 +43,14 @@ import {
 import { looksLikeIcal, parseIcal } from './ical'
 import {
   contentHash,
+  eventLinesOf,
   externalKeyOf,
   locationTextOf,
   normalizeText,
   similarTitles,
+  sourceRefOf,
 } from './normalize'
+import { markMissing, syncTakenOver, type SyncPair } from './sync'
 import { addDays, pragueToday, pragueWallTimeToIso } from './time'
 
 /**
@@ -62,7 +66,7 @@ import { addDays, pragueToday, pragueWallTimeToIso } from './time'
  */
 
 export type ImportDeps = {
-  fetchUrl: (url: string) => Promise<FetchedResource>
+  fetchUrl: (url: string, options?: { validators?: HttpValidators | null }) => Promise<FetchedResource>
   extractWithAi: (input: AiInput, context: AiContext) => Promise<ExtractedEvent[]>
   extractDetailsWithAi: typeof extractEventDetailsWithAi
   aiAvailable: () => boolean
@@ -74,9 +78,9 @@ export type ImportDeps = {
 export function defaultImportDeps(): ImportDeps {
   const robots: RobotsCache = new Map()
   return {
-    fetchUrl: async (url) => {
+    fetchUrl: async (url, options) => {
       await assertRobotsAllow(url, robots)
-      return fetchPublic(url)
+      return fetchPublic(url, options)
     },
     extractWithAi: extractEventsWithAi,
     extractDetailsWithAi: extractEventDetailsWithAi,
@@ -95,7 +99,14 @@ export type ReadResult = {
   contentHash: string
   /** The same as last time: nothing was extracted, nothing needs to be. */
   unchanged: boolean
+  /** What the server identifies this version by — asked back next time (fetch HttpValidators). */
+  validators: HttpValidators | null
 }
+
+/** Formats the AI reads — the ones worth asking the server whether anything changed at all. A
+ * calendar or schema.org page costs nothing to read, and its page staying the same says nothing
+ * about the Google Calendar it embeds. */
+const AI_FORMATS = new Set<SourceFormat>(['html', 'feed', 'pdf', 'image'])
 
 export class ImportReadError extends Error {
   constructor(message: string) {
@@ -112,13 +123,46 @@ const requireAi = (deps: ImportDeps) => {
   }
 }
 
-/** What the address holds, as events (see the module comment). */
+/** What the address holds, as events (see the module comment). A page the AI read last time is
+ * asked for only if it changed (`previous.validators`) — the server answering it didn't, nothing is
+ * downloaded at all. */
 export async function readUrl(
   url: string,
-  { previousHash, aiContext }: { previousHash?: string | null; aiContext: AiContext },
+  {
+    previousHash,
+    aiContext,
+    previous,
+  }: {
+    previousHash?: string | null
+    aiContext: AiContext
+    previous?: { format?: SourceFormat | null; validators?: HttpValidators | null }
+  },
   deps: ImportDeps,
 ): Promise<ReadResult> {
-  const resource = await deps.fetchUrl(url)
+  const lastFormat = previous?.format ?? null
+  const ask =
+    previousHash && lastFormat && AI_FORMATS.has(lastFormat) && previous?.validators
+      ? previous.validators
+      : null
+  const resource = await deps.fetchUrl(url, ask ? { validators: ask } : undefined)
+  if (resource.notModified && ask && lastFormat && previousHash) {
+    return {
+      events: [],
+      format: lastFormat,
+      contentHash: previousHash,
+      unchanged: true,
+      validators: resource.validators ?? ask,
+    }
+  }
+  const read = await readResource(resource, { previousHash, aiContext }, deps)
+  return { ...read, validators: resource.validators ?? null }
+}
+
+async function readResource(
+  resource: FetchedResource,
+  { previousHash, aiContext }: { previousHash?: string | null; aiContext: AiContext },
+  deps: ImportDeps,
+): Promise<Omit<ReadResult, 'validators'>> {
   const mimeType = resource.contentType.split(';')[0].trim()
 
   if (isImportFileType(mimeType)) {
@@ -146,7 +190,7 @@ export async function readUrl(
 
   if (looksLikeFeed(text) && !/<html[\s>]/i.test(text.slice(0, 1000))) {
     const feedText = feedToText(text, resource.url)
-    const hash = contentHash(feedText)
+    const hash = contentHash(eventLinesOf(feedText) || feedText)
     if (hash === previousHash)
       return { events: [], format: 'feed', contentHash: hash, unchanged: true }
     if (!feedText.trim()) return { events: [], format: 'feed', contentHash: hash, unchanged: false }
@@ -184,7 +228,8 @@ export async function readUrl(
     return { events: declared, format: 'jsonld', contentHash: contentHash(text), unchanged: false }
 
   const pageText = htmlToText(text, resource.url)
-  const hash = contentHash(pageText)
+  // Only what says when events are decides whether the AI reads the page again (eventLinesOf).
+  const hash = contentHash(eventLinesOf(pageText) || pageText)
   if (hash === previousHash)
     return { events: [], format: 'html', contentHash: hash, unchanged: true }
   if (!pageText.trim()) return { events: [], format: 'html', contentHash: hash, unchanged: false }
@@ -203,9 +248,23 @@ export type StoreInput = {
   originLabel: string | null
   sourceId: number | null
   requestedBy: number | null
+  /** Found on an organizer's source — the candidates are theirs, not the obec's (access/import). */
+  organizationId?: number | null
+  /** The weekly or a hand-started pass — taken-over events are checked on their own pages too. */
+  fullPass?: boolean
+  /** What the source was read as — a calendar's titles are exact enough to sync (lib/import/sync). */
+  format?: SourceFormat
 }
 
-export type StoreResult = { created: number; updated: number; createdIds: number[] }
+export type StoreResult = {
+  created: number
+  updated: number
+  createdIds: number[]
+  /** Taken-over events changed after their source (lib/import/sync). */
+  synced: number
+  /** Taken-over events with something new for their owner to look at. */
+  needsReview: number
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -278,22 +337,44 @@ async function completeFromDetailPage(
 
 type Known = Pick<
   EventImportCandidate,
-  'id' | 'externalKey' | 'status' | 'title' | 'startsAt' | 'warnings' | 'timeKnown'
+  | 'id'
+  | 'externalKey'
+  | 'sourceRef'
+  | 'status'
+  | 'title'
+  | 'startsAt'
+  | 'endsAt'
+  | 'timeKnown'
+  | 'locationText'
+  | 'lat'
+  | 'lng'
+  | 'warnings'
+  | 'event'
+  | 'syncNotices'
+  | 'missingCount'
 >
 
-/** Saves `events` as candidates of the obec (see the module comment). */
+/** Saves `events` as candidates of their owner — the obec, or the organizer whose source found them
+ * (see the module comment) — and keeps the ones already taken over in step with the source
+ * (lib/import/sync). An organizer's keys carry their organization: the café's calendar and the
+ * obec's may list the same concert, and each of them decides about it on their own. */
 export async function storeCandidates(
   payload: Payload,
   input: StoreInput,
   deps: ImportDeps,
 ): Promise<StoreResult> {
   const now = deps.now()
+  const nowIso = now.toISOString()
   const horizon = addDays(pragueToday(now), IMPORT_LIMITS.horizonDays)
   const { municipality } = input
+  const organizationId = input.organizationId ?? null
+  const ownKey = (key: string) => (organizationId ? `org${organizationId}:${key}` : key)
+  const result: StoreResult = { created: 0, updated: 0, createdIds: [], synced: 0, needsReview: 0 }
 
   const upcoming: {
     event: ExtractedEvent
     key: string
+    ref: string | null
     startsAt: string
     endsAt: string | null
   }[] = []
@@ -302,49 +383,63 @@ export async function storeCandidates(
     if (event.start.date > horizon) continue
     const times = timesOf(event, now)
     if (!times) continue
-    const key = externalKeyOf(event)
+    const key = ownKey(externalKeyOf(event))
     if (seenKeys.has(key)) continue
     seenKeys.add(key)
-    upcoming.push({ event, key, ...times })
+    upcoming.push({ event, key, ref: sourceRefOf(event), ...times })
   }
-  if (upcoming.length === 0) return { created: 0, updated: 0, createdIds: [] }
+  if (upcoming.length === 0) return result
+
+  // A ref the pass gives more than one event (the weekly yoga on one page) says nothing about which.
+  const refCount = new Map<string, number>()
+  for (const u of upcoming) if (u.ref) refCount.set(u.ref, (refCount.get(u.ref) ?? 0) + 1)
 
   const earliest = new Date(new Date(upcoming[0].startsAt).getTime() - DAY_MS).toISOString()
   const latest = new Date(
     new Date(upcoming[upcoming.length - 1].startsAt).getTime() + 2 * DAY_MS,
   ).toISOString()
   const ofObec = { municipality: { equals: municipality.id } }
+  const ofOwner: Where = {
+    and: [
+      ofObec,
+      organizationId
+        ? { organization: { equals: organizationId } }
+        : { organization: { exists: false } },
+    ],
+  }
   const select = {
     externalKey: true,
+    sourceRef: true,
     status: true,
     title: true,
     startsAt: true,
-    warnings: true,
+    endsAt: true,
     timeKnown: true,
+    locationText: true,
+    lat: true,
+    lng: true,
+    warnings: true,
+    event: true,
+    syncNotices: true,
+    missingCount: true,
   } as const
+  const findCandidates = (where: Where) =>
+    payload.find({
+      collection: 'event-import-candidates',
+      where: { and: [ofOwner, where] },
+      select,
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
 
-  const [byKey, byDay, categories, places, events] = await Promise.all([
-    payload.find({
-      collection: 'event-import-candidates',
-      where: { and: [ofObec, { externalKey: { in: [...seenKeys] } }] },
-      select,
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
-    payload.find({
-      collection: 'event-import-candidates',
-      where: {
-        and: [
-          ofObec,
-          { startsAt: { greater_than_equal: earliest } },
-          { startsAt: { less_than_equal: latest } },
-        ],
-      },
-      select,
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
+  const [byKey, byRef, byDay, categories, places, events] = await Promise.all([
+    findCandidates({ externalKey: { in: [...seenKeys] } }),
+    refCount.size > 0
+      ? findCandidates({ sourceRef: { in: [...refCount.keys()] } })
+      : Promise.resolve({ docs: [] }),
+    findCandidates({
+      and: [{ startsAt: { greater_than_equal: earliest } }, { startsAt: { less_than_equal: latest } }],
     }),
     payload.find({
       collection: 'event-categories',
@@ -380,15 +475,20 @@ export async function storeCandidates(
   ])
 
   const known = new Map<number, Known>()
-  for (const doc of [...byKey.docs, ...byDay.docs]) known.set(doc.id, doc as Known)
-  const findKnown = (key: string, title: string, startsAt: string): Known | undefined => {
+  for (const doc of [...byKey.docs, ...byRef.docs, ...byDay.docs]) known.set(doc.id, doc as Known)
+  const matched = new Set<number>()
+  /** The candidate an event of the pass is: the same key, else the same ref (followed when it's one
+   * event's and one candidate's — the event moved to another day), else a similar name that day. */
+  const findKnown = (key: string, ref: string | null, title: string, startsAt: string) => {
+    const open = [...known.values()].filter((k) => !matched.has(k.id))
+    const byItsKey = open.find((k) => k.externalKey === key)
+    if (byItsKey) return byItsKey
+    if (ref && refCount.get(ref) === 1) {
+      const holders = [...known.values()].filter((k) => k.sourceRef === ref)
+      if (holders.length === 1 && !matched.has(holders[0].id)) return holders[0]
+    }
     const day = pragueDateKey(startsAt)
-    return (
-      [...known.values()].find((k) => k.externalKey === key) ??
-      [...known.values()].find(
-        (k) => pragueDateKey(k.startsAt) === day && similarTitles(k.title, title),
-      )
-    )
+    return open.find((k) => pragueDateKey(k.startsAt) === day && similarTitles(k.title, title))
   }
 
   const categoryByName = new Map(categories.docs.map((c) => [normalizeText(c.name), c.id]))
@@ -400,40 +500,77 @@ export async function storeCandidates(
     }
   }
   const geocodeCache = new Map<string, Point | null>()
+  const locate = (event: ExtractedEvent) =>
+    locateEvent({ ...event, locationText: locationTextOf(event) }, municipality, {
+      geocode: deps.geocode,
+      knownPlaces,
+      cache: geocodeCache,
+    })
 
-  const result: StoreResult = { created: 0, updated: 0, createdIds: [] }
+  const toSync: SyncPair[] = []
   let detailBudget = IMPORT_LIMITS.detailPagesPerRun
+  let syncDetailBudget = IMPORT_LIMITS.syncDetailPagesPerRun
 
-  for (const { event: extracted, key, startsAt, endsAt } of upcoming) {
-    const existing = findKnown(key, extracted.title, startsAt)
+  for (const { event: extracted, key, ref, startsAt, endsAt } of upcoming) {
+    const existing = findKnown(key, ref, extracted.title, startsAt)
     if (existing) {
-      // Still undecided: kept in step with the source. Decided: left alone — sync of approved events
-      // is a later step (docs/import-akci-z-webu.md).
+      matched.add(existing.id)
+      if (existing.status === 'approved') {
+        // Taken over: kept in step with its source (lib/import/sync) — a calendar of the obec's or
+        // the organizer's own, not a pasted program read once.
+        if (!input.sourceId || !existing.event) continue
+        let event = extracted
+        const incomplete = !locationTextOf(event) || !event.start.time
+        if (input.fullPass && incomplete && event.detailUrl && syncDetailBudget > 0) {
+          syncDetailBudget--
+          event = await completeFromDetailPage(event, municipality.name, deps)
+        }
+        const times = timesOf(event, now) ?? { startsAt, endsAt }
+        toSync.push({ candidate: existing, extracted: event, key, ref, ...times })
+        continue
+      }
+      // Rejected: left alone for good. Still undecided: kept in step with the source.
       if (existing.status !== 'pending') continue
       const warnings = new Set((existing.warnings as string[] | null) ?? [])
       const cancelledBefore = warnings.has('cancelled_at_source')
+      const wasMissing = warnings.has('missing_at_source') || (existing.missingCount ?? 0) > 0
       if (extracted.cancelled) warnings.add('cancelled_at_source')
       else warnings.delete('cancelled_at_source')
+      warnings.delete('missing_at_source')
+      const moved = existing.externalKey !== key
       const changed =
         existing.startsAt !== startsAt ||
         existing.title !== extracted.title ||
-        cancelledBefore !== extracted.cancelled
+        cancelledBefore !== extracted.cancelled ||
+        wasMissing ||
+        moved
       if (!changed) continue
       if (extracted.start.time) warnings.delete('time_missing')
-      await payload.update({
-        collection: 'event-import-candidates',
-        id: existing.id,
-        data: {
-          title: extracted.title,
-          startsAt,
-          endsAt,
-          timeKnown: Boolean(extracted.start.time),
-          warnings: [...warnings],
-          ...(extracted.description ? { description: extracted.description } : {}),
-        },
-        overrideAccess: true,
-      })
-      result.updated++
+      try {
+        await payload.update({
+          collection: 'event-import-candidates',
+          id: existing.id,
+          data: {
+            title: extracted.title,
+            startsAt,
+            endsAt,
+            timeKnown: Boolean(extracted.start.time),
+            warnings: [...warnings],
+            missingCount: 0,
+            lastSeenAt: nowIso,
+            ...(moved ? { externalKey: key, sourceRef: ref } : {}),
+            ...(extracted.description ? { description: extracted.description } : {}),
+          },
+          overrideAccess: true,
+        })
+        result.updated++
+      } catch (error) {
+        logger.info('Import candidate not updated', {
+          event: 'import.candidate_update_skipped',
+          candidateId: existing.id,
+          ...serializeError(error),
+        })
+      }
       continue
     }
 
@@ -451,11 +588,7 @@ export async function storeCandidates(
 
     const warnings: ImportWarning[] = []
     const locationText = locationTextOf(event)
-    const located = await locateEvent({ ...event, locationText }, municipality, {
-      geocode: deps.geocode,
-      knownPlaces,
-      cache: geocodeCache,
-    })
+    const located = await locate(event)
     if ('warning' in located) warnings.push(located.warning)
     if (!event.start.time) warnings.push('time_missing')
     const categoryIds = [
@@ -477,11 +610,13 @@ export async function storeCandidates(
         collection: 'event-import-candidates',
         data: {
           municipality: municipality.id,
+          organization: organizationId,
           source: input.sourceId,
           origin: input.origin,
           originLabel: input.originLabel,
           requestedBy: input.requestedBy,
           externalKey: key,
+          sourceRef: ref,
           status: 'pending',
           title: event.title,
           description: event.description,
@@ -497,10 +632,12 @@ export async function storeCandidates(
           priceCzk: event.isPaid ? event.priceCzk : null,
           warnings,
           duplicateOf: duplicate?.id ?? null,
+          lastSeenAt: nowIso,
         },
         overrideAccess: true,
       })
       known.set(created.id, created as Known)
+      matched.add(created.id)
       result.created++
       result.createdIds.push(created.id)
     } catch (error) {
@@ -511,6 +648,29 @@ export async function storeCandidates(
         ...serializeError(error),
       })
     }
+  }
+
+  if (toSync.length > 0) {
+    const synced = await syncTakenOver(payload, toSync, {
+      municipalityId: municipality.id,
+      sourceId: input.sourceId,
+      deterministic: input.format === 'ical' || input.format === 'jsonld',
+      now,
+      locate,
+    })
+    result.synced += synced.synced
+    result.needsReview += synced.needsReview
+  }
+  if (input.sourceId) {
+    const missing = await markMissing(payload, {
+      sourceId: input.sourceId,
+      owner: ofOwner,
+      from: upcoming[0].startsAt,
+      to: upcoming[upcoming.length - 1].startsAt,
+      matched,
+      now,
+    })
+    result.needsReview += missing.newlyNoticed
   }
   return result
 }

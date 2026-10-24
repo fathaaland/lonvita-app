@@ -1,14 +1,13 @@
 import type {
+  Access,
   CollectionAfterChangeHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
 } from 'payload'
 import { APIError } from 'payload'
 
-import {
-  canCreateForAdministeredMunicipality,
-  isPlatformOrMunicipalityAdmin,
-} from './access/shared'
+import { canAccessImportRecords, getOwnedOrganizationIds } from './access/import'
+import { canCreateForAdministeredMunicipality } from './access/shared'
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
 import { ImportFetchError, normalizeSourceUrl } from '@/lib/import/fetch'
@@ -18,9 +17,23 @@ import { relationId } from '@/lib/relations'
 
 const SOURCE_URL_MAX_LENGTH = 2000
 
-/** The client names the obec, the address and a label — the rest is the system's. The address must
- * be a public web address (fetch normalizeSourceUrl), once per obec, and an obec keeps at most
- * IMPORT_LIMITS.sourcesPerMunicipality of them. */
+/** An obec's admin adds sources for the obec; an organizer for their own organization. */
+const canCreateSource: Access = async (args) => {
+  const { user, payload } = args.req
+  if (!user) return false
+  if (user.role === 'admin') return true
+  const organizationId = relationId(
+    (args.data as { organization?: unknown } | undefined)?.organization,
+  )
+  if (organizationId)
+    return (await getOwnedOrganizationIds(payload, user.id)).includes(organizationId)
+  return canCreateForAdministeredMunicipality()(args)
+}
+
+/** The client names the owner (the obec, or an organization — whose obec it then is), the address,
+ * a label, and confirms the web is theirs or they may take events from it — the rest is the
+ * system's. The address must be a public web address (fetch normalizeSourceUrl), once per owner, and
+ * an owner keeps at most IMPORT_LIMITS.sourcesPerMunicipality / sourcesPerOrganization of them. */
 const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (operation !== 'create' || !data) return data
   const raw = typeof data.url === 'string' ? data.url : ''
@@ -32,22 +45,51 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
   } catch (error) {
     throw new APIError(error instanceof ImportFetchError ? error.message : 'Neplatná adresa.', 400)
   }
+  // Trusted internal writes (no user — seeds, tests) aren't anyone's word.
+  if (req.user && data.ownerConsent !== true) {
+    throw new APIError(
+      'Potvrďte, že web provozujete, nebo že vám jeho provozovatel převzetí akcí dovolil.',
+      400,
+    )
+  }
 
-  const municipalityId = relationId(data.municipality)
+  const organizationId = relationId(data.organization)
+  let municipalityId = relationId(data.municipality)
+  if (organizationId) {
+    const organization = await req.payload
+      .findByID({
+        collection: 'organizations',
+        id: organizationId,
+        depth: 0,
+        overrideAccess: true,
+        req,
+      })
+      .catch(() => null)
+    if (!organization || organization.deletedAt) throw new APIError('Organizace neexistuje.', 400)
+    municipalityId = relationId(organization.municipality)
+  }
   if (!municipalityId) throw new APIError('Chybí obec.', 400)
+
   const existing = await req.payload.find({
     collection: 'event-sources',
-    where: { municipality: { equals: municipalityId } },
+    where: organizationId
+      ? { organization: { equals: organizationId } }
+      : {
+          and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }],
+        },
     select: { url: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
     req,
   })
-  if (existing.docs.some((s) => s.url === url)) throw new APIError('Tenhle zdroj už obec má.', 400)
-  if (existing.docs.length >= IMPORT_LIMITS.sourcesPerMunicipality) {
+  if (existing.docs.some((s) => s.url === url)) throw new APIError('Tenhle zdroj už máte.', 400)
+  const limit = organizationId
+    ? IMPORT_LIMITS.sourcesPerOrganization
+    : IMPORT_LIMITS.sourcesPerMunicipality
+  if (existing.docs.length >= limit) {
     throw new APIError(
-      `Obec může mít nejvýš ${IMPORT_LIMITS.sourcesPerMunicipality} zdrojů akcí.`,
+      `${organizationId ? 'Organizace' : 'Obec'} může mít nejvýš ${limit} zdrojů akcí.`,
       400,
     )
   }
@@ -55,15 +97,17 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
   const label = typeof data.label === 'string' ? data.label.trim().slice(0, 120) : ''
   return {
     municipality: Number(municipalityId),
+    organization: organizationId ? Number(organizationId) : null,
     url,
     label: label || new URL(url).hostname.replace(/^www\./, ''),
     enabled: data.enabled !== false,
     createdBy: req.user?.id ?? null,
+    ownerConsentAt: req.user ? new Date().toISOString() : null,
   }
 }
 
-/** A new source is read straight away — the admin sees what it brings without waiting for the next
- * scheduled pass; so is one switched back on. Never blocks saving it. */
+/** A new source is read straight away — the owner sees what it brings without waiting for the next
+ * night; so is one switched back on. Never blocks saving it. */
 const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previousDoc, req }) => {
   const switchedOn = operation === 'update' && doc.enabled && !previousDoc?.enabled
   if (operation === 'create') {
@@ -74,30 +118,48 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
       targetCollection: 'event-sources',
       targetId: doc.id,
       municipality: Number(relationId(doc.municipality)),
-      metadata: { url: doc.url },
+      // The owner's word that they may take events from the web — kept with who gave it.
+      metadata: {
+        url: doc.url,
+        organization: relationId(doc.organization),
+        ownerConsent: Boolean(doc.ownerConsentAt),
+      },
     })
   }
   if ((operation === 'create' && doc.enabled) || switchedOn) {
     // A moment's delay: this still runs inside the request's transaction.
-    await enqueueImportEvents({ kind: 'source', sourceId: doc.id }, { delay: 3_000 }).catch(
-      (error) =>
-        logger.warn('New import source not queued', {
-          event: 'import.source_enqueue_failed',
-          sourceId: doc.id,
-          ...serializeError(error),
-        }),
+    await enqueueImportEvents(
+      {
+        kind: 'source',
+        sourceId: doc.id,
+        trigger: operation === 'create' ? 'new_source' : 'daily',
+        requestedBy: req.user?.id ?? null,
+      },
+      { delay: 3_000 },
+    ).catch((error) =>
+      logger.warn('New import source not queued', {
+        event: 'import.source_enqueue_failed',
+        sourceId: doc.id,
+        ...serializeError(error),
+      }),
     )
   }
   return doc
 }
 
 const systemField = { create: () => false, update: () => false }
+const hiddenSystemField = {
+  read: ({ req }: { req: { user?: { role?: string } | null } }) => req.user?.role === 'admin',
+  create: () => false,
+  update: () => false,
+}
 
 /**
- * A page an obec's events are read from — its own web's calendar, the cultural centre's program, a
- * public Google Calendar. The worker goes through every enabled one every few hours (and right after
- * it's added); what it finds waits for the obec's admin in EventImportCandidates. The obec's admins
- * keep their own sources; a platform admin sees all of them.
+ * A page events are read from — the obec's own web calendar, the cultural centre's program, a public
+ * Google Calendar — kept by an obec, or by an organizer for their organization (access/import). The
+ * worker checks every enabled one each night and reads it through once a week (and right after it's
+ * added); what it finds waits for the owner in EventImportCandidates, and events already taken over
+ * from it are kept in step with it (lib/import/sync).
  */
 export const EventSources: CollectionConfig = {
   slug: 'event-sources',
@@ -107,15 +169,15 @@ export const EventSources: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'label',
-    defaultColumns: ['label', 'municipality', 'enabled', 'lastRunAt', 'lastError'],
+    defaultColumns: ['label', 'municipality', 'organization', 'enabled', 'lastRunAt', 'lastError'],
     description:
-      "Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).",
+      "Web pages and calendars an obec's or organizer's events are imported from (docs/import-akci-z-webu.md).",
   },
   access: {
-    read: isPlatformOrMunicipalityAdmin(),
-    create: canCreateForAdministeredMunicipality(),
-    update: isPlatformOrMunicipalityAdmin(),
-    delete: isPlatformOrMunicipalityAdmin(),
+    read: canAccessImportRecords,
+    create: canCreateSource,
+    update: canAccessImportRecords,
+    delete: canAccessImportRecords,
   },
   fields: [
     {
@@ -123,6 +185,14 @@ export const EventSources: CollectionConfig = {
       type: 'relationship',
       relationTo: 'municipalities',
       required: true,
+      index: true,
+      access: { update: () => false },
+    },
+    {
+      // An organizer's source — events go in as theirs. Empty: the obec's own.
+      name: 'organization',
+      type: 'relationship',
+      relationTo: 'organizations',
       index: true,
       access: { update: () => false },
     },
@@ -140,6 +210,14 @@ export const EventSources: CollectionConfig = {
       name: 'createdBy',
       type: 'relationship',
       relationTo: 'users',
+      access: systemField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      // When whoever added it confirmed the web is theirs, or that its operator lets them take
+      // events from it (the request's `ownerConsent: true`).
+      name: 'ownerConsentAt',
+      type: 'date',
       access: systemField,
       admin: { position: 'sidebar' },
     },
@@ -170,16 +248,21 @@ export const EventSources: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     {
-      // A fingerprint of what was last read — an unchanged page isn't sent to the AI again.
+      // A fingerprint of the dated lines last read — a page changed elsewhere isn't sent to the AI again.
       name: 'lastContentHash',
       type: 'text',
-      access: {
-        read: ({ req }) => req.user?.role === 'admin',
-        create: () => false,
-        update: () => false,
-      },
+      access: hiddenSystemField,
       admin: { hidden: true },
     },
+    {
+      // What the server said identifies the version last read (ETag, Last-Modified) — asked back,
+      // an unchanged page isn't even downloaded (lib/import/pipeline readUrl).
+      name: 'etag',
+      type: 'text',
+      access: hiddenSystemField,
+      admin: { hidden: true },
+    },
+    { name: 'lastModified', type: 'text', access: hiddenSystemField, admin: { hidden: true } },
   ],
   hooks: {
     beforeValidate: [prepareSource],
