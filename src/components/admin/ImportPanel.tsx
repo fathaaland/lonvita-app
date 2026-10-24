@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FileUp,
   Globe,
+  Loader2,
   RefreshCw,
   Type,
 } from 'lucide-react'
@@ -19,15 +20,21 @@ import {
   approveImportCandidates,
   decideSyncNotices,
   deleteImportSource,
+  getImportRunByJob,
+  getLatestSourceRun,
   importFromFile,
   importFromText,
   listImportSources,
   listPendingImportCandidates,
+  listRunningManualImports,
   listSyncNotices,
   rejectImportCandidate,
   runImportSource,
   setImportSourceEnabled,
+  setImportSourceIgnoreRobots,
+  sourceActivity,
   type ImportCandidateRow,
+  type ImportRunRow,
   type ImportSourceRow,
   type ImportSyncRow,
 } from '@/integrations/payload/import-queries'
@@ -44,14 +51,56 @@ import {
   IMPORT_LIMITS,
   IMPORT_WARNINGS,
   isReadyToApprove,
+  ROBOTS_ALLOW_LINES,
   SYNC_FIELD_LABELS,
   SYNC_NOTICES,
 } from '@/lib/import/contracts'
 import { formatEventDate, formatEventDateTime } from '@/lib/date'
 
-/** After the admin asks for a read, the panel looks for its results this long. */
-const POLL_FOR_MS = 3 * 60 * 1000
-const POLL_EVERY_MS = 10_000
+/** While anything is being read, the panel looks again this often. */
+const POLL_EVERY_MS = 5_000
+/** After the admin asks for a read the panel keeps looking at least this long — until the worker
+ * has picked it up and the source says so. */
+const POLL_GRACE_MS = 20_000
+
+/** A pasted program or a file sent off for reading — watched until its run is over. */
+type ManualJob = { key: string; jobId: string | null; label: string; since: number }
+
+const newCountLabel = (n: number) =>
+  n === 1 ? '1 nová akce' : n >= 2 && n <= 4 ? `${n} nové akce` : `${n} nových akcí`
+
+/** How a source's read went, once the panel saw it finish. */
+async function announceSourceRun(source: ImportSourceRow) {
+  const run = await getLatestSourceRun(source.id).catch(() => null)
+  if (!run || run.status === 'running' || run.status === 'skipped') return
+  if (run.status === 'failed') {
+    toast.error(`${source.label}: ${run.error ?? 'Zdroj se nepodařilo načíst.'}`)
+  } else if (run.status === 'unchanged') {
+    toast.success(`Hotovo — ${source.label}: od minula beze změny.`)
+  } else {
+    toast.success(
+      `Hotovo — ${source.label}: na stránce ${run.found ?? 0} akcí, k převzetí ${newCountLabel(run.created ?? 0)}.`,
+    )
+  }
+}
+
+/** How a manual import went, once its run is over. */
+function announceManualRun(job: ManualJob, run: ImportRunRow) {
+  if (run.status === 'failed') toast.error(`${job.label}: ${run.error ?? 'Import se nepodařil.'}`)
+  else if ((run.created ?? 0) > 0)
+    toast.success(`Hotovo — ${job.label}: k převzetí ${newCountLabel(run.created!)}.`)
+  else toast.success(`Hotovo — ${job.label}: žádné nové akce.`)
+}
+
+/** A spinner with what's going on — while a source or an import is being read. */
+function Working({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-1.5 text-xs text-primary mt-0.5" role="status">
+      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden />
+      {children}
+    </p>
+  )
+}
 
 const errorText = (error: unknown, fallback: string) =>
   error instanceof PayloadApiError && error.status < 500 ? error.message : fallback
@@ -73,12 +122,102 @@ const FORMAT_LABELS: Record<string, string> = {
   image: 'obrázek',
 }
 
-function SourceRow({
+/** For the web's operator — what to add to robots.txt, and why. */
+const robotsRequestText = (url: string) => `Dobrý den,
+
+prosíme o úpravu souboru robots.txt na webu ${hostOf(url)}. Akce z kalendáře na webu přebíráme do aplikace Lonvita (https://lonvita.cz), kde je obyvatelé najdou a mohou se na ně přihlásit. Soubor robots.txt teď pouští jen vyhledávače, takže stránku s akcemi číst nemůžeme.
+
+Stačí do robots.txt přidat tyto dva řádky:
+
+${ROBOTS_ALLOW_LINES}
+
+Lonvita stránku s akcemi kontroluje jednou denně a představuje se jako LonvitaBot.
+
+Děkujeme.`
+
+/**
+ * A source the web's robots.txt keeps out: the obec may let the import in past it when the web is
+ * its own (EventSources.ignoreRobots — kept with who and when), and either way can ask whoever
+ * runs the web to let LonvitaBot in for good.
+ */
+function RobotsBlocked({
   source,
   onChanged,
   onQueued,
 }: {
   source: ImportSourceRow
+  onChanged: () => void
+  onQueued: () => void
+}) {
+  const [ours, setOurs] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const waive = async () => {
+    setBusy(true)
+    try {
+      await setImportSourceIgnoreRobots(source.id, true)
+      toast.success('Povoleno — web se prochází, nové akce se tu objeví za chvíli.')
+      onQueued()
+      onChanged()
+    } catch (error) {
+      toast.error(errorText(error, 'Výjimku se nepodařilo uložit.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyRequest = async () => {
+    try {
+      await navigator.clipboard.writeText(robotsRequestText(source.url))
+      toast.success('Žádost je zkopírovaná — vložte ji do e-mailu správci webu.')
+    } catch {
+      toast.error('Zkopírovat se nepodařilo.')
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-3 rounded-md border border-border bg-muted/40 p-3 text-sm">
+      <p className="text-muted-foreground">
+        Web automatické čtení zakazuje v souboru robots.txt. Často jde o výchozí nastavení od
+        dodavatele webu, které nikdo nezměnil.
+      </p>
+      <div className="space-y-2">
+        <p className="font-semibold">Je to web vaší obce?</p>
+        <label className="flex items-start gap-2">
+          <Checkbox
+            checked={ours}
+            onCheckedChange={(v) => setOurs(v === true)}
+            className="mt-0.5"
+          />
+          <span>Web provozuje naše obec a souhlasíme, aby ho Lonvita četla i přes robots.txt.</span>
+        </label>
+        <Button size="sm" onClick={waive} disabled={!ours || busy}>
+          Povolit a projít
+        </Button>
+      </div>
+      <div className="space-y-2">
+        <p className="text-muted-foreground">
+          Trvalé řešení (i pro weby, které obec neprovozuje): požádejte správce webu, ať do
+          robots.txt přidá:
+        </p>
+        <pre className="rounded bg-background px-2 py-1 text-xs">{ROBOTS_ALLOW_LINES}</pre>
+        <Button size="sm" variant="outline" onClick={copyRequest}>
+          Zkopírovat žádost pro správce webu
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function SourceRow({
+  source,
+  activity,
+  onChanged,
+  onQueued,
+}: {
+  source: ImportSourceRow
+  /** Being read now, or waiting for the worker (sourceActivity). */
+  activity: 'running' | 'queued' | null
   onChanged: () => void
   onQueued: () => void
 }) {
@@ -101,7 +240,6 @@ function SourceRow({
     setBusy(true)
     try {
       await runImportSource(source.id)
-      toast.success('Zdroj se prochází — nové akce se tu objeví za chvíli.')
       onQueued()
     } catch (error) {
       toast.error(errorText(error, 'Zdroj se nepodařilo spustit.'))
@@ -110,9 +248,23 @@ function SourceRow({
     }
   }
 
-  const status = !source.last_run_at
-    ? 'Čeká na první načtení…'
-    : source.last_error
+  const stopIgnoringRobots = async () => {
+    setBusy(true)
+    try {
+      await setImportSourceIgnoreRobots(source.id, false)
+      onChanged()
+    } catch (error) {
+      toast.error(errorText(error, 'Zdroj se nepodařilo upravit.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const status = activity
+    ? null
+    : !source.last_run_at
+      ? 'Ještě nenačteno.'
+      : source.last_error
       ? null
       : `Načteno ${formatEventDateTime(source.last_run_at)}${source.format ? ` (${FORMAT_LABELS[source.format] ?? source.format})` : ''}${
           source.last_found_count != null ? ` — na stránce ${source.last_found_count} akcí` : ''
@@ -130,12 +282,34 @@ function SourceRow({
         >
           {source.label}
         </a>
+        {activity === 'running' && <Working>Prochází se — může to trvat pár minut…</Working>}
+        {activity === 'queued' && <Working>Ve frontě, za chvíli se začne procházet…</Working>}
         {status && <p className="text-xs text-muted-foreground mt-0.5">{status}</p>}
-        {source.last_error && (
+        {source.last_error && !activity && (
           <p className="text-xs text-destructive mt-0.5">
             {source.last_run_at ? `${formatEventDateTime(source.last_run_at)}: ` : ''}
             {source.last_error}
           </p>
+        )}
+        {source.ignore_robots && (
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Čte se i přes robots.txt — web provozuje obec
+            {source.ignore_robots_at
+              ? ` (povoleno ${formatEventDate(source.ignore_robots_at)})`
+              : ''}
+            .{' '}
+            <button
+              type="button"
+              className="underline hover:text-foreground"
+              onClick={stopIgnoringRobots}
+              disabled={busy}
+            >
+              Zrušit
+            </button>
+          </p>
+        )}
+        {source.last_error_code === 'robots_disallowed' && !source.ignore_robots && !activity && (
+          <RobotsBlocked source={source} onChanged={onChanged} onQueued={onQueued} />
         )}
       </div>
       <Button
@@ -143,7 +317,7 @@ function SourceRow({
         size="icon"
         className="h-8 w-8 shrink-0"
         onClick={run}
-        disabled={busy || !source.enabled}
+        disabled={busy || !source.enabled || Boolean(activity)}
         aria-label="Projít teď"
         title="Projít teď"
       >
@@ -381,18 +555,29 @@ export function ImportPanel({
   const [consent, setConsent] = useState(false)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState<'source' | 'text' | 'file' | 'bulk' | null>(null)
+  const [manualJobs, setManualJobs] = useState<ManualJob[]>([])
+  const [runningManual, setRunningManual] = useState<ImportRunRow[]>([])
   const pollUntil = useRef(0)
   const fileInput = useRef<HTMLInputElement>(null)
+  /** What each source was up to at the last look — a read that just ended is announced. */
+  const lastActivity = useRef(new Map<string, 'running' | 'queued' | null>())
 
   const load = useCallback(async () => {
-    const [s, c, r] = await Promise.all([
+    const [s, c, r, m] = await Promise.all([
       listImportSources(municipalityId),
       listPendingImportCandidates(municipalityId),
       listSyncNotices(municipalityId),
+      listRunningManualImports(municipalityId).catch(() => []),
     ])
+    for (const source of s) {
+      const now = sourceActivity(source)
+      if (lastActivity.current.get(source.id) && !now) void announceSourceRun(source)
+      lastActivity.current.set(source.id, now)
+    }
     setSources(s)
     setCandidates(c)
     setSyncRows(r)
+    setRunningManual(m)
     onPendingCountChange?.(c.length + r.length)
     setLoading(false)
   }, [municipalityId, onPendingCountChange])
@@ -402,15 +587,48 @@ export function ImportPanel({
     getEventCategories().then((cats) => setCategoryNames(new Map(cats.map((c) => [c.id, c.name]))))
   }, [load])
 
+  /** The manual imports whose run is over — announced and let go. */
+  const checkManualJobs = useCallback(async () => {
+    if (manualJobs.length === 0) return
+    const stale = Date.now() - IMPORT_LIMITS.runStaleMinutes * 60_000
+    const done = new Set<string>()
+    await Promise.all(
+      manualJobs.map(async (job) => {
+        const run = job.jobId ? await getImportRunByJob(job.jobId).catch(() => null) : null
+        if (run && run.status !== 'running') {
+          announceManualRun(job, run)
+          done.add(job.key)
+        } else if (job.since < stale) {
+          done.add(job.key)
+        }
+      }),
+    )
+    if (done.size > 0) setManualJobs((jobs) => jobs.filter((j) => !done.has(j.key)))
+  }, [manualJobs])
+
+  const active =
+    sources.some((s) => sourceActivity(s)) || manualJobs.length > 0 || runningManual.length > 0
+
   useEffect(() => {
     const timer = setInterval(() => {
-      if (Date.now() < pollUntil.current) load().catch(() => {})
+      if (!active && Date.now() >= pollUntil.current) return
+      load().catch(() => {})
+      void checkManualJobs()
     }, POLL_EVERY_MS)
     return () => clearInterval(timer)
-  }, [load])
+  }, [load, active, checkManualJobs])
 
   const startPolling = () => {
-    pollUntil.current = Date.now() + POLL_FOR_MS
+    pollUntil.current = Date.now() + POLL_GRACE_MS
+    load().catch(() => {})
+  }
+
+  const watchManual = (jobId: string | null, label: string) => {
+    setManualJobs((jobs) => [
+      ...jobs,
+      { key: `${Date.now()}-${Math.random()}`, jobId, label, since: Date.now() },
+    ])
+    startPolling()
   }
 
   const addSource = async (e: React.FormEvent) => {
@@ -421,9 +639,8 @@ export function ImportPanel({
       await addImportSource(municipalityId, url.trim())
       setUrl('')
       setConsent(false)
-      toast.success('Zdroj přidán — prochází se, nové akce se tu objeví za chvíli.')
+      toast.success('Zdroj přidán — průběh vidíte u něj.')
       startPolling()
-      await load()
     } catch (error) {
       toast.error(errorText(error, 'Zdroj se nepodařilo přidat.'))
     } finally {
@@ -434,10 +651,9 @@ export function ImportPanel({
   const submitText = async () => {
     setBusy('text')
     try {
-      await importFromText(municipalityId, text)
+      const { jobId } = await importFromText(municipalityId, text)
       setText('')
-      toast.success('Text se zpracovává — akce se tu objeví za chvíli a dáme vám vědět.')
-      startPolling()
+      watchManual(jobId, 'Vložený text')
     } catch (error) {
       toast.error(errorText(error, 'Text se nepodařilo odeslat.'))
     } finally {
@@ -449,9 +665,8 @@ export function ImportPanel({
     if (!file) return
     setBusy('file')
     try {
-      await importFromFile(municipalityId, file)
-      toast.success('Soubor se zpracovává — akce se tu objeví za chvíli a dáme vám vědět.')
-      startPolling()
+      const { jobId } = await importFromFile(municipalityId, file)
+      watchManual(jobId, `Soubor „${file.name}“`)
     } catch (error) {
       toast.error(errorText(error, 'Soubor se nepodařilo nahrát.'))
     } finally {
@@ -523,7 +738,13 @@ export function ImportPanel({
           {sources.length > 0 && (
             <ul className="divide-y divide-border">
               {sources.map((s) => (
-                <SourceRow key={s.id} source={s} onChanged={() => load()} onQueued={startPolling} />
+                <SourceRow
+                  key={s.id}
+                  source={s}
+                  activity={sourceActivity(s)}
+                  onChanged={() => load()}
+                  onQueued={startPolling}
+                />
               ))}
             </ul>
           )}
@@ -569,6 +790,12 @@ export function ImportPanel({
               onChange={(e) => submitFile(e.target.files?.[0])}
             />
           </div>
+          {manualJobs.map((job) => (
+            <Working key={job.key}>{job.label} se zpracovává — může to trvat pár minut…</Working>
+          ))}
+          {manualJobs.length === 0 && runningManual.length > 0 && (
+            <Working>Zpracovává se dříve spuštěný import…</Working>
+          )}
         </CardContent>
       </Card>
 

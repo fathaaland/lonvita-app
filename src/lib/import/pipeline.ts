@@ -49,6 +49,7 @@ import {
   normalizeText,
   similarTitles,
   sourceRefOf,
+  withoutContacts,
 } from './normalize'
 import { markMissing, syncTakenOver, type SyncPair } from './sync'
 import { addDays, pragueToday, pragueWallTimeToIso } from './time'
@@ -68,7 +69,8 @@ import { addDays, pragueToday, pragueWallTimeToIso } from './time'
 export type ImportDeps = {
   fetchUrl: (
     url: string,
-    options?: { validators?: HttpValidators | null },
+    /** `ignoreRobots`: the site's operator let us in past its robots.txt (waiveRobotsFor). */
+    options?: { validators?: HttpValidators | null; ignoreRobots?: boolean },
   ) => Promise<FetchedResource>
   extractWithAi: (input: AiInput, context: AiContext) => Promise<ExtractedEvent[]>
   extractDetailsWithAi: typeof extractEventDetailsWithAi
@@ -82,7 +84,7 @@ export function defaultImportDeps(): ImportDeps {
   const robots: RobotsCache = new Map()
   return {
     fetchUrl: async (url, options) => {
-      await assertRobotsAllow(url, robots)
+      if (!options?.ignoreRobots) await assertRobotsAllow(url, robots)
       return fetchPublic(url, options)
     },
     extractWithAi: extractEventsWithAi,
@@ -90,6 +92,39 @@ export function defaultImportDeps(): ImportDeps {
     aiAvailable: isAiConfigured,
     geocode: geocodeWithNominatim,
     now: () => new Date(),
+  }
+}
+
+const siteOf = (url: string) => new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+
+/** Whether `url` is on the same site as `base` — the same host, or one's subdomain of the other
+ * (kultura.obec.cz under obec.cz). */
+export function isSameSite(url: string, base: string): boolean {
+  try {
+    const a = siteOf(url)
+    const b = siteOf(base)
+    return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`)
+  } catch {
+    return false
+  }
+}
+
+/** What the AI read off a page: an event's own page counts only on the page's site. A page can tell
+ * the AI anything — a link elsewhere would be fetched by us and shown as the event's source. */
+const keepOwnLinks = (events: ExtractedEvent[], pageUrl: string): ExtractedEvent[] =>
+  events.map((e) =>
+    e.detailUrl && !isSameSite(e.detailUrl, pageUrl) ? { ...e, detailUrl: null } : e,
+  )
+
+/** `deps` reading the site of `sourceUrl` past its robots.txt — the obec runs that web and said so
+ * (EventSources.ignoreRobots). Its detail pages and embedded calendars too; any other site keeps
+ * its own robots.txt. */
+export function waiveRobotsFor(deps: ImportDeps, sourceUrl: string): ImportDeps {
+  const site = siteOf(sourceUrl)
+  return {
+    ...deps,
+    fetchUrl: (url, options) =>
+      deps.fetchUrl(url, { ...options, ignoreRobots: siteOf(url) === site }),
   }
 }
 
@@ -178,7 +213,7 @@ async function readResource(
       { kind: 'file', data: resource.body, mimeType, fileName },
       aiContext,
     )
-    return { events, format, contentHash: hash, unchanged: false }
+    return { events: keepOwnLinks(events, resource.url), format, contentHash: hash, unchanged: false }
   }
 
   const text = decodeBody(resource)
@@ -202,7 +237,12 @@ async function readResource(
       { kind: 'text', text: feedText, sourceUrl: resource.url },
       aiContext,
     )
-    return { events, format: 'feed', contentHash: hash, unchanged: false }
+    return {
+      events: keepOwnLinks(events, resource.url),
+      format: 'feed',
+      contentHash: hash,
+      unchanged: false,
+    }
   }
 
   // The page's own calendar feed, when it has one — exact, and nothing to pay for.
@@ -241,7 +281,12 @@ async function readResource(
     { kind: 'text', text: pageText, sourceUrl: resource.url },
     aiContext,
   )
-  return { events, format: 'html', contentHash: hash, unchanged: false }
+  return {
+    events: keepOwnLinks(events, resource.url),
+    format: 'html',
+    contentHash: hash,
+    unchanged: false,
+  }
 }
 
 export type StoreInput = {
@@ -358,6 +403,20 @@ type Known = Pick<
   | 'missingCount'
 >
 
+/** Events placed within the obec's area (a box around its circle — close enough for a warning). */
+function withinBox(area: MunicipalityArea): Where {
+  const dLat = area.eventRadiusKm / 111
+  const dLng = area.eventRadiusKm / (111 * Math.cos((area.lat * Math.PI) / 180))
+  return {
+    and: [
+      { lat: { greater_than_equal: area.lat - dLat } },
+      { lat: { less_than_equal: area.lat + dLat } },
+      { lng: { greater_than_equal: area.lng - dLng } },
+      { lng: { less_than_equal: area.lng + dLng } },
+    ],
+  }
+}
+
 /** Saves `events` as candidates of the obec (see the module comment) and keeps the ones already
  * taken over in step with the source (lib/import/sync). */
 export async function storeCandidates(
@@ -457,7 +516,9 @@ export async function storeCandidates(
       collection: 'events',
       where: {
         and: [
-          ofObec,
+          // The obec's own, and the neighbours' within its area — two obce may take over the same
+          // regional calendar (a mikroregion's, a MAS's), and the event shouldn't be in twice.
+          { or: [ofObec, withinBox(municipality)] },
           { deletedAt: { exists: false } },
           { status: { not_equals: 'cancelled' } },
           { dateTime: { greater_than_equal: earliest } },
@@ -556,7 +617,9 @@ export async function storeCandidates(
             missingCount: 0,
             lastSeenAt: nowIso,
             ...(moved ? { externalKey: key, sourceRef: ref } : {}),
-            ...(extracted.description ? { description: extracted.description } : {}),
+            ...(extracted.description
+              ? { description: withoutContacts(extracted.description) }
+              : {}),
           },
           overrideAccess: true,
         })
@@ -615,7 +678,7 @@ export async function storeCandidates(
           sourceRef: ref,
           status: 'pending',
           title: event.title,
-          description: event.description,
+          description: withoutContacts(event.description),
           startsAt: times.startsAt,
           endsAt: times.endsAt,
           timeKnown: Boolean(event.start.time),

@@ -50,5 +50,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     { kind: 'source', sourceId: source.id, trigger: 'manual', requestedBy: user.id },
     { deduplication: { id: `import-source-run-${source.id}`, ttl: 60_000 } },
   )
+  // The panel shows it waiting until the worker picks it up.
+  await payload.update({
+    collection: 'event-sources',
+    id: source.id,
+    data: { queuedAt: new Date().toISOString() },
+    overrideAccess: true,
+  })
   return NextResponse.json({ queued: true })
 }

@@ -12,7 +12,8 @@ const MIN_TEXT_LENGTH = 20
  * A program pasted by the obec's admin — copied from an e-mail, a Facebook page, anywhere the worker
  * can't go itself. Read by the worker; the admin is notified once its events wait in the Import tab.
  *
- * POST /api/import/text  { municipalityId, text } → { queued: true }
+ * POST /api/import/text  { municipalityId, text } → { queued: true, jobId }
+ * (`jobId`: its ImportRuns record shows how it went — the panel watches it)
  */
 export async function POST(request: Request) {
   const payload = await getPayload({ config })
@@ -41,11 +42,11 @@ export async function POST(request: Request) {
   const limited = await aiImportRateLimited(user.id)
   if (limited) return limited
 
-  await enqueueImportEvents({
+  const job = await enqueueImportEvents({
     kind: 'text',
     municipalityId: Number(municipalityId),
     requestedBy: user.id,
     text,
   })
-  return NextResponse.json({ queued: true })
+  return NextResponse.json({ queued: true, jobId: job?.id ?? null })
 }

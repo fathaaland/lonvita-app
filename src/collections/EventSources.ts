@@ -1,5 +1,6 @@
 import type {
   CollectionAfterChangeHook,
+  CollectionBeforeChangeHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
 } from 'payload'
@@ -67,13 +68,48 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
     enabled: data.enabled !== false,
     createdBy: req.user?.id ?? null,
     ownerConsentAt: req.user ? new Date().toISOString() : null,
+    // Read straight away (readNewSource) — the panel shows it waiting.
+    queuedAt: data.enabled !== false ? new Date().toISOString() : null,
+  }
+}
+
+/** Who let the import past the web's robots.txt, and when — set with the switch, cleared with it.
+ * A source switched back on, or just let past robots.txt, is read right away (readNewSource) — the
+ * panel shows it waiting. */
+const recordSourceChange: CollectionBeforeChangeHook = ({ data, originalDoc, operation, req }) => {
+  if (operation !== 'update' || !data) return data
+  const now = new Date().toISOString()
+  const waived = Boolean(data.ignoreRobots ?? originalDoc?.ignoreRobots)
+  const waiverChanged = waived !== Boolean(originalDoc?.ignoreRobots)
+  const enabled = Boolean(data.enabled ?? originalDoc?.enabled)
+  const switchedOn = enabled && !originalDoc?.enabled
+  return {
+    ...data,
+    ...(waiverChanged
+      ? { ignoreRobotsAt: waived ? now : null, ignoreRobotsBy: waived ? (req.user?.id ?? null) : null }
+      : {}),
+    ...((switchedOn || (waiverChanged && waived)) && enabled ? { queuedAt: now } : {}),
   }
 }
 
 /** A new source is read straight away — the owner sees what it brings without waiting for the next
- * night; so is one switched back on. Never blocks saving it. */
+ * night; so is one switched back on, and one just let past its web's robots.txt. Never blocks
+ * saving it. */
 const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previousDoc, req }) => {
   const switchedOn = operation === 'update' && doc.enabled && !previousDoc?.enabled
+  const waived = operation === 'update' && doc.ignoreRobots && !previousDoc?.ignoreRobots
+  if (operation === 'update' && Boolean(doc.ignoreRobots) !== Boolean(previousDoc?.ignoreRobots)) {
+    // The admin's word that the obec runs the web — kept with who gave it.
+    writeAuditLog(req.payload, {
+      source: req,
+      action: 'event-sources.robots-waiver',
+      actor: req.user?.id ?? null,
+      targetCollection: 'event-sources',
+      targetId: doc.id,
+      municipality: Number(relationId(doc.municipality)),
+      metadata: { url: doc.url, ignoreRobots: Boolean(doc.ignoreRobots) },
+    })
+  }
   if (operation === 'create') {
     writeAuditLog(req.payload, {
       source: req,
@@ -86,13 +122,14 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
       metadata: { url: doc.url, ownerConsent: Boolean(doc.ownerConsentAt) },
     })
   }
-  if ((operation === 'create' && doc.enabled) || switchedOn) {
+  if ((operation === 'create' && doc.enabled) || switchedOn || (waived && doc.enabled)) {
     // A moment's delay: this still runs inside the request's transaction.
     await enqueueImportEvents(
       {
         kind: 'source',
         sourceId: doc.id,
-        trigger: operation === 'create' ? 'new_source' : 'daily',
+        // Let past robots.txt: read through now, whatever was (or wasn't) read before.
+        trigger: operation === 'create' ? 'new_source' : waived ? 'manual' : 'daily',
         requestedBy: req.user?.id ?? null,
       },
       { delay: 3_000 },
@@ -185,6 +222,28 @@ export const EventSources: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     {
+      // The obec runs this web and lets the import read it although its robots.txt keeps robots
+      // out — typically a web vendor's default nobody changed. Its own site only
+      // (lib/import/pipeline waiveRobotsFor); offered once a read fails on robots.txt.
+      name: 'ignoreRobots',
+      type: 'checkbox',
+      defaultValue: false,
+      access: { create: () => false },
+    },
+    {
+      name: 'ignoreRobotsAt',
+      type: 'date',
+      access: systemField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'ignoreRobotsBy',
+      type: 'relationship',
+      relationTo: 'users',
+      access: systemField,
+      admin: { position: 'sidebar' },
+    },
+    {
       // What the last successful read found the address to be.
       name: 'format',
       type: 'select',
@@ -200,8 +259,30 @@ export const EventSources: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     { name: 'lastRunAt', type: 'date', access: systemField, admin: { position: 'sidebar' } },
+    {
+      // A read asked for (a new source, "Projít teď", switched back on) and not started yet.
+      name: 'queuedAt',
+      type: 'date',
+      access: systemField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      // The worker is reading it now — cleared when it's done (IMPORT_LIMITS.runStaleMinutes when
+      // the worker died midway).
+      name: 'runningSince',
+      type: 'date',
+      access: systemField,
+      admin: { position: 'sidebar' },
+    },
     { name: 'lastSuccessAt', type: 'date', access: systemField, admin: { position: 'sidebar' } },
     { name: 'lastError', type: 'text', access: systemField, admin: { position: 'sidebar' } },
+    {
+      // What kind of failure it was (ImportFetchError code…) — the panel offers what helps with it.
+      name: 'lastErrorCode',
+      type: 'text',
+      access: systemField,
+      admin: { position: 'sidebar' },
+    },
     { name: 'lastFoundCount', type: 'number', access: systemField, admin: { position: 'sidebar' } },
     {
       name: 'consecutiveFailures',
@@ -229,6 +310,7 @@ export const EventSources: CollectionConfig = {
   ],
   hooks: {
     beforeValidate: [prepareSource],
+    beforeChange: [recordSourceChange],
     afterChange: [readNewSource],
     afterDelete: [
       auditDeletion<{ url?: string; municipality?: number | { id: number } | null }>((doc) => ({

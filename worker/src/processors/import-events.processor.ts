@@ -4,10 +4,10 @@ import { getMunicipalityAdminUserIds, sendNotificationToMany } from '@/collectio
 import { ImportAiError } from '@/lib/import/ai'
 import { IMPORT_LIMITS, isFullPass, isImportFileType, type SourceTrigger } from '@/lib/import/contracts'
 import { ImportFetchError } from '@/lib/import/fetch'
-import { defaultImportDeps, ImportReadError, loadImportContext, readUrl, storeCandidates, type ImportDeps } from '@/lib/import/pipeline'
+import { defaultImportDeps, ImportReadError, loadImportContext, readUrl, storeCandidates, waiveRobotsFor, type ImportDeps } from '@/lib/import/pipeline'
 import { deleteImportFile, downloadImportFile } from '@/lib/import/storage'
 import { addDays, pragueToday } from '@/lib/import/time'
-import { emptyTotals, isOverAiBudget, meterAi, type UsageTotals } from '@/lib/import/usage'
+import { aiRefusalFor, emptyTotals, meterAi, type UsageTotals } from '@/lib/import/usage'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId, relationNumber } from '@/lib/relations'
 
@@ -89,6 +89,29 @@ async function ownersOf(payload: Payload, source: { municipality: unknown }) {
   return { userIds: await getMunicipalityAdminUserIds(payload, relationNumber(source.municipality)!), link: IMPORT_LINK }
 }
 
+/** A source that keeps failing is told to its obec's admins — and past IMPORT_LIMITS.failuresBeforePause
+ * switched off (processSource): a page gone for good isn't knocked on every night. */
+async function noticeFailures(
+  payload: Payload,
+  source: { municipality: unknown; label?: string | null; url: string },
+  failures: number,
+  message: string,
+) {
+  const paused = failures === IMPORT_LIMITS.failuresBeforePause
+  if (failures !== IMPORT_LIMITS.failuresBeforeNotice && !paused) return
+  const { userIds, link } = await ownersOf(payload, source)
+  const web = source.label || source.url
+  await sendNotificationToMany(payload, userIds, {
+    title: paused ? 'Zdroj akcí je pozastavený' : 'Zdroj akcí nejde načíst',
+    link,
+    message: paused
+      ? `Web ${web} se nepodařilo načíst ${failures}× po sobě, proto ho přestáváme kontrolovat: ${message} Až bude web v pořádku, zapněte zdroj v sekci Import akcí.`
+      : `Web ${web} se nepodařilo načíst už ${failures}× po sobě: ${message} Zkontrolujte adresu v sekci Import akcí.`,
+  }).catch((error) =>
+    logger.warn('Import failure notice not sent', { event: 'import.failure_notice_failed', ...serializeError(error) }),
+  )
+}
+
 async function processSource(
   payload: Payload,
   data: Extract<ImportEventsJobData, { kind: 'source' }>,
@@ -116,11 +139,21 @@ async function processSource(
   )
   const totals = emptyTotals()
   const metered = meterAi(
-    deps,
+    // The obec runs the web and let us past its robots.txt (EventSources.ignoreRobots).
+    source.ignoreRobots ? waiveRobotsFor(deps, source.url) : deps,
     payload,
     { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
-    { overBudget: await isOverAiBudget(payload, municipalityId, now), totals },
+    { refusal: await aiRefusalFor(payload, municipalityId, now), totals },
   )
+  // The panel shows it being read (ImportPanel) until one of the updates below clears it.
+  await payload
+    .update({
+      collection: 'event-sources',
+      id: source.id,
+      data: { runningSince: runAt, queuedAt: null },
+      overrideAccess: true,
+    })
+    .catch(() => {})
 
   // Only the next weeks (IMPORT_LIMITS.sourceWindowDays) — each pass takes what came into the window.
   const until = addDays(pragueToday(now), IMPORT_LIMITS.sourceWindowDays)
@@ -167,7 +200,9 @@ async function processSource(
         lastRunAt: runAt,
         lastSuccessAt: runAt,
         lastError: null,
+        lastErrorCode: null,
         consecutiveFailures: 0,
+        runningSince: null,
         lastContentHash: read.contentHash,
         etag: read.validators?.etag ?? null,
         lastModified: read.validators?.lastModified ?? null,
@@ -211,16 +246,22 @@ async function processSource(
     )
     return { found: read.events.length, created: stored.created, updated: stored.updated, ...(read.unchanged ? { skipped: 'unchanged' } : {}) }
   } catch (error) {
+    const failures = (source.consecutiveFailures ?? 0) + 1
+    const pause = failures >= IMPORT_LIMITS.failuresBeforePause
     await payload.update({
       collection: 'event-sources',
       id: source.id,
       data: {
         lastRunAt: runAt,
         lastError: messageOf(error),
-        consecutiveFailures: (source.consecutiveFailures ?? 0) + 1,
+        lastErrorCode: codeOf(error),
+        consecutiveFailures: failures,
+        runningSince: null,
+        ...(pause ? { enabled: false } : {}),
       },
       overrideAccess: true,
     })
+    await noticeFailures(payload, source, failures, messageOf(error))
     await finishRun(payload, runId, { status: 'failed', error: messageOf(error), errorCode: codeOf(error) }, totals, deps.now())
     if (!isExpected(error)) throw error
     logger.warn('Event source not read', { event: 'import.source_failed', sourceId: source.id, ...serializeError(error) })
@@ -256,7 +297,7 @@ async function processManual(
     deps,
     payload,
     { municipality: municipalityId, user: requestedBy, importRun: runId },
-    { overBudget: await isOverAiBudget(payload, municipalityId, now), totals },
+    { refusal: await aiRefusalFor(payload, municipalityId, now), totals },
   )
 
   let succeeded = false

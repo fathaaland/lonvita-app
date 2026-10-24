@@ -1,6 +1,6 @@
 import { buildQuery, buildWhereParams, del, get, patch, post, PayloadApiError } from './client'
 import type { PayloadListResponse } from './client'
-import type { ImportWarning, SyncNotice } from '@/lib/import/contracts'
+import { IMPORT_LIMITS, type ImportWarning, type SyncNotice } from '@/lib/import/contracts'
 import { relationId } from '@/lib/relations'
 
 /** Importing events from obce's websites, files and pasted programs (docs/import-akci-z-webu.md).
@@ -22,10 +22,21 @@ export type ImportSourceRow = {
   last_run_at: string | null
   last_success_at: string | null
   last_error: string | null
+  /** What kind of failure (ImportFetchError code…) — 'robots_disallowed' offers the waiver. */
+  last_error_code: string | null
   last_found_count: number | null
+  /** Failed reads in a row — the source switches itself off at IMPORT_LIMITS.failuresBeforePause. */
+  consecutive_failures: number
+  /** Read past the web's robots.txt — the obec runs it (EventSources.ignoreRobots). */
+  ignore_robots: boolean
+  ignore_robots_at: string | null
+  /** A read asked for and not started yet (EventSources.queuedAt). */
+  queued_at: string | null
+  /** The worker is reading it now (EventSources.runningSince). */
+  running_since: string | null
 }
 
-type PayloadSource = {
+export type PayloadSource = {
   id: number
   url: string
   label?: string | null
@@ -34,10 +45,16 @@ type PayloadSource = {
   lastRunAt?: string | null
   lastSuccessAt?: string | null
   lastError?: string | null
+  lastErrorCode?: string | null
   lastFoundCount?: number | null
+  consecutiveFailures?: number | null
+  ignoreRobots?: boolean | null
+  ignoreRobotsAt?: string | null
+  queuedAt?: string | null
+  runningSince?: string | null
 }
 
-const mapSource = (s: PayloadSource): ImportSourceRow => ({
+export const mapSource = (s: PayloadSource): ImportSourceRow => ({
   id: String(s.id),
   url: s.url,
   label: s.label || new URL(s.url).hostname,
@@ -46,8 +63,31 @@ const mapSource = (s: PayloadSource): ImportSourceRow => ({
   last_run_at: s.lastRunAt ?? null,
   last_success_at: s.lastSuccessAt ?? null,
   last_error: s.lastError ?? null,
+  last_error_code: s.lastErrorCode ?? null,
   last_found_count: s.lastFoundCount ?? null,
+  consecutive_failures: s.consecutiveFailures ?? 0,
+  ignore_robots: Boolean(s.ignoreRobots),
+  ignore_robots_at: s.ignoreRobotsAt ?? null,
+  queued_at: s.queuedAt ?? null,
+  running_since: s.runningSince ?? null,
 })
+
+const isFresh = (iso: string | null, now: number) =>
+  Boolean(iso) && now - new Date(iso!).getTime() < IMPORT_LIMITS.runStaleMinutes * 60_000
+
+/** What the source is up to: being read, waiting for the worker, or neither. A state older than
+ * IMPORT_LIMITS.runStaleMinutes is a worker that died midway — it's shown as finished. */
+export function sourceActivity(
+  source: ImportSourceRow,
+  now = Date.now(),
+): 'running' | 'queued' | null {
+  if (!source.enabled) return null
+  if (isFresh(source.running_since, now)) return 'running'
+  const queuedAfterLastRun =
+    source.queued_at &&
+    (!source.last_run_at || new Date(source.queued_at) > new Date(source.last_run_at))
+  return queuedAfterLastRun && isFresh(source.queued_at, now) ? 'queued' : null
+}
 
 export async function listImportSources(municipalityId: string): Promise<ImportSourceRow[]> {
   const where = buildWhereParams(ownerWhere(municipalityId))
@@ -76,6 +116,14 @@ export async function setImportSourceEnabled(sourceId: string, enabled: boolean)
   await patch(`/event-sources/${sourceId}`, { enabled })
 }
 
+/** The obec runs the web: read it past its robots.txt (and right away), or stop doing so. */
+export async function setImportSourceIgnoreRobots(
+  sourceId: string,
+  ignoreRobots: boolean,
+): Promise<void> {
+  await patch(`/event-sources/${sourceId}`, { ignoreRobots })
+}
+
 export async function deleteImportSource(sourceId: string): Promise<void> {
   await del(`/event-sources/${sourceId}`)
 }
@@ -84,11 +132,22 @@ export async function runImportSource(sourceId: string): Promise<void> {
   await post(`/import/sources/${sourceId}/run`)
 }
 
-export async function importFromText(municipalityId: string, text: string): Promise<void> {
-  await post('/import/text', { municipalityId: Number(municipalityId), text })
+/** A pasted program on its way — `jobId` finds how it went (getImportRunByJob). */
+export async function importFromText(
+  municipalityId: string,
+  text: string,
+): Promise<{ jobId: string | null }> {
+  const result = await post<{ jobId?: string | null }>('/import/text', {
+    municipalityId: Number(municipalityId),
+    text,
+  })
+  return { jobId: result?.jobId ?? null }
 }
 
-export async function importFromFile(municipalityId: string, file: File): Promise<void> {
+export async function importFromFile(
+  municipalityId: string,
+  file: File,
+): Promise<{ jobId: string | null }> {
   const form = new FormData()
   form.append('municipalityId', municipalityId)
   form.append('file', file)
@@ -97,10 +156,67 @@ export async function importFromFile(municipalityId: string, file: File): Promis
     credentials: 'include',
     body: form,
   })
+  const body = await res.json().catch(() => null)
   if (!res.ok) {
-    const body = await res.json().catch(() => null)
     throw new PayloadApiError(body?.error ?? `Request failed with status ${res.status}`, res.status)
   }
+  return { jobId: body?.jobId ?? null }
+}
+
+/** One read of a source or a manual import (ImportRuns). */
+export type ImportRunRow = {
+  id: string
+  status: 'running' | 'success' | 'unchanged' | 'failed' | 'skipped'
+  error: string | null
+  found: number | null
+  created: number | null
+  started_at: string
+}
+
+type PayloadRun = {
+  id: number
+  status: ImportRunRow['status']
+  error?: string | null
+  found?: number | null
+  created?: number | null
+  startedAt: string
+}
+
+const mapRun = (r: PayloadRun): ImportRunRow => ({
+  id: String(r.id),
+  status: r.status,
+  error: r.error ?? null,
+  found: r.found ?? null,
+  created: r.created ?? null,
+  started_at: r.startedAt,
+})
+
+const latestRun = async (where: WhereClause): Promise<ImportRunRow | null> => {
+  const result = await get<PayloadListResponse<PayloadRun>>(
+    `/import-runs?${buildWhereParams(where)}&${buildQuery({ depth: 0, limit: 1, sort: '-startedAt' })}`,
+  )
+  return result.docs[0] ? mapRun(result.docs[0]) : null
+}
+
+/** How the manual import queued as `jobId` went — null while it waits for the worker. */
+export const getImportRunByJob = (jobId: string) => latestRun({ jobId: { equals: jobId } })
+
+/** The source's last read — what the panel says once it's done. */
+export const getLatestSourceRun = (sourceId: string) =>
+  latestRun({ source: { equals: sourceId } })
+
+/** Pasted programs and files of the obec being read right now — still shown after a reload. */
+export async function listRunningManualImports(municipalityId: string): Promise<ImportRunRow[]> {
+  const since = new Date(Date.now() - IMPORT_LIMITS.runStaleMinutes * 60_000).toISOString()
+  const result = await get<PayloadListResponse<PayloadRun>>(
+    `/import-runs?${buildWhereParams({
+      municipality: { equals: municipalityId },
+      source: { exists: false },
+      status: { equals: 'running' },
+      startedAt: { greater_than: since },
+    })}&${buildQuery({ depth: 0, limit: 10, sort: '-startedAt' })}`,
+  )
+  return result.docs.map(mapRun)
 }
 
 export type ImportCandidateRow = {
@@ -301,4 +417,62 @@ export async function listSyncNotices(municipalityId: string): Promise<ImportSyn
 /** "Převzít z webu" or "Beru na vědomí". */
 export async function decideSyncNotices(id: string, action: 'apply' | 'dismiss'): Promise<void> {
   await post(`/import/candidates/${id}/sync`, { action })
+}
+
+// --- The platform's admins (superadmin panel) ------------------------------------------------
+
+export type ImportOverviewMunicipality = {
+  id: string
+  name: string
+  /** Its own monthly AI limit (USD) — null: the default. */
+  budget_usd: number | null
+  spent_usd: number
+  pending_candidates: number
+  sources: ImportSourceRow[]
+}
+
+export type ImportOverview = {
+  ai_enabled: boolean
+  default_budget_usd: number
+  municipalities: ImportOverviewMunicipality[]
+}
+
+export async function getImportOverview(): Promise<ImportOverview> {
+  const result = await get<{
+    aiEnabled: boolean
+    defaultBudgetUsd: number
+    municipalities: {
+      id: number
+      name: string
+      budgetUsd: number | null
+      spentUsd: number
+      pendingCandidates: number
+      sources: PayloadSource[]
+    }[]
+  }>('/admin/import-overview')
+  return {
+    ai_enabled: result.aiEnabled,
+    default_budget_usd: result.defaultBudgetUsd,
+    municipalities: result.municipalities.map((m) => ({
+      id: String(m.id),
+      name: m.name,
+      budget_usd: m.budgetUsd,
+      spent_usd: m.spentUsd,
+      pending_candidates: m.pendingCandidates,
+      sources: m.sources.map(mapSource),
+    })),
+  }
+}
+
+/** Every AI read on the platform on or off (ImportSettings). */
+export async function setImportAiEnabled(aiEnabled: boolean): Promise<void> {
+  await post('/globals/import-settings', { aiEnabled })
+}
+
+/** The obec's own monthly AI limit — null back to the default. */
+export async function setMunicipalityAiBudget(
+  municipalityId: string,
+  budgetUsd: number | null,
+): Promise<void> {
+  await patch(`/municipalities/${municipalityId}`, { importAiBudgetUsd: budgetUsd })
 }

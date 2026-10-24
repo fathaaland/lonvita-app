@@ -19,7 +19,12 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
 }))
 
 import { approveCandidate, rejectCandidate } from '@/lib/import/approve'
-import { IMPORT_LIMITS, IMPORT_USER_AGENT, type ExtractedEvent } from '@/lib/import/contracts'
+import {
+  IMPORT_LIMITS,
+  IMPORT_USER_AGENT,
+  ROBOTS_ALLOW_LINES,
+  type ExtractedEvent,
+} from '@/lib/import/contracts'
 import {
   ImportFetchError,
   isAllowedByRobots,
@@ -34,8 +39,16 @@ import {
   htmlToText,
 } from '@/lib/import/html'
 import { parseIcal } from '@/lib/import/ical'
-import { similarTitles } from '@/lib/import/normalize'
-import { loadImportContext, readUrl, storeCandidates, type ImportDeps } from '@/lib/import/pipeline'
+import { similarTitles, withoutContacts } from '@/lib/import/normalize'
+import { aiBudgetOf } from '@/lib/import/usage'
+import { sourceActivity, type ImportSourceRow } from '@/integrations/payload/import-queries'
+import {
+  loadImportContext,
+  readUrl,
+  storeCandidates,
+  waiveRobotsFor,
+  type ImportDeps,
+} from '@/lib/import/pipeline'
 import { addDays, pragueToday, pragueWallTimeToIso } from '@/lib/import/time'
 import { UNLIMITED_CAPACITY } from '@/lib/capacity'
 import { relationNumber } from '@/lib/relations'
@@ -108,6 +121,91 @@ describe('Import — fetching only from the public internet', () => {
     expect(isAllowedByRobots(parseRobots('User-agent: *\nDisallow: /*.pdf$'), '/program.pdf')).toBe(
       false,
     )
+  })
+
+  it('the lines a webmaster is asked to add let us into a web that keeps all but search engines out', () => {
+    // A web vendor's default (mestopelhrimov.cz): search engines in, everybody else out.
+    const vendorDefault =
+      'User-agent: googlebot\nUser-agent: seznambot\nDisallow: /aa/\n\nUser-agent: *\nDisallow: /'
+    expect(isAllowedByRobots(parseRobots(vendorDefault), '/vismo/kalendar.asp')).toBe(false)
+    const withUs = `${vendorDefault}\n\n${ROBOTS_ALLOW_LINES}`
+    expect(isAllowedByRobots(parseRobots(withUs), '/vismo/kalendar.asp')).toBe(true)
+    expect(isAllowedByRobots(parseRobots(withUs), '/vismo/akce.asp?id=7')).toBe(true)
+  })
+
+  it('a robots.txt waiver covers the source’s own site only', async () => {
+    const seen: { url: string; ignoreRobots?: boolean }[] = []
+    const base = {
+      fetchUrl: async (url: string, options?: { ignoreRobots?: boolean }) => {
+        seen.push({ url, ignoreRobots: options?.ignoreRobots })
+        return { url, contentType: 'text/html', body: Buffer.from('') }
+      },
+    } as unknown as ImportDeps
+    const waived = waiveRobotsFor(base, 'https://www.mestopelhrimov.cz/vismo/kalendar.asp')
+    await waived.fetchUrl('https://www.mestopelhrimov.cz/vismo/akce.asp?id=1')
+    await waived.fetchUrl('https://mestopelhrimov.cz/kalendar.ics', { validators: null })
+    await waived.fetchUrl('https://kulturnidum.cz/program')
+    expect(seen.map((s) => s.ignoreRobots)).toEqual([true, true, false])
+  })
+})
+
+describe('Import — personal data, links and limits', () => {
+  it("keeps e-mail addresses and phone numbers out of an event's description", () => {
+    expect(
+      withoutContacts(
+        'Zájezd do Prahy. Přihlášky u paní Novákové, tel. 777 123 456, novakova@seznam.cz.',
+      ),
+    ).toBe('Zájezd do Prahy. Přihlášky u paní Novákové.')
+    expect(withoutContacts('Info a přihlášky: +420 602123456')).toBe('Info a přihlášky')
+    // Times, prices and dates aren't phone numbers.
+    expect(withoutContacts('Koncert v 19:00, vstupné 150 Kč, 24. 10. 2026')).toBe(
+      'Koncert v 19:00, vstupné 150 Kč, 24. 10. 2026',
+    )
+    expect(withoutContacts('tel. 777 123 456')).toBeNull()
+    expect(withoutContacts(null)).toBeNull()
+  })
+
+  it("an obec's own AI limit wins over the default", () => {
+    expect(aiBudgetOf({})).toBe(IMPORT_LIMITS.aiMonthlyBudgetUsd)
+    expect(aiBudgetOf({ importAiBudgetUsd: null })).toBe(IMPORT_LIMITS.aiMonthlyBudgetUsd)
+    expect(aiBudgetOf({ importAiBudgetUsd: 12 })).toBe(12)
+    expect(aiBudgetOf({ importAiBudgetUsd: 0 })).toBe(0)
+  })
+
+  it('tells a source being read from one waiting for the worker — and a dead worker from either', () => {
+    const now = Date.parse('2026-10-24T12:00:00Z')
+    const minutesAgo = (m: number) => new Date(now - m * 60_000).toISOString()
+    const base: ImportSourceRow = {
+      id: '1',
+      url: 'https://obec.test/',
+      label: 'obec.test',
+      enabled: true,
+      format: null,
+      last_run_at: minutesAgo(60),
+      last_success_at: null,
+      last_error: null,
+      last_error_code: null,
+      last_found_count: null,
+      consecutive_failures: 0,
+      ignore_robots: false,
+      ignore_robots_at: null,
+      queued_at: null,
+      running_since: null,
+    }
+    expect(sourceActivity(base, now)).toBeNull()
+    expect(sourceActivity({ ...base, running_since: minutesAgo(2) }, now)).toBe('running')
+    expect(sourceActivity({ ...base, queued_at: minutesAgo(1) }, now)).toBe('queued')
+    // Asked for before the last read — that read was it.
+    expect(sourceActivity({ ...base, queued_at: minutesAgo(90) }, now)).toBeNull()
+    expect(
+      sourceActivity(
+        { ...base, running_since: minutesAgo(IMPORT_LIMITS.runStaleMinutes + 1) },
+        now,
+      ),
+    ).toBeNull()
+    expect(
+      sourceActivity({ ...base, enabled: false, running_since: minutesAgo(1) }, now),
+    ).toBeNull()
   })
 })
 
@@ -915,6 +1013,297 @@ describe('Import — candidates, approval and access', () => {
     })
     expect(afterFailure.lastError).toContain('robots.txt')
     expect(afterFailure.consecutiveFailures).toBe(1)
+  })
+
+  it("the obec may let the import past its own web's robots.txt — on its word, kept with who and when", async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://www.obec-robots.test/kalendar' },
+      overrideAccess: true,
+    })
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'UID:posviceni@obec-robots',
+      `DTSTART;TZID=Europe/Prague:${inDays(9).replaceAll('-', '')}T140000`,
+      'SUMMARY:Posvícení',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+    // A web whose robots.txt keeps us out — unless the fetch was told it may go past it.
+    const robotsDeps = () =>
+      deps({
+        fetchUrl: async (url, options) => {
+          if (!options?.ignoreRobots)
+            throw new ImportFetchError(
+              'Web stahování téhle stránky zakazuje (robots.txt).',
+              'robots_disallowed',
+            )
+          return { url, contentType: 'text/calendar', body: Buffer.from(ics) }
+        },
+      })
+    const sourceNow = () =>
+      payload.findByID({
+        collection: 'event-sources',
+        id: source.id,
+        depth: 0,
+        overrideAccess: true,
+      })
+
+    try {
+      await processImportEventsJob({ kind: 'source', sourceId: source.id }, {}, robotsDeps())
+      expect((await sourceNow()).lastErrorCode).toBe('robots_disallowed')
+
+      // Only the obec's own admins speak for its web.
+      for (const user of [otherAdmin, resident]) {
+        await expect(
+          payload.update({
+            collection: 'event-sources',
+            id: source.id,
+            data: { ignoreRobots: true },
+            user,
+            overrideAccess: false,
+          }),
+        ).rejects.toThrow()
+      }
+      vi.mocked(enqueueImportEvents).mockClear()
+      const waived = await payload.update({
+        collection: 'event-sources',
+        id: source.id,
+        data: { ignoreRobots: true, ignoreRobotsBy: resident.id } as never,
+        user: admin,
+        overrideAccess: false,
+      })
+      expect(waived.ignoreRobots).toBe(true)
+      expect(waived.ignoreRobotsAt).toBeTruthy()
+      expect(relationNumber(waived.ignoreRobotsBy)).toBe(admin.id)
+      // Read through right away.
+      expect(vi.mocked(enqueueImportEvents)).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'source', sourceId: source.id, trigger: 'manual' }),
+        expect.anything(),
+      )
+
+      const result = await processImportEventsJob(
+        { kind: 'source', sourceId: source.id, trigger: 'manual' },
+        {},
+        robotsDeps(),
+      )
+      expect(result).toMatchObject({ found: 1, created: 1 })
+      const read = await sourceNow()
+      expect(read.lastError ?? null).toBeNull()
+      expect(read.lastErrorCode ?? null).toBeNull()
+
+      const withdrawn = await payload.update({
+        collection: 'event-sources',
+        id: source.id,
+        data: { ignoreRobots: false },
+        user: admin,
+        overrideAccess: false,
+      })
+      expect(withdrawn.ignoreRobotsAt ?? null).toBeNull()
+      expect(withdrawn.ignoreRobotsBy ?? null).toBeNull()
+    } finally {
+      await payload
+        .delete({
+          collection: 'event-import-candidates',
+          where: { source: { equals: source.id } },
+          overrideAccess: true,
+        })
+        .catch(() => {})
+    }
+  })
+
+  it("an AI-read page links only to its own site — another site's page is neither fetched nor shown", async () => {
+    const context = (await loadImportContext(payload, obec.id))!
+    const fetched: string[] = []
+    const read = await readUrl(
+      'https://www.obec-odkazy.test/akce',
+      { aiContext: context.aiContext },
+      deps({
+        fetchUrl: async (url) => {
+          fetched.push(url)
+          return {
+            url,
+            contentType: 'text/html',
+            body: Buffer.from('<main><p>15. 11. Koncert</p><p>16. 11. Výstava</p></main>'),
+          }
+        },
+        extractWithAi: async () => [
+          event({ title: 'Koncert', detailUrl: 'https://obec-odkazy.test/akce/koncert' }),
+          event({ title: 'Kultura', detailUrl: 'https://kultura.obec-odkazy.test/vystava' }),
+          event({ title: 'Podvrh', detailUrl: 'https://phishing.example/login' }),
+        ],
+      }),
+    )
+    expect(read.events.map((e) => [e.title, e.detailUrl])).toEqual([
+      ['Koncert', 'https://obec-odkazy.test/akce/koncert'],
+      ['Kultura', 'https://kultura.obec-odkazy.test/vystava'],
+      ['Podvrh', null],
+    ])
+    expect(fetched.some((u) => u.includes('phishing'))).toBe(false)
+  })
+
+  it('a source that keeps failing is told to its admins, and switched off at the end', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec-mrtva.test/akce', label: 'Mrtvý web' },
+      overrideAccess: true,
+    })
+    const failing = deps({
+      fetchUrl: async () => {
+        throw new ImportFetchError('Stránka vrátila chybu 404.', 'http_error')
+      },
+    })
+    const noticesFor = async (title: string) =>
+      (
+        await payload.find({
+          collection: 'notifications',
+          where: {
+            and: [
+              { user: { equals: admin.id } },
+              { title: { equals: title } },
+              { message: { contains: 'Mrtvý web' } },
+            ],
+          },
+          overrideAccess: true,
+        })
+      ).totalDocs
+    const failOnce = () =>
+      processImportEventsJob({ kind: 'source', sourceId: source.id }, {}, failing)
+    const setFailures = (n: number) =>
+      payload.update({
+        collection: 'event-sources',
+        id: source.id,
+        data: { consecutiveFailures: n },
+        overrideAccess: true,
+      })
+
+    await failOnce()
+    expect(await noticesFor('Zdroj akcí nejde načíst')).toBe(0)
+    await setFailures(IMPORT_LIMITS.failuresBeforeNotice - 1)
+    await failOnce()
+    expect(await noticesFor('Zdroj akcí nejde načíst')).toBe(1)
+    await failOnce()
+    expect(await noticesFor('Zdroj akcí nejde načíst')).toBe(1)
+
+    await setFailures(IMPORT_LIMITS.failuresBeforePause - 1)
+    await failOnce()
+    const paused = await payload.findByID({
+      collection: 'event-sources',
+      id: source.id,
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(paused.enabled).toBe(false)
+    expect(paused.consecutiveFailures).toBe(IMPORT_LIMITS.failuresBeforePause)
+    expect(paused.runningSince ?? null).toBeNull()
+    expect(paused.lastErrorCode).toBe('http_error')
+    expect(await noticesFor('Zdroj akcí je pozastavený')).toBe(1)
+  })
+
+  it('a read is shown waiting, then running, then done', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec-prubeh.test/akce' },
+      overrideAccess: true,
+    })
+    expect(source.queuedAt).toBeTruthy()
+    let seenWhileRunning: { runningSince?: string | null; queuedAt?: string | null } | null = null
+    await processImportEventsJob(
+      { kind: 'source', sourceId: source.id, trigger: 'manual' },
+      {},
+      deps({
+        fetchUrl: async (url) => {
+          seenWhileRunning = await payload.findByID({
+            collection: 'event-sources',
+            id: source.id,
+            depth: 0,
+            overrideAccess: true,
+          })
+          return { url, contentType: 'text/html', body: Buffer.from('<p>Nic</p>') }
+        },
+      }),
+    )
+    expect(seenWhileRunning!.runningSince).toBeTruthy()
+    expect(seenWhileRunning!.queuedAt ?? null).toBeNull()
+    const done = await payload.findByID({
+      collection: 'event-sources',
+      id: source.id,
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(done.runningSince ?? null).toBeNull()
+    expect(done.lastRunAt).toBeTruthy()
+
+    // Switched off and back on — read again, waiting first.
+    await payload.update({
+      collection: 'event-sources',
+      id: source.id,
+      data: { enabled: false },
+      user: admin,
+      overrideAccess: false,
+    })
+    const back = await payload.update({
+      collection: 'event-sources',
+      id: source.id,
+      data: { enabled: true },
+      user: admin,
+      overrideAccess: false,
+    })
+    expect(new Date(back.queuedAt!).getTime()).toBeGreaterThan(new Date(done.lastRunAt!).getTime())
+  })
+
+  it('with AI switched off for the platform, nothing is sent to it — and the obec hears why', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec-bez-ai.test/akce' },
+      overrideAccess: true,
+    })
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async () => [event({ title: 'Nemá se stát' })])
+    await payload.updateGlobal({
+      slug: 'import-settings',
+      data: { aiEnabled: false },
+      overrideAccess: true,
+    })
+    try {
+      // Only the platform's admins hold the switch.
+      await expect(
+        payload.updateGlobal({
+          slug: 'import-settings',
+          data: { aiEnabled: true },
+          user: admin,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow()
+      const result = await processImportEventsJob(
+        { kind: 'source', sourceId: source.id, trigger: 'manual' },
+        {},
+        deps({
+          fetchUrl: async (url) => ({
+            url,
+            contentType: 'text/html',
+            body: Buffer.from('<main><p>20. 11. Koncert</p></main>'),
+          }),
+          extractWithAi: ai,
+        }),
+      )
+      expect(result.skipped).toBe('read_failed')
+      expect(ai).not.toHaveBeenCalled()
+      const read = await payload.findByID({
+        collection: 'event-sources',
+        id: source.id,
+        depth: 0,
+        overrideAccess: true,
+      })
+      expect(read.lastError).toContain('dočasně vypnuté')
+      expect(read.lastErrorCode).toBe('disabled')
+    } finally {
+      await payload.updateGlobal({
+        slug: 'import-settings',
+        data: { aiEnabled: true },
+        overrideAccess: true,
+      })
+    }
   })
 
   it("a source is read only a few weeks ahead — the AI isn't asked for later events, nor are they kept", async () => {

@@ -46,21 +46,56 @@ export const emptyTotals = (): UsageTotals => ({
 export const pragueMonthStart = (now: Date): Date =>
   new Date(pragueWallTimeToIso(`${pragueToday(now).slice(0, 7)}-01`, null))
 
+/** What an obec's imports may spend on the AI this month — its own limit when the platform gave it
+ * one (Municipalities.importAiBudgetUsd), else IMPORT_LIMITS.aiMonthlyBudgetUsd. */
+export const aiBudgetOf = (municipality: { importAiBudgetUsd?: number | null }): number =>
+  municipality.importAiBudgetUsd ?? IMPORT_LIMITS.aiMonthlyBudgetUsd
+
 export async function isOverAiBudget(
   payload: Payload,
   municipalityId: number,
   now: Date,
 ): Promise<boolean> {
-  const { summary } = await getUsageDashboardData(payload, {
-    from: pragueMonthStart(now),
-    to: new Date(now.getTime() + 1),
-    municipalityId,
-  })
-  return summary.totalCostUsd >= IMPORT_LIMITS.aiMonthlyBudgetUsd
+  const [{ summary }, municipality] = await Promise.all([
+    getUsageDashboardData(payload, {
+      from: pragueMonthStart(now),
+      to: new Date(now.getTime() + 1),
+      municipalityId,
+    }),
+    payload
+      .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true })
+      .catch(() => null),
+  ])
+  return summary.totalCostUsd >= aiBudgetOf(municipality ?? {})
 }
 
-const OVER_BUDGET_MESSAGE =
-  'Měsíční limit AI zpracování obce je vyčerpaný — do konce měsíce se čtou jen kalendáře iCal a strukturovaná data.'
+/** Whether the platform's admins switched AI reads off for everybody (ImportSettings). */
+export async function isAiSwitchedOff(payload: Payload): Promise<boolean> {
+  const settings = await payload
+    .findGlobal({ slug: 'import-settings', depth: 0, overrideAccess: true })
+    .catch(() => null)
+  return settings?.aiEnabled === false
+}
+
+const REFUSALS = {
+  over_budget:
+    'Měsíční limit AI zpracování obce je vyčerpaný — do konce měsíce se čtou jen kalendáře iCal a strukturovaná data.',
+  disabled:
+    'Zpracování pomocí AI je dočasně vypnuté — zatím se čtou jen kalendáře iCal a strukturovaná data.',
+} as const
+
+export type AiRefusal = keyof typeof REFUSALS
+
+/** Why the AI may not be called for the obec right now — or null when it may. */
+export async function aiRefusalFor(
+  payload: Payload,
+  municipalityId: number,
+  now: Date,
+): Promise<AiRefusal | null> {
+  if (await isAiSwitchedOff(payload)) return 'disabled'
+  if (await isOverAiBudget(payload, municipalityId, now)) return 'over_budget'
+  return null
+}
 
 type MeteredAi = {
   extractWithAi: (
@@ -72,14 +107,14 @@ type MeteredAi = {
 
 /**
  * The AI of `deps`, with every call written to the ledger against `attribution` (and added to
- * `totals`). Over the obec's monthly budget it isn't called at all — the import goes on with what
- * needs no AI.
+ * `totals`). Over the obec's monthly budget, or with AI switched off for the platform, it isn't
+ * called at all — the import goes on with what needs no AI.
  */
 export function meterAi<D extends MeteredAi>(
   deps: D,
   payload: Payload,
   attribution: UsageAttribution,
-  { overBudget, totals }: { overBudget: boolean; totals: UsageTotals },
+  { refusal, totals }: { refusal: AiRefusal | null; totals: UsageTotals },
 ): D {
   const meter: AiMeter = async (call) => {
     const usage = {
@@ -108,13 +143,13 @@ export function meterAi<D extends MeteredAi>(
     })
   }
   const refuse = (): never => {
-    throw new ImportAiError(OVER_BUDGET_MESSAGE, 'over_budget')
+    throw new ImportAiError(REFUSALS[refusal!], refusal!)
   }
   return {
     ...deps,
     extractWithAi: async (input, context) =>
-      overBudget ? refuse() : deps.extractWithAi(input, { ...context, meter }),
+      refusal ? refuse() : deps.extractWithAi(input, { ...context, meter }),
     extractDetailsWithAi: async (text, event, context) =>
-      overBudget ? refuse() : deps.extractDetailsWithAi(text, event, { ...context, meter }),
+      refusal ? refuse() : deps.extractDetailsWithAi(text, event, { ...context, meter }),
   }
 }

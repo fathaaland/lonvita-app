@@ -139,8 +139,12 @@ export interface Config {
     defaultIDType: number;
   };
   fallbackLocale: null;
-  globals: {};
-  globalsSelect: {};
+  globals: {
+    'import-settings': ImportSetting;
+  };
+  globalsSelect: {
+    'import-settings': ImportSettingsSelect<false> | ImportSettingsSelect<true>;
+  };
   locale: null;
   widgets: {
     collections: CollectionsWidget;
@@ -261,6 +265,7 @@ export interface Municipality {
    * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.
    */
   rulesForCreation: 'municipality_only' | 'approved_organizers';
+  importAiBudgetUsd?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -910,10 +915,16 @@ export interface EventSource {
   enabled?: boolean | null;
   createdBy?: (number | null) | User;
   ownerConsentAt?: string | null;
+  ignoreRobots?: boolean | null;
+  ignoreRobotsAt?: string | null;
+  ignoreRobotsBy?: (number | null) | User;
   format?: ('ical' | 'jsonld' | 'html' | 'feed' | 'pdf' | 'image') | null;
   lastRunAt?: string | null;
+  queuedAt?: string | null;
+  runningSince?: string | null;
   lastSuccessAt?: string | null;
   lastError?: string | null;
+  lastErrorCode?: string | null;
   lastFoundCount?: number | null;
   consecutiveFailures?: number | null;
   lastContentHash?: string | null;
@@ -1413,6 +1424,7 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   lng?: T;
   eventRadiusKm?: T;
   rulesForCreation?: T;
+  importAiBudgetUsd?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1771,10 +1783,16 @@ export interface EventSourcesSelect<T extends boolean = true> {
   enabled?: T;
   createdBy?: T;
   ownerConsentAt?: T;
+  ignoreRobots?: T;
+  ignoreRobotsAt?: T;
+  ignoreRobotsBy?: T;
   format?: T;
   lastRunAt?: T;
+  queuedAt?: T;
+  runningSince?: T;
   lastSuccessAt?: T;
   lastError?: T;
+  lastErrorCode?: T;
   lastFoundCount?: T;
   consecutiveFailures?: T;
   lastContentHash?: T;
@@ -1958,6 +1976,26 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
   batch?: T;
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "import-settings".
+ */
+export interface ImportSetting {
+  id: number;
+  aiEnabled?: boolean | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "import-settings_select".
+ */
+export interface ImportSettingsSelect<T extends boolean = true> {
+  aiEnabled?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema

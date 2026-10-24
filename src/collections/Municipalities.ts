@@ -215,6 +215,19 @@ export const Municipalities: CollectionConfig = {
           'Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.',
       },
     },
+    {
+      // The obec's own monthly AI limit for importing events (USD) — set by the platform when the
+      // default (IMPORT_LIMITS.aiMonthlyBudgetUsd) doesn't fit it. Empty: the default.
+      name: 'importAiBudgetUsd',
+      type: 'number',
+      min: 0,
+      access: {
+        read: ({ req: { user } }) => user?.role === 'admin',
+        create: ({ req: { user } }) => user?.role === 'admin',
+        update: ({ req: { user } }) => user?.role === 'admin',
+      },
+      admin: { position: 'sidebar' },
+    },
   ],
   hooks: {
     beforeValidate: [preventDuplicateName],

@@ -44,6 +44,7 @@ import { Loading } from "@/components/Loading";
 import { CancelEventButton } from "@/components/CancelEventButton";
 import { CoOrganizingRequestCard, OrganizerRequestReason, RequestsTable } from "@/components/admin/RequestsTable";
 import { OrganizationsTab } from "@/components/admin/OrganizationsTab";
+import { ImportAdminTab } from "@/components/admin/ImportAdminTab";
 import { EventForm, EventFormValues } from "@/components/EventForm";
 import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -76,7 +77,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert, Flag } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert, Flag, Download } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
@@ -120,7 +121,7 @@ const chipClass = (active: boolean) =>
       : "bg-card text-foreground border-border hover:border-brand-purple",
   );
 
-const SUPERADMIN_TABS = ["municipalities", "users", "events", "roles", "organizations", "requests"];
+const SUPERADMIN_TABS = ["municipalities", "users", "events", "roles", "organizations", "import", "requests"];
 
 function SuperAdminContent() {
   // A notification can open a section straight away — "?tab=requests" for an obec without an admin.
@@ -588,7 +589,7 @@ function SuperAdminContent() {
       {/* Wider on large screens so the municipality/location maps in these forms get room too. */}
       <div className="px-4 py-5 max-w-2xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-4">
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="w-full h-14 grid grid-cols-6">
+          <TabsList className="w-full h-14 grid grid-cols-7">
             <TabsTrigger value="municipalities" className="flex-col gap-0.5 text-2xs">
               <Building2 className="h-4 w-4" /> Obce
             </TabsTrigger>
@@ -603,6 +604,9 @@ function SuperAdminContent() {
             </TabsTrigger>
             <TabsTrigger value="organizations" className="flex-col gap-0.5 text-2xs">
               <Store className="h-4 w-4" /> Organizace
+            </TabsTrigger>
+            <TabsTrigger value="import" className="flex-col gap-0.5 text-2xs">
+              <Download className="h-4 w-4" /> Import
             </TabsTrigger>
             <TabsTrigger value="requests" className="relative flex-col gap-0.5 text-2xs">
               <ClipboardList className="h-4 w-4" /> Žádosti
@@ -1328,6 +1332,11 @@ function SuperAdminContent() {
               users={users}
               onChanged={load}
             />
+          </TabsContent>
+
+          {/* --- Import akcí (zdroje, náklady na AI, vypínač) ------------------------------ */}
+          <TabsContent value="import" className="pt-4 space-y-4">
+            <ImportAdminTab />
           </TabsContent>
 
           {/* --- Žádosti (napříč obcemi) ------------------------------------------------ */}

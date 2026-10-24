@@ -116,3 +116,27 @@ export function locationTextOf(
 
 export const contentHash = (value: string | Buffer): string =>
   createHash('sha256').update(value).digest('hex')
+
+const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g
+// Czech numbers as written: +420 / 00420 optional, nine digits in groups (777 123 456, 777123456).
+const PHONE = /(?:(?:\+|00)\d{3}[\s.-]?)?\b\d{3}[\s.-]?\d{3}[\s.-]?\d{3}\b/g
+
+/** A description without e-mail addresses and phone numbers — they're often a private person's
+ * (a newsletter's contact for the trip), and the event page has its own way to reach the organizer. */
+export function withoutContacts(text: string | null): string | null {
+  if (!text) return text
+  const cleaned = text
+    .replace(EMAIL, ' ')
+    .replace(PHONE, ' ')
+    // What introduced the number or address, now introducing nothing ("tel.", "e-mail:").
+    .replace(/\b(?:tel|telefon|mob|mobil|e-?mail|kontakt)\b\.?:?(?=[\s,.;:]*(?:[,.;:]|$))/gi, ' ')
+    .replace(/\(\s*[,;:]?\s*\)/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    // Punctuation left with nothing between it: ", ." → "."
+    .replace(/[,;:](?:[\s,;:])*([.!?])/g, '$1')
+    .replace(/([,;:])(?:[\s,;:])+/g, '$1 ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[\s,;:]+$/, '')
+    .trim()
+  return cleaned || null
+}

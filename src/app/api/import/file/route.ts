@@ -26,7 +26,8 @@ function sniffType(bytes: Buffer): string | null {
  * A program as a file — a PDF of the zpravodaj, a photo of a poster. Stored for the worker (S3, until
  * it's read), which reads it with the AI; the admin is notified once its events wait in the Import tab.
  *
- * POST /api/import/file  multipart { municipalityId, file } → { queued: true }
+ * POST /api/import/file  multipart { municipalityId, file } → { queued: true, jobId }
+ * (`jobId`: its ImportRuns record shows how it went — the panel watches it)
  */
 export async function POST(request: Request) {
   const payload = await getPayload({ config })
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ error: 'Soubor se nepodařilo nahrát.' }, { status: 500 })
   }
-  await enqueueImportEvents({
+  const job = await enqueueImportEvents({
     kind: 'file',
     municipalityId: Number(municipalityId),
     requestedBy: user.id,
@@ -78,5 +79,5 @@ export async function POST(request: Request) {
     fileName,
     mimeType,
   })
-  return NextResponse.json({ queued: true })
+  return NextResponse.json({ queued: true, jobId: job?.id ?? null })
 }

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 
 import { Users } from './collections/Users'
+import { ImportSettings } from './globals/ImportSettings'
 import { Media } from './collections/Media'
 import { Municipalities } from './collections/Municipalities'
 import { EventCategories } from './collections/EventCategories'
@@ -168,6 +169,7 @@ export default buildConfig({
     SystemLogs,
     SecurityEvents,
   ].map(withCrudLogging),
+  globals: [ImportSettings],
   hooks: {
     afterError: [
       ({ error, req, collection }) => {

@@ -131,6 +131,13 @@ export const IMPORT_LIMITS = {
   syncDetailPagesPerRun: 20,
   /** Passes in a row an event has to be missing from its source before anybody is told. */
   missingPassesBeforeNotice: 2,
+  /** Failed reads of a source in a row before its obec's admins are told. */
+  failuresBeforeNotice: 3,
+  /** Failed reads in a row before the source is switched off — no point knocking on a dead page
+   * every night. The admins are told, and switch it back on when it's fixed. */
+  failuresBeforePause: 7,
+  /** A read still "running" after this long died with its worker — it's shown as finished. */
+  runStaleMinutes: 15,
   /** "Zkontrolovat teď" on one source per day — each one may cost an AI read. */
   manualRunsPerSourcePerDay: 5,
   /** Fair use under the flat fee: what one obec's imports may spend on the AI in a calendar month
@@ -165,3 +172,6 @@ export const IMPORT_USER_AGENT = 'LonvitaBot/1.0 (+https://lonvita.cz; event cal
 
 /** The robots.txt token we answer to, besides "*". */
 export const IMPORT_ROBOTS_TOKEN = 'lonvitabot'
+
+/** What a site's robots.txt needs so the import may read it — for its webmaster (ImportPanel). */
+export const ROBOTS_ALLOW_LINES = 'User-agent: LonvitaBot\nAllow: /'
