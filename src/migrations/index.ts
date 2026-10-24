@@ -38,6 +38,7 @@ import * as migration_20261012_125500_roles_and_recurrence_cleanup from './20261
 import * as migration_20261024_093154_event_import from './20261024_093154_event_import';
 import * as migration_20261024_144847_system_logs_security_events from './20261024_144847_system_logs_security_events';
 import * as migration_20261024_195157_import_robots_progress_admin from './20261024_195157_import_robots_progress_admin';
+import * as migration_20261024_204626_event_drafts from './20261024_204626_event_drafts';
 
 export const migrations = [
   {
@@ -238,6 +239,11 @@ export const migrations = [
   {
     up: migration_20261024_195157_import_robots_progress_admin.up,
     down: migration_20261024_195157_import_robots_progress_admin.down,
-    name: '20261024_195157_import_robots_progress_admin'
+    name: '20261024_195157_import_robots_progress_admin',
+  },
+  {
+    up: migration_20261024_204626_event_drafts.up,
+    down: migration_20261024_204626_event_drafts.down,
+    name: '20261024_204626_event_drafts'
   },
 ];

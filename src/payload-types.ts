@@ -428,9 +428,7 @@ export interface Event {
   deletionNeedsConsent?: boolean | null;
   volunteeringLocked?: boolean | null;
   status: 'active' | 'full' | 'finished' | 'cancelled';
-  /**
-   * Temporarily unpublish the event without cancelling it — registrations and data stay intact, it just drops out of the public feed/map.
-   */
+  isDraft?: boolean | null;
   isHidden?: boolean | null;
   /**
    * Brief §2 "Jedna akce může mít víc kategorií zároveň" — one or more categories. Filtering by a category matches any event that has it among its categories.
@@ -1505,6 +1503,7 @@ export interface EventsSelect<T extends boolean = true> {
   deletionNeedsConsent?: T;
   volunteeringLocked?: T;
   status?: T;
+  isDraft?: T;
   isHidden?: T;
   categories?: T;
   image?: T;

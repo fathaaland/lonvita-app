@@ -120,7 +120,7 @@ describe('Event share helpers', () => {
     const past = new Date(Date.now() - DAY).toISOString()
     expect(isEventShareable({ status: 'active', dateTime: future })).toBe(true)
     expect(isEventShareable({ status: 'full', dateTime: future })).toBe(true)
-    expect(isEventShareable({ status: 'active', isHidden: true, dateTime: future })).toBe(false)
+    expect(isEventShareable({ status: 'active', isDraft: true, dateTime: future })).toBe(false)
     expect(isEventShareable({ status: 'cancelled', dateTime: future })).toBe(false)
     expect(isEventShareable({ status: 'active', dateTime: past })).toBe(false)
   })

@@ -101,7 +101,7 @@ describe("The obec's admin acting on an organizer's event notifies the organizer
     await payload.update({
       collection: 'events',
       id: event.id,
-      data: { title: `Renamed by the obec ${STAMP}`, isHidden: true },
+      data: { title: `Renamed by the obec ${STAMP}` },
       user: obecAdmin,
       overrideAccess: false,
     })
@@ -110,7 +110,6 @@ describe("The obec's admin acting on an organizer's event notifies the organizer
     expect(latest.title).toBe('Obec upravila vaši akci')
     expect(latest.message).toContain(municipality.name)
     expect(latest.message).toContain('název')
-    expect(latest.message).toContain('zveřejnění')
     expect(latest.link).toBe(`/akce/${event.id}`)
   })
 

@@ -69,6 +69,9 @@ function EditEventContent() {
     };
   }, [user?.id, id, isSuperAdmin]);
 
+  // Whether it's a draft is the creator's call alone (Events isDraft) — and a platform admin's.
+  const mayDraft = !!event && !!user && (isSuperAdmin || event.organizer_id === String(user.id));
+
   const handleSubmit = async (values: EventFormValues) => {
     if (!user || !event) return;
     try {
@@ -91,21 +94,32 @@ function EditEventContent() {
         isPaid: values.isPaid,
         priceCents: values.isPaid ? values.priceCents : null,
         ...(volunteering === "set" ? { isVolunteering: values.isVolunteering } : {}),
-        isHidden: values.isHidden,
+        ...(mayDraft ? { isDraft: values.isDraft } : {}),
       });
 
+      if (values.isDraft && mayDraft) {
+        toast.success(event.is_draft ? "Koncept uložen." : "Akce je zpátky v konceptu — vidíte ji jen vy.");
+        router.push(`/akce/${event.id}`);
+        return;
+      }
       const sent = await sendFollowUpRequests(event.id, values.inviteOrganizationIds);
       // Only a change participants see (time, place, capacity… — Events NOTIFIABLE_EDIT_FIELDS) tells
       // them; hiding the event or editing its co-organizers doesn't.
       toast.success(
-        sent
+        event.is_draft && mayDraft
+          ? sent
+            ? `Akce zveřejněna, ${sent}.`
+            : "Akce zveřejněna!"
+          : sent
           ? `Akce upravena, ${sent}.`
           : "Akce upravena. Pokud se změnilo něco, co přihlášení vidí (třeba čas nebo místo), dostanou upozornění.",
       );
       router.push(`/akce/${event.id}`);
     } catch (error) {
       toast.error(
-        error instanceof PayloadApiError && error.status === 400 ? error.message : "Nepodařilo se uložit změny.",
+        error instanceof PayloadApiError && (error.status === 400 || error.status === 409)
+          ? error.message
+          : "Nepodařilo se uložit změny.",
       );
     }
   };
@@ -142,7 +156,8 @@ function EditEventContent() {
         volunteering={volunteering}
         runsAsObec={isMunicipalityOrganization(event.organization)}
         pendingCoOrganizations={pendingCoOrganizations}
-        submitLabel="Uložit změny"
+        submitLabel={event.is_draft && mayDraft ? "Zveřejnit akci" : "Uložit změny"}
+        draftLabel={mayDraft ? (event.is_draft ? "Uložit koncept" : "Vrátit do konceptu") : undefined}
         onSubmit={handleSubmit}
       />
     </div>

@@ -152,15 +152,15 @@ export async function eventCreatorUserIds(
 }
 
 /**
- * Readable events. Everyone — signed-out visitors too — sees every published event (brief §2). One
- * its team has put on hold (isHidden) stays with the people it concerns: its pořadatel and
- * spolupořadatelé, the admins of its obec, a platform admin, and whoever is already signed up for it
- * (their place is kept — they see it in Moje akce). For anyone else it doesn't exist, link or not.
+ * Readable events. Everyone — signed-out visitors too — sees every published event (brief §2). A
+ * draft (isDraft) is its creator's alone — and a platform admin's: not the obec's admins, not
+ * anybody else, link or not. A published event's team, its obec's admins and whoever is signed up
+ * read it as before.
  */
 const canReadEvent: Access = async ({ req }) => {
   const { user, payload } = req
   if (user?.role === 'admin') return notDeleted
-  const published: Where = { isHidden: { not_equals: true } }
+  const published: Where = { isDraft: { not_equals: true } }
   if (!user) return { and: [notDeleted, published] }
 
   const key = `hiddenEventsReadableBy:${user.id}`
@@ -178,7 +178,7 @@ const canReadEvent: Access = async ({ req }) => {
       }),
     ])
     or = [published, { organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
-    if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
+    if (administeredIds.length > 0) or.push({ and: [published, { municipality: { in: administeredIds } }] })
     const signedUpFor = registrations.docs.map((r) => relationId(r.event)).filter((id): id is string => Boolean(id))
     if (signedUpFor.length > 0) or.push({ id: { in: signedUpFor } })
     if (req.context) req.context[key] = or
@@ -212,7 +212,9 @@ const canUpdateEvent: Access = async ({ req }) => {
 
   const administeredIds = await administeredIdsFor(req, user.id)
   const or: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
-  if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
+  // Not someone's draft — that's theirs until they publish it.
+  if (administeredIds.length > 0)
+    or.push({ and: [{ isDraft: { not_equals: true } }, { municipality: { in: administeredIds } }] })
   const where: Where = { and: [...open, { or }] }
   return where
 }
@@ -305,6 +307,8 @@ const guardUpcomingDelete: CollectionBeforeOperationHook = async ({ args, operat
         id !== undefined ? { id: { equals: id } } : (where ?? {}),
         notDeleted,
         { status: { not_equals: 'cancelled' } },
+        // A draft has nobody to tell — it's simply deleted.
+        { isDraft: { not_equals: true } },
         notYetEnded(),
       ],
     },
@@ -321,16 +325,57 @@ const guardUpcomingDelete: CollectionBeforeOperationHook = async ({ args, operat
 }
 
 /** Platform/municipality admin everywhere they administer — a hard DELETE isn't part of the
- * organizer's self-service (cancelling is the soft-delete PATCH above). */
+ * organizer's self-service (cancelling is the soft-delete PATCH above). Their own draft its creator
+ * deletes themselves. */
 const canDeleteEvent: Access = async ({ req }) => {
   const { user, payload } = req
   if (!user) return false
   if (user.role === 'admin') return true
 
+  const ownDraft: Where = { and: [{ organizer: { equals: user.id } }, { isDraft: { equals: true } }] }
   const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
-  if (administeredIds.length === 0) return false
-  const where: Where = { municipality: { in: administeredIds } }
+  if (administeredIds.length === 0) return ownDraft
+  const where: Where = {
+    or: [ownDraft, { and: [{ isDraft: { not_equals: true } }, { municipality: { in: administeredIds } }] }],
+  }
   return where
+}
+
+/** The event's creator, and a platform admin, decide whether it's a draft — nobody else sees one. */
+const isCreatorOrPlatformAdmin = ({ req, doc }: { req: PayloadRequest; doc?: { organizer?: unknown } }) =>
+  req.user?.role === 'admin' || (Boolean(req.user) && relationId(doc?.organizer) === String(req.user!.id))
+
+/**
+ * Back to a draft only while nobody is on the event yet — no participant, no volunteer (signed up or
+ * invited), no spolupořadatel: once anyone is, it stays published (cancelling stays). */
+const guardBackToDraft: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
+  if (operation !== 'update' || !data || !originalDoc) return data
+  if (!data.isDraft || originalDoc.isDraft) return data
+  if (originalDoc.status === 'cancelled') throw new APIError('Zrušenou akci do konceptu vrátit nejde.', 409)
+  const eventId = originalDoc.id
+  const [registrations, invitations] = await Promise.all([
+    req.payload.count({
+      collection: 'registrations',
+      where: { and: [{ event: { equals: eventId } }, { status: { in: ['pending', 'approved'] } }] },
+      overrideAccess: true,
+      req,
+    }),
+    req.payload.count({
+      collection: 'volunteer-invitations',
+      where: { and: [{ event: { equals: eventId } }, { status: { in: ['pending', 'accepted'] } }] },
+      overrideAccess: true,
+      req,
+    }),
+  ])
+  const coOrganized =
+    (originalDoc.coOrganizers ?? []).length > 0 || (originalDoc.coOrganizations ?? []).length > 0
+  if (registrations.totalDocs > 0 || invitations.totalDocs > 0 || coOrganized) {
+    throw new APIError(
+      'Na akci už jsou přihlášení, dobrovolníci nebo spolupořadatelé — do konceptu ji vrátit nejde. Zbývá ji zrušit.',
+      409,
+    )
+  }
+  return data
 }
 
 const platformAdminOnly = ({ req: { user } }: { req: { user: { role?: string } | null } }) => user?.role === 'admin'
@@ -749,7 +794,7 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
 const ORGANIZER_EDIT_FIELDS: Record<string, string> = {
   ...NOTIFIABLE_EDIT_FIELDS,
   coOrganizations: 'spolupořadatelé',
-  isHidden: 'zveřejnění',
+  isDraft: 'zveřejnění',
   image: 'fotka',
   imagePositionX: 'fotka',
   imagePositionY: 'fotka',
@@ -1282,13 +1327,22 @@ export const Events: CollectionConfig = {
       ],
     },
     {
+      // A draft (koncept): its creator's alone until published (canReadEvent) — no sign-ups, no
+      // invitations. Back to a draft only while nobody is on it (guardBackToDraft).
+      name: 'isDraft',
+      type: 'checkbox',
+      defaultValue: false,
+      index: true,
+      access: { update: isCreatorOrPlatformAdmin },
+    },
+    {
+      // Retired: "put on hold" gave way to drafts (isDraft). Nothing reads or sets it; a migration
+      // removes it.
       name: 'isHidden',
       type: 'checkbox',
       defaultValue: false,
-      admin: {
-        description:
-          'Temporarily unpublish the event without cancelling it — registrations and data stay intact, it just drops out of the public feed/map.',
-      },
+      access: { read: () => false, create: () => false, update: () => false },
+      admin: { hidden: true },
     },
     {
       name: 'categories',
@@ -1388,6 +1442,7 @@ export const Events: CollectionConfig = {
       resolveOrganizations,
       guardCoOrganizedChanges,
       guardIsVolunteering,
+      guardBackToDraft,
     ],
     afterChange: [
       notifyRegistrantsOnCancellation,

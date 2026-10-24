@@ -61,7 +61,8 @@ export type EventFormValues = {
   coOrganizationIds: string[];
   /** Newly picked organizations — invited after saving, they join once they accept (CoOrganizingRequests). */
   inviteOrganizationIds: string[];
-  isHidden: boolean;
+  /** Saved as a draft ("Uložit jako koncept") rather than published. */
+  isDraft: boolean;
 };
 
 /** Starting values for a new event (EventForm `prefill`) — times as the inputs take them, empty when unknown. */
@@ -109,6 +110,9 @@ interface Props {
   /** Organizations invited to co-organize the event that haven't answered yet. */
   pendingCoOrganizations?: OrganizationRef[];
   submitLabel: string;
+  /** Offers a second button that saves the event as a draft — its creator's alone until published.
+   * Only for whoever may decide that (the creator, a platform admin). */
+  draftLabel?: string;
   /** Handles its own success/error toasts; the form only tracks the submitting state. */
   onSubmit: (values: EventFormValues) => Promise<void>;
 }
@@ -125,6 +129,7 @@ export function EventForm({
   runsAsObec = false,
   pendingCoOrganizations = [],
   submitLabel,
+  draftLabel,
   onSubmit,
 }: Props) {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
@@ -166,7 +171,6 @@ export function EventForm({
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? prefill?.capacity ?? 0));
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid ?? prefill?.isPaid));
-  const [isHidden, setIsHidden] = useState(Boolean(initial?.is_hidden));
   const [imageId, setImageId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initial?.image_url ?? null);
   const [imagePosition, setImagePosition] = useState<ImagePosition>(initial?.image_position ?? CENTERED_IMAGE_POSITION);
@@ -211,6 +215,8 @@ export function EventForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Which button sent it — "Uložit jako koncept" carries name="draft".
+    const asDraft = ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.name === "draft";
     const parsed = schema.safeParse({ ...form, category_ids: categoryIds });
     if (!parsed.success) {
       toast.error(parsed.error.issues[0].message);
@@ -262,7 +268,7 @@ export function EventForm({
         isVolunteering,
         isPaid,
         priceCents: isPaid && parsed.data.priceCzk ? Math.round(parsed.data.priceCzk * 100) : null,
-        isHidden,
+        isDraft: asDraft,
       });
     } finally {
       setSubmitting(false);
@@ -528,18 +534,25 @@ export function EventForm({
         </div>
       )}
 
-      {initial && (
-        <label className="flex items-start gap-2.5 text-sm cursor-pointer">
-          <Checkbox checked={isHidden} onCheckedChange={(v) => setIsHidden(v === true)} className="mt-0.5" />
-          <span>
-            Pozastavit zobrazení akce <span className="font-normal text-muted-foreground">— zmizí z veřejného přehledu a mapy, přihlášení účastníci a data zůstanou zachovaní.</span>
-          </span>
-        </label>
-      )}
-
       <Button type="submit" disabled={submitting || uploadingImage} className="w-full h-14 text-base font-semibold">
         {submitLabel}
       </Button>
+      {draftLabel && (
+        <div className="space-y-1.5">
+          <Button
+            type="submit"
+            name="draft"
+            variant="outline"
+            disabled={submitting || uploadingImage}
+            className="w-full h-12 text-base font-semibold"
+          >
+            {draftLabel}
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            Koncept vidíte jen vy. Přihlášky a pozvánky se otevřou až po zveřejnění.
+          </p>
+        </div>
+      )}
     </form>
   );
 }

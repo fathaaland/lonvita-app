@@ -892,10 +892,9 @@ export const Registrations: CollectionConfig = {
           if (event.deletedAt || event.status === 'cancelled') {
             throw new APIError('Akce byla zrušena — přihlásit se na ni nejde.', 400, undefined, true)
           }
-          // An event on hold takes no new sign-ups — whoever got the link before it was hidden
-          // included. A volunteer the team itself invited still joins it (VolunteerInvitations).
-          if (event.isHidden && !req.context?.volunteerInvitation) {
-            throw new APIError('Akce je teď pozastavená — přihlásit se na ni nejde.', 400, undefined, true)
+          // A draft takes nobody until its creator publishes it.
+          if (event.isDraft) {
+            throw new APIError('Akce ještě není zveřejněná — přihlásit se na ni nejde.', 400, undefined, true)
           }
 
           // Whoever runs the event takes part in it automatically — the pořadatel, every

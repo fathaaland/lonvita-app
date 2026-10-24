@@ -83,7 +83,8 @@ export async function loadMunicipalityExportData(
     payload.findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true }),
     payload.find({
       collection: 'events',
-      where: { and: [{ municipality: { equals: municipalityId } }, notDeleted] },
+      // Someone's draft isn't the obec's yet (Events isDraft).
+      where: { and: [{ municipality: { equals: municipalityId } }, notDeleted, { isDraft: { not_equals: true } }] },
       depth: 0,
       pagination: false,
       overrideAccess: true,
@@ -138,6 +139,7 @@ export async function loadOrganizationExportData(payload: Payload, organizationI
         and: [
           { or: [{ organization: { equals: organizationId } }, { coOrganizations: { contains: organizationId } }] },
           notDeleted,
+          { isDraft: { not_equals: true } },
         ],
       },
       sort: '-dateTime',

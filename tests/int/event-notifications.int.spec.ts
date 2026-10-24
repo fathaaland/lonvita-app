@@ -182,7 +182,7 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
 
     it('queues nothing for fields participants never see', async () => {
       const { event } = await createEvent()
-      await edit(event.id, { isHidden: true })
+      await edit(event.id, { imagePositionX: 20 })
       expect(vi.mocked(enqueueEventUpdated)).not.toHaveBeenCalled()
     })
 

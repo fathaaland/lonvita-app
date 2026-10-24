@@ -40,8 +40,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     },
     overrideAccess: true,
   })
-  // An event on hold is only for those already on it (Events canReadEvent).
-  if (event.isHidden && registered.totalDocs === 0) {
+  // A draft is its creator's alone (Events canReadEvent).
+  if (event.isDraft) {
     return NextResponse.json({ error: 'Akce neexistuje nebo už byla zrušena.' }, { status: 404 })
   }
   if (!signUpClosed && registered.totalDocs === 0) {

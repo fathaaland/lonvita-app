@@ -78,6 +78,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   if (!event || event.deletedAt || event.status === 'cancelled') {
     throw new APIError('Akce neexistuje nebo už byla zrušena.', 404)
   }
+  if (event.isDraft) throw new APIError('Akce ještě není zveřejněná — spolupořadatele pozvete až potom.', 400)
   if (!(await mayEditEvent(req, user, event))) {
     throw new APIError('Ke spolupořádání může zvát jen ten, kdo smí akci upravovat.', 403)
   }

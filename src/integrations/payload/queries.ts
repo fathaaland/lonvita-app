@@ -128,7 +128,8 @@ export type EventRow = {
   co_organizations: OrganizationRef[];
   municipality_id?: string;
   status?: "active" | "full" | "finished" | "cancelled";
-  is_hidden?: boolean;
+  /** A draft — its creator's alone until published (Events isDraft). */
+  is_draft?: boolean;
   is_paid?: boolean;
   price_cents?: number | null;
   is_volunteering?: boolean;
@@ -178,7 +179,7 @@ type PayloadEvent = {
   coOrganizations?: (number | PayloadOrganization)[] | null;
   municipality?: number | { id: number };
   status?: EventRow["status"];
-  isHidden?: boolean;
+  isDraft?: boolean;
   isPaid?: boolean;
   priceCents?: number | null;
   isVolunteering?: boolean;
@@ -217,7 +218,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   co_organizations: (e.coOrganizations ?? []).map(mapOrganization).filter((o): o is OrganizationRef => Boolean(o)),
   municipality_id: relationId(e.municipality) ?? undefined,
   status: e.status,
-  is_hidden: e.isHidden,
+  is_draft: Boolean(e.isDraft),
   is_paid: e.isPaid,
   price_cents: e.priceCents ?? null,
   is_volunteering: e.isVolunteering,
@@ -235,7 +236,7 @@ export async function getUpcomingEvents(municipalityId: string | null): Promise<
   const where = buildWhereParams({
     ...(municipalityId ? { municipality: { equals: municipalityId } } : {}),
     status: { not_equals: "cancelled" },
-    isHidden: { not_equals: true },
+    isDraft: { not_equals: true },
     dateTime: { greater_than: new Date().toISOString() },
   });
   const query = buildQuery({ sort: "dateTime", depth: 1, limit: 200 });
@@ -297,6 +298,8 @@ type CreateEventInput = {
   isVolunteering?: boolean;
   isPaid?: boolean;
   priceCents?: number;
+  /** Saved as a draft — published later (Events isDraft). */
+  isDraft?: boolean;
 };
 
 export async function createEvent(input: CreateEventInput): Promise<EventRow> {
@@ -322,6 +325,7 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     isPaid: input.isPaid ?? false,
     priceCents: input.isPaid ? input.priceCents : undefined,
     isVolunteering: input.isVolunteering ?? false,
+    isDraft: input.isDraft ?? false,
   });
   return mapEvent(doc);
 }

@@ -144,7 +144,7 @@ export async function loadOrganizersDirectory(
       now,
     )
     const next = own.find(
-      (e) => e.status !== 'cancelled' && !e.isHidden && new Date(e.dateTime).getTime() >= now,
+      (e) => e.status !== 'cancelled' && !e.isDraft && new Date(e.dateTime).getTime() >= now,
     )
     return {
       id,

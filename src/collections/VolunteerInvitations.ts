@@ -83,7 +83,7 @@ type EventForInvitation = {
   deletedAt?: string | null
   status?: string | null
   isVolunteering?: boolean | null
-  isHidden?: boolean | null
+  isDraft?: boolean | null
   organizer: unknown
   coOrganizers?: unknown[] | null
   organization?: unknown
@@ -181,6 +181,8 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
   if (!event || event.deletedAt || event.status === 'cancelled') {
     throw new APIError('Akce neexistuje nebo už byla zrušena.', 404)
   }
+  // A draft is its creator's alone — nobody is invited to it, nor offers help, until it's published.
+  if (event.isDraft) throw new APIError('Akce ještě není zveřejněná — dobrovolníky zvát půjde až potom.', 400)
   if (new Date(event.dateTime).getTime() <= Date.now()) {
     throw new APIError(
       application ? 'Akce už začala — pomoc na ni nabídnout nejde.' : 'Akce už začala — dobrovolníky na ni zvát nejde.',
@@ -189,8 +191,6 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
   }
   if (application) {
     if (!event.isVolunteering) throw new APIError('Na tuhle akci pořadatel dobrovolníky nehledá.', 400)
-    // On hold, it takes no sign-ups (Registrations) — nor offers from outside. Its creator may still invite.
-    if (event.isHidden) throw new APIError('Akce je teď pozastavená — pomoc na ni nabídnout nejde.', 400)
     // Like signing up as a participant (Registrations guardRegistrationWindow) — offering help closes
     // REGISTRATION_CUTOFF_HOURS before the start; after that it's a call or e-mail to the organizer.
     if (!isRegistrationOpen(event.dateTime)) {

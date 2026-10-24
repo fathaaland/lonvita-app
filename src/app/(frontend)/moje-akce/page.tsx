@@ -40,6 +40,8 @@ interface Item {
 }
 
 const organizerLabel = (item: Item, past: boolean) => {
+  // Its creator's alone until published (Events isDraft).
+  if (item.event.is_draft) return "Koncept — vidíte jen vy";
   if (item.obecRole === "runs") return past ? "Pořádala obec" : "Pořádá obec";
   if (item.obecRole === "coOrganizes") return past ? "Spolupořádala obec" : "Spolupořádá obec";
   return past ? "Pořádali jste" : "Pořádáte";
@@ -119,6 +121,7 @@ function MyEventsContent() {
             categories: catsFor(ev.category_ids),
             organization: ev.organization,
             co_organizations: ev.co_organizations,
+            is_draft: ev.is_draft,
           },
           isOrganizer: true,
           endsAt: ev.end_date_time ?? ev.date_time,

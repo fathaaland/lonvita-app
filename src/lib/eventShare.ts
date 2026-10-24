@@ -36,14 +36,14 @@ export type EventShareInfo = {
 };
 
 /** Only an upcoming event that's out in public is worth inviting people to — not a cancelled one,
- * one the organizer took down for now (isHidden), or one that has already taken place. */
+ * a draft only its creator sees (isDraft), or one that has already taken place. */
 export function isEventShareable(event: {
   status?: string | null;
-  isHidden?: boolean | null;
+  isDraft?: boolean | null;
   dateTime: string;
   endDateTime?: string | null;
 }): boolean {
-  if (event.isHidden) return false;
+  if (event.isDraft) return false;
   if (event.status !== "active" && event.status !== "full") return false;
   return !hasEventEnded(event.dateTime, event.endDateTime);
 }

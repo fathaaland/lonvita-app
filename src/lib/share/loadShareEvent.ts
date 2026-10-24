@@ -11,7 +11,7 @@ import { getS3Client, s3Bucket } from '@/lib/s3/client'
 export type ShareEvent = EventShareInfo & {
   id: number
   status: 'active' | 'full' | 'finished' | 'cancelled'
-  isHidden: boolean
+  isDraft: boolean
   updatedAt: string
   /** Who runs it — the organization (or the obec itself), as on the event detail. */
   organizationName: string | null
@@ -46,7 +46,7 @@ export const loadShareEvent = cache(async (id: string): Promise<ShareEvent | nul
     priceCents: event.priceCents,
     isVolunteering: event.isVolunteering,
     status: event.status,
-    isHidden: Boolean(event.isHidden),
+    isDraft: Boolean(event.isDraft),
     updatedAt: event.updatedAt,
     organizationName: organization?.name ?? null,
     image: media?.filename

@@ -72,8 +72,19 @@ function CreateEventContent() {
         isVolunteering: values.isVolunteering,
         isPaid: values.isPaid,
         priceCents: values.priceCents ?? undefined,
+        isDraft: values.isDraft,
       });
 
+      if (values.isDraft) {
+        // Nobody may be invited to a draft — the picked spolupořadatelé wait for publishing.
+        toast.success(
+          values.inviteOrganizationIds.length > 0
+            ? "Koncept uložen. Spolupořadatele pozvete po zveřejnění akce."
+            : "Koncept uložen — vidíte ho jen vy.",
+        );
+        router.push(`/akce/${created.id}`);
+        return;
+      }
       const sent = await sendFollowUpRequests(created.id, values.inviteOrganizationIds);
       toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena!");
       router.push(`/akce/${created.id}?sdilet=1`);
@@ -113,7 +124,8 @@ function CreateEventContent() {
         isObecAdmin={adminHere}
         volunteering="set"
         runsAsObec={adminHere}
-        submitLabel="Vytvořit akci"
+        submitLabel="Zveřejnit akci"
+        draftLabel="Uložit jako koncept"
         onSubmit={handleSubmit}
       />
     </div>

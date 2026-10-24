@@ -151,7 +151,7 @@ function EventDetailContent() {
     !!event &&
     isEventShareable({
       status: event.status,
-      isHidden: event.is_hidden,
+      isDraft: event.is_draft,
       dateTime: event.date_time,
       endDateTime: event.end_date_time,
     });
@@ -373,10 +373,10 @@ function EventDetailContent() {
               {category.name}
             </Badge>
           ))}
-          {/* Only its team, the obec and whoever is signed up still see it (Events canReadEvent). */}
-          {event.is_hidden && (
+          {/* Its creator's alone until published (Events canReadEvent). */}
+          {event.is_draft && (
             <Badge variant="outline" className="border-warning/40 text-warning gap-1 font-semibold">
-              <EyeOff className="h-3.5 w-3.5" aria-hidden /> Pozastaveno
+              <EyeOff className="h-3.5 w-3.5" aria-hidden /> Koncept
             </Badge>
           )}
           {event.is_volunteering && (
@@ -571,7 +571,18 @@ function EventDetailContent() {
       </div>
 
       <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur border-t border-border px-4 py-3 -mb-2">
-        {takesPartAutomatically ? (
+        {event.is_draft ? (
+          <div className="space-y-2 py-1 text-center">
+            <p className="text-sm font-semibold text-muted-foreground">
+              Koncept — akci vidíte jen vy. Přihlašovat se na ni půjde po zveřejnění.
+            </p>
+            {canEdit && (
+              <Button asChild className="w-full h-12 text-base font-semibold">
+                <Link href={`/upravit/${event.id}`}>Dokončit a zveřejnit</Link>
+              </Button>
+            )}
+          </div>
+        ) : takesPartAutomatically ? (
           // Whoever runs it takes part automatically and doesn't use up a participant's spot.
           <div className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-primary">
             <CheckCircle2 className="h-5 w-5" />{" "}
@@ -675,10 +686,6 @@ function EventDetailContent() {
               </p>
             </div>
           )
-        ) : event.is_hidden ? (
-          <p className="py-3 text-center text-sm font-semibold text-muted-foreground">
-            Akce je teď pozastavená — nové přihlášky nepřijímá.
-          </p>
         ) : isFull && !canOfferHelp ? (
           <Button disabled className="w-full h-14 text-base font-semibold">Akce je plná</Button>
         ) : (

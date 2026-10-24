@@ -26,6 +26,8 @@ export interface EventCardData {
   price_cents?: number | null;
   /** A volunteering activity (Events.isVolunteering). */
   is_volunteering?: boolean;
+  /** Its creator's draft — not published yet (Events.isDraft). */
+  is_draft?: boolean;
   /** Shown next to the location when events from several municipalities are listed together. */
   municipality_name?: string;
   /** Who runs it — the pořadatel's organization (the obec's own one for the obec's events). */
