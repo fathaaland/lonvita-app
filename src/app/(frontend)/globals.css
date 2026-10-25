@@ -285,4 +285,30 @@
   .text-brand-graphite-mid { color: hsl(var(--brand-graphite-mid)); }
   .border-brand-sand-pale { border-color: hsl(var(--brand-sand-pale)); }
   .border-brand-purple { border-color: hsl(var(--brand-purple)); }
+
+  /* Brand panel next to the sign-in forms. Dark mode remaps graphite-mid and purple-dark to
+     light text tints, so the panel can't build on them there — it gets its own evening palette:
+     a plum night deeper than the page, with a lamp-like glow behind the logo. */
+  .brand-panel {
+    background-image: linear-gradient(to bottom right, hsl(var(--brand-graphite)), hsl(var(--brand-graphite-mid)), hsl(var(--brand-purple-dark)));
+  }
+  .dark .brand-panel {
+    background-color: hsl(298 24% 7%);
+    background-image:
+      radial-gradient(42% 32% at 50% 47%, hsl(299 39% 61% / 0.2), transparent 70%),
+      radial-gradient(90% 55% at 15% 105%, hsl(298 40% 28% / 0.7), transparent 70%);
+  }
+  /* Phone header: same panel, fading into the page below the logo. */
+  .brand-panel-fade {
+    background-image: linear-gradient(to bottom, hsl(var(--brand-graphite)), hsl(var(--brand-graphite-mid)), hsl(var(--background)));
+  }
+  .dark .brand-panel-fade {
+    background-image:
+      radial-gradient(55% 45% at 50% 40%, hsl(299 39% 61% / 0.18), transparent 70%),
+      linear-gradient(to bottom, hsl(298 24% 7%), hsl(var(--background)));
+  }
+  .high-contrast .brand-panel,
+  .high-contrast .brand-panel-fade {
+    background: hsl(var(--brand-graphite));
+  }
 }
