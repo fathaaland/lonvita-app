@@ -72,27 +72,71 @@ describe('A draft event', () => {
     payload = await getPayload({ config: await config })
     muni = await payload.create({
       collection: 'municipalities',
-      data: { name: `Draft ${STAMP}`, rulesForCreation: 'approved_organizers', lat: 49.5661, lng: 15.9403, eventRadiusKm: 15 },
+      data: {
+        name: `Draft ${STAMP}`,
+        rulesForCreation: 'approved_organizers',
+        lat: 49.5661,
+        lng: 15.9403,
+        eventRadiusKm: 15,
+      },
       overrideAccess: true,
     })
-    category = await payload.create({ collection: 'event-categories', data: { name: `Draft ${STAMP}` }, overrideAccess: true })
+    category = await payload.create({
+      collection: 'event-categories',
+      data: { name: `Draft ${STAMP}` },
+      overrideAccess: true,
+    })
     organizer = await makeUser('organizer')
     obecAdmin = await makeUser('obec-admin')
     stranger = await makeUser('stranger')
-    await payload.create({ collection: 'user-roles', data: { user: obecAdmin.id, municipality: muni.id, role: 'municipality_admin' }, overrideAccess: true })
-    await payload.create({ collection: 'user-roles', data: { user: organizer.id, municipality: muni.id, role: 'organizer' }, overrideAccess: true })
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: obecAdmin.id, municipality: muni.id, role: 'municipality_admin' },
+      overrideAccess: true,
+    })
+    await payload.create({
+      collection: 'user-roles',
+      data: { user: organizer.id, municipality: muni.id, role: 'organizer' },
+      overrideAccess: true,
+    })
     eventId = (await createAs(organizer, true)).id
   })
 
   afterAll(async () => {
     const userIds = users.map((u) => u.id)
-    await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'registrations', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'events', where: { municipality: { equals: muni.id } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'municipalities', id: muni.id, overrideAccess: true }).catch(() => {})
+    await payload
+      .delete({
+        collection: 'notifications',
+        where: { user: { in: userIds } },
+        overrideAccess: true,
+      })
+      .catch(() => {})
+    await payload
+      .delete({
+        collection: 'registrations',
+        where: { user: { in: userIds } },
+        overrideAccess: true,
+      })
+      .catch(() => {})
+    await payload
+      .delete({
+        collection: 'events',
+        where: { municipality: { equals: muni.id } },
+        overrideAccess: true,
+      })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'event-categories', id: category.id, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'municipalities', id: muni.id, overrideAccess: true })
+      .catch(() => {})
   })
 
   it("is its creator's alone — not a guest's, a stranger's, nor the obec admin's, even by its id", async () => {
@@ -101,7 +145,12 @@ describe('A draft event', () => {
     expect(await sees(stranger)).toBe(false)
     expect(await sees(obecAdmin)).toBe(false)
     await expect(
-      payload.findByID({ collection: 'events', id: eventId, user: stranger, overrideAccess: false }),
+      payload.findByID({
+        collection: 'events',
+        id: eventId,
+        user: stranger,
+        overrideAccess: false,
+      }),
     ).rejects.toThrow()
     // Nor can the obec's admin edit or publish it.
     await expect(setDraft(eventId, false, obecAdmin)).rejects.toThrow()
@@ -148,11 +197,21 @@ describe('A draft event', () => {
 
   it('a draft is deleted straight away by its creator; a published event has to be cancelled first', async () => {
     const draft = await createAs(organizer, true)
-    await payload.delete({ collection: 'events', id: draft.id, user: organizer, overrideAccess: false })
+    await payload.delete({
+      collection: 'events',
+      id: draft.id,
+      user: organizer,
+      overrideAccess: false,
+    })
     expect(await sees(null, draft.id)).toBe(false)
     const published = await createAs(organizer, false)
     await expect(
-      payload.delete({ collection: 'events', id: published.id, user: organizer, overrideAccess: false }),
+      payload.delete({
+        collection: 'events',
+        id: published.id,
+        user: organizer,
+        overrideAccess: false,
+      }),
     ).rejects.toThrow()
   })
 })
