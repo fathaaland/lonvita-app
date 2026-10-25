@@ -32,6 +32,8 @@ import { EventsTable } from "@/components/admin/EventsTable";
 import { toEventTableRows } from "@/lib/dashboard";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { OrganizersDirectoryCard } from "@/components/OrganizersDirectoryCard";
+import { RegionNotice } from "@/components/RegionNotice";
+import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 import { TypeChips } from "@/components/admin/OrganizationsTab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -168,6 +170,8 @@ function OrganizationContent() {
   }, [selectedId]);
 
   const organization = organizations?.find((o) => o.id === selectedId) ?? null;
+  // The volunteers and co-organizers offered here come from the obec's whole mikroregion.
+  const region = useMunicipalityRegion(organization?.municipality_id);
   const events = useMemo(() => rawEvents.map(toAnalyticsEvent), [rawEvents]);
   // No organizer names here — the page is about one organization's own events.
   const tableRows = useMemo(() => toEventTableRows(events, registrations, []), [events, registrations]);
@@ -295,6 +299,13 @@ function OrganizationContent() {
           )}
         </section>
 
+        <RegionNotice
+          region={region}
+          municipalityId={organization.municipality_id}
+          municipalityName={organization.municipality_name}
+          className="-mt-2"
+        />
+
         {!obec &&
           (organization.description ? (
             <p className="-mt-2 max-w-prose whitespace-pre-line text-foreground/85">{organization.description}</p>
@@ -402,6 +413,7 @@ function OrganizationContent() {
                   </Button>
                 </div>
               </div>
+              {/* Only the events this organization founded — who gets in is their creator's call alone. */}
               {stats.pending > 0 && (
                 <p className="flex items-center gap-2 rounded-xl bg-brand-purple-pale px-3 py-2.5 text-sm text-brand-purple-dark">
                   <Hourglass className="h-4 w-4 shrink-0" />
@@ -419,16 +431,21 @@ function OrganizationContent() {
               />
             </section>
 
-            <section aria-label="Organizátoři v obci">
+            <section aria-label={region ? "Organizátoři v mikroregionu" : "Organizátoři v obci"}>
               <OrganizersDirectoryCard
                 municipalityId={organization.municipality_id}
                 municipalityName={organization.municipality_name}
                 organizationId={organization.id}
+                region={region}
               />
             </section>
 
             <section aria-label="Pool dobrovolníků">
-              <VolunteersTable />
+              <VolunteersTable
+                municipalityId={organization.municipality_id}
+                municipalityName={organization.municipality_name}
+                region={region}
+              />
             </section>
           </>
         )}

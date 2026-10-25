@@ -288,7 +288,14 @@ function ManageEventContent() {
               </p>
             )}
 
-            {r.status === "pending" && r.user_id !== String(user?.id) && !ended && (
+            {/* Who gets in is the event creator's alone — participants and volunteers (Registrations
+                guardStatusChange). The rest of the team sees the request, not the buttons. */}
+            {r.status === "pending" && r.user_id !== String(user?.id) && !ended && !isCreator && (
+              <p className="text-sm text-muted-foreground">
+                O přihláškách rozhoduje jen pořadatel, který akci založil.
+              </p>
+            )}
+            {r.status === "pending" && r.user_id !== String(user?.id) && !ended && isCreator && (
               <div className="grid grid-cols-2 gap-2">
                 <ConfirmActionButton
                   className="h-11"
@@ -305,19 +312,19 @@ function ManageEventContent() {
               </div>
             )}
 
-            {r.status === "rejected" && signUpOpen && (r.role !== "volunteer" || isCreator) && (
+            {r.status === "rejected" && signUpOpen && isCreator && (
               <Button onClick={() => allowAgain(r)} variant="ghost" className="h-11 w-full">
                 <Undo2 className="h-4 w-4" />Povolit znovu {r.role === "volunteer" ? "nabídnout pomoc" : "přihlásit se"}
               </Button>
             )}
 
-            {r.status === "approved" && !started && r.role === "volunteer" && !isCreator && r.user_id !== String(user?.id) && (
+            {r.status === "approved" && !started && !isCreator && r.user_id !== String(user?.id) && (
               <p className="text-sm text-muted-foreground">
-                O dobrovolnících rozhoduje jen pořadatel, který akci založil.
+                {r.role === "volunteer" ? "O dobrovolnících" : "O účastnících"} rozhoduje jen pořadatel, který akci založil.
               </p>
             )}
 
-            {r.status === "approved" && !started && (r.role !== "volunteer" || isCreator) && r.user_id !== String(user?.id) && (
+            {r.status === "approved" && !started && isCreator && r.user_id !== String(user?.id) && (
               <Button
                 onClick={() => setRemoving(r)}
                 variant="outline"

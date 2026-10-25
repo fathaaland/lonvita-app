@@ -16,6 +16,9 @@ export type OrganizerProfile = {
   description: string | null
   avatar_url: string | null
   owner_name: string | null
+  /** The obec it organizes in — one of the asked-for region's. */
+  municipality_id: string
+  municipality_name: string
   /** Organizing in the obec since. */
   since: string
   /** The viewer owns it — they edit it on their Organizace page. */
@@ -48,31 +51,35 @@ export async function organizesIn(
   return roles.totalDocs > 0
 }
 
-/** Every organization that organizes in the obec (not the obec's own), with the same headline numbers
+/** Every organization that organizes in the obce — an obec and the rest of its mikroregion
+ * (lib/microregions) — (not the obce's own), with the same headline numbers
  * as their Organizace page — computed here, since a fellow organizer can't read the registrations.
  * An organization whose owner has lost the organizer role stays (its events go on) but no longer
  * organizes here, so it isn't listed — mirrors co-organizer-candidates. */
 export async function loadOrganizersDirectory(
   payload: Payload,
-  municipalityId: string,
+  municipalityIds: string[],
   viewerId: number,
 ): Promise<OrganizerProfile[]> {
   const roles = await payload.find({
     collection: 'user-roles',
-    where: { and: [{ municipality: { equals: municipalityId } }, { role: { equals: 'organizer' } }] },
-    select: { user: true },
+    where: { and: [{ municipality: { in: municipalityIds } }, { role: { equals: 'organizer' } }] },
+    select: { user: true, municipality: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
   })
   const organizerIds = [...new Set(roles.docs.map((r) => relationId(r.user)).filter((id): id is string => id !== null))]
   if (organizerIds.length === 0) return []
+  // Organizing in an obec means holding the role there — an owner who organizes only in a
+  // neighbouring obec doesn't put their organization from another one on the list.
+  const organizesThere = new Set(roles.docs.map((r) => `${relationId(r.user)}:${relationId(r.municipality)}`))
 
   const organizations = await payload.find({
     collection: 'organizations',
     where: {
       and: [
-        { municipality: { equals: municipalityId } },
+        { municipality: { in: municipalityIds } },
         { type: { not_equals: MUNICIPALITY_ORGANIZATION_TYPE } },
         { owner: { in: organizerIds } },
         notDeleted,
@@ -83,11 +90,14 @@ export async function loadOrganizersDirectory(
     pagination: false,
     overrideAccess: true,
   })
-  if (organizations.docs.length === 0) return []
-  const organizationIds = organizations.docs.map((o) => String(o.id))
-  const ownerIds = [...new Set(organizations.docs.map((o) => relationId(o.owner)).filter((id): id is string => id !== null))]
+  const listed = organizations.docs.filter((o) =>
+    organizesThere.has(`${relationId(o.owner)}:${relationId(o.municipality)}`),
+  )
+  if (listed.length === 0) return []
+  const organizationIds = listed.map((o) => String(o.id))
+  const ownerIds = [...new Set(listed.map((o) => relationId(o.owner)).filter((id): id is string => id !== null))]
 
-  const [events, owners, ownerUsers] = await Promise.all([
+  const [events, owners, ownerUsers, municipalities] = await Promise.all([
     payload.find({
       collection: 'events',
       where: {
@@ -121,6 +131,14 @@ export async function loadOrganizersDirectory(
           overrideAccess: true,
         })
       : Promise.resolve({ docs: [] }),
+    payload.find({
+      collection: 'municipalities',
+      where: { id: { in: municipalityIds } },
+      select: { name: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    }),
   ])
   const registrations = await loadRegistrations(
     payload,
@@ -128,10 +146,12 @@ export async function loadOrganizersDirectory(
   )
   const ownerProfile = new Map(owners.docs.map((p) => [relationId(p.user), p]))
   const ownerEmail = new Map(ownerUsers.docs.map((u) => [String(u.id), u.email]))
+  const municipalityName = new Map(municipalities.docs.map((m) => [String(m.id), m.name]))
   const now = Date.now()
 
-  return organizations.docs.map((organization) => {
+  return listed.map((organization) => {
     const id = String(organization.id)
+    const municipalityId = relationId(organization.municipality) ?? ''
     const own = events.docs.filter(
       (e) => relationId(e.organization) === id || (e.coOrganizations ?? []).map(relationId).includes(id),
     )
@@ -153,6 +173,8 @@ export async function loadOrganizersDirectory(
       description: organization.description ?? null,
       avatar_url: organization.avatarUrl ?? null,
       owner_name: ownerProfile.get(relationId(organization.owner))?.fullName ?? null,
+      municipality_id: municipalityId,
+      municipality_name: municipalityName.get(municipalityId) ?? '',
       since: organization.createdAt,
       is_own: relationId(organization.owner) === String(viewerId),
       stats,

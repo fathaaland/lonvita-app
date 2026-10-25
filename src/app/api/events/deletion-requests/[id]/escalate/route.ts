@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server'
-import { getPayload } from 'payload'
+import { createLocalReq, getPayload } from 'payload'
 
 import config from '@payload-config'
-import { eventOrganizerIds } from '@/collections/Events'
+import { eventOrganizerIds, neighbourObceOf } from '@/collections/Events'
+import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { OPEN_STATUSES } from '@/collections/EventDeletionRequests'
-import { escapeHtml, getObecDeciders, sendNotification, sendNotificationToMany } from '@/collections/shared/notify'
+import {
+  escapeHtml,
+  getMunicipalityAdminUserIds,
+  getObecDeciders,
+  sendNotification,
+  sendNotificationToMany,
+} from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { formatPragueDateTime } from '@/lib/date'
 import { relationId } from '@/lib/relations'
@@ -31,7 +38,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const uid = String(user.id)
   const requesterId = relationId(deletionRequest.requestedBy)!
-  if (requesterId !== uid) {
+  // Asked for a neighbouring obec — any of its admins turns to the obec for it.
+  const requesterObec = relationId(deletionRequest.requesterMunicipality)
+  const forRequesterObec =
+    requesterObec !== null && (await getAdministeredMunicipalityIds(payload, user.id)).includes(requesterObec)
+  if (requesterId !== uid && !forRequesterObec) {
     return NextResponse.json({ error: 'Obec může požádat jen ten, kdo o smazání žádal.' }, { status: 403 })
   }
   const rejectedById = relationId(deletionRequest.rejectedBy)
@@ -56,8 +67,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Akce už začala — obec už rozhodovat nemůže.' }, { status: 409 })
   }
   const organizerIds = eventOrganizerIds(event)
-  if (!organizerIds.includes(uid)) return NextResponse.json({ error: 'Tuhle akci už nepořádáte.' }, { status: 409 })
-  if (organizerIds.length < 2) {
+  const neighbours = await neighbourObceOf(await createLocalReq({ user }, payload), event)
+  if (requesterObec ? !neighbours.includes(requesterObec) : !organizerIds.includes(uid)) {
+    return NextResponse.json({ error: 'Tuhle akci už nepořádáte.' }, { status: 409 })
+  }
+  if (organizerIds.length + neighbours.length < 2) {
     return NextResponse.json({ error: 'Akci teď pořádáte sami — zrušit ji můžete rovnou.' }, { status: 409 })
   }
 
@@ -90,7 +104,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     limit: 1,
     overrideAccess: true,
   })
-  const who = profile.docs[0]?.fullName || 'Spolupořadatel'
+  const requesterMunicipality = requesterObec
+    ? await payload.findByID({ collection: 'municipalities', id: requesterObec, depth: 0, overrideAccess: true }).catch(() => null)
+    : null
+  const name = profile.docs[0]?.fullName || 'Spolupořadatel'
+  const who = requesterMunicipality ? `${name} za obec ${requesterMunicipality.name}` : name
   const until = formatPragueDateTime(event.dateTime)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
   const municipalityId = relationId(event.municipality)
@@ -115,10 +133,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const silent = (deletionRequest.approvers ?? [])
     .map(relationId)
     .filter((id): id is string => id !== null && id !== uid && organizerIds.includes(id) && !approvedBy.has(id))
+  // …and the admins of each neighbouring obec still on it that didn't answer.
+  const neighbourApproved = new Set((deletionRequest.neighbourApproved ?? []).map(relationId))
+  for (const m of (deletionRequest.neighbourMunicipalities ?? []).map(relationId)) {
+    if (!m || !neighbours.includes(m) || neighbourApproved.has(m)) continue
+    for (const adminId of await getMunicipalityAdminUserIds(payload, m)) if (String(adminId) !== uid) silent.push(String(adminId))
+  }
   sendNotificationToMany(payload, refused ? [rejectedById!] : silent, {
     title: 'Spolupořadatel požádal obec',
     link: `/akce/${event.id}`,
-    message: `${who} požádal(a) obec, aby ho z akce „${event.title}“ odebrala i bez vašeho souhlasu.`,
+    message: requesterMunicipality
+      ? `${who} požádal(a) obec, kde se akce koná, aby obec ${requesterMunicipality.name} z akce „${event.title}“ odebrala i bez vašeho souhlasu.`
+      : `${who} požádal(a) obec, aby ho z akce „${event.title}“ odebrala i bez vašeho souhlasu.`,
   })
   writeAuditLog(payload, {
     source: request,

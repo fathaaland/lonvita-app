@@ -35,7 +35,11 @@ export function computeOrganizationStats(
   const approved = participants.filter((r) => r.status === "approved" && liveIds.has(r.event_id));
   // Only where it still matters — a pending registration on a past event won't be approved anymore.
   const upcomingIds = new Set(live.filter((e) => new Date(e.date_time).getTime() >= now).map((e) => e.id));
-  const pending = participants.filter((r) => r.status === "pending" && upcomingIds.has(r.event_id));
+  // Waiting on this organization only where it founded the event — a co-organized event's requests
+  // are its creator's to decide.
+  const pending = participants.filter(
+    (r) => r.status === "pending" && upcomingIds.has(r.event_id) && !coOrganizedIds.has(r.event_id),
+  );
 
   const perPerson = new Map<string, number>();
   for (const r of approved) perPerson.set(r.user_id, (perPerson.get(r.user_id) ?? 0) + 1);

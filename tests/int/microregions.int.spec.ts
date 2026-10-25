@@ -24,6 +24,7 @@ describe('Mikroregiony', () => {
   let category: { id: number }
   let organizer: TestUser
   let villageAdmin: TestUser
+  let mainAdmin: TestUser
   let villageOrganizer: TestUser
   let outsiderOrganizer: TestUser
   let villageVolunteer: TestUser
@@ -142,12 +143,14 @@ describe('Mikroregiony', () => {
 
     organizer = await makeUser('organizer', main)
     villageAdmin = await makeUser('village-admin', village)
+    mainAdmin = await makeUser('main-admin', main)
     villageOrganizer = await makeUser('village-organizer', village)
     outsiderOrganizer = await makeUser('outsider-organizer', outsider)
     villageVolunteer = await volunteerOf(village, 'village-volunteer')
     outsiderVolunteer = await volunteerOf(outsider, 'outsider-volunteer')
     await grant(organizer, main, 'organizer')
     await grant(villageAdmin, village, 'municipality_admin')
+    await grant(mainAdmin, main, 'municipality_admin')
     await grant(villageOrganizer, village, 'organizer')
     await grant(outsiderOrganizer, outsider, 'organizer')
 
@@ -207,9 +210,12 @@ describe('Mikroregiony', () => {
         overrideAccess: true,
       })
       .catch(() => {})
-    await payload
-      .delete({ collection: 'events', id: eventId, overrideAccess: true })
-      .catch(() => {})
+    for (const id of [eventId, ...extraEventIds]) {
+      await payload
+        .delete({ collection: 'co-organizing-requests', where: { event: { equals: id } }, overrideAccess: true })
+        .catch(() => {})
+      await payload.delete({ collection: 'events', id, overrideAccess: true }).catch(() => {})
+    }
     await payload
       .delete({
         collection: 'notifications',
@@ -249,6 +255,29 @@ describe('Mikroregiony', () => {
     expect(await regionMunicipalityIds(payload, outsider.id)).toEqual([String(outsider.id)])
     expect(await inSameRegion(payload, village.id, main.id)).toBe(true)
     expect(await inSameRegion(payload, outsider.id, main.id)).toBe(false)
+  })
+
+  const notificationTitles = async (user: TestUser) =>
+    (
+      await payload.find({
+        collection: 'notifications',
+        where: { user: { equals: user.id } },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      })
+    ).docs.map((n) => n.title)
+
+  it("tells the obec's admins it joined the region — and with whom it shares", async () => {
+    const notifications = await payload.find({
+      collection: 'notifications',
+      where: { user: { equals: villageAdmin.id } },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    const joined = notifications.docs.find((n) => n.title.includes(`je v mikroregionu Region ${STAMP}`))
+    expect(joined?.message).toContain(`s obcí Region Main ${STAMP}`)
   })
 
   it('an obec is in one region at most, and only the platform admin keeps them', async () => {
@@ -332,6 +361,112 @@ describe('Mikroregiony', () => {
     expect(edited.description).toBe('Upraví soused')
   })
 
+  const obecOrganizationOf = async (municipality: { id: number }) =>
+    (await municipalityOrganizationIds({ payload, context: {} } as never, [String(municipality.id)])).get(
+      String(municipality.id),
+    )!
+
+  const extraEventIds: number[] = []
+  const makeEvent = async (by: TestUser, title: string) => {
+    const event = await payload.create({
+      collection: 'events',
+      data: {
+        title: `${title} ${STAMP}`,
+        dateTime: new Date(Date.now() + 6 * DAY).toISOString(),
+        locationText: 'Náves',
+        lat: 49.5661,
+        lng: 15.9403,
+        capacity: 10,
+        organizer: by.id,
+        municipality: main.id,
+        categories: [category.id],
+        isPaid: false,
+        isVolunteering: false,
+        registrationApprovalMode: 'auto',
+      } as never,
+      user: by,
+      overrideAccess: false,
+    })
+    extraEventIds.push(event.id)
+    return event
+  }
+
+  it("the obec's own event: its admin invites a neighbouring obec, whose admin accepts", async () => {
+    const event = await makeEvent(mainAdmin, 'Obecní akce')
+    expect(String(typeof event.organization === 'object' ? event.organization?.id : event.organization)).toBe(
+      await obecOrganizationOf(main),
+    )
+    const villageObecOrg = await obecOrganizationOf(village)
+    const request = await payload.create({
+      collection: 'co-organizing-requests',
+      data: { event: event.id, organization: Number(villageObecOrg) } as never,
+      user: mainAdmin,
+      overrideAccess: false,
+    })
+    expect(request.status).toBe('pending')
+    // The neighbour's admins decide — not the inviting obec.
+    expect(Number(typeof request.municipality === 'object' ? request.municipality.id : request.municipality)).toBe(
+      village.id,
+    )
+    await payload.update({
+      collection: 'co-organizing-requests',
+      id: request.id,
+      data: { status: 'approved' },
+      user: villageAdmin,
+      overrideAccess: false,
+    })
+    const updated = await payload.findByID({ collection: 'events', id: event.id, depth: 0, overrideAccess: true })
+    expect((updated.coOrganizations ?? []).map(String)).toContain(villageObecOrg)
+  })
+
+  it('an obec outside the region is not invited, not even to the obec\'s own event', async () => {
+    const event = await makeEvent(mainAdmin, 'Obecní akce bez souseda')
+    await expect(
+      payload.create({
+        collection: 'co-organizing-requests',
+        data: { event: event.id, organization: Number(await obecOrganizationOf(outsider)) } as never,
+        user: mainAdmin,
+        overrideAccess: false,
+      }),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('the event\'s obec having left it does not shut out a neighbouring obec', async () => {
+    const event = await makeEvent(organizer, 'Akce bez obce')
+    const mainObecOrg = await obecOrganizationOf(main)
+    await payload.update({
+      collection: 'events',
+      id: event.id,
+      data: { coOrganizations: [Number(mainObecOrg)] },
+      context: { coOrganizingApproved: true },
+      overrideAccess: true,
+    })
+    const left = await payload.update({
+      collection: 'events',
+      id: event.id,
+      data: { coOrganizations: [] },
+      overrideAccess: true,
+    })
+    expect(left.obecLeftAt).toBeTruthy()
+
+    const request = await payload.create({
+      collection: 'co-organizing-requests',
+      data: { event: event.id, organization: Number(await obecOrganizationOf(village)) } as never,
+      user: organizer,
+      overrideAccess: false,
+    })
+    expect(request.status).toBe('pending')
+    // …but the obec that left still can't come back.
+    await expect(
+      payload.create({
+        collection: 'co-organizing-requests',
+        data: { event: event.id, organization: Number(mainObecOrg) } as never,
+        user: organizer,
+        overrideAccess: false,
+      }),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
   it("invites volunteers who help in the region — a volunteer from outside it isn't reachable", async () => {
     await inviteVolunteer(villageVolunteer)
     await expect(inviteVolunteer(outsiderVolunteer)).rejects.toMatchObject({ status: 400 })
@@ -345,5 +480,8 @@ describe('Mikroregiony', () => {
       overrideAccess: true,
     })
     await expect(inviteVolunteer(villageVolunteer)).rejects.toMatchObject({ status: 400 })
+    expect(await notificationTitles(villageAdmin)).toContainEqual(
+      expect.stringContaining(`už není v mikroregionu Region ${STAMP}`),
+    )
   })
 })

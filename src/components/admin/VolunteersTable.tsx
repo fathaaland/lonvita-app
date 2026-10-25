@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { HandHeart, Mail, MapPinned, Phone, Search, Send, X } from "lucide-react";
 import { toast } from "sonner";
-import { getVolunteers, VolunteerRow, removeVolunteer } from "@/integrations/payload/queries";
+import {
+  getVolunteers,
+  VolunteerRow,
+  removeVolunteer,
+  type MunicipalityRegion,
+} from "@/integrations/payload/queries";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +20,7 @@ import { focusLabel } from "@/components/VolunteerCard";
 import { InviteVolunteerDialog } from "@/components/InviteVolunteerDialog";
 import { VolunteerMapDialog } from "@/components/VolunteerMapDialog";
 import { RatingBadge } from "@/components/RatingStars";
+import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   AlertDialog,
@@ -29,14 +35,28 @@ import {
 
 const volunteersLabel = (n: number) => (n === 1 ? "1 dobrovolník" : n < 5 ? `${n} dobrovolníci` : `${n} dobrovolníků`);
 
-/** The volunteer pool — one for the whole platform, the same for every organizer and obec admin.
+/** The volunteer pool — the volunteers who help in the viewer's obce and the rest of their
+ * mikroregions (a platform admin sees all of them). Shown for one obec, `municipalityId`: whoever
+ * helps in another obec of its region carries that obec's name, and "Jen <obec>" narrows to its own.
  * The search finds volunteers by name, obec, focus or note — nobody is listed until searched for —
  * and "Najít dobrovolníka" opens the whole pool as a map. Each volunteer's contact
  * shows only on the channels they allowed. Joining is only ever the volunteer's own; a platform
  * admin, or an admin of the obec they help in, may take someone off. */
-export function VolunteersTable() {
-  const { user } = useAuth();
+export function VolunteersTable({
+  municipalityId,
+  municipalityName,
+  region,
+}: {
+  municipalityId: string;
+  municipalityName: string;
+  /** The obec's mikroregion (useMunicipalityRegion) — undefined while it loads. */
+  region: MunicipalityRegion | null | undefined;
+}) {
+  const { user, isSuperAdmin: platformAdmin } = useAuth();
   const viewerId = user ? String(user.id) : null;
+  // Only an obec sharing with others has anything to narrow down.
+  const shared = !platformAdmin && !!region && region.municipalities.length > 1;
+  const [onlyOwn, setOnlyOwn] = useState(false);
   const [rows, setRows] = useState<VolunteerRow[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -72,21 +92,55 @@ export function VolunteersTable() {
     }
   };
 
+  // The pool spans every obec the viewer organizes in; this page is about one of them and its region.
+  const inScope = useMemo(() => {
+    if (platformAdmin) return rows;
+    const ids = shared && !onlyOwn ? region!.municipalities.map((m) => m.id) : [municipalityId];
+    return rows.filter((r) => r.location && ids.includes(r.location.id));
+  }, [rows, platformAdmin, shared, onlyOwn, region, municipalityId]);
   const searching = q.trim().length > 0;
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return [];
-    return rows.filter(
+    return inScope.filter(
       (r) =>
         r.full_name.toLowerCase().includes(needle) ||
         (r.location?.name ?? "").toLowerCase().includes(needle) ||
         (r.volunteer_focus ?? []).some((f) => focusLabel(f).toLowerCase().includes(needle)) ||
         (r.volunteer_note ?? "").toLowerCase().includes(needle),
     );
-  }, [rows, q]);
+  }, [inScope, q]);
+
+  const poolScope = platformAdmin
+    ? "z celé Lonvity"
+    : shared && !onlyOwn
+      ? `z mikroregionu ${region!.name}`
+      : `z obce ${municipalityName}`;
 
   return (
     <div className="space-y-4">
+      {shared && (
+        <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-sm" role="group" aria-label="Odkud dobrovolníci">
+          {[
+            { own: false, label: "Celý mikroregion" },
+            { own: true, label: `Jen ${municipalityName}` },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              aria-pressed={onlyOwn === opt.own}
+              onClick={() => setOnlyOwn(opt.own)}
+              className={cn(
+                "flex-1 h-9 truncate rounded-md px-2 text-sm font-semibold transition-colors",
+                onlyOwn === opt.own ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden />
         <Input
@@ -123,6 +177,11 @@ export function VolunteersTable() {
                             {r.full_name}
                           </Link>
                           <p className="text-xs text-muted-foreground">
+                            {shared && r.location && r.location.id !== municipalityId && (
+                              <span className="mr-1.5 inline-block rounded-full bg-brand-purple-pale px-2 py-0.5 font-semibold text-brand-purple-dark">
+                                Ze sousední obce
+                              </span>
+                            )}
                             {r.location ? `Pomáhá v obci ${r.location.name}` : "Zatím bez obce"}
                             {r.volunteer_since && ` · od ${new Date(r.volunteer_since).toLocaleDateString("cs-CZ")}`}
                           </p>
@@ -189,11 +248,11 @@ export function VolunteersTable() {
             <div>
               <p className="font-bold text-lg leading-tight">Pool dobrovolníků</p>
               <p className="text-sm text-muted-foreground">
-                {loading ? "Načítám…" : `${volunteersLabel(rows.length)} z celé Lonvity`}
+                {loading ? "Načítám…" : `${volunteersLabel(inScope.length)} ${poolScope}`}
               </p>
             </div>
           </div>
-          <Button className="h-11 sm:px-5" onClick={() => setMapOpen(true)} disabled={loading || rows.length === 0}>
+          <Button className="h-11 sm:px-5" onClick={() => setMapOpen(true)} disabled={loading || inScope.length === 0}>
             <MapPinned className="h-4 w-4" /> Najít dobrovolníka
           </Button>
         </CardContent>
@@ -202,7 +261,7 @@ export function VolunteersTable() {
       <VolunteerMapDialog
         open={mapOpen}
         onOpenChange={setMapOpen}
-        volunteers={rows}
+        volunteers={inScope}
         viewerId={viewerId}
         onInvite={(v) => setInviting(v)}
       />

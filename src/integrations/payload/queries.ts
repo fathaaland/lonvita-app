@@ -3,93 +3,110 @@
  * already expect — snake_case field names, same nesting — so pages mostly only need their
  * data-fetching `useEffect` rewritten, not their JSX.
  */
-import { buildQuery, buildWhereParams, del, get, patch, post, uploadFile, PayloadApiError } from "./client";
+import {
+  buildQuery,
+  buildWhereParams,
+  del,
+  get,
+  patch,
+  post,
+  uploadFile,
+  PayloadApiError,
+} from './client'
 
-import type { PayloadListResponse } from "./client";
-import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
-import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
-import type { OrganizationFeedbackSummary } from "@/lib/organization-stats";
+import type { PayloadListResponse } from './client'
+import type { AnyOrganizationType, OrganizationType } from '@/lib/organizations'
+import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
+import type { OrganizationFeedbackSummary } from '@/lib/organization-stats'
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   type AccountDeletionBlockingEvent,
   type AccountDeletionSoleAdminObec,
-} from "@/lib/accountDeletion";
-import type { ReliabilityRecord } from "@/lib/reliability";
-import { relationId } from "@/lib/relations";
-import { fullNamesByUserIds } from "./profile-names";
+} from '@/lib/accountDeletion'
+import type { ReliabilityRecord } from '@/lib/reliability'
+import { relationId } from '@/lib/relations'
+import { fullNamesByUserIds } from './profile-names'
 
 // --- Municipalities ---------------------------------------------------------------------
 
-export type RulesForCreation = "municipality_only" | "approved_organizers";
+export type RulesForCreation = 'municipality_only' | 'approved_organizers'
 
 export type MunicipalityRow = {
-  id: string;
-  name: string;
-  description: string | null;
-  lat: number;
-  lng: number;
-  rules_for_creation: RulesForCreation;
-};
+  id: string
+  name: string
+  description: string | null
+  lat: number
+  lng: number
+  rules_for_creation: RulesForCreation
+}
 
 type PayloadMunicipality = {
-  id: number;
-  name: string;
-  description?: string | null;
-  lat: number;
-  lng: number;
-  rulesForCreation?: RulesForCreation;
-};
+  id: number
+  name: string
+  description?: string | null
+  lat: number
+  lng: number
+  rulesForCreation?: RulesForCreation
+}
 
 export async function getMunicipality(id: string): Promise<MunicipalityRow | null> {
   try {
-    const doc = await get<PayloadMunicipality>(`/municipalities/${id}`);
+    const doc = await get<PayloadMunicipality>(`/municipalities/${id}`)
     return {
       id: String(doc.id),
       name: doc.name,
       description: doc.description ?? null,
       lat: doc.lat,
       lng: doc.lng,
-      rules_for_creation: doc.rulesForCreation ?? "approved_organizers",
-    };
+      rules_for_creation: doc.rulesForCreation ?? 'approved_organizers',
+    }
   } catch {
-    return null;
+    return null
   }
 }
 
-export async function setMunicipalityRulesForCreation(municipalityId: string, rules: RulesForCreation): Promise<void> {
-  await patch(`/municipalities/${municipalityId}`, { rulesForCreation: rules });
+export async function setMunicipalityRulesForCreation(
+  municipalityId: string,
+  rules: RulesForCreation,
+): Promise<void> {
+  await patch(`/municipalities/${municipalityId}`, { rulesForCreation: rules })
 }
 
-export async function listMunicipalities(): Promise<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]> {
-  const query = buildQuery({ sort: "name", limit: 200 });
-  const result = await get<PayloadListResponse<PayloadMunicipality>>(`/municipalities?${query}`);
-  return result.docs.map((m) => ({ id: String(m.id), name: m.name, lat: m.lat, lng: m.lng }));
+export async function listMunicipalities(): Promise<
+  Pick<MunicipalityRow, 'id' | 'name' | 'lat' | 'lng'>[]
+> {
+  const query = buildQuery({ sort: 'name', limit: 200 })
+  const result = await get<PayloadListResponse<PayloadMunicipality>>(`/municipalities?${query}`)
+  return result.docs.map((m) => ({ id: String(m.id), name: m.name, lat: m.lat, lng: m.lng }))
 }
 
 // --- Event categories --------------------------------------------------------------------
 
-export type CategoryRow = { id: string; name: string; icon: string; color: string };
+export type CategoryRow = { id: string; name: string; icon: string; color: string }
 
-type PayloadCategory = { id: number; name: string; icon?: string | null; color?: string | null };
+type PayloadCategory = { id: number; name: string; icon?: string | null; color?: string | null }
 
 export async function getEventCategories(): Promise<CategoryRow[]> {
-  const query = buildQuery({ sort: "name", limit: 200 });
-  const result = await get<PayloadListResponse<PayloadCategory>>(`/event-categories?${query}`);
+  const query = buildQuery({ sort: 'name', limit: 200 })
+  const result = await get<PayloadListResponse<PayloadCategory>>(`/event-categories?${query}`)
   return result.docs.map((c) => ({
     id: String(c.id),
     name: c.name,
-    icon: c.icon ?? "",
-    color: c.color ?? "",
-  }));
+    icon: c.icon ?? '',
+    color: c.color ?? '',
+  }))
 }
 
 // --- Media (event cover image) -------------------------------------------------------------
 
 /** Uploads the event cover image (brief §4 — crop to a fixed aspect ratio happens server-side
  * via Media.ts's `imageSizes`). Returns the media doc id to store on Events.image. */
-export async function uploadEventImage(file: File, alt: string): Promise<{ id: string; url: string | null }> {
-  const uploaded = await uploadFile<{ id: number; url?: string | null }>("media", file, { alt });
-  return { id: String(uploaded.id), url: uploaded.url ?? null };
+export async function uploadEventImage(
+  file: File,
+  alt: string,
+): Promise<{ id: string; url: string | null }> {
+  const uploaded = await uploadFile<{ id: number; url?: string | null }>('media', file, { alt })
+  return { id: String(uploaded.id), url: uploaded.url ?? null }
 }
 
 // --- Events ---------------------------------------------------------------------------
@@ -97,106 +114,112 @@ export async function uploadEventImage(file: File, alt: string): Promise<{ id: s
 /** Who runs an event besides the obec — a café, a club, or one person ("Vycházky pro seniory"). */
 /** `owner_id` is null for the obec's own organization (type "municipality"). */
 export type OrganizationRef = {
-  id: string;
-  name: string;
-  type: AnyOrganizationType;
-  owner_id: string | null;
+  id: string
+  name: string
+  type: AnyOrganizationType
+  owner_id: string | null
   /** The organization's own photo or logo — set on its "Organizace" page. */
-  avatar_url?: string | null;
+  avatar_url?: string | null
   /** Its obec — for the obec's own organization, whose admins answer for it. */
-  municipality_id?: string | null;
-};
+  municipality_id?: string | null
+}
 
 export type EventRow = {
-  id: string;
-  title: string;
-  description?: string;
-  date_time: string;
-  end_date_time: string | null;
-  location_text: string;
-  lat: number | null;
-  lng: number | null;
-  accessibility_tags: string[];
-  capacity: number;
-  registration_approval_mode: "auto" | "manual";
-  image_url: string | null;
+  id: string
+  title: string
+  description?: string
+  date_time: string
+  end_date_time: string | null
+  location_text: string
+  lat: number | null
+  lng: number | null
+  accessibility_tags: string[]
+  capacity: number
+  registration_approval_mode: 'auto' | 'manual'
+  image_url: string | null
   /** Framing of the photo in the 16:10 crop, as object-position percentages. */
-  image_position: { x: number; y: number };
-  category_ids: string[];
-  organizer_id?: string;
+  image_position: { x: number; y: number }
+  category_ids: string[]
+  organizer_id?: string
   /** The organization the organizer runs it as — the obec's own one when its admin founded it. */
-  organization: OrganizationRef | null;
-  co_organizer_ids: string[];
-  co_organizations: OrganizationRef[];
-  municipality_id?: string;
-  status?: "active" | "full" | "finished" | "cancelled";
+  organization: OrganizationRef | null
+  co_organizer_ids: string[]
+  co_organizations: OrganizationRef[]
+  municipality_id?: string
+  status?: 'active' | 'full' | 'finished' | 'cancelled'
   /** A draft — its creator's alone until published (Events isDraft). */
-  is_draft?: boolean;
-  is_paid?: boolean;
-  price_cents?: number | null;
-  is_volunteering?: boolean;
+  is_draft?: boolean
+  is_paid?: boolean
+  price_cents?: number | null
+  is_volunteering?: boolean
   /** A volunteer has signed up — the creator can't take the volunteering mark off any more. */
-  volunteering_locked?: boolean;
+  volunteering_locked?: boolean
   /** The viewer is the event's creator — its pořadatel, or an admin of the obec running it: they fill
    * in its attendance and decide about its volunteers (Events.creatorForViewer). */
-  creator_for_viewer: boolean;
+  creator_for_viewer: boolean
   /** The viewer runs it with other organizers — deleting needs their consent (requestEventDeletion). */
-  deletion_needs_consent: boolean;
+  deletion_needs_consent: boolean
   /** The obec stopped co-organizing it — it can never come back to it (leaveCoOrganizingAsObec). */
-  obec_left: boolean;
+  obec_left: boolean
   /** The page the event was imported from (lib/import), or null for one made in the app. */
-  imported_from: string | null;
+  imported_from: string | null
   /** Versions the generated share images (eventShareImagePath), so an edit shows up in them. */
-  updated_at: string | null;
-};
+  updated_at: string | null
+}
 
-type PayloadMedia = { id: number; url?: string | null; sizes?: { avatar?: { url?: string | null } } };
+type PayloadMedia = {
+  id: number
+  url?: string | null
+  sizes?: { avatar?: { url?: string | null } }
+}
 type PayloadOrganization = {
-  id: number;
-  name: string;
-  type: AnyOrganizationType;
-  owner?: number | { id: number } | null;
-  municipality?: number | { id: number } | null;
-  avatarUrl?: string | null;
-  description?: string | null;
-};
+  id: number
+  name: string
+  type: AnyOrganizationType
+  owner?: number | { id: number } | null
+  municipality?: number | { id: number } | null
+  avatarUrl?: string | null
+  description?: string | null
+}
 type PayloadEvent = {
-  id: number;
-  title: string;
-  description?: string | null;
-  dateTime: string;
-  endDateTime?: string | null;
-  locationText: string;
-  lat?: number | null;
-  lng?: number | null;
-  accessibilityTags?: string[] | null;
-  capacity: number;
-  registrationApprovalMode?: "auto" | "manual";
-  image?: number | PayloadMedia | null;
-  imagePositionX?: number | null;
-  imagePositionY?: number | null;
-  categories?: (number | { id: number })[] | null;
-  organizer?: number | { id: number };
-  organization?: number | PayloadOrganization | null;
-  coOrganizers?: (number | { id: number })[] | null;
-  coOrganizations?: (number | PayloadOrganization)[] | null;
-  municipality?: number | { id: number };
-  status?: EventRow["status"];
-  isDraft?: boolean;
-  isPaid?: boolean;
-  priceCents?: number | null;
-  isVolunteering?: boolean;
-  creatorForViewer?: boolean | null;
-  deletionNeedsConsent?: boolean | null;
-  volunteeringLocked?: boolean | null;
-  obecLeftAt?: string | null;
-  importedFrom?: string | null;
-  updatedAt?: string;
-};
+  id: number
+  title: string
+  description?: string | null
+  dateTime: string
+  endDateTime?: string | null
+  locationText: string
+  lat?: number | null
+  lng?: number | null
+  accessibilityTags?: string[] | null
+  capacity: number
+  registrationApprovalMode?: 'auto' | 'manual'
+  image?: number | PayloadMedia | null
+  imagePositionX?: number | null
+  imagePositionY?: number | null
+  categories?: (number | { id: number })[] | null
+  organizer?: number | { id: number }
+  organization?: number | PayloadOrganization | null
+  coOrganizers?: (number | { id: number })[] | null
+  coOrganizations?: (number | PayloadOrganization)[] | null
+  municipality?: number | { id: number }
+  status?: EventRow['status']
+  isDraft?: boolean
+  isPaid?: boolean
+  priceCents?: number | null
+  isVolunteering?: boolean
+  creatorForViewer?: boolean | null
+  deletionNeedsConsent?: boolean | null
+  volunteeringLocked?: boolean | null
+  obecLeftAt?: string | null
+  importedFrom?: string | null
+  updatedAt?: string
+}
 
 /** Only populated (depth ≥ 1) organizations — a bare id is one that's since been deleted. */
-const mapOrganization = (o: number | PayloadOrganization | null | undefined): OrganizationRef | null =>
-  o && typeof o === "object"
+const mapOrganization = (
+  o: number | PayloadOrganization | null | undefined,
+): OrganizationRef | null =>
+  o && typeof o === 'object'
     ? {
         id: String(o.id),
         name: o.name,
@@ -205,7 +228,7 @@ const mapOrganization = (o: number | PayloadOrganization | null | undefined): Or
         avatar_url: o.avatarUrl ?? null,
         municipality_id: relationId(o.municipality),
       }
-    : null;
+    : null
 
 const mapEvent = (e: PayloadEvent): EventRow => ({
   id: String(e.id),
@@ -218,14 +241,16 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   lng: e.lng ?? null,
   accessibility_tags: e.accessibilityTags ?? [],
   capacity: e.capacity,
-  registration_approval_mode: e.registrationApprovalMode ?? "manual",
-  image_url: typeof e.image === "object" && e.image ? (e.image.url ?? null) : null,
+  registration_approval_mode: e.registrationApprovalMode ?? 'manual',
+  image_url: typeof e.image === 'object' && e.image ? (e.image.url ?? null) : null,
   image_position: { x: e.imagePositionX ?? 50, y: e.imagePositionY ?? 50 },
   category_ids: (e.categories ?? []).map(relationId).filter((v): v is string => Boolean(v)),
   organizer_id: relationId(e.organizer) ?? undefined,
   organization: mapOrganization(e.organization),
   co_organizer_ids: (e.coOrganizers ?? []).map(relationId).filter((v): v is string => Boolean(v)),
-  co_organizations: (e.coOrganizations ?? []).map(mapOrganization).filter((o): o is OrganizationRef => Boolean(o)),
+  co_organizations: (e.coOrganizations ?? [])
+    .map(mapOrganization)
+    .filter((o): o is OrganizationRef => Boolean(o)),
   municipality_id: relationId(e.municipality) ?? undefined,
   status: e.status,
   is_draft: Boolean(e.isDraft),
@@ -238,17 +263,52 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   obec_left: Boolean(e.obecLeftAt),
   imported_from: e.importedFrom ?? null,
   updated_at: e.updatedAt ?? null,
-});
+})
 
 /** The obce that share one view with `municipalityId` — its mikroregion (Microregions), itself
  * included; just itself when it has none. */
 export async function getRegionMunicipalityIds(municipalityId: string): Promise<string[]> {
-  const where = buildWhereParams({ municipalities: { in: [municipalityId] } });
+  const where = buildWhereParams({ municipalities: { in: [municipalityId] } })
   const result = await get<PayloadListResponse<{ municipalities?: (number | { id: number })[] }>>(
     `/microregions?${where}&depth=0&limit=1`,
-  );
-  const ids = (result.docs[0]?.municipalities ?? []).map((m) => String(typeof m === "object" ? m.id : m));
-  return ids.includes(municipalityId) ? ids : [municipalityId];
+  )
+  const ids = (result.docs[0]?.municipalities ?? []).map((m) =>
+    String(typeof m === 'object' ? m.id : m),
+  )
+  return ids.includes(municipalityId) ? ids : [municipalityId]
+}
+
+export type MunicipalityRegion = {
+  id: string
+  name: string
+  main_municipality_id: string | null
+  /** Every obec in the region, the asked-for one included — main obec first, then by name. */
+  municipalities: { id: string; name: string }[]
+}
+
+/** The mikroregion `municipalityId` belongs to, with its obce's names — null when it stands alone. */
+export async function getMunicipalityRegion(
+  municipalityId: string,
+): Promise<MunicipalityRegion | null> {
+  const where = buildWhereParams({ municipalities: { in: [municipalityId] } })
+  const result = await get<
+    PayloadListResponse<{
+      id: number
+      name: string
+      mainMunicipality?: number | { id: number } | null
+      municipalities?: (number | { id: number; name: string })[]
+    }>
+  >(`/microregions?${where}&depth=1&limit=1`)
+  const doc = result.docs[0]
+  if (!doc) return null
+  const mainId = relationId(doc.mainMunicipality)
+  const municipalities = (doc.municipalities ?? [])
+    .filter((m): m is { id: number; name: string } => typeof m === 'object')
+    .map((m) => ({ id: String(m.id), name: m.name }))
+    .sort((a, b) =>
+      a.id === mainId ? -1 : b.id === mainId ? 1 : a.name.localeCompare(b.name, 'cs'),
+    )
+  return { id: String(doc.id), name: doc.name, main_municipality_id: mainId, municipalities }
 }
 
 /** Upcoming (not cancelled) events for some municipalities — an obec and its mikroregion — or, with
@@ -257,75 +317,83 @@ export async function getRegionMunicipalityIds(municipalityId: string): Promise<
 export async function getUpcomingEvents(municipalityIds: string[] | null): Promise<EventRow[]> {
   const where = buildWhereParams({
     ...(municipalityIds ? { municipality: { in: municipalityIds } } : {}),
-    status: { not_equals: "cancelled" },
+    status: { not_equals: 'cancelled' },
     isDraft: { not_equals: true },
     dateTime: { greater_than: new Date().toISOString() },
-  });
-  const query = buildQuery({ sort: "dateTime", depth: 1, limit: 200 });
-  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
-  return result.docs.map(mapEvent);
+  })
+  const query = buildQuery({ sort: 'dateTime', depth: 1, limit: 200 })
+  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`)
+  return result.docs.map(mapEvent)
 }
 
 /** Events this user organizes (any status/date) — "Moje akce" needs these alongside their
  * registrations, since creating an event doesn't register the organizer as an attendee. */
 /** Events the user runs or co-organizes — and, for an obec's admin, every event the obec runs or
  * co-organizes: once the obec agrees to co-organize, the event is the obec's as much as the pořadatel's. */
-export async function getMyOrganizedEvents(userId: string, administeredMunicipalityIds: string[] = []): Promise<EventRow[]> {
-  const params = new URLSearchParams({ "where[or][0][organizer][equals]": userId, "where[or][1][coOrganizers][contains]": userId });
+export async function getMyOrganizedEvents(
+  userId: string,
+  administeredMunicipalityIds: string[] = [],
+): Promise<EventRow[]> {
+  const params = new URLSearchParams({
+    'where[or][0][organizer][equals]': userId,
+    'where[or][1][coOrganizers][contains]': userId,
+  })
   if (administeredMunicipalityIds.length > 0) {
     const obecWhere = buildWhereParams({
       type: { equals: MUNICIPALITY_ORGANIZATION_TYPE },
       municipality: { in: administeredMunicipalityIds },
-    });
-    const obecOrganizations = await get<PayloadListResponse<{ id: number }>>(`/organizations?${obecWhere}&depth=0&limit=100`);
+    })
+    const obecOrganizations = await get<PayloadListResponse<{ id: number }>>(
+      `/organizations?${obecWhere}&depth=0&limit=100`,
+    )
     for (const o of obecOrganizations.docs) {
-      params.append("where[or][2][organization][in][]", String(o.id));
-      params.append("where[or][3][coOrganizations][in][]", String(o.id));
+      params.append('where[or][2][organization][in][]', String(o.id))
+      params.append('where[or][3][coOrganizations][in][]', String(o.id))
     }
   }
-  const where = params.toString();
-  const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 200 });
-  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`);
-  return result.docs.map(mapEvent);
+  const where = params.toString()
+  const query = buildQuery({ sort: '-dateTime', depth: 1, limit: 200 })
+  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`)
+  return result.docs.map(mapEvent)
 }
 
 export async function getEvent(id: string): Promise<EventRow | null> {
   try {
-    const doc = await get<PayloadEvent>(`/events/${id}?depth=1`);
-    return mapEvent(doc);
+    const doc = await get<PayloadEvent>(`/events/${id}?depth=1`)
+    return mapEvent(doc)
   } catch {
-    return null;
+    return null
   }
 }
 
 type CreateEventInput = {
-  title: string;
-  description: string;
-  dateTimeIso: string;
-  endDateTimeIso?: string;
-  locationText: string;
-  lat: number;
-  lng: number;
-  accessibilityTags?: string[];
-  capacity: number;
-  registrationApprovalMode?: "auto" | "manual";
-  organizerUserId: string;
-  municipalityId: string;
-  coOrganizationIds?: string[];
-  categoryIds: string[];
-  imageId?: string;
+  title: string
+  description: string
+  dateTimeIso: string
+  endDateTimeIso?: string
+  locationText: string
+  lat: number
+  lng: number
+  accessibilityTags?: string[]
+  capacity: number
+  registrationApprovalMode?: 'auto' | 'manual'
+  organizerUserId: string
+  municipalityId: string
+  coOrganizationIds?: string[]
+  categoryIds: string[]
+  imageId?: string
   /** Framing of the photo in the 16:10 crop (object-position percentages); centred when omitted. */
-  imagePositionX?: number;
-  imagePositionY?: number;
-  isVolunteering?: boolean;
-  isPaid?: boolean;
-  priceCents?: number;
+  imagePositionX?: number
+  imagePositionY?: number
+  isVolunteering?: boolean
+  isPaid?: boolean
+  priceCents?: number
   /** Saved as a draft — published later (Events isDraft). */
-  isDraft?: boolean;
-};
+  isDraft?: boolean
+}
 
 export async function createEvent(input: CreateEventInput): Promise<EventRow> {
-  const doc = await post<PayloadEvent>("/events", {
+  const doc = await post<PayloadEvent>('/events', {
     title: input.title,
     description: input.description,
     dateTime: input.dateTimeIso,
@@ -335,171 +403,206 @@ export async function createEvent(input: CreateEventInput): Promise<EventRow> {
     lng: input.lng,
     accessibilityTags: input.accessibilityTags ?? [],
     capacity: input.capacity,
-    registrationApprovalMode: input.registrationApprovalMode ?? "manual",
+    registrationApprovalMode: input.registrationApprovalMode ?? 'manual',
     organizer: Number(input.organizerUserId),
     municipality: Number(input.municipalityId),
-    coOrganizations: input.coOrganizationIds?.length ? input.coOrganizationIds.map(Number) : undefined,
+    coOrganizations: input.coOrganizationIds?.length
+      ? input.coOrganizationIds.map(Number)
+      : undefined,
     categories: input.categoryIds.map(Number),
     image: input.imageId ? Number(input.imageId) : undefined,
     imagePositionX: input.imagePositionX ?? 50,
     imagePositionY: input.imagePositionY ?? 50,
-    status: "active",
+    status: 'active',
     isPaid: input.isPaid ?? false,
     priceCents: input.isPaid ? input.priceCents : undefined,
     isVolunteering: input.isVolunteering ?? false,
     isDraft: input.isDraft ?? false,
-  });
-  return mapEvent(doc);
+  })
+  return mapEvent(doc)
 }
 
-export async function updateEvent(eventId: string, data: Record<string, unknown>): Promise<EventRow> {
-  const doc = await patch<PayloadEvent>(`/events/${eventId}`, data);
-  return mapEvent(doc);
+export async function updateEvent(
+  eventId: string,
+  data: Record<string, unknown>,
+): Promise<EventRow> {
+  const doc = await patch<PayloadEvent>(`/events/${eventId}`, data)
+  return mapEvent(doc)
 }
 
 // --- Registrations ----------------------------------------------------------------------
 
-export type RegistrationRole = "participant" | "volunteer";
+export type RegistrationRole = 'participant' | 'volunteer'
 
 export type RegistrationRow = {
-  id: string;
-  event_id: string;
-  user_id: string;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  id: string
+  event_id: string
+  user_id: string
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled'
   /** A volunteer helps run the event (an accepted invitation from the pool) — not a participant. */
-  role: RegistrationRole;
-};
+  role: RegistrationRole
+}
 
-export type AttendanceStatus = "not_marked" | "attended" | "no_show" | "excused";
+export type AttendanceStatus = 'not_marked' | 'attended' | 'no_show' | 'excused'
 
 type PayloadRegistration = {
-  id: number;
-  event: number | { id: number };
-  user: number | { id: number };
-  status: RegistrationRow["status"];
-  role?: RegistrationRole | null;
-  attendanceStatus?: AttendanceStatus;
-  excuseMessage?: string | null;
-};
+  id: number
+  event: number | { id: number }
+  user: number | { id: number }
+  status: RegistrationRow['status']
+  role?: RegistrationRole | null
+  attendanceStatus?: AttendanceStatus
+  excuseMessage?: string | null
+}
 
 const mapRegistration = (r: PayloadRegistration): RegistrationRow => ({
   id: String(r.id),
   event_id: relationId(r.event)!,
   user_id: relationId(r.user)!,
   status: r.status,
-  role: r.role ?? "participant",
-});
+  role: r.role ?? 'participant',
+})
 
-export type RegistrationCountRow = { approved: number; pending: number };
+export type RegistrationCountRow = { approved: number; pending: number }
 
 /** Approved/pending counts per event from the public counts route — registrations themselves are
  * only readable by the organizer and the obec's admin, so counts can't be derived from them here. */
-export async function getRegistrationCounts(eventIds: string[]): Promise<Map<string, RegistrationCountRow>> {
-  const counts = new Map<string, RegistrationCountRow>();
-  if (eventIds.length === 0) return counts;
-  const params = new URLSearchParams();
-  eventIds.forEach((id) => params.append("event", id));
-  const result = await get<{ counts: Record<string, RegistrationCountRow> }>(`/events/registration-counts?${params}`);
-  for (const [eventId, row] of Object.entries(result.counts)) counts.set(eventId, row);
-  return counts;
+export async function getRegistrationCounts(
+  eventIds: string[],
+): Promise<Map<string, RegistrationCountRow>> {
+  const counts = new Map<string, RegistrationCountRow>()
+  if (eventIds.length === 0) return counts
+  const params = new URLSearchParams()
+  eventIds.forEach((id) => params.append('event', id))
+  const result = await get<{ counts: Record<string, RegistrationCountRow> }>(
+    `/events/registration-counts?${params}`,
+  )
+  for (const [eventId, row] of Object.entries(result.counts)) counts.set(eventId, row)
+  return counts
 }
 
 /** Counts of pending+approved registrations, grouped by event_id — for capacity display. */
-export async function getActiveRegistrationCountsByEvent(eventIds: string[]): Promise<Map<string, number>> {
-  const counts = await getRegistrationCounts(eventIds);
-  return new Map(Array.from(counts, ([eventId, row]) => [eventId, row.approved + row.pending]));
+export async function getActiveRegistrationCountsByEvent(
+  eventIds: string[],
+): Promise<Map<string, number>> {
+  const counts = await getRegistrationCounts(eventIds)
+  return new Map(Array.from(counts, ([eventId, row]) => [eventId, row.approved + row.pending]))
 }
 
-export async function createRegistration(eventId: string, userId: string): Promise<RegistrationRow> {
+export async function createRegistration(
+  eventId: string,
+  userId: string,
+): Promise<RegistrationRow> {
   // The status is the server's to decide (Registrations) — pending, or approved without approval.
-  const doc = await post<PayloadRegistration>("/registrations", {
+  const doc = await post<PayloadRegistration>('/registrations', {
     event: Number(eventId),
     user: Number(userId),
-  });
-  return mapRegistration(doc);
+  })
+  return mapRegistration(doc)
 }
 
 /** Cancels the viewer's own registration — with an excuse to the organizer while there's still
  * time for one (Registrations guardOwnCancellation, REGISTRATION_CUTOFF_HOURS before the start). */
-export async function cancelRegistration(registrationId: string, excuseMessage?: string): Promise<void> {
-  const excuse = excuseMessage?.trim();
-  await patch(`/registrations/${registrationId}`, excuse ? { status: "cancelled", excuseMessage: excuse } : { status: "cancelled" });
+export async function cancelRegistration(
+  registrationId: string,
+  excuseMessage?: string,
+): Promise<void> {
+  const excuse = excuseMessage?.trim()
+  await patch(
+    `/registrations/${registrationId}`,
+    excuse ? { status: 'cancelled', excuseMessage: excuse } : { status: 'cancelled' },
+  )
 }
 
-export type OrganizerContact = { name: string | null; email: string | null; phone: string | null };
+export type OrganizerContact = { name: string | null; email: string | null; phone: string | null }
 
 /** How to reach the event's pořadatel — only for someone signed up for it (/api/events/:id/organizer-contact). */
 export async function getOrganizerContact(eventId: string): Promise<OrganizerContact> {
-  return get<OrganizerContact>(`/events/${eventId}/organizer-contact`);
+  return get<OrganizerContact>(`/events/${eventId}/organizer-contact`)
 }
 
 export async function updateRegistrationStatus(
   registrationId: string,
-  status: RegistrationRow["status"],
+  status: RegistrationRow['status'],
 ): Promise<void> {
-  await patch(`/registrations/${registrationId}`, { status });
+  await patch(`/registrations/${registrationId}`, { status })
 }
 
-type PayloadCategoryPopulated = { id: number; name: string; icon?: string | null; color?: string | null };
-type PayloadEventWithCategory = PayloadEvent & { categories?: (number | PayloadCategoryPopulated)[] | null };
+type PayloadCategoryPopulated = {
+  id: number
+  name: string
+  icon?: string | null
+  color?: string | null
+}
+type PayloadEventWithCategory = PayloadEvent & {
+  categories?: (number | PayloadCategoryPopulated)[] | null
+}
 type PayloadRegistrationWithEvent = {
-  id: number;
-  status: RegistrationRow["status"];
-  attendanceStatus?: AttendanceStatus;
-  role?: RegistrationRole | null;
-  event: PayloadEventWithCategory | null;
-};
+  id: number
+  status: RegistrationRow['status']
+  attendanceStatus?: AttendanceStatus
+  role?: RegistrationRole | null
+  event: PayloadEventWithCategory | null
+}
 
 export type RegistrationWithEventRow = {
-  id: string;
-  status: RegistrationRow["status"];
-  attendance_status: AttendanceStatus;
-  role: RegistrationRole;
-  events: (EventRow & { categories: CategoryRow[] }) | null;
-};
+  id: string
+  status: RegistrationRow['status']
+  attendance_status: AttendanceStatus
+  role: RegistrationRole
+  events: (EventRow & { categories: CategoryRow[] }) | null
+}
 
 /** For MyEvents.tsx — this user's registrations, with the event (and its categories) populated. */
-export async function getMyRegistrationsWithEvents(userId: string): Promise<RegistrationWithEventRow[]> {
-  const where = buildWhereParams({ user: { equals: userId } });
-  const query = buildQuery({ depth: 2, limit: 200 });
+export async function getMyRegistrationsWithEvents(
+  userId: string,
+): Promise<RegistrationWithEventRow[]> {
+  const where = buildWhereParams({ user: { equals: userId } })
+  const query = buildQuery({ depth: 2, limit: 200 })
   const result = await get<PayloadListResponse<PayloadRegistrationWithEvent>>(
     `/registrations?${where}&${query}`,
-  );
+  )
 
   return result.docs.map((r) => {
-    const attendance_status = r.attendanceStatus ?? "not_marked";
-    const role = r.role ?? "participant";
-    if (!r.event || typeof r.event !== "object")
-      return { id: String(r.id), status: r.status, attendance_status, role, events: null };
-    const event = mapEvent(r.event);
+    const attendance_status = r.attendanceStatus ?? 'not_marked'
+    const role = r.role ?? 'participant'
+    if (!r.event || typeof r.event !== 'object')
+      return { id: String(r.id), status: r.status, attendance_status, role, events: null }
+    const event = mapEvent(r.event)
     const categories: CategoryRow[] = (r.event.categories ?? [])
-      .filter((c): c is PayloadCategoryPopulated => typeof c === "object" && "name" in c)
-      .map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? "", color: c.color ?? "" }));
-    return { id: String(r.id), status: r.status, attendance_status, role, events: { ...event, categories } };
-  });
+      .filter((c): c is PayloadCategoryPopulated => typeof c === 'object' && 'name' in c)
+      .map((c) => ({ id: String(c.id), name: c.name, icon: c.icon ?? '', color: c.color ?? '' }))
+    return {
+      id: String(r.id),
+      status: r.status,
+      attendance_status,
+      role,
+      events: { ...event, categories },
+    }
+  })
 }
 
 // --- Event feedback -------------------------------------------------------------------
 
 export type EventFeedbackRow = {
-  id: string;
-  registration_id: string;
-  satisfaction_rating: number;
-  felt_welcome_rating: number | null;
-  met_someone_new: boolean;
-  came_alone: boolean;
-  comment: string | null;
-};
+  id: string
+  registration_id: string
+  satisfaction_rating: number
+  felt_welcome_rating: number | null
+  met_someone_new: boolean
+  came_alone: boolean
+  comment: string | null
+}
 
 type PayloadEventFeedback = {
-  id: number;
-  registration: number | { id: number };
-  satisfactionRating: number;
-  feltWelcomeRating?: number | null;
-  metSomeoneNew?: boolean | null;
-  cameAlone?: boolean | null;
-  comment?: string | null;
-};
+  id: number
+  registration: number | { id: number }
+  satisfactionRating: number
+  feltWelcomeRating?: number | null
+  metSomeoneNew?: boolean | null
+  cameAlone?: boolean | null
+  comment?: string | null
+}
 
 const mapEventFeedback = (f: PayloadEventFeedback): EventFeedbackRow => ({
   id: String(f.id),
@@ -509,76 +612,91 @@ const mapEventFeedback = (f: PayloadEventFeedback): EventFeedbackRow => ({
   met_someone_new: Boolean(f.metSomeoneNew),
   came_alone: Boolean(f.cameAlone),
   comment: f.comment ?? null,
-});
+})
 
 /** Feedback already left for any of the given registrations, keyed by registration id — for
  * deciding which past attended events still need a feedback prompt. */
-export async function getMyFeedbackForRegistrations(registrationIds: string[]): Promise<Map<string, EventFeedbackRow>> {
-  const byRegistration = new Map<string, EventFeedbackRow>();
-  if (registrationIds.length === 0) return byRegistration;
-  const where = buildWhereParams({ registration: { in: registrationIds } });
-  const result = await get<PayloadListResponse<PayloadEventFeedback>>(`/event-feedback?${where}&depth=0&limit=500`);
+export async function getMyFeedbackForRegistrations(
+  registrationIds: string[],
+): Promise<Map<string, EventFeedbackRow>> {
+  const byRegistration = new Map<string, EventFeedbackRow>()
+  if (registrationIds.length === 0) return byRegistration
+  const where = buildWhereParams({ registration: { in: registrationIds } })
+  const result = await get<PayloadListResponse<PayloadEventFeedback>>(
+    `/event-feedback?${where}&depth=0&limit=500`,
+  )
   for (const doc of result.docs) {
-    const row = mapEventFeedback(doc);
-    byRegistration.set(row.registration_id, row);
+    const row = mapEventFeedback(doc)
+    byRegistration.set(row.registration_id, row)
   }
-  return byRegistration;
+  return byRegistration
 }
 
 export async function submitEventFeedback(input: {
-  registrationId: string;
-  satisfactionRating: number;
-  feltWelcomeRating?: number;
-  metSomeoneNew?: boolean;
-  cameAlone?: boolean;
-  comment?: string;
+  registrationId: string
+  satisfactionRating: number
+  feltWelcomeRating?: number
+  metSomeoneNew?: boolean
+  cameAlone?: boolean
+  comment?: string
 }): Promise<EventFeedbackRow> {
-  const doc = await post<PayloadEventFeedback>("/event-feedback", {
+  const doc = await post<PayloadEventFeedback>('/event-feedback', {
     registration: Number(input.registrationId),
     satisfactionRating: input.satisfactionRating,
     feltWelcomeRating: input.feltWelcomeRating,
     metSomeoneNew: input.metSomeoneNew ?? false,
     cameAlone: input.cameAlone ?? false,
     comment: input.comment || undefined,
-  });
-  return mapEventFeedback(doc);
+  })
+  return mapEventFeedback(doc)
 }
 
 /** For EventDetail.tsx — pending+approved registrations for one event, with each participant's name. */
 export async function getEventRegistrationsWithNames(
   eventId: string,
-): Promise<{ id: string; user_id: string; status: string; role: RegistrationRole; full_name: string; avatar_url: string | null }[]> {
+): Promise<
+  {
+    id: string
+    user_id: string
+    status: string
+    role: RegistrationRole
+    full_name: string
+    avatar_url: string | null
+  }[]
+> {
   const where = buildWhereParams({
     event: { equals: eventId },
-    status: { in: ["pending", "approved"] },
-  });
+    status: { in: ['pending', 'approved'] },
+  })
   const result = await get<PayloadListResponse<PayloadRegistration>>(
     `/registrations?${where}&depth=0&limit=500`,
-  );
+  )
 
-  const userIds = Array.from(new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))));
-  const nameById = new Map<string, string>();
-  let avatarByUser = new Map<string, string>();
+  const userIds = Array.from(
+    new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))),
+  )
+  const nameById = new Map<string, string>()
+  let avatarByUser = new Map<string, string>()
   if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profileWhere = buildWhereParams({ user: { in: userIds } })
     const profiles = await get<PayloadListResponse<PayloadProfile>>(
       `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
+    )
     for (const p of profiles.docs) {
-      const uid = relationId(p.user);
-      if (uid) nameById.set(uid, p.fullName);
+      const uid = relationId(p.user)
+      if (uid) nameById.set(uid, p.fullName)
     }
-    avatarByUser = await getAvatarUrlsByUser(profiles.docs);
+    avatarByUser = await getAvatarUrlsByUser(profiles.docs)
   }
 
   return result.docs.map((r) => ({
     id: String(r.id),
     user_id: relationId(r.user)!,
     status: r.status,
-    role: r.role ?? "participant",
-    full_name: nameById.get(relationId(r.user) ?? "") ?? "Účastník",
-    avatar_url: avatarByUser.get(relationId(r.user) ?? "") ?? null,
-  }));
+    role: r.role ?? 'participant',
+    full_name: nameById.get(relationId(r.user) ?? '') ?? 'Účastník',
+    avatar_url: avatarByUser.get(relationId(r.user) ?? '') ?? null,
+  }))
 }
 
 /** Whoever runs the event turned this user down or took them off it — for good: signing up again
@@ -587,158 +705,173 @@ export async function wasTurnedAwayFromEvent(eventId: string, userId: string): P
   const where = buildWhereParams({
     event: { equals: eventId },
     user: { equals: userId },
-    status: { equals: "rejected" },
-  });
-  const result = await get<PayloadListResponse<PayloadRegistration>>(`/registrations?${where}&depth=0&limit=1`);
-  return result.docs.length > 0;
+    status: { equals: 'rejected' },
+  })
+  const result = await get<PayloadListResponse<PayloadRegistration>>(
+    `/registrations?${where}&depth=0&limit=1`,
+  )
+  return result.docs.length > 0
 }
 
 export async function getOrganizerName(userId: string): Promise<string | null> {
-  const where = buildWhereParams({ user: { equals: userId } });
-  const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&limit=1&depth=0`);
-  return result.docs[0]?.fullName ?? null;
+  const where = buildWhereParams({ user: { equals: userId } })
+  const result = await get<PayloadListResponse<PayloadProfile>>(
+    `/profiles?${where}&limit=1&depth=0`,
+  )
+  return result.docs[0]?.fullName ?? null
 }
 
 export type ManageRegistrationRow = {
-  id: string;
-  status: RegistrationRow["status"];
-  role: RegistrationRole;
-  attendance_status: AttendanceStatus;
-  user_id: string;
-  full_name: string;
-  phone: string | null;
-  avatar_url: string | null;
+  id: string
+  status: RegistrationRow['status']
+  role: RegistrationRole
+  attendance_status: AttendanceStatus
+  user_id: string
+  full_name: string
+  phone: string | null
+  avatar_url: string | null
   /** The registrant's excuse, sent with cancelling their registration. */
-  excuse_message: string | null;
-};
+  excuse_message: string | null
+}
 
 /** For ManageEvent.tsx — every registration for one event (any status), with name+phone. */
-export async function getEventRegistrationsForManage(eventId: string): Promise<ManageRegistrationRow[]> {
-  const where = buildWhereParams({ event: { equals: eventId } });
+export async function getEventRegistrationsForManage(
+  eventId: string,
+): Promise<ManageRegistrationRow[]> {
+  const where = buildWhereParams({ event: { equals: eventId } })
   const result = await get<PayloadListResponse<PayloadRegistration>>(
     `/registrations?${where}&depth=0&limit=500&sort=createdAt`,
-  );
+  )
 
-  const userIds = Array.from(new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))));
-  const infoById = new Map<string, { fullName: string; phone: string | null }>();
-  let avatarByUser = new Map<string, string>();
+  const userIds = Array.from(
+    new Set(result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))),
+  )
+  const infoById = new Map<string, { fullName: string; phone: string | null }>()
+  let avatarByUser = new Map<string, string>()
   if (userIds.length) {
-    const profileWhere = buildWhereParams({ user: { in: userIds } });
+    const profileWhere = buildWhereParams({ user: { in: userIds } })
     const profiles = await get<PayloadListResponse<PayloadProfile>>(
       `/profiles?${profileWhere}&depth=0&limit=500`,
-    );
+    )
     for (const p of profiles.docs) {
-      const uid = relationId(p.user);
-      if (uid) infoById.set(uid, { fullName: p.fullName, phone: p.phone ?? null });
+      const uid = relationId(p.user)
+      if (uid) infoById.set(uid, { fullName: p.fullName, phone: p.phone ?? null })
     }
-    avatarByUser = await getAvatarUrlsByUser(profiles.docs);
+    avatarByUser = await getAvatarUrlsByUser(profiles.docs)
   }
 
   return result.docs.map((r) => {
-    const uid = relationId(r.user)!;
-    const info = infoById.get(uid);
+    const uid = relationId(r.user)!
+    const info = infoById.get(uid)
     return {
       id: String(r.id),
       status: r.status,
-      role: r.role ?? "participant",
-      attendance_status: r.attendanceStatus ?? "not_marked",
+      role: r.role ?? 'participant',
+      attendance_status: r.attendanceStatus ?? 'not_marked',
       user_id: uid,
-      full_name: info?.fullName ?? "Účastník",
+      full_name: info?.fullName ?? 'Účastník',
       phone: info?.phone ?? null,
       avatar_url: avatarByUser.get(uid) ?? null,
       excuse_message: r.excuseMessage ?? null,
-    };
-  });
+    }
+  })
 }
 
 /** The event's pořadatel marks what actually happened, on the manage-event page — once, for good;
  * an admin of the obec may correct a participant's later. Who marked it and when the server sets
  * itself (Registrations lockAttendanceOnceMarked). */
-export async function updateAttendance(registrationId: string, attendanceStatus: AttendanceStatus): Promise<void> {
-  await patch(`/registrations/${registrationId}`, { attendanceStatus });
+export async function updateAttendance(
+  registrationId: string,
+  attendanceStatus: AttendanceStatus,
+): Promise<void> {
+  await patch(`/registrations/${registrationId}`, { attendanceStatus })
 }
 
 /** For the manage-event page — how reliably each participant signed up turns up, by user id
  * (/api/events/:id/reliability, only for whoever runs the event). */
-export async function getEventReliability(eventId: string): Promise<Map<string, ReliabilityRecord>> {
-  const records = await get<Record<string, ReliabilityRecord>>(`/events/${eventId}/reliability`);
-  return new Map(Object.entries(records));
+export async function getEventReliability(
+  eventId: string,
+): Promise<Map<string, ReliabilityRecord>> {
+  const records = await get<Record<string, ReliabilityRecord>>(`/events/${eventId}/reliability`)
+  return new Map(Object.entries(records))
 }
 
 /** The viewer's own reliability — their profile's "Vaše docházka" (/api/account/reliability). */
 export async function getMyReliability(): Promise<ReliabilityRecord> {
-  return get<ReliabilityRecord>("/account/reliability");
+  return get<ReliabilityRecord>('/account/reliability')
 }
 
 // --- Profiles -----------------------------------------------------------------------
 
 export type ProfileRow = {
-  id: string;
-  full_name: string;
-  avatar_url: string | null;
-  phone: string | null;
-  notify_email: boolean;
-  notify_in_app: boolean;
-  municipality_id: string | null;
-  onboarding_completed: boolean;
-  date_of_birth: string | null;
-  gender: string | null;
-  interests: string[] | null;
-  is_volunteer: boolean;
-  volunteer_focus: string[] | null;
-  volunteer_note: string | null;
-  volunteer_since: string | null;
-  volunteer_allow_email: boolean;
-  volunteer_contact_email: string | null;
-  volunteer_allow_phone: boolean;
-  volunteer_contact_phone: string | null;
+  id: string
+  full_name: string
+  avatar_url: string | null
+  phone: string | null
+  notify_email: boolean
+  notify_in_app: boolean
+  municipality_id: string | null
+  onboarding_completed: boolean
+  date_of_birth: string | null
+  gender: string | null
+  interests: string[] | null
+  is_volunteer: boolean
+  volunteer_focus: string[] | null
+  volunteer_note: string | null
+  volunteer_since: string | null
+  volunteer_allow_email: boolean
+  volunteer_contact_email: string | null
+  volunteer_allow_phone: boolean
+  volunteer_contact_phone: string | null
   /** Where they help as a volunteer — the obec that puts them on the volunteer map. */
-  volunteer_municipality_id: string | null;
-};
+  volunteer_municipality_id: string | null
+}
 
 type PayloadProfile = {
-  id: number;
-  user: number | { id: number };
-  fullName: string;
-  avatar?: number | PayloadMedia | null;
-  phone?: string | null;
-  notifyEmail?: boolean;
-  notifyInApp?: boolean;
-  municipality?: number | { id: number } | null;
-  onboardingCompleted?: boolean;
-  dateOfBirth?: string | null;
-  gender?: string | null;
-  interests?: (number | { id: number })[] | null;
-  isVolunteer?: boolean;
-  volunteerFocus?: string[] | null;
-  volunteerNote?: string | null;
-  volunteerSince?: string | null;
-  volunteerAllowEmail?: boolean | null;
-  volunteerContactEmail?: string | null;
-  volunteerAllowPhone?: boolean | null;
-  volunteerContactPhone?: string | null;
-  volunteerMunicipality?: number | { id: number } | null;
-};
+  id: number
+  user: number | { id: number }
+  fullName: string
+  avatar?: number | PayloadMedia | null
+  phone?: string | null
+  notifyEmail?: boolean
+  notifyInApp?: boolean
+  municipality?: number | { id: number } | null
+  onboardingCompleted?: boolean
+  dateOfBirth?: string | null
+  gender?: string | null
+  interests?: (number | { id: number })[] | null
+  isVolunteer?: boolean
+  volunteerFocus?: string[] | null
+  volunteerNote?: string | null
+  volunteerSince?: string | null
+  volunteerAllowEmail?: boolean | null
+  volunteerContactEmail?: string | null
+  volunteerAllowPhone?: boolean | null
+  volunteerContactPhone?: string | null
+  volunteerMunicipality?: number | { id: number } | null
+}
 
 /** The square avatar crop, else the original — a photo smaller than the crop gets no crop. */
 const avatarUrlOf = (media: number | PayloadMedia | null | undefined): string | null =>
-  media && typeof media === "object" ? (media.sizes?.avatar?.url ?? media.url ?? null) : null;
+  media && typeof media === 'object' ? (media.sizes?.avatar?.url ?? media.url ?? null) : null
 
 /** Avatar URL per user id for a batch of depth-0 profiles — one media query instead of
  * populating each profile's relations (which would also drag their user docs along). */
 async function getAvatarUrlsByUser(profiles: PayloadProfile[]): Promise<Map<string, string>> {
-  const urls = new Map<string, string>();
-  const mediaIds = profiles.map((p) => relationId(p.avatar as number | null)).filter((v): v is string => Boolean(v));
-  if (mediaIds.length === 0) return urls;
-  const where = buildWhereParams({ id: { in: mediaIds } });
-  const media = await get<PayloadListResponse<PayloadMedia>>(`/media?${where}&depth=0&limit=500`);
-  const urlByMedia = new Map(media.docs.map((m) => [String(m.id), avatarUrlOf(m)]));
+  const urls = new Map<string, string>()
+  const mediaIds = profiles
+    .map((p) => relationId(p.avatar as number | null))
+    .filter((v): v is string => Boolean(v))
+  if (mediaIds.length === 0) return urls
+  const where = buildWhereParams({ id: { in: mediaIds } })
+  const media = await get<PayloadListResponse<PayloadMedia>>(`/media?${where}&depth=0&limit=500`)
+  const urlByMedia = new Map(media.docs.map((m) => [String(m.id), avatarUrlOf(m)]))
   for (const p of profiles) {
-    const uid = relationId(p.user);
-    const url = urlByMedia.get(relationId(p.avatar as number | null) ?? "");
-    if (uid && url) urls.set(uid, url);
+    const uid = relationId(p.user)
+    const url = urlByMedia.get(relationId(p.avatar as number | null) ?? '')
+    if (uid && url) urls.set(uid, url)
   }
-  return urls;
+  return urls
 }
 
 const mapProfile = (p: PayloadProfile): ProfileRow => ({
@@ -762,299 +895,377 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   volunteer_allow_phone: Boolean(p.volunteerAllowPhone),
   volunteer_contact_phone: p.volunteerContactPhone ?? null,
   volunteer_municipality_id: relationId(p.volunteerMunicipality),
-});
+})
 
 export type VolunteerRow = {
-  id: string;
-  user_id: string;
-  full_name: string;
-  avatar_url: string | null;
+  id: string
+  user_id: string
+  full_name: string
+  avatar_url: string | null
   /** Where they help — the obec that puts them on the volunteer map. */
-  location: { id: string; name: string; lat: number; lng: number } | null;
+  location: { id: string; name: string; lat: number; lng: number } | null
   /** Only the channels the volunteer allowed — null otherwise. */
-  phone: string | null;
-  email: string | null;
-  volunteer_focus: string[] | null;
-  volunteer_note: string | null;
-  volunteer_since: string | null;
+  phone: string | null
+  email: string | null
+  volunteer_focus: string[] | null
+  volunteer_note: string | null
+  volunteer_since: string | null
   /** Their average rating from organizers, once anyone has rated them. */
-  rating: { average: number; count: number } | null;
+  rating: { average: number; count: number } | null
   /** The viewer may take them off the pool (a platform admin, or an admin of the obec they help in). */
-  can_remove: boolean;
-};
+  can_remove: boolean
+}
 
 export type VolunteerDetail = {
-  volunteer: VolunteerRow;
+  volunteer: VolunteerRow
   /** The viewer is the volunteer themselves. */
-  is_self: boolean;
+  is_self: boolean
   ratings: {
-    id: string;
-    rating: number;
-    comment: string | null;
-    event_id: string;
-    event_title: string;
-    rated_by_name: string;
-    created_at: string;
+    id: string
+    rating: number
+    comment: string | null
+    event_id: string
+    event_title: string
+    rated_by_name: string
+    created_at: string
     /** Only ever set for the volunteer themselves — where their complaint about the rating stands. */
-    complaint_status: ReviewComplaintStatus;
-    can_complain: boolean;
-  }[];
-  events: { id: string; title: string; date_time: string; location_text: string | null; upcoming: boolean; attended: boolean }[];
-};
+    complaint_status: ReviewComplaintStatus
+    can_complain: boolean
+    /** A complaint about it is decided by the platform admin (the obec is a party), not the obec. */
+    decided_by_platform: boolean
+  }[]
+  events: {
+    id: string
+    title: string
+    date_time: string
+    location_text: string | null
+    upcoming: boolean
+    attended: boolean
+  }[]
+}
 
 /** A volunteer's card — for the volunteer themselves and anyone who organizes. Null once they've left
  * the pool (the card disappears with it). */
 export async function getVolunteerDetail(userId: string): Promise<VolunteerDetail | null> {
   try {
-    return await get<VolunteerDetail>(`/volunteers/${userId}`);
+    return await get<VolunteerDetail>(`/volunteers/${userId}`)
   } catch (error) {
-    if (error instanceof PayloadApiError && error.status === 404) return null;
-    throw error;
+    if (error instanceof PayloadApiError && error.status === 404) return null
+    throw error
   }
 }
 
-export type VolunteerRatingRow = { id: string; registration_id: string; rating: number; comment: string | null };
+export type VolunteerRatingRow = {
+  id: string
+  registration_id: string
+  rating: number
+  comment: string | null
+}
 
 /** The ratings the pořadatel gave this event's volunteers, by registration. */
-export async function getVolunteerRatingsForEvent(eventId: string): Promise<Map<string, VolunteerRatingRow>> {
-  const where = buildWhereParams({ event: { equals: eventId } });
+export async function getVolunteerRatingsForEvent(
+  eventId: string,
+): Promise<Map<string, VolunteerRatingRow>> {
+  const where = buildWhereParams({ event: { equals: eventId } })
   const result = await get<
-    PayloadListResponse<{ id: number; registration: number | { id: number }; rating: number; comment?: string | null }>
-  >(`/volunteer-ratings?${where}&depth=0&limit=200`);
+    PayloadListResponse<{
+      id: number
+      registration: number | { id: number }
+      rating: number
+      comment?: string | null
+    }>
+  >(`/volunteer-ratings?${where}&depth=0&limit=200`)
   return new Map(
     result.docs.map((r) => [
       relationId(r.registration)!,
-      { id: String(r.id), registration_id: relationId(r.registration)!, rating: r.rating, comment: r.comment ?? null },
+      {
+        id: String(r.id),
+        registration_id: relationId(r.registration)!,
+        rating: r.rating,
+        comment: r.comment ?? null,
+      },
     ]),
-  );
+  )
 }
 
 /** Rates a volunteer who helped on the event — once, for good. */
-export async function rateVolunteer(registrationId: string, rating: number, comment: string): Promise<void> {
-  await post("/volunteer-ratings", { registration: Number(registrationId), rating, comment: comment.trim() || undefined });
+export async function rateVolunteer(
+  registrationId: string,
+  rating: number,
+  comment: string,
+): Promise<void> {
+  await post('/volunteer-ratings', {
+    registration: Number(registrationId),
+    rating,
+    comment: comment.trim() || undefined,
+  })
 }
 
 /** The whole platform's volunteer pool, for whoever organizes anywhere — through the scoped
  * /admin/volunteers endpoint, since the volunteer fields on a profile are the volunteer's own. */
 export async function getVolunteers(): Promise<VolunteerRow[]> {
-  const result = await get<{ docs: VolunteerRow[] }>("/admin/volunteers");
-  return result.docs;
+  const result = await get<{ docs: VolunteerRow[] }>('/admin/volunteers')
+  return result.docs
 }
 
 /** Takes someone off the pool (misuse, or they asked by phone) — joining is only ever their own. */
 export async function removeVolunteer(userId: string): Promise<void> {
-  await post("/admin/volunteers", { userId: Number(userId), isVolunteer: false });
+  await post('/admin/volunteers', { userId: Number(userId), isVolunteer: false })
 }
 
 // --- Invitations into the volunteer pool (PoolInvitations) ------------------------------------
 
-export type PoolInvitationStatus = "pending" | "accepted" | "declined" | "withdrawn";
+export type PoolInvitationStatus = 'pending' | 'accepted' | 'declined' | 'withdrawn'
 
 export type PoolInvitationAdminRow = {
-  id: string;
-  user_id: string;
-  full_name: string;
-  status: PoolInvitationStatus;
-  created_at: string;
-};
+  id: string
+  user_id: string
+  full_name: string
+  status: PoolInvitationStatus
+  created_at: string
+}
 
 /** For the obec's admin: residents matching `q` who could be invited, and the obec's invitations. */
 export async function getPoolInvitationsForAdmin(
   municipalityId: string,
-  q = "",
-): Promise<{ candidates: { user_id: string; full_name: string }[]; invitations: PoolInvitationAdminRow[] }> {
-  const params = new URLSearchParams({ municipality: municipalityId, q });
-  return get(`/admin/pool-invitations?${params}`);
+  q = '',
+): Promise<{
+  candidates: { user_id: string; full_name: string }[]
+  invitations: PoolInvitationAdminRow[]
+}> {
+  const params = new URLSearchParams({ municipality: municipalityId, q })
+  return get(`/admin/pool-invitations?${params}`)
 }
 
-export async function inviteIntoPool(userId: string, municipalityId: string, message: string): Promise<void> {
-  await post("/pool-invitations", {
+export async function inviteIntoPool(
+  userId: string,
+  municipalityId: string,
+  message: string,
+): Promise<void> {
+  await post('/pool-invitations', {
     user: Number(userId),
     municipality: Number(municipalityId),
     message: message.trim() || null,
-  });
+  })
 }
 
 export async function withdrawPoolInvitation(id: string): Promise<void> {
-  await patch(`/pool-invitations/${id}`, { status: "withdrawn" });
+  await patch(`/pool-invitations/${id}`, { status: 'withdrawn' })
 }
 
 export type MyPoolInvitationRow = {
-  id: string;
-  municipality_id: string;
-  municipality_name: string;
-  message: string | null;
-};
+  id: string
+  municipality_id: string
+  municipality_name: string
+  message: string | null
+}
 
 type PayloadPoolInvitation = {
-  id: number;
-  municipality: number | { id: number; name: string };
-  message?: string | null;
-};
+  id: number
+  municipality: number | { id: number; name: string }
+  message?: string | null
+}
 
 /** Invitations into the pool still waiting for this user's answer. */
 export async function getMyPoolInvitations(userId: string): Promise<MyPoolInvitationRow[]> {
-  const where = buildWhereParams({ user: { equals: userId }, status: { equals: "pending" } });
-  const result = await get<PayloadListResponse<PayloadPoolInvitation>>(`/pool-invitations?${where}&depth=1&limit=20`);
+  const where = buildWhereParams({ user: { equals: userId }, status: { equals: 'pending' } })
+  const result = await get<PayloadListResponse<PayloadPoolInvitation>>(
+    `/pool-invitations?${where}&depth=1&limit=20`,
+  )
   return result.docs.map((i) => ({
     id: String(i.id),
-    municipality_id: relationId(i.municipality) ?? "",
-    municipality_name: typeof i.municipality === "object" ? i.municipality.name : "",
+    municipality_id: relationId(i.municipality) ?? '',
+    municipality_name: typeof i.municipality === 'object' ? i.municipality.name : '',
     message: i.message ?? null,
-  }));
+  }))
 }
 
 /** Accepting is joining the pool (the profile's volunteer form) — this only says no. */
 export async function declinePoolInvitation(id: string): Promise<void> {
-  await patch(`/pool-invitations/${id}`, { status: "declined" });
+  await patch(`/pool-invitations/${id}`, { status: 'declined' })
 }
 
 // --- Volunteer invitations --------------------------------------------------------------------
 
 /** Asks a volunteer from the pool to help run the event — they're on it once they accept. */
-export async function inviteVolunteer(eventId: string, volunteerUserId: string, message: string): Promise<void> {
-  await post("/volunteer-invitations", {
+export async function inviteVolunteer(
+  eventId: string,
+  volunteerUserId: string,
+  message: string,
+): Promise<void> {
+  await post('/volunteer-invitations', {
     event: Number(eventId),
     volunteer: Number(volunteerUserId),
     message: message.trim() || undefined,
-  });
+  })
 }
 
 export type VolunteerInvitationRow = {
-  id: string;
-  event_id: string;
-  event_title: string;
-  event_date_time: string | null;
-  event_location: string | null;
-  invited_by_name: string;
-  message: string | null;
-};
+  id: string
+  event_id: string
+  event_title: string
+  event_date_time: string | null
+  event_location: string | null
+  invited_by_name: string
+  message: string | null
+}
 
 type PayloadVolunteerInvitation = {
-  id: number;
-  event: number | { id: number; dateTime: string; locationText?: string | null } | null;
-  eventTitle: string;
-  invitedBy: number | { id: number };
-  message?: string | null;
-};
+  id: number
+  event: number | { id: number; dateTime: string; locationText?: string | null } | null
+  eventTitle: string
+  invitedBy: number | { id: number }
+  message?: string | null
+}
 
 /** The volunteer's own invitations still waiting for their answer, soonest event first. */
 export async function getMyVolunteerInvitations(userId: string): Promise<VolunteerInvitationRow[]> {
   // Only invitations — the volunteer's own offers to help are the creator's to answer.
   const where = buildWhereParams({
     volunteer: { equals: userId },
-    status: { equals: "pending" },
-    kind: { equals: "invitation" },
-  });
+    status: { equals: 'pending' },
+    kind: { equals: 'invitation' },
+  })
   const result = await get<PayloadListResponse<PayloadVolunteerInvitation>>(
     `/volunteer-invitations?${where}&depth=1&limit=100`,
-  );
-  const names = await getFullNamesByUserIds(
-    [...new Set(result.docs.map((r) => relationId(r.invitedBy)).filter((v): v is string => Boolean(v)))],
-  );
+  )
+  const names = await getFullNamesByUserIds([
+    ...new Set(
+      result.docs.map((r) => relationId(r.invitedBy)).filter((v): v is string => Boolean(v)),
+    ),
+  ])
   return result.docs
     .map((r) => {
-      const event = typeof r.event === "object" ? r.event : null;
+      const event = typeof r.event === 'object' ? r.event : null
       return {
         id: String(r.id),
-        event_id: relationId(r.event) ?? "",
+        event_id: relationId(r.event) ?? '',
         event_title: r.eventTitle,
         event_date_time: event?.dateTime ?? null,
         event_location: event?.locationText ?? null,
-        invited_by_name: names.get(relationId(r.invitedBy) ?? "") ?? "Pořadatel",
+        invited_by_name: names.get(relationId(r.invitedBy) ?? '') ?? 'Pořadatel',
         message: r.message ?? null,
-      };
+      }
     })
     .filter((r) => !r.event_date_time || new Date(r.event_date_time).getTime() > Date.now())
-    .sort((a, b) => (a.event_date_time ?? "").localeCompare(b.event_date_time ?? ""));
+    .sort((a, b) => (a.event_date_time ?? '').localeCompare(b.event_date_time ?? ''))
 }
 
 /** Accepting puts the volunteer on the event (VolunteerInvitations applyDecision). */
-export async function decideVolunteerInvitation(invitationId: string, accept: boolean): Promise<void> {
-  await patch(`/volunteer-invitations/${invitationId}`, { status: accept ? "accepted" : "declined" });
+export async function decideVolunteerInvitation(
+  invitationId: string,
+  accept: boolean,
+): Promise<void> {
+  await patch(`/volunteer-invitations/${invitationId}`, {
+    status: accept ? 'accepted' : 'declined',
+  })
 }
 
 // --- Offering to help as a volunteer (VolunteerInvitations kind "application") ----------------
 
 /** Someone from the pool offers to help on an event flagged as volunteering — its creator answers. */
 export async function offerVolunteerHelp(eventId: string, message: string): Promise<void> {
-  await post("/volunteer-invitations", {
-    kind: "application",
+  await post('/volunteer-invitations', {
+    kind: 'application',
     event: Number(eventId),
     message: message.trim() || undefined,
-  });
+  })
 }
 
 /** The volunteer takes back an offer the creator hasn't answered yet. */
 export async function withdrawVolunteerOffer(applicationId: string): Promise<void> {
-  await patch(`/volunteer-invitations/${applicationId}`, { status: "withdrawn" });
+  await patch(`/volunteer-invitations/${applicationId}`, { status: 'withdrawn' })
 }
 
 export type MyVolunteerRequest = {
-  id: string;
+  id: string
   /** "invitation": the creator asked them; "application": they offered to help. */
-  kind: "invitation" | "application";
-  status: "pending" | "accepted" | "declined" | "withdrawn";
-  message: string | null;
-};
+  kind: 'invitation' | 'application'
+  status: 'pending' | 'accepted' | 'declined' | 'withdrawn'
+  message: string | null
+}
 
 /** What stands between the viewer and helping on the event — a pending invitation or offer, or (so
  * they aren't left guessing) the creator having turned their last offer down. Null when nothing. */
-export async function getMyVolunteerRequestForEvent(eventId: string, userId: string): Promise<MyVolunteerRequest | null> {
-  const where = buildWhereParams({ event: { equals: eventId }, volunteer: { equals: userId } });
+export async function getMyVolunteerRequestForEvent(
+  eventId: string,
+  userId: string,
+): Promise<MyVolunteerRequest | null> {
+  const where = buildWhereParams({ event: { equals: eventId }, volunteer: { equals: userId } })
   const result = await get<
-    PayloadListResponse<{ id: number; kind?: MyVolunteerRequest["kind"]; status: MyVolunteerRequest["status"]; message?: string | null }>
-  >(`/volunteer-invitations?${where}&depth=0&sort=-createdAt&limit=10`);
+    PayloadListResponse<{
+      id: number
+      kind?: MyVolunteerRequest['kind']
+      status: MyVolunteerRequest['status']
+      message?: string | null
+    }>
+  >(`/volunteer-invitations?${where}&depth=0&sort=-createdAt&limit=10`)
   const row =
-    result.docs.find((r) => r.status === "pending") ??
-    result.docs.find((r) => r.kind === "application" && r.status === "declined");
-  if (!row) return null;
-  return { id: String(row.id), kind: row.kind ?? "invitation", status: row.status, message: row.message ?? null };
+    result.docs.find((r) => r.status === 'pending') ??
+    result.docs.find((r) => r.kind === 'application' && r.status === 'declined')
+  if (!row) return null
+  return {
+    id: String(row.id),
+    kind: row.kind ?? 'invitation',
+    status: row.status,
+    message: row.message ?? null,
+  }
 }
 
 export type VolunteerOfferRow = {
-  id: string;
-  user_id: string;
-  full_name: string;
-  avatar_url: string | null;
-  message: string | null;
-  volunteer_focus: string[] | null;
+  id: string
+  user_id: string
+  full_name: string
+  avatar_url: string | null
+  message: string | null
+  volunteer_focus: string[] | null
   /** Their average from organizers — what the creator weighs the offer by. */
-  rating: { average: number; count: number } | null;
-  created_at: string;
-};
+  rating: { average: number; count: number } | null
+  created_at: string
+}
 
-export type PendingVolunteerInvitationRow = { id: string; user_id: string; full_name: string; created_at: string };
+export type PendingVolunteerInvitationRow = {
+  id: string
+  user_id: string
+  full_name: string
+  created_at: string
+}
 
 /** Invitations the event's creator sent that are still waiting on the volunteer — they may take one
  * back (sent by mistake, or no longer needed). */
-export async function getPendingVolunteerInvitationsForEvent(eventId: string): Promise<PendingVolunteerInvitationRow[]> {
+export async function getPendingVolunteerInvitationsForEvent(
+  eventId: string,
+): Promise<PendingVolunteerInvitationRow[]> {
   const where = buildWhereParams({
     event: { equals: eventId },
-    kind: { equals: "invitation" },
-    status: { equals: "pending" },
-  });
-  const result = await get<PayloadListResponse<{ id: number; volunteer: number | { id: number }; createdAt: string }>>(
-    `/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`,
-  );
-  const userIds = [...new Set(result.docs.map((r) => relationId(r.volunteer)).filter((v): v is string => Boolean(v)))];
-  const names = new Map<string, string>();
+    kind: { equals: 'invitation' },
+    status: { equals: 'pending' },
+  })
+  const result = await get<
+    PayloadListResponse<{ id: number; volunteer: number | { id: number }; createdAt: string }>
+  >(`/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`)
+  const userIds = [
+    ...new Set(
+      result.docs.map((r) => relationId(r.volunteer)).filter((v): v is string => Boolean(v)),
+    ),
+  ]
+  const names = new Map<string, string>()
   if (userIds.length > 0) {
-    const profiles = await get<PayloadListResponse<{ user: number | { id: number }; fullName: string }>>(
-      `/profiles?${buildWhereParams({ user: { in: userIds } })}&depth=0&limit=100`,
-    );
-    for (const p of profiles.docs) names.set(relationId(p.user) ?? "", p.fullName);
+    const profiles = await get<
+      PayloadListResponse<{ user: number | { id: number }; fullName: string }>
+    >(`/profiles?${buildWhereParams({ user: { in: userIds } })}&depth=0&limit=100`)
+    for (const p of profiles.docs) names.set(relationId(p.user) ?? '', p.fullName)
   }
   return result.docs.map((r) => ({
     id: String(r.id),
-    user_id: relationId(r.volunteer) ?? "",
-    full_name: names.get(relationId(r.volunteer) ?? "") ?? "Dobrovolník",
+    user_id: relationId(r.volunteer) ?? '',
+    full_name: names.get(relationId(r.volunteer) ?? '') ?? 'Dobrovolník',
     created_at: r.createdAt,
-  }));
+  }))
 }
 
 export async function withdrawVolunteerInvitation(invitationId: string): Promise<void> {
-  await patch(`/volunteer-invitations/${invitationId}`, { status: "withdrawn" });
+  await patch(`/volunteer-invitations/${invitationId}`, { status: 'withdrawn' })
 }
 
 /** Pending offers to help on the event, oldest first — each with the volunteer's card from the pool
@@ -1062,88 +1273,99 @@ export async function withdrawVolunteerInvitation(invitationId: string): Promise
 export async function getVolunteerOffersForEvent(eventId: string): Promise<VolunteerOfferRow[]> {
   const where = buildWhereParams({
     event: { equals: eventId },
-    kind: { equals: "application" },
-    status: { equals: "pending" },
-  });
+    kind: { equals: 'application' },
+    status: { equals: 'pending' },
+  })
   const result = await get<
-    PayloadListResponse<{ id: number; volunteer: number | { id: number }; message?: string | null; createdAt: string }>
-  >(`/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`);
+    PayloadListResponse<{
+      id: number
+      volunteer: number | { id: number }
+      message?: string | null
+      createdAt: string
+    }>
+  >(`/volunteer-invitations?${where}&depth=0&sort=createdAt&limit=100`)
   return Promise.all(
     result.docs.map(async (r) => {
-      const userId = relationId(r.volunteer) ?? "";
-      const card = await getVolunteerDetail(userId).catch(() => null);
+      const userId = relationId(r.volunteer) ?? ''
+      const card = await getVolunteerDetail(userId).catch(() => null)
       return {
         id: String(r.id),
         user_id: userId,
-        full_name: card?.volunteer.full_name ?? "Dobrovolník",
+        full_name: card?.volunteer.full_name ?? 'Dobrovolník',
         avatar_url: card?.volunteer.avatar_url ?? null,
         message: r.message ?? null,
         volunteer_focus: card?.volunteer.volunteer_focus ?? null,
         rating: card?.volunteer.rating ?? null,
         created_at: r.createdAt,
-      };
+      }
     }),
-  );
+  )
 }
 
 /** Which of these events the volunteer is already on — registered (as a volunteer or participant,
  * approved or waiting) — so the pool's "Pozvat" doesn't offer them. */
-export async function getEventIdsUserIsOn(userId: string, eventIds: string[]): Promise<Set<string>> {
-  if (eventIds.length === 0) return new Set();
+export async function getEventIdsUserIsOn(
+  userId: string,
+  eventIds: string[],
+): Promise<Set<string>> {
+  if (eventIds.length === 0) return new Set()
   const where = buildWhereParams({
     user: { equals: userId },
-    status: { in: ["pending", "approved"] },
+    status: { in: ['pending', 'approved'] },
     event: { in: eventIds },
-  });
+  })
   const result = await get<PayloadListResponse<{ event: number | { id: number } }>>(
     `/registrations?${where}&depth=0&limit=200`,
-  );
-  return new Set(result.docs.map((r) => relationId(r.event)!).filter(Boolean));
+  )
+  return new Set(result.docs.map((r) => relationId(r.event)!).filter(Boolean))
 }
 
 /** Which of these events the volunteer already has a pending invitation or offer to help for — so
  * the pool's "Pozvat" doesn't offer them twice. */
-export async function getPendingVolunteerInvitationEventIds(volunteerUserId: string, eventIds: string[]): Promise<Set<string>> {
-  if (eventIds.length === 0) return new Set();
+export async function getPendingVolunteerInvitationEventIds(
+  volunteerUserId: string,
+  eventIds: string[],
+): Promise<Set<string>> {
+  if (eventIds.length === 0) return new Set()
   const where = buildWhereParams({
     volunteer: { equals: volunteerUserId },
-    status: { equals: "pending" },
+    status: { equals: 'pending' },
     event: { in: eventIds },
-  });
+  })
   const result = await get<PayloadListResponse<{ event: number | { id: number } }>>(
     `/volunteer-invitations?${where}&depth=0&limit=200`,
-  );
-  return new Set(result.docs.map((r) => relationId(r.event)!).filter(Boolean));
+  )
+  return new Set(result.docs.map((r) => relationId(r.event)!).filter(Boolean))
 }
 
 export type VolunteerShiftRow = {
-  registration_id: string;
-  event_id: string;
-  title: string;
-  date_time: string;
+  registration_id: string
+  event_id: string
+  title: string
+  date_time: string
   /** Leaving the pool turns the volunteer into a participant only where a place is free — on a full
    * event they'd drop off it (Profiles handleLeavingPool). */
-  full: boolean;
-};
+  full: boolean
+}
 
 /** The upcoming events the user helps on as a volunteer. */
 export async function getMyVolunteerShifts(userId: string): Promise<VolunteerShiftRow[]> {
   const where = buildWhereParams({
     user: { equals: userId },
-    role: { equals: "volunteer" },
-    status: { in: ["pending", "approved"] },
-  });
-  const result = await get<PayloadListResponse<PayloadRegistration & { event: number | PayloadEvent }>>(
-    `/registrations?${where}&depth=1&limit=100`,
-  );
+    role: { equals: 'volunteer' },
+    status: { in: ['pending', 'approved'] },
+  })
+  const result = await get<
+    PayloadListResponse<PayloadRegistration & { event: number | PayloadEvent }>
+  >(`/registrations?${where}&depth=1&limit=100`)
   const upcoming = result.docs
     .flatMap((r) =>
-      typeof r.event === "object" && r.event && r.event.status !== "cancelled"
+      typeof r.event === 'object' && r.event && r.event.status !== 'cancelled'
         ? [{ registration_id: String(r.id), event: r.event }]
         : [],
     )
-    .filter((r) => new Date(r.event.dateTime).getTime() > Date.now());
-  const counts = await getRegistrationCounts(upcoming.map((r) => String(r.event.id)));
+    .filter((r) => new Date(r.event.dateTime).getTime() > Date.now())
+  const counts = await getRegistrationCounts(upcoming.map((r) => String(r.event.id)))
   return upcoming
     .map(({ registration_id, event }) => ({
       registration_id,
@@ -1152,126 +1374,159 @@ export async function getMyVolunteerShifts(userId: string): Promise<VolunteerShi
       date_time: event.dateTime,
       full: (counts.get(String(event.id))?.approved ?? 0) >= event.capacity,
     }))
-    .sort((a, b) => a.date_time.localeCompare(b.date_time));
+    .sort((a, b) => a.date_time.localeCompare(b.date_time))
 }
 
 /** Display names for a list of user ids (e.g. co-organizers on an event detail page). */
-export const getFullNamesByUserIds = fullNamesByUserIds;
+export const getFullNamesByUserIds = fullNamesByUserIds
 
 /** An organization that can be invited to co-organize — with its own photo/logo, if it has one. */
-export type CoOrganizerCandidate = OrganizationRef & { avatar_url: string | null };
+export type CoOrganizerCandidate = OrganizationRef & { avatar_url: string | null }
 
-/** For CoOrganizerPicker — every organization of this obec that can be invited to co-organize: the
- * obec's own first, then its pořadatelé's (never the requester's own). */
-export async function listCoOrganizerCandidates(municipalityId: string): Promise<CoOrganizerCandidate[]> {
-  const params = new URLSearchParams({ municipalityId });
-  const result = await get<{ docs: CoOrganizerCandidate[] }>(`/events/co-organizer-candidates?${params}`);
-  return result.docs;
+/** For CoOrganizerPicker — every organization of this obec and its mikroregion that can be invited
+ * to co-organize: the obec's own first, then the neighbouring obce, then the pořadatelé's (never the
+ * requester's own). */
+export async function listCoOrganizerCandidates(
+  municipalityId: string,
+  /** The event being edited — lets whoever may edit it list them, a neighbour from the mikroregion too. */
+  eventId?: string,
+): Promise<CoOrganizerCandidate[]> {
+  const params = new URLSearchParams({ municipalityId, ...(eventId ? { eventId } : {}) })
+  const result = await get<{ docs: CoOrganizerCandidate[] }>(
+    `/events/co-organizer-candidates?${params}`,
+  )
+  return result.docs
 }
 
 /** Whether onboarding has to ask for the obec — only for a Google sign-up, which skips the
  * registration form's map, and only while the profile has none. */
 export async function needsOnboardingMunicipality(): Promise<boolean> {
-  const result = await get<{ needed: boolean }>("/auth/onboarding-municipality");
-  return result.needed;
+  const result = await get<{ needed: boolean }>('/auth/onboarding-municipality')
+  return result.needed
 }
 
 /** Files a Google sign-up under the obec picked in onboarding (profile + "participant" role). */
 export async function setOnboardingMunicipality(municipalityId: string): Promise<void> {
-  await post("/auth/onboarding-municipality", { municipality: municipalityId });
+  await post('/auth/onboarding-municipality', { municipality: municipalityId })
 }
 
 export async function getMyProfile(userId: string): Promise<ProfileRow | null> {
-  const where = buildWhereParams({ user: { equals: userId } });
+  const where = buildWhereParams({ user: { equals: userId } })
   // depth=1 for the avatar's URL; every other relation is read through relationId, object or not.
-  const result = await get<PayloadListResponse<PayloadProfile>>(`/profiles?${where}&limit=1&depth=1`);
-  return result.docs[0] ? mapProfile(result.docs[0]) : null;
+  const result = await get<PayloadListResponse<PayloadProfile>>(
+    `/profiles?${where}&limit=1&depth=1`,
+  )
+  return result.docs[0] ? mapProfile(result.docs[0]) : null
 }
 
-export async function updateProfile(profileId: string, data: Record<string, unknown>): Promise<ProfileRow> {
-  const doc = await patch<PayloadProfile>(`/profiles/${profileId}`, data);
-  return mapProfile(doc);
+export async function updateProfile(
+  profileId: string,
+  data: Record<string, unknown>,
+): Promise<ProfileRow> {
+  const doc = await patch<PayloadProfile>(`/profiles/${profileId}`, data)
+  return mapProfile(doc)
 }
 
 /** Uploads a new profile photo and puts it on the profile. */
 export async function setProfileAvatar(profileId: string, file: File, alt: string): Promise<void> {
-  const uploaded = await uploadFile<{ id: number }>("media", file, { alt });
-  await patch(`/profiles/${profileId}`, { avatar: uploaded.id });
+  const uploaded = await uploadFile<{ id: number }>('media', file, { alt })
+  await patch(`/profiles/${profileId}`, { avatar: uploaded.id })
 }
 
 export async function removeProfileAvatar(profileId: string): Promise<void> {
-  await patch(`/profiles/${profileId}`, { avatar: null });
+  await patch(`/profiles/${profileId}`, { avatar: null })
 }
 
 // --- User roles -----------------------------------------------------------------------
 
-export type AppRole = "municipality_admin" | "organizer" | "prescriber";
+export type AppRole = 'municipality_admin' | 'organizer' | 'prescriber'
 
-type PayloadUserRole = { id: number; role: AppRole; municipality: number | { id: number } };
+type PayloadUserRole = { id: number; role: AppRole; municipality: number | { id: number } }
 
 export async function getMyRoles(userId: string): Promise<AppRole[]> {
-  const where = buildWhereParams({ user: { equals: userId } });
-  const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`);
-  return result.docs.map((r) => r.role);
+  const where = buildWhereParams({ user: { equals: userId } })
+  const result = await get<PayloadListResponse<PayloadUserRole>>(
+    `/user-roles?${where}&limit=100&depth=0`,
+  )
+  return result.docs.map((r) => r.role)
 }
 
 async function getMyRoleMunicipalityIds(userId: string, role: AppRole): Promise<string[]> {
-  const where = buildWhereParams({ user: { equals: userId }, role: { equals: role } });
-  const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`);
-  return result.docs.map((r) => String(typeof r.municipality === "object" ? r.municipality.id : r.municipality));
+  const where = buildWhereParams({ user: { equals: userId }, role: { equals: role } })
+  const result = await get<PayloadListResponse<PayloadUserRole>>(
+    `/user-roles?${where}&limit=100&depth=0`,
+  )
+  return result.docs.map((r) =>
+    String(typeof r.municipality === 'object' ? r.municipality.id : r.municipality),
+  )
 }
 
 /** Every municipality this user administers (all of their "municipality_admin" user-roles). */
 export function getMyAdministeredMunicipalityIds(userId: string): Promise<string[]> {
-  return getMyRoleMunicipalityIds(userId, "municipality_admin");
+  return getMyRoleMunicipalityIds(userId, 'municipality_admin')
 }
 
 /** Every municipality where this user holds the "organizer" role. */
 export function getMyOrganizerMunicipalityIds(userId: string): Promise<string[]> {
-  return getMyRoleMunicipalityIds(userId, "organizer");
+  return getMyRoleMunicipalityIds(userId, 'organizer')
 }
 
 /** Of `municipalityIds`, the ones that let their organizers found events — not "municipality_only"
  * (Events canCreateEvent). */
-export async function getMunicipalityIdsOpenToOrganizers(municipalityIds: string[]): Promise<string[]> {
-  if (municipalityIds.length === 0) return [];
+export async function getMunicipalityIdsOpenToOrganizers(
+  municipalityIds: string[],
+): Promise<string[]> {
+  if (municipalityIds.length === 0) return []
   const where = buildWhereParams({
     id: { in: municipalityIds },
-    rulesForCreation: { not_equals: "municipality_only" },
-  });
-  const result = await get<PayloadListResponse<PayloadMunicipality>>(`/municipalities?${where}&limit=200&depth=0`);
-  return result.docs.map((m) => String(m.id));
+    rulesForCreation: { not_equals: 'municipality_only' },
+  })
+  const result = await get<PayloadListResponse<PayloadMunicipality>>(
+    `/municipalities?${where}&limit=200&depth=0`,
+  )
+  return result.docs.map((m) => String(m.id))
 }
 
 // --- Organizer / volunteering-flag requests ----------------------------------------------
 
-export type RequestStatus = "pending" | "approved" | "rejected";
+export type RequestStatus = 'pending' | 'approved' | 'rejected'
 
-type PayloadOrganizerRequest = { id: number; status: RequestStatus; municipality: number | { id: number } };
+type PayloadOrganizerRequest = {
+  id: number
+  status: RequestStatus
+  municipality: number | { id: number }
+}
 
 /** The organizer-role request(s) this user has made — for showing pending/approved/rejected
  * status on their profile (brief §3 "Upozornění jde uživateli v obou případech"). */
-export async function getMyOrganizerRequests(userId: string): Promise<{ id: string; status: RequestStatus; municipality_id: string }[]> {
-  const where = buildWhereParams({ user: { equals: userId } });
-  const query = buildQuery({ sort: "-createdAt", depth: 0, limit: 50 });
-  const result = await get<PayloadListResponse<PayloadOrganizerRequest>>(`/organizer-requests?${where}&${query}`);
+export async function getMyOrganizerRequests(
+  userId: string,
+): Promise<{ id: string; status: RequestStatus; municipality_id: string }[]> {
+  const where = buildWhereParams({ user: { equals: userId } })
+  const query = buildQuery({ sort: '-createdAt', depth: 0, limit: 50 })
+  const result = await get<PayloadListResponse<PayloadOrganizerRequest>>(
+    `/organizer-requests?${where}&${query}`,
+  )
   return result.docs.map((r) => ({
     id: String(r.id),
     status: r.status,
     municipality_id: relationId(r.municipality)!,
-  }));
+  }))
 }
 
 /** `reason` — the applicant's own words on why the obec should let them organize events there;
  * `organization` — who they'll organize as, created for them once the obec approves. */
 /** A message from the event's team to everyone signed up (POST /api/events/:id/message). */
-export async function sendEventMessage(eventId: string, message: string): Promise<{ recipients: number }> {
-  return post<{ recipients: number }>(`/events/${eventId}/message`, { message });
+export async function sendEventMessage(
+  eventId: string,
+  message: string,
+): Promise<{ recipients: number }> {
+  return post<{ recipients: number }>(`/events/${eventId}/message`, { message })
 }
 
 /** Takes back the signed-in user's own request while it still waits for the obec. */
 export async function withdrawOrganizerRequest(requestId: string): Promise<void> {
-  await del(`/organizer-requests/${requestId}`);
+  await del(`/organizer-requests/${requestId}`)
 }
 
 export async function requestOrganizerRole(
@@ -1280,243 +1535,293 @@ export async function requestOrganizerRole(
   reason: string,
   organization: { name: string; type: OrganizationType },
 ): Promise<string> {
-  const created = await post<{ id: number }>("/organizer-requests", {
+  const created = await post<{ id: number }>('/organizer-requests', {
     user: Number(userId),
     municipality: Number(municipalityId),
     reason,
     organizationName: organization.name,
     organizationType: organization.type,
-  });
-  return String(created.id);
+  })
+  return String(created.id)
 }
 
 // --- Consented deletion of a co-organized event ---------------------------------------------
 
 export type EventDeletionRequestStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "expired"
-  | "requester-removed"
-  | "escalated"
-  | "escalation-rejected";
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+  | 'requester-removed'
+  | 'escalated'
+  | 'escalation-rejected'
 
 export type EventDeletionRequestRow = {
-  id: string;
-  status: EventDeletionRequestStatus;
-  requested_by_id: string;
-  approver_ids: string[];
-  approved_by_ids: string[];
+  id: string
+  status: EventDeletionRequestStatus
+  requested_by_id: string
+  /** Asked for a neighbouring obec co-organizing the event — the obec leaves, any of its admins answers. */
+  requester_municipality_id: string | null
+  approver_ids: string[]
+  /** Neighbouring obce co-organizing the event that have to consent, and those that have. */
+  neighbour_ids: string[]
+  neighbour_approved_ids: string[]
+  approved_by_ids: string[]
   /** The spolupořadatel who refused — after that the requester may turn to the obec. */
-  rejected_by_id: string | null;
+  rejected_by_id: string | null
   /** The obec co-organizes the event — one of its admins has to consent for it too. */
-  municipality_consent: boolean;
-  municipality_approved: boolean;
+  municipality_consent: boolean
+  municipality_approved: boolean
   /** The others' deadline; once escalated, the event's start (the obec's). */
-  expires_at: string;
+  expires_at: string
   /** Lapsed with nobody having answered (and never taken to the obec) — the requester may turn to it. */
-  unanswered: boolean;
-};
+  unanswered: boolean
+}
 
 type PayloadEventDeletionRequest = {
-  id: number;
-  status: EventDeletionRequestStatus;
-  requestedBy: number | { id: number };
-  approvers?: (number | { id: number })[] | null;
-  approvedBy?: (number | { id: number })[] | null;
-  rejectedBy?: number | { id: number } | null;
-  municipalityConsent?: boolean | null;
-  municipalityApprovedBy?: number | { id: number } | null;
-  expiresAt: string;
-  escalatedAt?: string | null;
-  decidedBy?: number | { id: number } | null;
-};
+  id: number
+  status: EventDeletionRequestStatus
+  requestedBy: number | { id: number }
+  requesterMunicipality?: number | { id: number } | null
+  approvers?: (number | { id: number })[] | null
+  neighbourMunicipalities?: (number | { id: number })[] | null
+  neighbourApproved?: (number | { id: number })[] | null
+  approvedBy?: (number | { id: number })[] | null
+  rejectedBy?: number | { id: number } | null
+  municipalityConsent?: boolean | null
+  municipalityApprovedBy?: number | { id: number } | null
+  expiresAt: string
+  escalatedAt?: string | null
+  decidedBy?: number | { id: number } | null
+}
 
 /** The event's latest request to delete it, whatever became of it — still open, refused (its
  * requester may turn to the obec), with the obec, or settled. Lapsed ones read back "expired". */
-export async function getLatestEventDeletionRequest(eventId: string): Promise<EventDeletionRequestRow | null> {
-  const where = buildWhereParams({ event: { equals: eventId } });
+export async function getLatestEventDeletionRequest(
+  eventId: string,
+): Promise<EventDeletionRequestRow | null> {
+  const where = buildWhereParams({ event: { equals: eventId } })
   const result = await get<PayloadListResponse<PayloadEventDeletionRequest>>(
     `/event-deletion-requests?${where}&depth=0&limit=1&sort=-createdAt`,
-  );
-  const r = result.docs[0];
-  if (!r) return null;
-  const ids = (v: PayloadEventDeletionRequest["approvers"]) =>
-    (v ?? []).map(relationId).filter((x): x is string => Boolean(x));
+  )
+  const r = result.docs[0]
+  if (!r) return null
+  const ids = (v: PayloadEventDeletionRequest['approvers']) =>
+    (v ?? []).map(relationId).filter((x): x is string => Boolean(x))
   return {
     id: String(r.id),
     status: r.status,
     requested_by_id: relationId(r.requestedBy)!,
+    requester_municipality_id: relationId(r.requesterMunicipality ?? null),
     approver_ids: ids(r.approvers),
+    neighbour_ids: ids(r.neighbourMunicipalities),
+    neighbour_approved_ids: ids(r.neighbourApproved),
     approved_by_ids: ids(r.approvedBy),
     rejected_by_id: relationId(r.rejectedBy ?? null),
     municipality_consent: Boolean(r.municipalityConsent),
     municipality_approved: Boolean(r.municipalityApprovedBy),
     expires_at: r.expiresAt,
-    unanswered: r.status === "expired" && !r.escalatedAt && !r.decidedBy,
-  };
+    unanswered: r.status === 'expired' && !r.escalatedAt && !r.decidedBy,
+  }
 }
 
 /** Asks the event's other organizers to consent to deleting it — they get notified. */
 export async function requestEventDeletion(eventId: string): Promise<void> {
-  await post("/event-deletion-requests", { event: Number(eventId) });
+  await post('/event-deletion-requests', { event: Number(eventId) })
 }
 
-export type EventDeletionDecision = "approve" | "reject" | "remove-requester";
+export type EventDeletionDecision = 'approve' | 'reject' | 'remove-requester'
 
 /** "approved" = everyone consented and the event is gone; "pending" = others still have to;
  * "requester-removed" = the event stays, without the requester. */
 export async function decideEventDeletion(
   requestId: string,
   decision: EventDeletionDecision,
-): Promise<{ status: "pending" | "approved" | "rejected" | "requester-removed" }> {
-  return post(`/events/deletion-requests/${requestId}/decide`, { decision });
+): Promise<{ status: 'pending' | 'approved' | 'rejected' | 'requester-removed' }> {
+  return post(`/events/deletion-requests/${requestId}/decide`, { decision })
 }
 
 /** After a spolupořadatel refused, or nobody answered, the requester asks the obec to take them off the event. */
 export async function escalateEventDeletion(requestId: string): Promise<void> {
-  await post(`/events/deletion-requests/${requestId}/escalate`, {});
+  await post(`/events/deletion-requests/${requestId}/escalate`, {})
+}
+
+/** A spolupořadatel's organization leaves an event in a mikroregion on its own — nobody's consent. */
+export async function leaveCoOrganizing(eventId: string): Promise<void> {
+  await post(`/events/${eventId}/leave`, {})
 }
 
 /** The obec's admin stops the obec co-organizing the event — no one's consent needed, and for good. */
 export async function leaveCoOrganizingAsObec(eventId: string): Promise<void> {
-  await post(`/events/${eventId}/obec-leave`, {});
+  await post(`/events/${eventId}/obec-leave`, {})
 }
 
 // --- The viewer's organizations ("Organizace") ----------------------------------------------
 
 export type MyOrganizationRow = {
-  id: string;
-  name: string;
-  type: AnyOrganizationType;
-  municipality_id: string;
-  municipality_name: string;
+  id: string
+  name: string
+  type: AnyOrganizationType
+  municipality_id: string
+  municipality_name: string
   /** The viewer owns it and may rename it — the obec's own one carries the obec's name. */
-  is_own: boolean;
-  avatar_url: string | null;
+  is_own: boolean
+  avatar_url: string | null
   /** In the organization's own words — shown on its profile among the obec's organizers. */
-  description: string | null;
-};
+  description: string | null
+}
 
 type PayloadOrganizationWithMunicipality = PayloadOrganization & {
-  municipality: number | { id: number; name: string };
-};
+  municipality: number | { id: number; name: string }
+}
 
 /** What the viewer organizes as: their own organization in each obec they organize in, and the
  * organization of every obec they administer. The obec ones first — for its admin, that's the main one. */
-export async function getMyOrganizations(userId: string, administeredMunicipalityIds: string[] = []): Promise<MyOrganizationRow[]> {
-  const params = new URLSearchParams({ "where[or][0][owner][equals]": userId });
+export async function getMyOrganizations(
+  userId: string,
+  administeredMunicipalityIds: string[] = [],
+): Promise<MyOrganizationRow[]> {
+  const params = new URLSearchParams({ 'where[or][0][owner][equals]': userId })
   if (administeredMunicipalityIds.length > 0) {
-    params.set("where[or][1][and][0][type][equals]", MUNICIPALITY_ORGANIZATION_TYPE);
-    administeredMunicipalityIds.forEach((id) => params.append("where[or][1][and][1][municipality][in][]", id));
+    params.set('where[or][1][and][0][type][equals]', MUNICIPALITY_ORGANIZATION_TYPE)
+    administeredMunicipalityIds.forEach((id) =>
+      params.append('where[or][1][and][1][municipality][in][]', id),
+    )
   }
-  const query = buildQuery({ sort: "name", depth: 1, limit: 100 });
-  const result = await get<PayloadListResponse<PayloadOrganizationWithMunicipality>>(`/organizations?${params}&${query}`);
+  const query = buildQuery({ sort: 'name', depth: 1, limit: 100 })
+  const result = await get<PayloadListResponse<PayloadOrganizationWithMunicipality>>(
+    `/organizations?${params}&${query}`,
+  )
   return result.docs
     .map((o) => ({
       id: String(o.id),
       name: o.name,
       type: o.type,
-      municipality_id: relationId(o.municipality) ?? "",
-      municipality_name: typeof o.municipality === "object" ? o.municipality.name : "",
+      municipality_id: relationId(o.municipality) ?? '',
+      municipality_name: typeof o.municipality === 'object' ? o.municipality.name : '',
       is_own: relationId(o.owner) === userId,
       avatar_url: o.avatarUrl ?? null,
       description: o.description ?? null,
     }))
-    .sort((a, b) => Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) - Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE));
+    .sort(
+      (a, b) =>
+        Number(b.type === MUNICIPALITY_ORGANIZATION_TYPE) -
+        Number(a.type === MUNICIPALITY_ORGANIZATION_TYPE),
+    )
 }
 
 /** Every event the organization runs or co-organizes — any status or date, newest first. */
 export async function getOrganizationEvents(organizationId: string): Promise<EventRow[]> {
   const params = new URLSearchParams({
-    "where[or][0][organization][equals]": organizationId,
-    "where[or][1][coOrganizations][in][]": organizationId,
-  });
-  const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 500 });
-  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${params}&${query}`);
-  return result.docs.map(mapEvent);
+    'where[or][0][organization][equals]': organizationId,
+    'where[or][1][coOrganizations][in][]': organizationId,
+  })
+  const query = buildQuery({ sort: '-dateTime', depth: 1, limit: 500 })
+  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${params}&${query}`)
+  return result.docs.map(mapEvent)
 }
 
 export async function updateMyOrganization(
   id: string,
   input: { name: string; type: OrganizationType; description: string },
 ): Promise<void> {
-  await patch(`/organizations/${id}`, input);
+  await patch(`/organizations/${id}`, input)
 }
 
 // --- "Organizátoři v mém městě" -------------------------------------------------------------
 
 export type OrganizerProfileRow = {
-  id: string;
-  name: string;
-  type: string;
-  description: string | null;
-  avatar_url: string | null;
-  owner_name: string | null;
-  since: string;
-  is_own: boolean;
-  stats: { eventCount: number; coOrganizedCount: number; people: number; returning: number; fillRate: number | null };
-  next_event: { id: string; title: string; date_time: string } | null;
+  id: string
+  name: string
+  type: string
+  description: string | null
+  avatar_url: string | null
+  owner_name: string | null
+  /** The obec it organizes in — the asked-for one or another of its mikroregion. */
+  municipality_id: string
+  municipality_name: string
+  since: string
+  is_own: boolean
+  stats: {
+    eventCount: number
+    coOrganizedCount: number
+    people: number
+    returning: number
+    fillRate: number | null
+  }
+  next_event: { id: string; title: string; date_time: string } | null
   /** How to reach its owner — their account e-mail. */
-  contact: { email: string | null };
-};
+  contact: { email: string | null }
+}
 
-/** Every organization organizing in the obec, with the numbers of its Organizace page (no ratings). */
-export async function getMunicipalityOrganizers(municipalityId: string): Promise<OrganizerProfileRow[]> {
-  return (await get<{ docs: OrganizerProfileRow[] }>(`/municipalities/${municipalityId}/organizers`)).docs;
+/** Every organization organizing in the obec or its mikroregion, with the numbers of its Organizace page (no ratings). */
+export async function getMunicipalityOrganizers(
+  municipalityId: string,
+): Promise<OrganizerProfileRow[]> {
+  return (
+    await get<{ docs: OrganizerProfileRow[] }>(`/municipalities/${municipalityId}/organizers`)
+  ).docs
 }
 
 /** Uploads a new photo/logo for the organization and puts it on it — every event it runs or
  * co-organizes shows it from then on. */
 export async function setOrganizationAvatar(id: string, file: File, alt: string): Promise<void> {
-  const uploaded = await uploadFile<{ id: number }>("media", file, { alt });
-  await patch(`/organizations/${id}`, { avatar: uploaded.id });
+  const uploaded = await uploadFile<{ id: number }>('media', file, { alt })
+  await patch(`/organizations/${id}`, { avatar: uploaded.id })
 }
 
 export async function removeOrganizationAvatar(id: string): Promise<void> {
-  await patch(`/organizations/${id}`, { avatar: null });
+  await patch(`/organizations/${id}`, { avatar: null })
 }
 
-export type { OrganizationFeedbackSummary };
+export type { OrganizationFeedbackSummary }
 
-export async function getOrganizationFeedbackSummary(organizationId: string): Promise<OrganizationFeedbackSummary> {
-  return get<OrganizationFeedbackSummary>(`/organizations/${organizationId}/feedback-summary`);
+export async function getOrganizationFeedbackSummary(
+  organizationId: string,
+): Promise<OrganizationFeedbackSummary> {
+  return get<OrganizationFeedbackSummary>(`/organizations/${organizationId}/feedback-summary`)
 }
 
 // --- Reviews and complaints about them --------------------------------------------------------
 
-export type ReviewComplaintStatus = "pending" | "rejected" | null;
+export type ReviewComplaintStatus = 'pending' | 'rejected' | null
 
 /** One participant's feedback on the organization's event — without who wrote it. */
 export type OrganizationReviewRow = {
-  id: string;
-  event_id: string;
-  event_title: string;
-  event_date: string;
-  satisfaction: number;
-  felt_welcome: number | null;
-  comment: string | null;
-  created_at: string;
-  complaint_status: ReviewComplaintStatus;
-  can_complain: boolean;
-};
+  id: string
+  event_id: string
+  event_title: string
+  event_date: string
+  satisfaction: number
+  felt_welcome: number | null
+  comment: string | null
+  created_at: string
+  complaint_status: ReviewComplaintStatus
+  can_complain: boolean
+  /** A complaint about it is decided by the platform admin (the obec is a party), not the obec. */
+  decided_by_platform: boolean
+}
 
-export async function getOrganizationReviews(organizationId: string): Promise<OrganizationReviewRow[]> {
-  const result = await get<{ docs: OrganizationReviewRow[] }>(`/organizations/${organizationId}/reviews`);
-  return result.docs;
+export async function getOrganizationReviews(
+  organizationId: string,
+): Promise<OrganizationReviewRow[]> {
+  const result = await get<{ docs: OrganizationReviewRow[] }>(
+    `/organizations/${organizationId}/reviews`,
+  )
+  return result.docs
 }
 
 /** Reports a review to the obec the event belongs to — it decides whether to remove it. */
 export async function reportReview(
-  type: "event-feedback" | "volunteer-rating",
+  type: 'event-feedback' | 'volunteer-rating',
   reviewId: string,
   reason: string,
 ): Promise<void> {
-  await post("/review-complaints", {
+  await post('/review-complaints', {
     reviewType: type,
-    [type === "event-feedback" ? "eventFeedback" : "volunteerRating"]: Number(reviewId),
+    [type === 'event-feedback' ? 'eventFeedback' : 'volunteerRating']: Number(reviewId),
     reason: reason.trim(),
-  });
+  })
 }
 
 // --- Invitations to co-organize ---------------------------------------------------------------
@@ -1524,108 +1829,115 @@ export async function reportReview(
 /** Invites an organization to co-organize the event — it joins once its owner (for the obec, one of
  * its admins) accepts. "approved" when the inviter answers for it themselves (the obec's admin
  * inviting the obec). */
-export async function inviteCoOrganizer(eventId: string, organizationId: string): Promise<{ status: RequestStatus }> {
-  const doc = await post<{ status: RequestStatus }>("/co-organizing-requests", {
+export async function inviteCoOrganizer(
+  eventId: string,
+  organizationId: string,
+): Promise<{ status: RequestStatus }> {
+  const doc = await post<{ status: RequestStatus }>('/co-organizing-requests', {
     event: Number(eventId),
     organization: Number(organizationId),
-  });
-  return { status: doc.status };
+  })
+  return { status: doc.status }
 }
 
-type PayloadCoOrganizingInvitation = { organization: number | PayloadOrganization | null };
+type PayloadCoOrganizingInvitation = { organization: number | PayloadOrganization | null }
 
 /** The organizations invited to co-organize this event that haven't answered yet (and still can). */
 export async function getPendingCoOrganizers(eventId: string): Promise<OrganizationRef[]> {
   const where = buildWhereParams({
     event: { equals: eventId },
-    status: { equals: "pending" },
+    status: { equals: 'pending' },
     expiresAt: { greater_than: new Date().toISOString() },
-  });
+  })
   const result = await get<PayloadListResponse<PayloadCoOrganizingInvitation>>(
     `/co-organizing-requests?${where}&depth=1&limit=100`,
-  );
-  return result.docs.map((r) => mapOrganization(r.organization)).filter((o): o is OrganizationRef => Boolean(o));
+  )
+  return result.docs
+    .map((r) => mapOrganization(r.organization))
+    .filter((o): o is OrganizationRef => Boolean(o))
 }
 
 // --- Consents / notification preferences ------------------------------------------------
 
-const CONSENT_VERSION = "1.0";
+const CONSENT_VERSION = '1.0'
 
-type PayloadConsent = { id: number; type: string; revokedAt?: string | null };
+type PayloadConsent = { id: number; type: string; revokedAt?: string | null }
 
 /** Whether the user currently has an active (non-revoked) marketing consent. */
 // --- Deleting one's own account ---------------------------------------------------------
 
 export type AccountDeletionBlockers = {
   /** The events ahead the signed-in user still runs or co-organizes — cancelled or left first. */
-  blockingEvents: AccountDeletionBlockingEvent[];
+  blockingEvents: AccountDeletionBlockingEvent[]
   /** The obce they're the only admin of — another admin is appointed first. */
-  soleAdminOf: AccountDeletionSoleAdminObec[];
-};
+  soleAdminOf: AccountDeletionSoleAdminObec[]
+}
 
 /** What stands between the signed-in user and deleting their account (GET /api/account/delete). */
 export async function getAccountDeletionBlockers(): Promise<AccountDeletionBlockers> {
-  const result = await get<Partial<AccountDeletionBlockers>>("/account/delete");
-  return { blockingEvents: result.blockingEvents ?? [], soleAdminOf: result.soleAdminOf ?? [] };
+  const result = await get<Partial<AccountDeletionBlockers>>('/account/delete')
+  return { blockingEvents: result.blockingEvents ?? [], soleAdminOf: result.soleAdminOf ?? [] }
 }
 
 /** Deletes (anonymizes) the signed-in user's account and drops their session cookie. */
 export async function deleteMyAccount(): Promise<void> {
-  await post("/account/delete", { confirm: ACCOUNT_DELETION_CONFIRMATION });
+  await post('/account/delete', { confirm: ACCOUNT_DELETION_CONFIRMATION })
 }
 
 export async function getMarketingConsent(userId: string): Promise<boolean> {
-  const where = buildWhereParams({ user: { equals: userId }, type: { equals: "marketing" } });
-  const query = buildQuery({ sort: "-createdAt", limit: 1, depth: 0 });
-  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`);
-  const latest = result.docs[0];
-  return Boolean(latest && !latest.revokedAt);
+  const where = buildWhereParams({ user: { equals: userId }, type: { equals: 'marketing' } })
+  const query = buildQuery({ sort: '-createdAt', limit: 1, depth: 0 })
+  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`)
+  const latest = result.docs[0]
+  return Boolean(latest && !latest.revokedAt)
 }
 
 /** Grants a fresh marketing consent, or revokes the current active one. */
 export async function setMarketingConsent(userId: string, enabled: boolean): Promise<void> {
   if (enabled) {
-    await post("/consents", {
+    await post('/consents', {
       user: Number(userId),
-      type: "marketing",
+      type: 'marketing',
       version: CONSENT_VERSION,
       grantedAt: new Date().toISOString(),
-    });
-    return;
+    })
+    return
   }
-  const where = buildWhereParams({ user: { equals: userId }, type: { equals: "marketing" } });
-  const query = buildQuery({ sort: "-createdAt", limit: 1, depth: 0 });
-  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`);
-  const active = result.docs.find((c) => !c.revokedAt);
+  const where = buildWhereParams({ user: { equals: userId }, type: { equals: 'marketing' } })
+  const query = buildQuery({ sort: '-createdAt', limit: 1, depth: 0 })
+  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`)
+  const active = result.docs.find((c) => !c.revokedAt)
   if (active) {
-    await patch(`/consents/${active.id}`, { revokedAt: new Date().toISOString() });
+    await patch(`/consents/${active.id}`, { revokedAt: new Date().toISOString() })
   }
 }
 
 // --- Notifications --------------------------------------------------------------------
 
 export type NotificationRow = {
-  id: string;
-  title: string;
-  message: string;
-  link: string | null;
-  read: boolean;
-  created_at: string;
-};
+  id: string
+  title: string
+  message: string
+  link: string | null
+  read: boolean
+  created_at: string
+}
 
 type PayloadNotification = {
-  id: number;
-  title: string;
-  message: string;
-  link?: string | null;
-  readAt?: string | null;
-  createdAt: string;
-};
+  id: number
+  title: string
+  message: string
+  link?: string | null
+  readAt?: string | null
+  createdAt: string
+}
 
 export async function getMyNotifications(userId: string): Promise<NotificationRow[]> {
-  const where = buildWhereParams({ user: { equals: userId } });
-  const query = buildQuery({ sort: "-createdAt", depth: 0, limit: 100 });
-  const result = await get<PayloadListResponse<PayloadNotification>>(`/notifications?${where}&${query}`);
+  const where = buildWhereParams({ user: { equals: userId } })
+  const query = buildQuery({ sort: '-createdAt', depth: 0, limit: 100 })
+  const result = await get<PayloadListResponse<PayloadNotification>>(
+    `/notifications?${where}&${query}`,
+  )
   return result.docs.map((n) => ({
     id: String(n.id),
     title: n.title,
@@ -1633,22 +1945,24 @@ export async function getMyNotifications(userId: string): Promise<NotificationRo
     link: n.link || null,
     read: Boolean(n.readAt),
     created_at: n.createdAt,
-  }));
+  }))
 }
 
 export async function getUnreadNotificationCount(userId: string): Promise<number> {
-  const where = buildWhereParams({ user: { equals: userId }, readAt: { exists: false } });
-  const result = await get<PayloadListResponse<{ id: number }>>(`/notifications?${where}&depth=0&limit=0`);
-  return result.totalDocs;
+  const where = buildWhereParams({ user: { equals: userId }, readAt: { exists: false } })
+  const result = await get<PayloadListResponse<{ id: number }>>(
+    `/notifications?${where}&depth=0&limit=0`,
+  )
+  return result.totalDocs
 }
 
 export async function markNotificationRead(notificationId: string): Promise<void> {
-  await patch(`/notifications/${notificationId}`, { readAt: new Date().toISOString() });
+  await patch(`/notifications/${notificationId}`, { readAt: new Date().toISOString() })
 }
 
 /** Every unread one, not just the 100 the page lists — older ones would otherwise hold the badge
  * until the 90-day cleanup. Notifications' update access keeps this to the user's own. */
 export async function markAllNotificationsRead(userId: string): Promise<void> {
-  const where = buildWhereParams({ user: { equals: userId }, readAt: { exists: false } });
-  await patch(`/notifications?${where}`, { readAt: new Date().toISOString() });
+  const where = buildWhereParams({ user: { equals: userId }, readAt: { exists: false } })
+  await patch(`/notifications?${where}`, { readAt: new Date().toISOString() })
 }

@@ -110,7 +110,7 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   if (isObec && answers && user.role !== 'admin') {
     throw new APIError('Obec se ke spolupořádání akce přidat sama nemůže — pozvat ji musí pořadatel akce.', 403)
   }
-  if (isObec && event.obecLeftAt) {
+  if (isObec && event.obecLeftAt && organizationMunicipalityId === municipalityId) {
     throw new APIError('Obec spolupořádání téhle akce ukončila — vrátit se k ní už nejde.', 400)
   }
 

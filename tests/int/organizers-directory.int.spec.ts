@@ -147,7 +147,7 @@ describe('Organizátoři v mém městě', () => {
   })
 
   it('lists every organizer of the obec with its description and numbers, but not the obec itself', async () => {
-    const directory = await loadOrganizersDirectory(payload, String(municipality.id), club.id)
+    const directory = await loadOrganizersDirectory(payload, [String(municipality.id)], club.id)
     expect(directory.map((o) => o.name).sort()).toEqual([`Kavárna ${STAMP}`, 'Orgdir club'].sort())
 
     const cafeProfile = directory.find((o) => o.name === `Kavárna ${STAMP}`)!
@@ -191,7 +191,7 @@ describe('Organizátoři v mém městě', () => {
   })
 
   it("shows each organizer's account e-mail as the contact", async () => {
-    const directory = await loadOrganizersDirectory(payload, String(municipality.id), club.id)
+    const directory = await loadOrganizersDirectory(payload, [String(municipality.id)], club.id)
     expect(directory.find((o) => o.name === `Kavárna ${STAMP}`)!.contact).toEqual({ email: cafe.email })
   })
 
@@ -207,7 +207,7 @@ describe('Organizátoři v mém městě', () => {
     ).docs
     await payload.delete({ collection: 'user-roles', id: role.id, user: obecAdmin, overrideAccess: false })
 
-    const directory = await loadOrganizersDirectory(payload, String(municipality.id), cafe.id)
+    const directory = await loadOrganizersDirectory(payload, [String(municipality.id)], cafe.id)
     expect(directory.map((o) => o.name)).toEqual([`Kavárna ${STAMP}`])
     const kept = await payload.count({ collection: 'organizations', where: { owner: { equals: club.id } }, overrideAccess: true })
     expect(kept.totalDocs).toBe(1)

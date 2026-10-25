@@ -1,12 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Map as MapIcon, Pencil, Plus, Star } from 'lucide-react'
+import { AlertTriangle, Map as MapIcon, Pencil, Plus, Star } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
   createMicroregion,
   deleteMicroregion,
+  getMicroregionImpact,
   listMicroregions,
   updateMicroregion,
   type MicroregionRow,
@@ -51,6 +52,8 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
   const [regions, setRegions] = useState<MicroregionRow[] | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
+  /** Joint events the change would touch — shown before it's saved. Null while not asking. */
+  const [impact, setImpact] = useState<{ id: string; title: string }[] | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -79,10 +82,16 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
       return { ...d, memberIds, mainId }
     })
 
-  const save = async () => {
+  const save = async (confirmed = false) => {
     if (!draft) return
     if (!draft.name.trim()) return toast.error('Zadejte název mikroregionu.')
     if (draft.memberIds.length === 0) return toast.error('Vyberte aspoň jednu obec.')
+    // Taking obce apart touches the events they co-organize together — show which, first.
+    if (draft.id && !confirmed) {
+      const touched = await getMicroregionImpact(draft.id, draft.memberIds).catch(() => [])
+      if (touched.length > 0) return setImpact(touched)
+    }
+    setImpact(null)
     setSaving(true)
     try {
       const input = {
@@ -152,7 +161,7 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
               </Button>
               <ConfirmDeleteButton
                 title={`Zrušit mikroregion ${r.name}?`}
-                description="Obce zůstanou, jen už nebudou sdílet akce, dobrovolníky a spolupořadatelství. Spolupořadatelství, která už na akcích jsou, zůstanou."
+                description="Obce zůstanou, jen už nebudou sdílet akce, dobrovolníky a spolupořadatelství. Společné akce, které už běží, doběhnou ve stávající sestavě; nepřijaté pozvánky napříč obcemi se zruší. Admini obcí dostanou oznámení."
                 onConfirm={async () => {
                   await deleteMicroregion(r.id)
                   await load()
@@ -175,7 +184,15 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
         </Card>
       ))}
 
-      <Dialog open={Boolean(draft)} onOpenChange={(open) => !open && setDraft(null)}>
+      <Dialog
+        open={Boolean(draft)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDraft(null)
+            setImpact(null)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{draft?.id ? 'Upravit mikroregion' : 'Nový mikroregion'}</DialogTitle>
@@ -212,6 +229,11 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
                             onCheckedChange={(v) => toggleMember(m.id, v === true)}
                           />
                           <span className="flex-1">{m.name}</span>
+                          {m.has_admin === false && (
+                            <span className="inline-flex items-center gap-1 text-xs text-warning">
+                              <AlertTriangle className="h-3 w-3" aria-hidden /> bez admina
+                            </span>
+                          )}
                           {taken && (
                             <span className="text-xs text-muted-foreground">v „{other!.name}“</span>
                           )}
@@ -247,10 +269,33 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
             <Button variant="outline" onClick={() => setDraft(null)}>
               Zrušit
             </Button>
-            <Button onClick={save} disabled={saving}>
+            <Button onClick={() => save()} disabled={saving}>
               Uložit
             </Button>
           </DialogFooter>
+          {impact && (
+            <div className="space-y-2 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm">
+              <p className="font-semibold">Změna se dotkne {impact.length} společných akcí</p>
+              <p className="text-muted-foreground">
+                Obce, které přestanou sdílet mikroregion, spolu tyto akce pořádají. Doběhnou ve stávající sestavě;
+                nepřijaté pozvánky napříč obcemi se zruší a admini obcí dostanou oznámení.
+              </p>
+              <ul className="list-disc pl-5">
+                {impact.slice(0, 5).map((e) => (
+                  <li key={e.id}>{e.title}</li>
+                ))}
+                {impact.length > 5 && <li>a další ({impact.length - 5})</li>}
+              </ul>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setImpact(null)}>
+                  Zpět
+                </Button>
+                <Button size="sm" onClick={() => save(true)} disabled={saving}>
+                  Přesto uložit
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

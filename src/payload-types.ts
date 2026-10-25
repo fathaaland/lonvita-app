@@ -746,10 +746,17 @@ export interface EventDeletionRequest {
   eventTitle: string;
   municipality?: (number | null) | Municipality;
   requestedBy: number | User;
+  requesterMunicipality?: (number | null) | Municipality;
+  creatorOnly?: boolean | null;
   /**
    * Everyone else organizing the event — all of them have to consent.
    */
   approvers?: (number | User)[] | null;
+  neighbourMunicipalities?: (number | Municipality)[] | null;
+  /**
+   * The neighbouring obce that have consented.
+   */
+  neighbourApproved?: (number | Municipality)[] | null;
   municipalityConsent?: boolean | null;
   /**
    * The obec admin who consented for the obec.
@@ -759,7 +766,7 @@ export interface EventDeletionRequest {
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'requester-removed' | 'escalated' | 'escalation-rejected';
   expiresAt: string;
   /**
-   * The organizer who refused — if the obec then takes the pořadatel off, the event passes to them.
+   * The organizer who refused (or the admin of a neighbouring obec, for it) — if the obec then takes the pořadatel off, the event passes to the organizer.
    */
   rejectedBy?: (number | null) | User;
   /**
@@ -1674,7 +1681,11 @@ export interface EventDeletionRequestsSelect<T extends boolean = true> {
   eventTitle?: T;
   municipality?: T;
   requestedBy?: T;
+  requesterMunicipality?: T;
+  creatorOnly?: T;
   approvers?: T;
+  neighbourMunicipalities?: T;
+  neighbourApproved?: T;
   municipalityConsent?: T;
   municipalityApprovedBy?: T;
   approvedBy?: T;

@@ -46,6 +46,7 @@ import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isEventShareable } from "@/lib/eventShare";
+import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 
 interface Reg { id: string; user_id: string; status: string; role: "participant" | "volunteer"; full_name: string; avatar_url: string | null }
 
@@ -61,7 +62,7 @@ function EventDetailContent() {
   const id = params.id;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, profile, isSuperAdmin } = useAuth();
+  const { user, profile, isSuperAdmin, organizerMunicipalityIds } = useAuth();
   const [event, setEvent] = useState<Awaited<ReturnType<typeof getEvent>>>(null);
   const [eventCategories, setEventCategories] = useState<CategoryRow[]>([]);
   const [organizerName, setOrganizerName] = useState<string | null>(null);
@@ -181,21 +182,37 @@ function EventDetailContent() {
   // Everyone organizing it edits it, the obec on it or not. Once it has taken place, nobody edits it
   // any more (Events canUpdateEvent).
   const hasEnded = event?.status === "finished";
-  // An admin of a neighbouring obec (mikroregion) co-organizing it as the obec edits it too.
-  const coOrganizingNeighbour = Boolean(
-    event?.co_organizations.some(
-      (o) => isMunicipalityOrganization(o) && !!o.municipality_id && administeredMunicipalityIds.includes(o.municipality_id),
-    ),
+  // Neighbouring obce from the mikroregion co-organizing it — spolupořadatelé like any organization.
+  const neighbourObce = (event?.co_organizations ?? []).filter(
+    (o) => isMunicipalityOrganization(o) && !!o.municipality_id && o.municipality_id !== event?.municipality_id,
   );
+  // The ones the viewer answers for — as their admin they edit it, and consent or ask to delete it.
+  const myNeighbourObecIds = neighbourObce
+    .map((o) => o.municipality_id!)
+    .filter((id) => administeredMunicipalityIds.includes(id));
+  const coOrganizingNeighbour = myNeighbourObecIds.length > 0;
+  // In a mikroregion a spolupořadatel's organization leaves on its own, and a deletion request from it
+  // goes to the event's creator alone (EventDeletionRequests).
+  const region = useMunicipalityRegion(event?.municipality_id);
+  // Also once the region split or changed: a co-operation across obce runs to its end on its rules.
+  const regionShared =
+    (!!region && region.municipalities.length > 1) ||
+    Boolean(event?.co_organizations.some((o) => !!o.municipality_id && o.municipality_id !== event.municipality_id));
+  const isCoOrganizerOnly =
+    !!user && !!event && event.organizer_id !== String(user.id) && event.co_organizer_ids.includes(String(user.id));
   const canEdit = (canManage || coOrganizingNeighbour) && !hasEnded;
-  const obecCoOrganizes = Boolean(event?.co_organizations.some(isMunicipalityOrganization));
+  // The event's own obec — it alone has the obec's say over the event.
+  const obecCoOrganizes = Boolean(
+    event?.co_organizations.some((o) => isMunicipalityOrganization(o) && o.municipality_id === event.municipality_id),
+  );
   const obecRuns = isMunicipalityOrganization(event?.organization);
   // Whoever runs the event takes part in it automatically — the obec's admins too whenever the obec
   // runs or co-organizes it. Anywhere else they sign up as themselves, like everyone (Registrations).
   const runsItForObec = isAdminOfEventMunicipality && (obecRuns || obecCoOrganizes);
-  const takesPartAutomatically = isEventOrganizer || runsItForObec;
+  // A neighbouring obec's admins are on its team too (Events getEventTeamUserIds).
+  const takesPartAutomatically = isEventOrganizer || runsItForObec || coOrganizingNeighbour;
   // "Kdo dále jde" — names are only for the event's organizer and the obec's admin.
-  const canSeeAttendees = canManage || isSuperAdmin;
+  const canSeeAttendees = canManage || coOrganizingNeighbour || isSuperAdmin;
   // Someone from the volunteer pool may offer to help on an event that looks for volunteers — its
   // creator answers (VolunteerInvitations, kind "application").
   // Signing up (and offering help) closes REGISTRATION_CUTOFF_HOURS before the start — after that
@@ -549,6 +566,15 @@ function EventDetailContent() {
                 userId={String(user.id)}
                 organizerId={event.organizer_id}
                 obecTakesPart={obecRuns || obecCoOrganizes}
+                creatorOnly={regionShared && isCoOrganizerOnly}
+                // Running the event takes a role in its obec (Events requireOrganizerRole).
+                canTakeOver={
+                  !!event.municipality_id &&
+                  (organizerMunicipalityIds.includes(event.municipality_id) ||
+                    administeredMunicipalityIds.includes(event.municipality_id))
+                }
+                myNeighbourObecIds={myNeighbourObecIds}
+                neighbourObecNames={Object.fromEntries(neighbourObce.map((o) => [o.municipality_id!, o.name]))}
                 onOrganizersChanged={load}
               />
             ) : (
@@ -562,6 +588,8 @@ function EventDetailContent() {
                     userId={String(user.id)}
                     forObec
                     obecRuns={obecRuns}
+                    obecCoOrganizes={obecCoOrganizes}
+                    organizerId={event.organizer_id}
                     onOrganizersChanged={load}
                   />
                 )}
@@ -573,6 +601,13 @@ function EventDetailContent() {
         {/* The obec steps off an event it co-organizes on its own — no one's consent, and for good. */}
         {obecCoOrganizes && isAdminOfEventMunicipality && !hasEnded && event.status !== "cancelled" && (
           <ObecLeaveCoOrganizing eventId={event.id} title={event.title} onLeft={load} />
+        )}
+        {regionShared && isCoOrganizerOnly && !hasEnded && event.status !== "cancelled" && (
+          <ObecLeaveCoOrganizing eventId={event.id} title={event.title} onLeft={load} organization />
+        )}
+        {/* A neighbouring obec from the mikroregion leaves the same way — it may be invited again. */}
+        {coOrganizingNeighbour && !isAdminOfEventMunicipality && !hasEnded && event.status !== "cancelled" && (
+          <ObecLeaveCoOrganizing eventId={event.id} title={event.title} onLeft={load} neighbour />
         )}
       </div>
 

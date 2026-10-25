@@ -521,6 +521,16 @@ export async function listMicroregions(): Promise<MicroregionRow[]> {
   return result.docs.map(mapMicroregion);
 }
 
+/** Upcoming events co-organized across obce that would stop sharing a region — saving with these
+ * member obce (none = the region deleted). They run on to their end. */
+export async function getMicroregionImpact(
+  regionId: string,
+  municipalityIds: string[],
+): Promise<{ id: string; title: string }[]> {
+  const params = new URLSearchParams({ regionId, municipalityIds: municipalityIds.join(",") });
+  return (await get<{ events: { id: string; title: string }[] }>(`/admin/microregions/impact?${params}`)).events;
+}
+
 export type MicroregionInput = { name: string; mainMunicipalityId: string; municipalityIds: string[] };
 
 const microregionBody = (input: MicroregionInput) => ({

@@ -2,11 +2,19 @@ import { NextResponse } from 'next/server'
 import { APIError, commitTransaction, createLocalReq, getPayload, initTransaction, killTransaction } from 'payload'
 
 import config from '@payload-config'
-import { eventOrganizerIds } from '@/collections/Events'
+import { eventOrganizerIds, neighbourObceOf } from '@/collections/Events'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
-import { getEventTeamUserIds, sendNotificationToMany } from '@/collections/shared/notify'
+import { getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotificationToMany } from '@/collections/shared/notify'
 import { writeAuditLog } from '@/collections/shared/auditLog'
-import { announceRequesterRemoved, removeOrganizerFromEvent } from '@/collections/shared/removeOrganizer'
+import {
+  announceObecRemoved,
+  announceRequesterRemoved,
+  eligibleSuccessorIds,
+  handOverToObec,
+  obecSuccessorId,
+  removeObecFromEvent,
+  removeOrganizerFromEvent,
+} from '@/collections/shared/removeOrganizer'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId } from '@/lib/relations'
 
@@ -70,8 +78,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       data: { status: 'escalation-rejected', decidedBy: user.id, decidedAt },
       overrideAccess: true,
     })
-    const team = await getEventTeamUserIds(payload, event, { exclude: [uid, requesterId] })
-    sendNotificationToMany(payload, [requesterId], {
+    // Asked for a neighbouring obec — all its admins hear the answer.
+    const askingObec = relationId(deletionRequest.requesterMunicipality)
+    const askers = askingObec ? (await getMunicipalityAdminUserIds(payload, askingObec)).map(String) : [requesterId]
+    const team = await getEventTeamUserIds(payload, event, { exclude: [uid, ...askers] })
+    sendNotificationToMany(payload, askers, {
       title: 'Obec žádost zamítla',
       link: `/akce/${event.id}`,
       message: `Obec nevyhověla vaší žádosti o zrušení spolupořadatelství akce „${event.title}“ — akci pořádáte dál.`,
@@ -94,17 +105,33 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   const onEvent = eventOrganizerIds(event)
-  if (!onEvent.includes(requesterId)) {
+  // Asked for a neighbouring obec — the obec leaves, and hands nothing over.
+  const requesterObec = relationId(deletionRequest.requesterMunicipality)
+  const stillOn = requesterObec
+    ? (await neighbourObceOf(await createLocalReq({ user }, payload), event)).includes(requesterObec)
+    : onEvent.includes(requesterId)
+  if (!stillOn) {
     return NextResponse.json({ error: 'Žadatel už akci nepořádá.' }, { status: 409 })
   }
   // A pořadatel leaving hands the event over — to whoever refused, if they're still on it.
+  // Only a spolupořadatel with a role in the event's obec can run it; when there's none, the obec takes
+  // it over itself (handOverToObec) — a pořadatel is never held on an event nobody else may run.
   let successorId: string | null = null
-  if (relationId(event.organizer) === requesterId) {
+  let obecTakesOver = false
+  if (!requesterObec && relationId(event.organizer) === requesterId) {
     const rejectedById = relationId(deletionRequest.rejectedBy)
     const coOrganizerIds = (event.coOrganizers ?? []).map(relationId).filter((x): x is string => x !== null)
-    successorId = rejectedById && coOrganizerIds.includes(rejectedById) ? rejectedById : (coOrganizerIds[0] ?? null)
+    const eligible = await eligibleSuccessorIds(payload, relationId(event.municipality)!, coOrganizerIds)
+    successorId = rejectedById && eligible.includes(rejectedById) ? rejectedById : (eligible[0] ?? null)
     if (!successorId) {
-      return NextResponse.json({ error: 'Akci nemá kdo převzít — žádný spolupořadatel nezbyl.' }, { status: 409 })
+      successorId = await obecSuccessorId(payload, relationId(event.municipality)!, uid)
+      obecTakesOver = successorId !== null
+    }
+    if (!successorId) {
+      return NextResponse.json(
+        { error: 'Akci nemá kdo převzít — obec nemá admina. Akci můžete jen zrušit.' },
+        { status: 409 },
+      )
     }
   }
 
@@ -112,7 +139,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const shouldCommit = await initTransaction(req)
   let updated
   try {
-    updated = await removeOrganizerFromEvent(req, event, requesterId, successorId)
+    updated = requesterObec
+      ? await removeObecFromEvent(req, event, requesterObec)
+      : obecTakesOver
+        ? await handOverToObec(req, event, successorId!)
+        : await removeOrganizerFromEvent(req, event, requesterId, successorId)
     await payload.update({
       collection: 'event-deletion-requests',
       id: deletionRequest.id,
@@ -140,7 +171,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Žadatele se nepodařilo z akce odebrat.' }, { status: 500 })
   }
 
-  await announceRequesterRemoved(payload, { event: updated, requesterId, successorId, deciderId: uid, byObec: true })
+  if (requesterObec) {
+    await announceObecRemoved(payload, { event: updated, municipalityId: requesterObec, deciderId: uid, byObec: true })
+  } else {
+    await announceRequesterRemoved(payload, { event: updated, requesterId, successorId, deciderId: uid, byObec: true })
+  }
   writeAuditLog(payload, {
     source: request,
     action: 'event-deletion-requests.municipality-remove',

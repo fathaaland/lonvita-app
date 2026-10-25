@@ -78,9 +78,10 @@ const teamRelId = (value: unknown): string | null =>
 
 /**
  * Everyone who runs the event and so hears about what happens on it: the pořadatel, every
- * spolupořadatel and — whenever the obec runs or co-organizes it — each of the obec's admins (any
- * one of them answers for the obec). `exclude` drops whoever caused the notification. Pass `req`
- * from inside a transaction that may have just changed who organizes it.
+ * spolupořadatel and — for each obec running or co-organizing it, its own obec or a neighbouring
+ * one from its mikroregion — each of that obec's admins (any one of them answers for the obec).
+ * `exclude` drops whoever caused the notification. Pass `req` from inside a transaction that may
+ * have just changed who organizes it.
  */
 export async function getEventTeamUserIds(
   payload: Payload,
@@ -90,24 +91,23 @@ export async function getEventTeamUserIds(
   const ids = new Set(
     [event.organizer, ...(event.coOrganizers ?? [])].map(teamRelId).filter((id): id is string => id !== null),
   )
-  const municipalityId = teamRelId(event.municipality)
-  if (municipalityId) {
-    const obecOrganization = await payload.find({
+  const organizationIds = [event.organization, ...(event.coOrganizations ?? [])]
+    .map(teamRelId)
+    .filter((id): id is string => id !== null)
+  if (organizationIds.length > 0) {
+    const obce = await payload.find({
       collection: 'organizations',
-      where: {
-        and: [{ municipality: { equals: municipalityId } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }],
-      },
+      where: { and: [{ id: { in: organizationIds } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }] },
+      select: { municipality: true },
       depth: 0,
-      limit: 1,
+      pagination: false,
       overrideAccess: true,
       req,
     })
-    const obecOrganizationId = obecOrganization.docs[0] ? String(obecOrganization.docs[0].id) : null
-    const obecTakesPart =
-      obecOrganizationId !== null &&
-      (teamRelId(event.organization) === obecOrganizationId ||
-        (event.coOrganizations ?? []).map(teamRelId).includes(obecOrganizationId))
-    if (obecTakesPart) {
+    const municipalityIds = [
+      ...new Set(obce.docs.map((o) => teamRelId(o.municipality)).filter((id): id is string => id !== null)),
+    ]
+    for (const municipalityId of municipalityIds) {
       for (const adminId of await getMunicipalityAdminUserIds(payload, municipalityId)) ids.add(String(adminId))
     }
   }

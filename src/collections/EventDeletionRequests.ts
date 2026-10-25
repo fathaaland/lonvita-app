@@ -1,5 +1,7 @@
 import type {
   Access,
+  Payload,
+  PayloadRequest,
   CollectionAfterChangeHook,
   CollectionAfterReadHook,
   CollectionBeforeValidateHook,
@@ -9,10 +11,19 @@ import type {
 import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
-import { deletionNeedsConsent, eventOrganizerIds, obecRole } from './Events'
+import {
+  actingNeighbourObec,
+  deletionNeedsConsent,
+  eventOrganizerIds,
+  isEventCreator,
+  neighbourObceOf,
+  obecRole,
+  runsByRegionRules,
+} from './Events'
 import { escapeHtml, getMunicipalityAdminUserIds, sendNotification } from './shared/notify'
 import { canCancelEvent, eventCancellationDeadline, EVENT_CANCELLATION_CUTOFF_HOURS } from '@/lib/eventCancellation'
 import { formatPragueDateTime } from '@/lib/date'
+import type { EventDeletionRequest } from '@/payload-types'
 import { relationId } from '@/lib/relations'
 import { DELETION_CONSENT_HOURS } from '@/lib/requestDeadlines'
 
@@ -26,7 +37,14 @@ const canReadDeletionRequest: Access = async ({ req: { user, payload } }) => {
   if (user.role === 'admin') return true
   const or: Where[] = [{ requestedBy: { equals: user.id } }, { approvers: { in: [user.id] } }]
   const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
-  if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
+  if (administeredIds.length > 0) {
+    or.push(
+      { municipality: { in: administeredIds } },
+      // A neighbouring obec co-organizing the event — asking, or asked.
+      { requesterMunicipality: { in: administeredIds } },
+      { neighbourMunicipalities: { in: administeredIds } },
+    )
+  }
   const where: Where = { or }
   return where
 }
@@ -52,7 +70,11 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   if (!event || event.deletedAt) throw new APIError('Akce neexistuje nebo už byla zrušena.', 404)
 
   const organizerIds = eventOrganizerIds(event)
-  if (!organizerIds.includes(String(user.id))) {
+  // A neighbouring obec co-organizing the event asks for itself, like any spolupořadatel.
+  const requesterMunicipality = organizerIds.includes(String(user.id))
+    ? null
+    : await actingNeighbourObec(req, user, event)
+  if (!organizerIds.includes(String(user.id)) && !requesterMunicipality) {
     throw new APIError('O smazání akce může požádat jen její pořadatel nebo spolupořadatel.', 403)
   }
   if (!(await deletionNeedsConsent(req, user, event))) {
@@ -89,19 +111,128 @@ const prepareRequest: CollectionBeforeValidateHook = async ({ data, req, operati
   const obecAdminIds = new Set(
     municipalityId && (runs || coOrganizes) ? (await getMunicipalityAdminUserIds(payload, municipalityId)).map(String) : [],
   )
+  const neighbours = await obceWithAdmins(
+    payload,
+    (await neighbourObceOf(req, event)).filter((id) => id !== requesterMunicipality),
+  )
+
+  // In a mikroregion a spolupořadatel's organization asks only the event's creator — the pořadatel,
+  // or the obec's admins when the obec runs it. It may leave the event on its own anyway
+  // (api/events/[id]/leave). The pořadatel agreeing makes it their own request, which the rest of the
+  // spolupořadatelé still consent to (the decide route) — two of them can't drop it on the others.
+  const creatorOnly =
+    !requesterMunicipality && !(await isEventCreator(req, user, event)) && (await runsByRegionRules(req, event))
+  if (creatorOnly) {
+    return {
+      event: event.id,
+      eventTitle: event.title,
+      municipality: Number(municipalityId),
+      requestedBy: user.id,
+      requesterMunicipality: null,
+      creatorOnly: true,
+      approvers: runs ? [] : [Number(relationId(event.organizer))],
+      neighbourMunicipalities: [],
+      neighbourApproved: [],
+      approvedBy: [],
+      municipalityConsent: runs,
+      municipalityApprovedBy: null,
+      status: 'pending',
+      expiresAt: new Date(expiresAt).toISOString(),
+    }
+  }
 
   return {
     event: event.id,
     eventTitle: event.title,
     municipality: municipalityId ? Number(municipalityId) : null,
     requestedBy: user.id,
+    requesterMunicipality: requesterMunicipality ? Number(requesterMunicipality) : null,
+    creatorOnly: false,
     approvers: organizerIds.filter((id) => id !== String(user.id) && !obecAdminIds.has(id)).map(Number),
+    neighbourMunicipalities: neighbours.map(Number),
+    neighbourApproved: [],
     approvedBy: [],
     municipalityConsent: runs || coOrganizes,
     municipalityApprovedBy: null,
     status: 'pending',
     expiresAt: new Date(expiresAt).toISOString(),
   }
+}
+
+/**
+ * Asks everyone whose consent the request waits for — the users among `approvers`, each neighbouring
+ * obec and the event's obec (any one of their admins answering for it). An obec without an admin is
+ * answered for by the platform admins (deciderIdsForObec), so no consent waits on nobody. `lead` names
+ * who asks — "Jana Nováková", or "Pořadatel Petr Novák souhlasí se žádostí Jany Novákové".
+ */
+export async function askForDeletionConsent(
+  payload: Payload,
+  doc: EventDeletionRequest,
+  lead: string,
+  req?: PayloadRequest,
+): Promise<void> {
+  const until = formatPragueDateTime(doc.expiresAt)
+  const eventId = relationId(doc.event)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const ask = async (userIds: (number | string)[], whose: string, consent: string) => {
+    for (const userId of userIds) {
+      await sendNotification(payload, {
+        userId,
+        title: 'Žádost o smazání akce',
+        link: `/akce/${eventId}`,
+        message: `${lead} chce smazat akci „${doc.eventTitle}“, ${whose}. Bez ${consent} se nesmaže — odpovězte do ${until}.`,
+        email: {
+          subject: `Žádost o smazání akce: ${doc.eventTitle}`,
+          body:
+            `<p><strong>${escapeHtml(lead)}</strong> chce smazat akci <strong>${escapeHtml(doc.eventTitle)}</strong>, ${whose}.</p>` +
+            `<p>Bez ${consent} se akce nesmaže. Odpovědět můžete do ${until} — když nikdo neodpoví, akce zůstane.</p>` +
+            `<p><a href="${appUrl}/akce/${eventId}">Otevřít akci a rozhodnout</a></p>`,
+        },
+      })
+    }
+  }
+
+  for (const neighbourId of ((doc.neighbourMunicipalities ?? []) as unknown[]).map(relationId)) {
+    if (neighbourId) {
+      await ask(await deciderIdsForObec(payload, neighbourId, req), 'kterou vaše obec spolupořádá', 'souhlasu obce')
+    }
+  }
+  if (doc.municipalityConsent && relationId(doc.municipality)) {
+    await ask(await deciderIdsForObec(payload, relationId(doc.municipality)!, req), 'kterou obec pořádá', 'souhlasu obce')
+  }
+  await ask(
+    ((doc.approvers ?? []) as unknown[]).map(relationId).filter((id): id is string => id !== null),
+    'kterou spolu pořádáte',
+    'vašeho souhlasu',
+  )
+}
+
+/** The obce that have an admin to answer for them. A neighbouring obec without one has no say in a
+ * deletion request — nobody could give it, and the event can't be held hostage to that. */
+export async function obceWithAdmins(payload: Payload, municipalityIds: string[]): Promise<string[]> {
+  const result: string[] = []
+  for (const id of municipalityIds) if ((await getMunicipalityAdminUserIds(payload, id)).length > 0) result.push(id)
+  return result
+}
+
+/** Who answers a deletion request for an obec — its admins, or the platform admins while it has none. */
+export async function deciderIdsForObec(
+  payload: Payload,
+  municipalityId: number | string,
+  req?: PayloadRequest,
+): Promise<string[]> {
+  const admins = await getMunicipalityAdminUserIds(payload, municipalityId)
+  if (admins.length > 0) return admins.map(String)
+  const platformAdmins = await payload.find({
+    collection: 'users',
+    where: { role: { equals: 'admin' } },
+    select: {},
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  return platformAdmins.docs.map((u) => String(u.id))
 }
 
 const notifyApprovers: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
@@ -116,44 +247,13 @@ const notifyApprovers: CollectionAfterChangeHook = async ({ doc, operation, req 
     overrideAccess: true,
     req,
   })
-  const who = profile.docs[0]?.fullName || 'Spolupořadatel'
-  const until = formatPragueDateTime(doc.expiresAt)
-  const eventId = relationId(doc.event)
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-
-  if (doc.municipalityConsent && relationId(doc.municipality)) {
-    for (const adminId of await getMunicipalityAdminUserIds(req.payload, relationId(doc.municipality)!)) {
-      sendNotification(req.payload, {
-        userId: adminId,
-        title: 'Žádost o smazání akce',
-        link: `/akce/${eventId}`,
-        message: `${who} chce smazat akci „${doc.eventTitle}“, kterou obec pořádá. Bez souhlasu obce se nesmaže — odpovězte do ${until}.`,
-        email: {
-          subject: `Žádost o smazání akce: ${doc.eventTitle}`,
-          body:
-            `<p><strong>${escapeHtml(who)}</strong> chce smazat akci <strong>${escapeHtml(doc.eventTitle)}</strong>, kterou obec pořádá.</p>` +
-            `<p>Bez souhlasu obce se akce nesmaže — za obec stačí odpověď jednoho z jejích adminů. Odpovědět můžete do ${until} — když nikdo neodpoví, akce zůstane.</p>` +
-            `<p><a href="${appUrl}/akce/${eventId}">Otevřít akci a rozhodnout</a></p>`,
-        },
-      })
-    }
-  }
-
-  for (const approverId of (doc.approvers ?? []).map(relationId)) {
-    sendNotification(req.payload, {
-      userId: approverId!,
-      title: 'Žádost o smazání akce',
-      link: `/akce/${eventId}`,
-      message: `${who} chce smazat akci „${doc.eventTitle}“, kterou spolu pořádáte. Bez vašeho souhlasu se nesmaže — odpovězte do ${until}.`,
-      email: {
-        subject: `Žádost o smazání akce: ${doc.eventTitle}`,
-        body:
-          `<p><strong>${escapeHtml(who)}</strong> chce smazat akci <strong>${escapeHtml(doc.eventTitle)}</strong>, kterou spolu pořádáte.</p>` +
-          `<p>Bez vašeho souhlasu se akce nesmaže. Odpovědět můžete do ${until} — když neodpovíte, akce zůstane.</p>` +
-          `<p><a href="${appUrl}/akce/${eventId}">Otevřít akci a rozhodnout</a></p>`,
-      },
-    })
-  }
+  const requesterObec = relationId(doc.requesterMunicipality)
+    ? await req.payload
+        .findByID({ collection: 'municipalities', id: relationId(doc.requesterMunicipality)!, depth: 0, overrideAccess: true, req })
+        .catch(() => null)
+    : null
+  const name = profile.docs[0]?.fullName || 'Spolupořadatel'
+  await askForDeletionConsent(req.payload, doc, requesterObec ? `${name} za obec ${requesterObec.name}` : name, req)
   return doc
 }
 
@@ -220,11 +320,40 @@ export const EventDeletionRequests: CollectionConfig = {
       required: true,
     },
     {
+      // Set when an admin asks for a neighbouring obec co-organizing the event — the obec, not the
+      // admin, is the spolupořadatel asking (and leaving, if the others let it go).
+      name: 'requesterMunicipality',
+      type: 'relationship',
+      relationTo: 'municipalities',
+    },
+    {
+      // A spolupořadatel's organization asked in a mikroregion — only the event's creator was asked.
+      // Their consent turns it into their own request to the rest (the decide route).
+      name: 'creatorOnly',
+      type: 'checkbox',
+      defaultValue: false,
+    },
+    {
       name: 'approvers',
       type: 'relationship',
       relationTo: 'users',
       hasMany: true,
       admin: { description: 'Everyone else organizing the event — all of them have to consent.' },
+    },
+    {
+      // Neighbouring obce co-organizing the event (Events neighbourObceOf) — each has to consent,
+      // any one of its admins for it.
+      name: 'neighbourMunicipalities',
+      type: 'relationship',
+      relationTo: 'municipalities',
+      hasMany: true,
+    },
+    {
+      name: 'neighbourApproved',
+      type: 'relationship',
+      relationTo: 'municipalities',
+      hasMany: true,
+      admin: { description: 'The neighbouring obce that have consented.' },
     },
     {
       // The obec co-organizes the event — one of its admins has to consent on its behalf too.
@@ -273,7 +402,7 @@ export const EventDeletionRequests: CollectionConfig = {
       relationTo: 'users',
       admin: {
         description:
-          'The organizer who refused — if the obec then takes the pořadatel off, the event passes to them.',
+          'The organizer who refused (or the admin of a neighbouring obec, for it) — if the obec then takes the pořadatel off, the event passes to the organizer.',
       },
     },
     {

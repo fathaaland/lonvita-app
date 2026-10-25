@@ -43,9 +43,23 @@ const prepareComplaint: CollectionBeforeValidateHook = async ({ data, req, opera
   }
 
   const existing = (await complaintStatusByReview(payload, type, [review.id], req)).get(String(review.id))
-  if (existing === 'pending') throw new APIError('Stížnost na tuhle recenzi už čeká na posouzení obcí.', 400)
-  if (existing === 'rejected') {
-    throw new APIError('Obec už stížnost na tuhle recenzi posoudila a recenzi ponechala.', 400)
+  if (existing) {
+    // The obec running the event is a party to it — then the platform admin decides, and says so.
+    const byPlatform = (
+      await complaintsDecidedByPlatform(
+        payload,
+        [{ id: 0, municipality: review.event.municipality, event: review.event.id, complainant: user.id }],
+        req,
+      )
+    ).has('0')
+    const who = byPlatform ? 'správcem Lonvity' : 'obcí'
+    if (existing === 'pending') throw new APIError(`Stížnost na tuhle recenzi už čeká na posouzení ${who}.`, 400)
+    throw new APIError(
+      byPlatform
+        ? 'Správce Lonvity už stížnost na tuhle recenzi posoudil a recenzi ponechal.'
+        : 'Obec už stížnost na tuhle recenzi posoudila a recenzi ponechala.',
+      400,
+    )
   }
 
   return {

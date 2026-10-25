@@ -20,6 +20,8 @@ import { AnalyticsOverview } from "@/components/admin/AnalyticsOverview";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { CommunityReport } from "@/components/admin/CommunityReport";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
+import { RegionNotice } from "@/components/RegionNotice";
+import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 import { PoolInvitationsCard } from "@/components/admin/PoolInvitationsCard";
 import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
@@ -55,6 +57,8 @@ function AdminContent() {
   }, [tabParam]);
   // Brief §3 "i admin obce může sám organizovat akce a chce vidět jejich výkon zvlášť."
   const [scope, setScope] = useState<"all" | "mine">("all");
+  // Its volunteers come from the obec's whole mikroregion — the admin has to know which.
+  const region = useMunicipalityRegion(muniId || null);
 
   // Only the latest request lands — a quick "Celá obec" → "Jen moje akce" → back mustn't end on
   // whichever answer happened to arrive last.
@@ -128,6 +132,9 @@ function AdminContent() {
                 ))}
               </SelectContent>
             </Select>
+          )}
+          {muniId && (
+            <RegionNotice region={region} municipalityId={muniId} municipalityName={muniName} className="mb-4" />
           )}
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="w-full h-12 grid grid-cols-6 md:hidden">
@@ -208,7 +215,7 @@ function AdminContent() {
             </TabsContent>
 
             <TabsContent value="volunteers" className="pt-4 space-y-4">
-              <VolunteersTable />
+              <VolunteersTable municipalityId={muniId} municipalityName={muniName} region={region} />
               <PoolInvitationsCard key={muniId} municipalityId={muniId} />
             </TabsContent>
 

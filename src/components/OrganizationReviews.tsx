@@ -55,6 +55,7 @@ export function OrganizationReviews({ organizationId }: { organizationId: string
               reviewId={r.id}
               status={r.complaint_status}
               canComplain={r.can_complain}
+              decidedByPlatform={r.decided_by_platform}
               onReported={load}
             />
           </li>

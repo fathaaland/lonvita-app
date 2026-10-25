@@ -393,16 +393,17 @@ describe('Registrations & EventFeedback', () => {
       expect(removed.status).toBe('rejected')
     })
 
-    it('a co-organizer can take them off too', async () => {
+    it("a co-organizer can't — who's on the event is its creator's alone", async () => {
       const reg = await approvedRegistration()
-      const removed = await payload.update({
-        collection: 'registrations',
-        id: reg.id,
-        data: { status: 'rejected' },
-        user: coOrganizer,
-        overrideAccess: false,
-      })
-      expect(removed.status).toBe('rejected')
+      await expect(
+        payload.update({
+          collection: 'registrations',
+          id: reg.id,
+          data: { status: 'rejected' },
+          user: coOrganizer,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow(/jen pořadatel, který akci založil/)
     })
 
     it('tells the participant they were taken off — not that their application was turned down', async () => {
@@ -411,7 +412,7 @@ describe('Registrations & EventFeedback', () => {
         collection: 'registrations',
         id: reg.id,
         data: { status: 'rejected' },
-        user: coOrganizer,
+        user: organizer,
         overrideAccess: false,
       })
 
@@ -484,7 +485,7 @@ describe('Registrations & EventFeedback', () => {
           collection: 'registrations',
           id: reg.id,
           data: { status: 'rejected' },
-          user: coOrganizer,
+          user: organizer,
           overrideAccess: false,
         }),
       ).rejects.toThrow(/docházk/i)

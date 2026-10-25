@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ORGANIZATION_TYPES, organizationTypeLabel } from "@/lib/organizations";
 import { formatPercent } from "@/lib/organization-stats";
 import { cn } from "@/lib/utils";
+import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 
 const ALL = "all";
 
@@ -92,9 +93,14 @@ function Figures({ stats }: { stats: OrganizerProfileRow["stats"] }) {
   );
 }
 
-function Byline({ organizer }: { organizer: OrganizerProfileRow }) {
+function Byline({ organizer, homeId }: { organizer: OrganizerProfileRow; homeId: string | null }) {
   return (
     <>
+      {homeId && organizer.municipality_id !== homeId && (
+        <p className="mt-1 inline-block rounded-full bg-brand-purple-pale px-2 py-0.5 text-xs font-semibold text-brand-purple-dark">
+          Z obce {organizer.municipality_name}
+        </p>
+      )}
       <p className="mt-0.5 text-sm text-muted-foreground">
         {organizationTypeLabel(organizer.type)}
         {organizer.owner_name && organizer.owner_name !== organizer.name && <>, vede {organizer.owner_name}</>}
@@ -116,7 +122,16 @@ function EditOwnLink({ organizer }: { organizer: OrganizerProfileRow }) {
 }
 
 /** One pořadatel in the directory — a preview; the whole profile with the contact opens in a dialog. */
-function OrganizerProfile({ organizer, onOpen }: { organizer: OrganizerProfileRow; onOpen: () => void }) {
+function OrganizerProfile({
+  organizer,
+  homeId,
+  onOpen,
+}: {
+  organizer: OrganizerProfileRow;
+  /** The obec the directory is for — organizers from its neighbours say where they're from. */
+  homeId: string | null;
+  onOpen: () => void;
+}) {
   return (
     <Card className={cn("h-full", organizer.is_own && "border-primary/50")}>
       <CardContent className="flex h-full flex-col gap-4 p-5">
@@ -132,7 +147,7 @@ function OrganizerProfile({ organizer, onOpen }: { organizer: OrganizerProfileRo
                 {organizer.name}
               </button>
             </h2>
-            <Byline organizer={organizer} />
+            <Byline organizer={organizer} homeId={homeId} />
           </div>
           {organizer.is_own && <EditOwnLink organizer={organizer} />}
         </header>
@@ -164,9 +179,11 @@ function OrganizerProfile({ organizer, onOpen }: { organizer: OrganizerProfileRo
 /** The whole profile — the full description and the contact its owner allows the obec's organizers. */
 function OrganizerDetailDialog({
   organizer,
+  homeId,
   onOpenChange,
 }: {
   organizer: OrganizerProfileRow | null;
+  homeId: string | null;
   onOpenChange: (open: boolean) => void;
 }) {
   const contact = organizer?.contact;
@@ -182,7 +199,7 @@ function OrganizerDetailDialog({
                   <DialogTitle className="text-2xl font-extrabold leading-tight break-words">{organizer.name}</DialogTitle>
                   <DialogDescription asChild>
                     <div>
-                      <Byline organizer={organizer} />
+                      <Byline organizer={organizer} homeId={homeId} />
                     </div>
                   </DialogDescription>
                 </div>
@@ -238,6 +255,10 @@ function OrganizersContent() {
   const [error, setError] = useState(false);
   const [type, setType] = useState<string>(ALL);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Its neighbours in the mikroregion organize here too (they co-organize each other's events).
+  const region = useMunicipalityRegion(municipalityId);
+  const shared = !!region && region.municipalities.length > 1;
+  const [onlyOwn, setOnlyOwn] = useState(false);
 
   useEffect(() => {
     if (myMunicipalityIds.length === 0) return;
@@ -263,6 +284,7 @@ function OrganizersContent() {
     setOrganizers(null);
     setError(false);
     setType(ALL);
+    setOnlyOwn(false);
     getMunicipalityOrganizers(municipalityId)
       .then((rows) => {
         if (!active) return;
@@ -277,12 +299,17 @@ function OrganizersContent() {
   }, [municipalityId, requestedOrganization]);
 
   const municipalityName = municipalities.find((m) => m.id === municipalityId)?.name;
+  const inScope = useMemo(
+    () => (organizers ?? []).filter((o) => !onlyOwn || o.municipality_id === municipalityId),
+    [organizers, onlyOwn, municipalityId],
+  );
   const typeCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const o of organizers ?? []) counts.set(o.type, (counts.get(o.type) ?? 0) + 1);
+    for (const o of inScope) counts.set(o.type, (counts.get(o.type) ?? 0) + 1);
     return counts;
-  }, [organizers]);
-  const shown = (organizers ?? []).filter((o) => type === ALL || o.type === type);
+  }, [inScope]);
+  const shown = inScope.filter((o) => type === ALL || o.type === type);
+  const where = shared && !onlyOwn ? `v mikroregionu ${region!.name}` : `v obci ${municipalityName}`;
   const typeOptions = ORGANIZATION_TYPES.filter((t) => typeCounts.has(t.value));
 
   return (
@@ -292,7 +319,7 @@ function OrganizersContent() {
         title="Organizátoři v mém městě"
         subtitle={
           municipalityName && organizers
-            ? `${organizersLabel(organizers.length)} v obci ${municipalityName}`
+            ? `${organizersLabel(inScope.length)} ${where}`
             : municipalityName
               ? `Obec ${municipalityName}`
               : undefined
@@ -322,6 +349,30 @@ function OrganizersContent() {
           </div>
         )}
 
+        {shared && organizers && organizers.length > 0 && (
+          <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-sm" role="group" aria-label="Odkud pořadatelé">
+            {[
+              { own: false, label: "Celý mikroregion" },
+              { own: true, label: `Jen ${municipalityName}` },
+            ].map((opt) => (
+              <button
+                key={opt.label}
+                type="button"
+                aria-pressed={onlyOwn === opt.own}
+                onClick={() => {
+                  setOnlyOwn(opt.own);
+                  setType(ALL);
+                }}
+                className={cn(
+                  "flex-1 h-9 truncate rounded-md px-2 text-sm font-semibold transition-colors",
+                  onlyOwn === opt.own ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
         {error ? (
           <EmptyState icon={Store} title="Pořadatele se nepodařilo načíst" description="Obnovte stránku, nebo to zkuste za chvíli." />
         ) : !municipalityId || organizers === null ? (
@@ -329,7 +380,7 @@ function OrganizersContent() {
         ) : organizers.length === 0 ? (
           <EmptyState
             icon={Store}
-            title="V obci zatím nikdo další akce nepořádá"
+            title={shared ? "V mikroregionu zatím nikdo další akce nepořádá" : "V obci zatím nikdo další akce nepořádá"}
             description="Jakmile obec schválí první žádost o roli organizátora, jeho profil se objeví tady."
           />
         ) : (
@@ -338,7 +389,7 @@ function OrganizersContent() {
               <div className="flex flex-wrap gap-2" role="group" aria-label="Typ pořadatele">
                 {[{ value: ALL, label: "Všichni" }, ...typeOptions].map((t) => {
                   const active = type === t.value;
-                  const count = t.value === ALL ? organizers.length : typeCounts.get(t.value) ?? 0;
+                  const count = t.value === ALL ? inScope.length : typeCounts.get(t.value) ?? 0;
                   return (
                     <button
                       key={t.value}
@@ -359,22 +410,26 @@ function OrganizersContent() {
                 })}
               </div>
             )}
+            {inScope.length === 0 && (
+              <p className="py-6 text-center text-muted-foreground">V obci {municipalityName} zatím nikdo další akce nepořádá.</p>
+            )}
             <ul className="grid gap-4 lg:grid-cols-2">
               {shown.map((o) => (
                 <li key={o.id}>
-                  <OrganizerProfile organizer={o} onOpen={() => setOpenId(o.id)} />
+                  <OrganizerProfile organizer={o} homeId={shared ? municipalityId : null} onOpen={() => setOpenId(o.id)} />
                 </li>
               ))}
             </ul>
             <OrganizerDetailDialog
               organizer={organizers.find((o) => o.id === openId) ?? null}
+              homeId={shared ? municipalityId : null}
               onOpenChange={(open) => !open && setOpenId(null)}
             />
           </>
         )}
         {user && !error && organizers && organizers.length > 0 && (
           <p className="text-center text-xs text-muted-foreground">
-            Čísla jsou ze všech akcí, které pořadatel v obci pořádá nebo spolupořádá. Hodnocení od účastníků vidí jen
+            Čísla jsou ze všech akcí, které pořadatel pořádá nebo spolupořádá. Hodnocení od účastníků vidí jen
             on sám.
           </p>
         )}

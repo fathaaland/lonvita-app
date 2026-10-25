@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Store, Users } from "lucide-react";
-import { getMunicipalityOrganizers, type OrganizerProfileRow } from "@/integrations/payload/queries";
+import {
+  getMunicipalityOrganizers,
+  type MunicipalityRegion,
+  type OrganizerProfileRow,
+} from "@/integrations/payload/queries";
 import { OrganizationMark } from "@/components/EventCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,17 +21,27 @@ const othersLabel = (n: number) =>
         ? `${n} další pořadatelé`
         : `${n} dalších pořadatelů`;
 
-/** The way from an organization's own page to everyone else organizing in its obec — their
- * profiles live on /organizace/organizatori. A few of their marks hint at who's there. */
+/** ", 2 ze sousedních obcí" — how many of the others organize elsewhere in the region. */
+const fromNeighbours = (others: OrganizerProfileRow[], municipalityId: string) => {
+  const n = others.filter((o) => o.municipality_id !== municipalityId).length;
+  return n === 0 ? "" : `, ${n} ze ${n === 1 ? "sousední obce" : "sousedních obcí"}`;
+};
+
+/** The way from an organization's own page to everyone else organizing in its obec and the rest of
+ * its mikroregion — their profiles live on /organizace/organizatori. A few of their marks hint at
+ * who's there. */
 export function OrganizersDirectoryCard({
   municipalityId,
   municipalityName,
   organizationId,
+  region,
 }: {
   municipalityId: string;
   municipalityName: string;
   /** The organization the page shows — not counted among the others. */
   organizationId: string;
+  /** The obec's mikroregion (useMunicipalityRegion) — its organizers are listed too. */
+  region?: MunicipalityRegion | null;
 }) {
   const [others, setOthers] = useState<OrganizerProfileRow[] | null>(null);
 
@@ -48,8 +62,13 @@ export function OrganizersDirectoryCard({
         <div className="flex flex-1 items-center gap-3 min-w-0">
           <Store className="h-6 w-6 shrink-0 text-primary" aria-hidden />
           <div className="min-w-0">
-            <p className="font-bold text-lg leading-tight">Organizátoři v obci {municipalityName}</p>
-            <p className="text-sm text-muted-foreground">{others === null ? "Načítám…" : othersLabel(others.length)}</p>
+            <p className="font-bold text-lg leading-tight">
+              {region ? `Organizátoři v mikroregionu ${region.name}` : `Organizátoři v obci ${municipalityName}`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {others === null ? "Načítám…" : othersLabel(others.length)}
+              {others && region && fromNeighbours(others, municipalityId)}
+            </p>
           </div>
           {others && others.length > 0 && (
             <div className="ml-auto hidden sm:flex -space-x-2 pr-2" aria-hidden>

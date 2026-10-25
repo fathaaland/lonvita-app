@@ -7,7 +7,12 @@ import type { VolunteerRating } from '@/payload-types'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { isUnlimitedCapacity } from '@/lib/capacity'
 import { organizesSomewhere, toVolunteerCards, volunteerReachOf } from '@/lib/volunteers/pool'
-import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
+import {
+  complainantContext,
+  complaintStatusByReview,
+  mayComplainAbout,
+  reviewsDecidedByPlatform,
+} from '@/lib/review-complaints'
 import { relationNumber } from '@/lib/relations'
 
 /**
@@ -116,7 +121,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
   // complaint stands.
   const complaints = isSelf
     ? await reviewComplaintsFor(payload, viewer, ratings.docs)
-    : new Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean }>()
+    : new Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean; byPlatform: boolean }>()
 
   return NextResponse.json({
     volunteer: card,
@@ -131,6 +136,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
       created_at: r.createdAt,
       complaint_status: complaints.get(String(r.id))?.status ?? null,
       can_complain: complaints.get(String(r.id))?.canComplain ?? false,
+      decided_by_platform: complaints.get(String(r.id))?.byPlatform ?? false,
     })),
     events: events.docs.map((e) => ({
       id: String(e.id),
@@ -149,8 +155,8 @@ async function reviewComplaintsFor(
   payload: Payload,
   viewer: { id: number; role?: string | null },
   ratings: VolunteerRating[],
-): Promise<Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean }>> {
-  const result = new Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean }>()
+): Promise<Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean; byPlatform: boolean }>> {
+  const result = new Map<string, { status: 'pending' | 'rejected' | null; canComplain: boolean; byPlatform: boolean }>()
   if (ratings.length === 0) return result
   const [statuses, ctx, events] = await Promise.all([
     complaintStatusByReview(payload, 'volunteer-rating', ratings.map((r) => r.id)),
@@ -164,6 +170,14 @@ async function reviewComplaintsFor(
     }),
   ])
   const eventById = new Map(events.docs.map((e) => [e.id, e]))
+  const byPlatform = await reviewsDecidedByPlatform(
+    payload,
+    ratings.flatMap((r) => {
+      const event = eventById.get(relationNumber(r.event)!)
+      return event ? [{ id: r.id, event }] : []
+    }),
+    viewer.id,
+  )
   for (const r of ratings) {
     const status = statuses.get(String(r.id)) ?? null
     const event = eventById.get(relationNumber(r.event)!)
@@ -171,7 +185,7 @@ async function reviewComplaintsFor(
       status === null &&
       event !== undefined &&
       mayComplainAbout({ type: 'volunteer-rating', event, volunteerId: String(relationNumber(r.volunteer)) }, ctx)
-    result.set(String(r.id), { status, canComplain })
+    result.set(String(r.id), { status, canComplain, byPlatform: byPlatform.has(String(r.id)) })
   }
   return result
 }

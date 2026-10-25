@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getPayload, type Where } from 'payload'
+import { createLocalReq, getPayload, type Where } from 'payload'
 
 import config from '@payload-config'
+import { mayEditEvent } from '@/collections/Events'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { regionMunicipalityIds } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
@@ -15,9 +16,11 @@ const ORGANIZING_ROLES = ['municipality_admin', 'organizer'] as const
  * seniory") by name, never the requester's own — each with its own photo/logo, set on its
  * "Organizace" page. Each joins only once it accepts (CoOrganizingRequests). An organization
  * whose owner has since lost the organizer role isn't offered. Only someone who organizes in the obec
- * (or a platform admin) may list it. Mirrors CoOrganizingRequests `prepareRequest`.
+ * (or a platform admin) may list it — or, with `eventId`, whoever may edit that event and so invite
+ * to it (a neighbouring obec or organization from the mikroregion co-organizing it). Mirrors
+ * CoOrganizingRequests `prepareRequest`.
  *
- * GET /api/events/co-organizer-candidates?municipalityId=1
+ * GET /api/events/co-organizer-candidates?municipalityId=1[&eventId=2]
  */
 export async function GET(request: Request) {
   const payload = await getPayload({ config })
@@ -26,7 +29,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const municipalityId = Number(new URL(request.url).searchParams.get('municipalityId'))
+  const params = new URL(request.url).searchParams
+  const municipalityId = Number(params.get('municipalityId'))
+  const eventId = Number(params.get('eventId'))
   if (!municipalityId) {
     return NextResponse.json({ error: 'Chybí obec.' }, { status: 400 })
   }
@@ -45,10 +50,19 @@ export async function GET(request: Request) {
 
   const municipalityOf = (r: (typeof roles.docs)[number]) =>
     typeof r.municipality === 'object' ? r.municipality.id : r.municipality
-  // Only someone organizing in the event's own obec lists its candidates.
+  // Someone organizing in the event's own obec lists its candidates — or whoever may edit the event.
+  const editsEvent = async () => {
+    if (!eventId) return false
+    const event = await payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true }).catch(() => null)
+    if (!event || Number(typeof event.municipality === 'object' ? event.municipality.id : event.municipality) !== municipalityId) {
+      return false
+    }
+    return mayEditEvent(await createLocalReq({ user: actor }, payload), actor, event)
+  }
   if (
     actor.role !== 'admin' &&
-    !roles.docs.some((r) => userIdOf(r) === actor.id && municipalityOf(r) === municipalityId)
+    !roles.docs.some((r) => userIdOf(r) === actor.id && municipalityOf(r) === municipalityId) &&
+    !(await editsEvent())
   ) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

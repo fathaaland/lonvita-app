@@ -21,22 +21,28 @@ import {
 
 /**
  * Under a review of the viewer — an event's feedback for its organizer, an organizer's rating for
- * the volunteer: where their complaint about it stands, or the button to report it to the obec,
- * which decides whether to remove it. Nothing when they may not report it.
+ * the volunteer: where their complaint about it stands, or the button to report it. The obec decides
+ * whether to remove it — or the platform admin, whenever the obec is a party to it (it runs the
+ * event; lib/review-complaints complaintsDecidedByPlatform). Nothing when they may not report it.
  */
 export function ReportReviewAction({
   type,
   reviewId,
   status,
   canComplain,
+  decidedByPlatform = false,
   onReported,
 }: {
   type: "event-feedback" | "volunteer-rating";
   reviewId: string;
   status: ReviewComplaintStatus;
   canComplain: boolean;
+  /** The platform admin decides it, not the obec. */
+  decidedByPlatform?: boolean;
   onReported: () => void;
 }) {
+  const decider = decidedByPlatform ? "Správce Lonvity" : "Obec";
+  const toWhom = decidedByPlatform ? "správci Lonvity" : "obci";
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [sending, setSending] = useState(false);
@@ -44,12 +50,12 @@ export function ReportReviewAction({
   if (status === "pending") {
     return (
       <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-purple-dark">
-        <Hourglass className="h-3.5 w-3.5" aria-hidden /> Nahlášeno, obec recenzi posuzuje
+        <Hourglass className="h-3.5 w-3.5" aria-hidden /> Nahlášeno, {decidedByPlatform ? "správce Lonvity" : "obec"} recenzi posuzuje
       </p>
     );
   }
   if (status === "rejected") {
-    return <p className="text-xs text-muted-foreground">Obec stížnost posoudila a recenzi ponechala.</p>;
+    return <p className="text-xs text-muted-foreground">{decider} stížnost posoudil{decidedByPlatform ? "" : "a"} a recenzi ponechal{decidedByPlatform ? "" : "a"}.</p>;
   }
   if (!canComplain) return null;
 
@@ -66,7 +72,7 @@ export function ReportReviewAction({
     setSending(true);
     try {
       await reportReview(type, reviewId, reason);
-      toast.success("Recenze nahlášena. Obec ji posoudí a dá vám vědět.");
+      toast.success(`Recenze nahlášena. ${decider} ji posoudí a dá vám vědět.`);
       setOpen(false);
       setReason("");
       onReported();
@@ -87,15 +93,17 @@ export function ReportReviewAction({
         className="-ml-2 h-8 gap-1.5 text-muted-foreground hover:text-foreground"
         onClick={() => setOpen(true)}
       >
-        <Flag className="h-3.5 w-3.5" /> Nahlásit obci
+        <Flag className="h-3.5 w-3.5" /> Nahlásit {toWhom}
       </Button>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Nahlásit recenzi obci</DialogTitle>
+            <DialogTitle>Nahlásit recenzi {toWhom}</DialogTitle>
             <DialogDescription>
-              Obec posoudí, jestli recenzi odstraní. Když ano, přestane se počítat do hodnocení. Autor recenze se o
+              {decidedByPlatform
+                ? "Akci pořádá obec, a tak o stížnosti rozhoduje správce Lonvity. Posoudí, jestli recenzi odstraní."
+                : "Obec posoudí, jestli recenzi odstraní."} Když ano, přestane se počítat do hodnocení. Autor recenze se o
               nahlášení nedozví.
             </DialogDescription>
           </DialogHeader>
@@ -119,7 +127,7 @@ export function ReportReviewAction({
 
           <DialogFooter className="gap-2 sm:flex-col sm:space-x-0">
             <Button className="w-full h-11" onClick={send} disabled={sending || !canSend}>
-              {sending ? "Odesílám…" : "Nahlásit obci"}
+              {sending ? "Odesílám…" : `Nahlásit ${toWhom}`}
             </Button>
             <Button
               variant="ghost"

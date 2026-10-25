@@ -212,6 +212,7 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
           'comment',
           'complaint_status',
           'created_at',
+          'decided_by_platform',
           'event_date',
           'event_id',
           'event_title',

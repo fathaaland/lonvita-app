@@ -146,6 +146,22 @@ export async function complaintsDecidedByPlatform(
 }
 
 /**
+ * Who would decide the viewer's complaint about each review — `true` where it's the platform admin
+ * (complaintsDecidedByPlatform: the obec runs the event, or the viewer is its admin), so the review
+ * can say "správce Lonvity" rather than "obec". Keyed by review id.
+ */
+export async function reviewsDecidedByPlatform(
+  payload: Payload,
+  reviews: { id: number | string; event: { id: number | string; municipality?: unknown } }[],
+  viewerId: number | string,
+): Promise<Set<string>> {
+  return complaintsDecidedByPlatform(
+    payload,
+    reviews.map((r) => ({ id: r.id, municipality: r.event.municipality, event: r.event.id, complainant: viewerId })),
+  )
+}
+
+/**
  * The state of the complaints about each review — `pending` while the obec hasn't decided,
  * `rejected` once it kept the review. A review the obec removed doesn't show up anywhere anymore,
  * so `upheld` is never reported. A rejected complaint can't be filed again.

@@ -101,6 +101,9 @@ interface Props {
   municipalityCenter: [number, number];
   /** The viewer acts for the obec (its admin, or a platform admin) — may take any spolupořadatel off. */
   isObecAdmin: boolean;
+  /** The viewer answers for a neighbouring obec co-organizing the event — may take an organization
+   * off it, never an obec (Events guardCoOrganizedChanges). */
+  isNeighbourObecAdmin?: boolean;
   /** The volunteering flag is the event creator's alone: "set" (the creator — the obec's admins when
    * the obec runs it — or a platform admin; no obec approval), "none" (everyone else, the obec
    * co-organizing it included). */
@@ -125,6 +128,7 @@ export function EventForm({
   municipalityId,
   municipalityCenter,
   isObecAdmin,
+  isNeighbourObecAdmin = false,
   volunteering,
   runsAsObec = false,
   pendingCoOrganizations = [],
@@ -461,12 +465,13 @@ export function EventForm({
         </p>
         <CoOrganizerPicker
           municipalityId={municipalityId}
+          eventId={initial?.id}
           value={[...pendingCoOrganizations, ...coOrganizations]}
           onChange={(value) => setCoOrganizations(value.filter((o) => !pendingIds.includes(o.id)))}
           excludeIds={initial?.organization ? [initial.organization.id] : []}
           excludeOwnerId={initial ? undefined : userId}
-          // The obec never puts itself on an event (its pořadatel invites it), and once it has left
-          // one it doesn't come back (CoOrganizingRequests).
+          // The event's obec never puts itself on an event (its pořadatel invites it), and once it has
+          // left one it doesn't come back (CoOrganizingRequests). Neighbouring obce stay on offer.
           excludeObec={runsAsObec || isObecAdmin || Boolean(initial?.obec_left)}
           pendingIds={pendingIds}
           // Only the obec admin takes an organization off; an organizer — even their own — leaves only
@@ -477,18 +482,30 @@ export function EventForm({
             ...pendingIds,
             ...(initial
               ? initial.co_organizations
-                  .filter((o) => !isObecAdmin || o.type === MUNICIPALITY_ORGANIZATION_TYPE)
+                  .filter(
+                    (o) => !(isObecAdmin || (isNeighbourObecAdmin && !runsAsObec)) || o.type === MUNICIPALITY_ORGANIZATION_TYPE,
+                  )
                   .map((o) => o.id)
               : []),
           ]}
         />
-        {initial && isObecAdmin && initial.co_organizations.some((o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE) && (
+        {initial &&
+          isObecAdmin &&
+          initial.co_organizations.some(
+            (o) => o.type === MUNICIPALITY_ORGANIZATION_TYPE && o.municipality_id === municipalityId,
+          ) && (
           <p className="text-sm text-muted-foreground mt-2">
             Spolupořádání obce ukončíte v detailu akce tlačítkem „Ukončit spolupořádání“ — obec se pak k akci už vrátit
             nemůže.
           </p>
         )}
-        {initial && !isObecAdmin && initial.co_organizations.length > 0 && (
+        {initial && !isObecAdmin && isNeighbourObecAdmin && !runsAsObec && initial.co_organizations.length > 0 && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Za sousední obec můžete z akce odebrat organizace. Obce odebrat nejde — kdo akci pořádat nechce, ukončí
+            spolupořádání v detailu akce.
+          </p>
+        )}
+        {initial && !isObecAdmin && (!isNeighbourObecAdmin || runsAsObec) && initial.co_organizations.length > 0 && (
           <p className="text-sm text-muted-foreground mt-2">
             Spolupořadatele odebrat nejde. Kdo akci pořádat nechce, požádá v detailu akce o její smazání — ostatní ho
             pak můžou z akce pustit, případně rozhodne obec.

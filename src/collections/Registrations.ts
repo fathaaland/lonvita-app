@@ -20,7 +20,8 @@ import { reliabilityOf } from './shared/reliability'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
 import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
-import { isEventCreator } from './Events'
+import { eventCreatorUserIds, isEventCreator } from './Events'
+import { municipalityOrganizationIds } from './Organizations'
 import { deletedAtField } from './shared/softDelete'
 import { requiredRelationNumber } from '@/lib/relations'
 
@@ -138,15 +139,19 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
           },
         })
 
-        // Brief §7 "Nové přihlášení na akci → organizátor" — to everyone running it, who all
-        // approve registrations (guardStatusChange); the manage page is where they do.
+        // Brief §7 "Nové přihlášení na akci → organizátor". One waiting for approval goes to the event's
+        // creator alone — only they decide it (guardStatusChange); everyone else running it hears of a
+        // confirmed one, with nothing to act on.
         const who = await describeUser(req.payload, userId)
         const awaiting = restrictedUntil
           ? ` Přihláška čeká na vaše schválení — za posledních ${RELIABILITY_WINDOW_MONTHS} měsíců ${noShows}× nedorazil(a) bez omluvy.`
           : pending
             ? ' Přihláška čeká na vaše schválení.'
             : ''
-        await sendNotificationToMany(req.payload, await getEventTeamUserIds(req.payload, event, { exclude: [userId] }), {
+        const recipients = pending
+          ? (await eventCreatorUserIds(req, event)).filter((id) => id !== String(userId))
+          : await getEventTeamUserIds(req.payload, event, { exclude: [userId] })
+        await sendNotificationToMany(req.payload, recipients, {
           title: 'Nová přihláška na akci',
           message: `${who} se přihlásil(a) na vaši akci „${event.title}“.${awaiting}`,
           link: `/spravovat/${eventId}`,
@@ -469,16 +474,10 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
     .catch(() => null)
   const volunteer = current.role === 'volunteer'
   const own = String(requiredRelationNumber(current.user)) === String(req.user.id)
-  const organizerIds = event ? [event.organizer, ...(event.coOrganizers ?? [])].map((u) => String(requiredRelationNumber(u))) : []
-  // The event's volunteers are its creator's alone — not a spolupořadatel's, not the obec's unless
-  // it runs the event (Events isEventCreator).
-  const manages =
-    event !== null &&
-    !own &&
-    (volunteer
-      ? await isEventCreator(req, req.user, event)
-      : organizerIds.includes(String(req.user.id)) ||
-        (await getAdministeredMunicipalityIds(req.payload, req.user.id)).includes(String(requiredRelationNumber(event.municipality))))
+  // Who gets in — participants and volunteers alike — is the event creator's alone: the pořadatel who
+  // founded it, or the obec's admins when the obec runs it (Events isEventCreator). Not a
+  // spolupořadatel, not a neighbouring obec, not the obec co-organizing someone else's event.
+  const manages = event !== null && !own && (await isEventCreator(req, req.user, event))
 
   if (!manages) {
     if (data.status !== 'cancelled' || !own) {
@@ -487,7 +486,7 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
           ? 'O dobrovolnících na akci rozhoduje jen pořadatel, který ji založil.'
           : own
             ? 'O vlastní přihlášce nerozhodujete — schvaluje ji pořadatel akce, vy ji můžete jen zrušit.'
-            : 'Přihlášky schvaluje a zamítá jen pořadatel akce.',
+            : 'Přihlášky schvaluje a zamítá jen pořadatel, který akci založil.',
         403,
       )
     }
@@ -679,7 +678,12 @@ const ownOrManagedRegistrationsWhere = async (req: Parameters<Access>[0]['req'])
   const { user, payload } = req
   const administeredIds = await getAdministeredMunicipalityIds(payload, user!.id)
   const manageableEventsWhere: Where[] = [{ organizer: { equals: user!.id } }, { coOrganizers: { in: [user!.id] } }]
-  if (administeredIds.length > 0) manageableEventsWhere.push({ municipality: { in: administeredIds } })
+  if (administeredIds.length > 0) {
+    manageableEventsWhere.push({ municipality: { in: administeredIds } })
+    // A neighbouring obec from the mikroregion co-organizing the event — its admins run it too.
+    const obecOrganizationIds = [...(await municipalityOrganizationIds(req, administeredIds)).values()]
+    if (obecOrganizationIds.length > 0) manageableEventsWhere.push({ coOrganizations: { in: obecOrganizationIds } })
+  }
   const manageableEvents = await payload.find({
     collection: 'events',
     where: { or: manageableEventsWhere },

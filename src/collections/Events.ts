@@ -34,7 +34,7 @@ import {
 import { MULTI_DAY_END_MESSAGE, pragueDateKey } from '@/lib/date'
 import { hasEventEnded } from '@/lib/eventEnded'
 import { haversineDistanceKm } from '@/lib/geo/distance'
-import { inSameRegion } from '@/lib/microregions'
+import { inSameRegion, regionMunicipalityIds } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 import type { Event } from '@/payload-types'
@@ -117,6 +117,72 @@ export async function obecRole(
     runs: relationId(event.organization) === obecOrganizationId,
     coOrganizes: ((event.coOrganizations ?? []) as unknown[]).map(relationId).includes(obecOrganizationId),
   }
+}
+
+/**
+ * The obce co-organizing the event other than its own — neighbours from its mikroregion
+ * (lib/microregions). Each is a spolupořadatel like any organization: it accepted an invitation,
+ * consents to the event being deleted, leaves through a deletion request — any one of its admins
+ * answering for it. Only the event's own obec has the obec's say over it (obecRole).
+ */
+export async function neighbourObceOf(
+  req: PayloadRequest,
+  event: Pick<EventOwnership, 'coOrganizations' | 'municipality'>,
+): Promise<string[]> {
+  const municipalityId = relationId(event.municipality)
+  const ids = ((event.coOrganizations ?? []) as unknown[]).map(relationId).filter((id): id is string => id !== null)
+  if (ids.length === 0) return []
+  const obce = await req.payload.find({
+    collection: 'organizations',
+    where: { and: [{ id: { in: ids } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }] },
+    select: { municipality: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+    req,
+  })
+  return [
+    ...new Set(
+      obce.docs.map((o) => relationId(o.municipality)).filter((id): id is string => id !== null && id !== municipalityId),
+    ),
+  ]
+}
+
+/** The neighbouring obec `user` answers for on the event — one they administer among
+ * neighbourObceOf — or null. */
+export async function actingNeighbourObec(
+  req: PayloadRequest,
+  user: { id: number | string },
+  event: Pick<EventOwnership, 'coOrganizations' | 'municipality'>,
+): Promise<string | null> {
+  const administeredIds = await administeredIdsFor(req, user.id)
+  if (administeredIds.length === 0) return null
+  return (await neighbourObceOf(req, event)).find((id) => administeredIds.includes(id)) ?? null
+}
+
+/**
+ * Whether the event runs by the mikroregion's rules (lib/microregions): its obec shares a region with
+ * another, or — the region since split or changed — someone from another obec still co-organizes it,
+ * so the co-operation runs to its end on the rules it started with. Then a spolupořadatel's
+ * organization leaves on its own (api/events/[id]/leave) and its deletion request goes to the
+ * event's creator alone (EventDeletionRequests).
+ */
+export async function runsByRegionRules(
+  req: PayloadRequest,
+  event: Pick<EventOwnership, 'coOrganizations' | 'municipality'>,
+): Promise<boolean> {
+  const municipalityId = relationId(event.municipality)
+  if (!municipalityId) return false
+  if ((await regionMunicipalityIds(req.payload, municipalityId, req)).length > 1) return true
+  const ids = ((event.coOrganizations ?? []) as unknown[]).map(relationId).filter((id): id is string => id !== null)
+  if (ids.length === 0) return false
+  const elsewhere = await req.payload.count({
+    collection: 'organizations',
+    where: { and: [{ id: { in: ids } }, { municipality: { not_equals: municipalityId } }] },
+    overrideAccess: true,
+    req,
+  })
+  return elsewhere.totalDocs > 0
 }
 
 /**
@@ -241,19 +307,28 @@ export async function mayEditEvent(
 }
 
 /** Whether `user` must go through an EventDeletionRequest (the others' consent) rather than
- * cancel the event outright: they organize it together with another organizer, or with the obec,
- * and aren't an admin of its obec (who may always cancel). */
+ * cancel the event outright: they organize it — as a pořadatel, or for a neighbouring obec
+ * co-organizing it — together with another organizer, a neighbouring obec or the obec, and aren't
+ * an admin of its obec (who may always cancel). */
 export async function deletionNeedsConsent(
   req: PayloadRequest,
   user: { id: number | string; role?: string | null },
   event: EventOwnership,
 ): Promise<boolean> {
   if (user.role === 'admin') return false
-  const organizerIds = eventOrganizerIds(event)
-  if (!organizerIds.includes(String(user.id))) return false
   const administeredIds = await administeredIdsFor(req, user.id)
   if (administeredIds.includes(relationId(event.municipality) ?? '')) return false
-  return organizerIds.length >= 2 || (await obecRole(req, event)).coOrganizes
+  const organizerIds = eventOrganizerIds(event)
+  const neighbours = await neighbourObceOf(req, event)
+  const forNeighbour = neighbours.some((id) => administeredIds.includes(id))
+  // A neighbouring obec without an admin has nobody to consent — it doesn't hold the event up.
+  const consenting: string[] = []
+  for (const id of neighbours) if ((await getMunicipalityAdminUserIds(req.payload, id)).length > 0) consenting.push(id)
+  if (!organizerIds.includes(String(user.id)) && !forNeighbour) return false
+  // A neighbour's admin counts their own obec even while it has no other admin — they're it.
+  const parties = new Set([...organizerIds, ...consenting.map((id) => `obec:${id}`)])
+  if (forNeighbour) for (const id of neighbours) if (administeredIds.includes(id)) parties.add(`obec:${id}`)
+  return parties.size >= 2 || (await obecRole(req, event)).coOrganizes
 }
 
 /**
@@ -283,12 +358,31 @@ const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, 
     const administeredIds = await administeredIdsFor(req, req.user.id)
     if (!administeredIds.includes(relationId(originalDoc.municipality) ?? '')) {
       const kept = new Set((data.coOrganizations as unknown[]).map(relationId))
-      const removed = ((originalDoc.coOrganizations ?? []) as unknown[])
+      let removed = ((originalDoc.coOrganizations ?? []) as unknown[])
         .map(relationId)
-        .filter((id) => id !== null && !kept.has(id))
+        .filter((id): id is string => id !== null && !kept.has(id))
+      // A neighbouring obec co-organizing the event may take an organization off it — never an obec,
+      // and nobody off the obec's own event: who runs that with the obec is the obec's call.
+      if (
+        removed.length > 0 &&
+        (await actingNeighbourObec(req, req.user, originalDoc)) &&
+        !(await obecRole(req, originalDoc)).runs
+      ) {
+        const obce = await req.payload.find({
+          collection: 'organizations',
+          where: { and: [{ id: { in: removed } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }] },
+          select: {},
+          depth: 0,
+          pagination: false,
+          overrideAccess: true,
+          req,
+        })
+        const obecIds = new Set(obce.docs.map((o) => String(o.id)))
+        removed = removed.filter((id) => obecIds.has(id))
+      }
       if (removed.length > 0) {
         throw new APIError(
-          'Spolupořadatele z akce odebrat nemůžete — z akce se odchází jen přes žádost o smazání (se souhlasem ostatních, nebo rozhodnutím obce). Přímo spolupořadatele — i obec — odebere jen admin obce.',
+          'Spolupořadatele z akce odebrat nemůžete — kdo akci pořádat nechce, odchází sám nebo přes žádost o smazání. Přímo je odebere admin obce, kde se akce koná, a sousední obec spolupořádající akci podniku podniky z ní (z obecní akce nikoho).',
           400,
         )
       }
@@ -557,7 +651,13 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
   // The obec stepping off the event (ObecLeave route, or its admin in the form) is for good.
   if (operation === 'update' && !municipalityChanged && !originalDoc?.obecLeftAt) {
     const obecOrganizationId = (await municipalityOrganizationIds(req, [municipalityId])).get(municipalityId)
-    if (obecOrganizationId && previousIds.has(obecOrganizationId) && !ids.includes(obecOrganizationId)) {
+    // Not when it took the event over and now runs it (removeOrganizer handOverToObec).
+    if (
+      obecOrganizationId &&
+      previousIds.has(obecOrganizationId) &&
+      !ids.includes(obecOrganizationId) &&
+      eventOrganizationId !== obecOrganizationId
+    ) {
       data.obecLeftAt = new Date().toISOString()
     }
   }
@@ -580,7 +680,8 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
       if (id === eventOrganizationId) {
         throw new APIError('Akci už pořádá obec — za spolupořadatele ji přidat nejde.', 400)
       }
-      if (added && obecLeft) {
+      // Only the event's own obec leaves for good — a neighbour in the mikroregion may still join.
+      if (added && obecLeft && relationId(organization.municipality) === municipalityId) {
         throw new APIError('Obec spolupořádání téhle akce ukončila — vrátit se k ní už nejde.', 400)
       }
     } else {
@@ -833,7 +934,11 @@ async function notifyOrganizersOfObecAction(
   req: PayloadRequest,
   event: EventOwnership & { title: string },
   action: ObecAction,
-  { formerOrganizerIds = [], changedLabels = [] }: { formerOrganizerIds?: string[]; changedLabels?: string[] } = {},
+  {
+    formerOrganizerIds = [],
+    formerCoOrganizations = [],
+    changedLabels = [],
+  }: { formerOrganizerIds?: string[]; formerCoOrganizations?: unknown[]; changedLabels?: string[] } = {},
 ): Promise<void> {
   const { user, payload } = req
   if (!user) return
@@ -841,13 +946,19 @@ async function notifyOrganizersOfObecAction(
   const municipalityId = relationId(event.municipality)
   if (!municipalityId) return
   const byObecAdmin = (await administeredIdsFor(req, user.id)).includes(municipalityId)
+  // A neighbouring obec co-organizing it edits as a spolupořadatel, not with the obec's say.
+  const neighbourId = byObecAdmin ? null : await actingNeighbourObec(req, user, event)
 
-  if (organizerIds.includes(String(user.id))) {
+  if (organizerIds.includes(String(user.id)) || neighbourId) {
     // One of the organizers edited it — the rest of them hear about it in the app. (Cancelling
     // with others on it goes through their consent, EventDeletionRequests, which tells them.)
     if (action !== 'edited' || byObecAdmin) return
-    const recipients = await getEventTeamUserIds(payload, event, { exclude: [user.id], req })
-    if (recipients.length === 0) return
+    const current = new Set(eventOrganizerIds(event))
+    const removedIds = formerOrganizerIds.filter((id) => id !== String(user.id) && !current.has(id))
+    const recipients = (await getEventTeamUserIds(payload, event, { exclude: [user.id], req })).filter(
+      (id) => !removedIds.includes(id),
+    )
+    if (recipients.length === 0 && removedIds.length === 0) return
     const profile = await payload.find({
       collection: 'profiles',
       where: { user: { equals: user.id } },
@@ -856,19 +967,44 @@ async function notifyOrganizersOfObecAction(
       overrideAccess: true,
       req,
     })
-    const who = profile.docs[0]?.fullName || 'Spolupořadatel'
+    const neighbour = neighbourId
+      ? await payload.findByID({ collection: 'municipalities', id: neighbourId, depth: 0, overrideAccess: true }).catch(() => null)
+      : null
+    const name = profile.docs[0]?.fullName || 'Spolupořadatel'
+    const who = neighbour ? `${name} (obec ${neighbour.name})` : name
     const change = changedLabels.length > 0 ? ` (změna: ${changedLabels.join(', ')})` : ''
     await sendNotificationToMany(payload, recipients, {
       title: 'Společná akce byla upravena',
       message: `${who} upravil(a) akci „${event.title}“, kterou spolu pořádáte${change}.`,
       link: `/akce/${event.id}`,
     })
+    // Whoever a neighbouring obec took off the event hears exactly that.
+    if (neighbour && removedIds.length > 0) {
+      const what = `Obec ${neighbour.name} vás odebrala ze spolupořádání akce „${event.title}“. Akce pokračuje bez vás.`
+      await sendNotificationToMany(payload, removedIds, {
+        title: 'Už akci nespolupořádáte',
+        message: what,
+        link: `/akce/${event.id}`,
+        email: { subject: `Už akci nespolupořádáte: ${event.title}`, body: `<p>${escapeHtml(what)}</p>` },
+      })
+    }
     return
   }
   if (!byObecAdmin && user.role !== 'admin') return
 
   const obecAdminIds = new Set((await getMunicipalityAdminUserIds(payload, municipalityId)).map(String))
-  const recipients = organizerIds.filter((id) => !obecAdminIds.has(id))
+  // A neighbouring obec co-organizing it hears it like any spolupořadatel — also one just taken off.
+  const neighbourAdminIds: string[] = []
+  const neighbours = await neighbourObceOf(req, {
+    municipality: event.municipality,
+    coOrganizations: [...(event.coOrganizations ?? []), ...formerCoOrganizations],
+  })
+  for (const m of neighbours) {
+    for (const adminId of await getMunicipalityAdminUserIds(payload, m)) neighbourAdminIds.push(String(adminId))
+  }
+  const recipients = [...new Set([...organizerIds, ...neighbourAdminIds])].filter(
+    (id) => !obecAdminIds.has(id) && id !== String(user.id),
+  )
   if (recipients.length === 0) return
 
   let actor = 'správce Lonvity'
@@ -929,6 +1065,7 @@ const notifyOrganizersOnObecChange: CollectionAfterChangeHook = async ({ doc, pr
     await notifyOrganizersOfObecAction(req, doc, cancelled ? 'cancelled' : 'edited', {
       // Someone the obec took off the event should still hear it was the obec.
       formerOrganizerIds: eventOrganizerIds(previousDoc),
+      formerCoOrganizations: previousDoc.coOrganizations ?? [],
       changedLabels,
     })
   } catch (error) {

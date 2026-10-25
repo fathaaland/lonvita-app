@@ -217,7 +217,7 @@ describe("Notifications about an event reach everyone running it", () => {
     expect(recipientsOf(await notificationsTitled('Přihláška zrušena'))).toEqual([coOrganizer.id])
   })
 
-  it('a new registration reaches the whole team and opens the manage page', async () => {
+  it("a registration waiting for approval reaches the event's creator alone — only they decide it", async () => {
     const event = await createTeamEvent({ withObec: true })
 
     await payload.create({
@@ -228,7 +228,7 @@ describe("Notifications about an event reach everyone running it", () => {
     })
 
     const sent = await notificationsTitled('Nová přihláška na akci')
-    expect(recipientsOf(sent)).toEqual([organizer.id, coOrganizer.id, obecAdmin.id].sort((a, b) => a - b))
+    expect(recipientsOf(sent)).toEqual([organizer.id])
     expect(sent.every((n) => n.link === `/spravovat/${event.id}`)).toBe(true)
     for (const notification of sent) {
       expect(notification.message).toContain('Team participant')

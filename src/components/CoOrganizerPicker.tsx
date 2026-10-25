@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   municipalityId: string;
+  /** The event being edited, if any — lets a neighbour from the mikroregion list the candidates too. */
+  eventId?: string;
   /** Already-picked co-organizing organizations — on the event, invited, or about to be. */
   value: OrganizationRef[];
   onChange: (value: OrganizationRef[]) => void;
@@ -21,17 +23,19 @@ interface Props {
   fixedIds?: string[];
   /** Invited organizations that haven't answered yet. */
   pendingIds?: string[];
-  /** The event is the obec's own — it can't co-organize it as well. */
+  /** The event's own obec can't be invited — it runs the event, its admin is the one inviting, or it
+   * has left it. The other obce of its mikroregion still can. */
   excludeObec?: boolean;
 }
 
 const isObec = (o: { type: string }) => o.type === MUNICIPALITY_ORGANIZATION_TYPE;
 
-/** Brief §4 "Spolupořadatelství" — pick from this obec's organizations (the obec itself always
- * first, then a café, a club, one person's "Vycházky pro seniory") whom to invite as co-organizers
- * (CoOrganizingRequests). Each joins only once it accepts. */
+/** Brief §4 "Spolupořadatelství" — pick from the organizations of this obec and its mikroregion (the
+ * obec itself first, then the neighbouring obce, then a café, a club, one person's "Vycházky pro
+ * seniory") whom to invite as co-organizers (CoOrganizingRequests). Each joins only once it accepts. */
 export function CoOrganizerPicker({
   municipalityId,
+  eventId,
   value,
   onChange,
   excludeIds,
@@ -46,13 +50,13 @@ export function CoOrganizerPicker({
     if (!municipalityId) return;
     let active = true;
     setCandidates(null);
-    listCoOrganizerCandidates(municipalityId)
+    listCoOrganizerCandidates(municipalityId, eventId)
       .then((rows) => active && setCandidates(rows))
       .catch(() => active && setCandidates([]));
     return () => {
       active = false;
     };
-  }, [municipalityId]);
+  }, [municipalityId, eventId]);
 
   // Picked organizations come from the event without a photo when it was saved before they set one.
   const avatarById = new Map((candidates ?? []).map((c) => [c.id, c.avatar_url]));
@@ -62,9 +66,10 @@ export function CoOrganizerPicker({
       !pickedIds.has(c.id) &&
       !excludeIds.includes(c.id) &&
       !(excludeOwnerId && c.owner_id === excludeOwnerId) &&
-      !(excludeObec && isObec(c)),
+      !(excludeObec && isObec(c) && c.municipality_id === municipalityId),
   );
-  const obecOption = options.find(isObec);
+  // The event's own obec first, then its neighbours in the mikroregion (the server sorts them so).
+  const obecOptions = options.filter(isObec);
   const otherOptions = options.filter((o) => !isObec(o));
 
   const add = (id: string) => {
@@ -80,7 +85,7 @@ export function CoOrganizerPicker({
     candidates === null
       ? "Načítám organizace…"
       : options.length === 0
-        ? "Další organizace v obci zatím nejsou"
+        ? "Další organizace zatím nejsou"
         : "Pozvat spolupořadatele";
 
   return (
@@ -149,29 +154,32 @@ export function CoOrganizerPicker({
             )}
           >
             <SelectPrimitive.Viewport className="p-1.5">
-              {obecOption && (
+              {obecOptions.map((obec) => (
                 <SelectPrimitive.Item
-                  value={obecOption.id}
-                  className="flex cursor-pointer select-none items-center gap-3 rounded-md bg-primary-soft px-2.5 py-2.5 outline-none data-[highlighted]:ring-2 data-[highlighted]:ring-inset data-[highlighted]:ring-primary"
+                  key={obec.id}
+                  value={obec.id}
+                  className="mb-1 flex cursor-pointer select-none items-center gap-3 rounded-md bg-primary-soft px-2.5 py-2.5 outline-none last-of-type:mb-0 data-[highlighted]:ring-2 data-[highlighted]:ring-inset data-[highlighted]:ring-primary"
                 >
-                  <OrganizationMark organization={obecOption} className="h-10 w-10 ring-0 text-xs" />
+                  <OrganizationMark organization={obec} className="h-10 w-10 ring-0 text-xs" />
                   <span className="min-w-0">
                     <SelectPrimitive.ItemText>
-                      <span className="block truncate text-sm font-semibold">{obecOption.name}</span>
+                      <span className="block truncate text-sm font-semibold">{obec.name}</span>
                     </SelectPrimitive.ItemText>
                     <span className="block text-xs text-muted-foreground">
-                      Obec — po přijetí akci upravuje a ruší už jen obec
+                      {obec.municipality_id === municipalityId
+                        ? "Obec — po přijetí akci upravuje a ruší už jen obec"
+                        : "Sousední obec z mikroregionu — po přijetí může akci upravovat"}
                     </span>
                   </span>
                 </SelectPrimitive.Item>
-              )}
-              {obecOption && otherOptions.length > 0 && (
+              ))}
+              {obecOptions.length > 0 && otherOptions.length > 0 && (
                 <SelectPrimitive.Separator className="mx-1 my-1.5 h-px bg-border" />
               )}
               {otherOptions.length > 0 && (
                 <SelectPrimitive.Group>
                   <SelectPrimitive.Label className="px-2.5 pb-1 pt-0.5 text-xs font-semibold text-muted-foreground">
-                    Pořadatelé v obci
+                    Pořadatelé
                   </SelectPrimitive.Label>
                   {otherOptions.map((o) => (
                     <SelectPrimitive.Item

@@ -34,6 +34,7 @@ function EditEventContent() {
   const [event, setEvent] = useState<EventRow | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [isAdminHere, setIsAdminHere] = useState(false);
+  const [isNeighbourObecAdmin, setIsNeighbourObecAdmin] = useState(false);
   const [volunteering, setVolunteering] = useState<"set" | "none">("none");
   const [pendingCoOrganizations, setPendingCoOrganizations] = useState<OrganizationRef[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,8 +60,13 @@ function EditEventContent() {
         // Everyone organizing it edits it. Once it has taken place, nobody does (Events canUpdateEvent).
         // An admin of a neighbouring obec (mikroregion) that co-organizes the event as the obec.
         const coOrganizingObec = ev.co_organizations.some(
-          (o) => isMunicipalityOrganization(o) && !!o.municipality_id && adminIds.includes(o.municipality_id),
+          (o) =>
+            isMunicipalityOrganization(o) &&
+            !!o.municipality_id &&
+            o.municipality_id !== ev.municipality_id &&
+            adminIds.includes(o.municipality_id),
         );
+        setIsNeighbourObecAdmin(coOrganizingObec);
         setCanEdit(
           ev.status !== "finished" &&
             (isAdminHere || coOrganizingObec || ev.organizer_id === uid || ev.co_organizer_ids.includes(uid)),
@@ -158,6 +164,7 @@ function EditEventContent() {
         municipalityId={event.municipality_id ?? ""}
         municipalityCenter={event.lat != null && event.lng != null ? [event.lat, event.lng] : CZECHIA_CENTER}
         isObecAdmin={isAdminHere}
+        isNeighbourObecAdmin={isNeighbourObecAdmin}
         volunteering={volunteering}
         runsAsObec={isMunicipalityOrganization(event.organization)}
         pendingCoOrganizations={pendingCoOrganizations}

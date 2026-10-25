@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { toast } from "sonner";
-import { leaveCoOrganizingAsObec } from "@/integrations/payload/queries";
+import { leaveCoOrganizing, leaveCoOrganizingAsObec } from "@/integrations/payload/queries";
 import { PayloadApiError } from "@/integrations/payload/client";
 import {
   AlertDialog,
@@ -23,11 +23,18 @@ interface Props {
   title: string;
   /** Runs once the obec is off the event. */
   onLeft: () => void;
+  /** A neighbouring obec from the mikroregion co-organizing the event — it may be invited again. */
+  neighbour?: boolean;
+  /** A spolupořadatel's organization leaving on its own (in a mikroregion) — not the obec. */
+  organization?: boolean;
 }
 
 /** "Ukončit spolupořádání" for the obec's admin — the obec steps off an event it co-organizes,
- * without anyone's consent, and can never come back to it (the obec-leave route). */
-export function ObecLeaveCoOrganizing({ eventId, title, onLeft }: Props) {
+ * without anyone's consent (the obec-leave route). The event's own obec can never come back to it;
+ * a neighbouring obec may be invited again. */
+export function ObecLeaveCoOrganizing({ eventId, title, onLeft, neighbour = false, organization = false }: Props) {
+  const who = organization ? "Vaše organizace" : "Obec";
+  const mayReturn = neighbour || organization;
   const [open, setOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
@@ -36,8 +43,8 @@ export function ObecLeaveCoOrganizing({ eventId, title, onLeft }: Props) {
     e.preventDefault();
     setLeaving(true);
     try {
-      await leaveCoOrganizingAsObec(eventId);
-      toast.success("Obec akci už nespolupořádá. Pořadatelé dostali zprávu.");
+      await (organization ? leaveCoOrganizing(eventId) : leaveCoOrganizingAsObec(eventId));
+      toast.success(`${who} akci už nespolupořádá. Pořadatelé dostali zprávu.`);
       setOpen(false);
       onLeft();
     } catch (error) {
@@ -52,9 +59,11 @@ export function ObecLeaveCoOrganizing({ eventId, title, onLeft }: Props) {
   return (
     <div className="rounded-2xl border border-border p-4 space-y-3">
       <div>
-        <h2 className="text-lg font-bold">Spolupořádání obce</h2>
+        <h2 className="text-lg font-bold">{organization ? "Spolupořádání" : "Spolupořádání obce"}</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Obec může spolupořádání ukončit sama, bez souhlasu pořadatele. Vrátit se k akci už pak nepůjde.
+          {mayReturn
+            ? `${who} může spolupořádání ukončit sama, bez souhlasu pořadatele i obce. Akce zůstane ostatním a pořadatel vás může později pozvat znovu.`
+            : "Obec může spolupořádání ukončit sama, bez souhlasu pořadatele. Vrátit se k akci už pak nepůjde."}
         </p>
       </div>
       <AlertDialog open={open} onOpenChange={(next) => !leaving && setOpen(next)}>
@@ -70,8 +79,11 @@ export function ObecLeaveCoOrganizing({ eventId, title, onLeft }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Ukončit spolupořádání akce „{title}“?</AlertDialogTitle>
             <AlertDialogDescription>
-              Obec přestane akci spolupořádat a akce zůstane pořadateli a ostatním spolupořadatelům — dostanou o tom
-              zprávu. Tohle nejde vrátit zpět: obec se k akci už nikdy nepřidá, ani na novou pozvánku.
+              {who} přestane akci spolupořádat a akce zůstane pořadateli a ostatním spolupořadatelům — dostanou o tom
+              zprávu.{" "}
+              {mayReturn
+                ? "Spolupořadatelem se můžete stát znovu, jen když vás pořadatel pozve a vy pozvánku přijmete."
+                : "Tohle nejde vrátit zpět: obec se k akci už nikdy nepřidá, ani na novou pozvánku."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

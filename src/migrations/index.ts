@@ -40,6 +40,7 @@ import * as migration_20261024_144847_system_logs_security_events from './202610
 import * as migration_20261024_195157_import_robots_progress_admin from './20261024_195157_import_robots_progress_admin';
 import * as migration_20261024_204626_event_drafts from './20261024_204626_event_drafts';
 import * as migration_20261024_205849_microregions from './20261024_205849_microregions';
+import * as migration_20261025_101559_deletion_request_neighbour_obce from './20261025_101559_deletion_request_neighbour_obce';
 
 export const migrations = [
   {
@@ -250,6 +251,11 @@ export const migrations = [
   {
     up: migration_20261024_205849_microregions.up,
     down: migration_20261024_205849_microregions.down,
-    name: '20261024_205849_microregions'
+    name: '20261024_205849_microregions',
+  },
+  {
+    up: migration_20261025_101559_deletion_request_neighbour_obce.up,
+    down: migration_20261025_101559_deletion_request_neighbour_obce.down,
+    name: '20261025_101559_deletion_request_neighbour_obce'
   },
 ];

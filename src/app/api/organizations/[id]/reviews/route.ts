@@ -5,7 +5,12 @@ import config from '@payload-config'
 import { notDeleted } from '@/collections/shared/softDelete'
 import { canAccessOrganization } from '@/lib/exports/access'
 import { findOrganizationEvents } from '@/lib/organization-feedback'
-import { complainantContext, complaintStatusByReview, mayComplainAbout } from '@/lib/review-complaints'
+import {
+  complainantContext,
+  complaintStatusByReview,
+  mayComplainAbout,
+  reviewsDecidedByPlatform,
+} from '@/lib/review-complaints'
 import { relationNumber } from '@/lib/relations'
 
 /**
@@ -49,6 +54,15 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     ),
     complainantContext(payload, user),
   ])
+  const byPlatform = await reviewsDecidedByPlatform(
+    payload,
+    feedback.docs.flatMap((f) => {
+      const registration = typeof f.registration === 'object' ? f.registration : null
+      const event = eventById.get(relationNumber(registration?.event)!)
+      return event ? [{ id: f.id, event }] : []
+    }),
+    user.id,
+  )
 
   const docs = feedback.docs.flatMap((f) => {
     const registration = typeof f.registration === 'object' ? f.registration : null
@@ -66,6 +80,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         comment: f.comment?.trim() || null,
         created_at: f.createdAt,
         complaint_status: status,
+        decided_by_platform: byPlatform.has(String(f.id)),
         can_complain: status === null && mayComplainAbout({ type: 'event-feedback', event, volunteerId: null }, ctx),
       },
     ]

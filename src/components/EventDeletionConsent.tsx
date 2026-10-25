@@ -46,6 +46,18 @@ interface Props {
   /** The obec runs the event — answering for it, its admin may also keep the event and let the
    * requester go. */
   obecRuns?: boolean;
+  /** Neighbouring obce co-organizing the event that the viewer administers — they ask, consent and
+   * refuse for them like a spolupořadatel. */
+  myNeighbourObecIds?: string[];
+  /** The viewer co-organizes it in a mikroregion — their request goes to the event's creator alone. */
+  creatorOnly?: boolean;
+  /** The viewer holds a role in the event's obec — only then can they take it over from its pořadatel. */
+  canTakeOver?: boolean;
+  /** The obec co-organizes the event — answering for it, its admin may take it over from a leaving
+   * pořadatel when nobody else may. */
+  obecCoOrganizes?: boolean;
+  /** Names of the neighbouring obce co-organizing the event, by obec id. */
+  neighbourObecNames?: Record<string, string>;
   /** Who organizes the event has changed (the requester left it) — reload it. */
   onOrganizersChanged?: () => void;
 }
@@ -69,6 +81,11 @@ export function EventDeletionConsent({
   obecTakesPart = false,
   forObec = false,
   obecRuns = false,
+  myNeighbourObecIds = [],
+  creatorOnly = false,
+  canTakeOver = false,
+  obecCoOrganizes = false,
+  neighbourObecNames = {},
   onOrganizersChanged,
 }: Props) {
   const router = useRouter();
@@ -98,9 +115,16 @@ export function EventDeletionConsent({
   const pending = request?.status === "pending" ? request : null;
   if (forObec && (!pending?.municipality_consent || !canCancelEvent(dateTime))) return null;
 
-  const isRequester = request?.requested_by_id === userId;
-  const requesterIsOrganizer = Boolean(request && organizerId && request.requested_by_id === organizerId);
-  const requester = requesterName ?? "Spolupořadatel";
+  const requesterObec = request?.requester_municipality_id ?? null;
+  // Asked for a neighbouring obec — any of its admins is the one asking.
+  const isRequester =
+    request?.requested_by_id === userId || (requesterObec !== null && myNeighbourObecIds.includes(requesterObec));
+  const requesterIsOrganizer = Boolean(
+    request && !requesterObec && organizerId && request.requested_by_id === organizerId,
+  );
+  const requester = requesterObec
+    ? `Obec ${neighbourObecNames[requesterObec] ?? "ze sousedství"}`
+    : (requesterName ?? "Spolupořadatel");
   const started = new Date(dateTime).getTime() <= Date.now();
 
   const handleRequest = async (e: React.MouseEvent) => {
@@ -108,7 +132,9 @@ export function EventDeletionConsent({
     setBusy(true);
     try {
       await requestEventDeletion(eventId);
-      toast.success(`Žádost odeslána. ${obecTakesPart ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} ${DELETION_CONSENT_HOURS} hodin na odpověď.`);
+      toast.success(
+        `Žádost odeslána. ${creatorOnly ? "Pořadatel akce má" : obecTakesPart ? "Obec a spolupořadatelé mají" : "Spolupořadatelé mají"} ${DELETION_CONSENT_HOURS} hodin na odpověď.`,
+      );
       setAsking(false);
       await load();
     } catch (error) {
@@ -229,9 +255,19 @@ export function EventDeletionConsent({
 
   if (pending) {
     const until = formatEventDateTime(pending.expires_at);
-    const mustDecide = forObec
-      ? !pending.municipality_approved
-      : pending.approver_ids.includes(userId) && !pending.approved_by_ids.includes(userId);
+    const asApprover = pending.approver_ids.includes(userId) && !pending.approved_by_ids.includes(userId);
+    // A neighbouring obec answers like a spolupořadatel — but never takes the event over.
+    const asNeighbour = myNeighbourObecIds.some(
+      (id) => pending.neighbour_ids.includes(id) && !pending.neighbour_approved_ids.includes(id),
+    );
+    const mustDecide = forObec ? !pending.municipality_approved : asApprover || asNeighbour;
+    // Keeping the event without the requester: taking it over from its pořadatel needs a role in the
+    // event's obec (or answering for the obec on it); a spolupořadatel leaving anyone may let go.
+    const mayKeep = forObec
+      ? obecRuns || (obecCoOrganizes && requesterIsOrganizer)
+      : requesterIsOrganizer
+        ? asApprover && canTakeOver
+        : asApprover || asNeighbour;
     const waitingFor = pending.municipality_consent ? "spolupořadatelů a obce" : "spolupořadatelů";
 
     if (!mustDecide) {
@@ -253,12 +289,12 @@ export function EventDeletionConsent({
           <strong>{requester}</strong> žádá o smazání akce.{" "}
           {forObec ? `Obec ji ${obecRuns ? "pořádá" : "spolupořádá"}, bez jejího souhlasu se nesmaže` : "Bez vašeho souhlasu se nesmaže"} —
           odpovězte do {until}.
-          {(!forObec || obecRuns) && (requesterIsOrganizer
+          {mayKeep && (requesterIsOrganizer
             ? " Akci můžete také převzít — žadatel ji opustí a vy se stanete hlavním pořadatelem."
             : " Akci si také můžete ponechat a žadatele z ní odebrat.")}
         </p>
         <div className="grid gap-2">
-          {(!forObec || obecRuns) && (
+          {mayKeep && (
             <Button variant="outline" className="h-11" disabled={busy} onClick={() => setConfirm("remove-requester")}>
               {requesterIsOrganizer ? "Převzít akci, žadatel odejde" : "Ponechat akci, žadatele odebrat"}
             </Button>
@@ -323,11 +359,21 @@ export function EventDeletionConsent({
             <AlertDialogHeader>
               <AlertDialogTitle>Požádat o smazání „{title}“?</AlertDialogTitle>
               <AlertDialogDescription>
+                {creatorOnly ? (
+                  <>
+                    O smazání rozhoduje pořadatel akce — dostane upozornění a má {DELETION_CONSENT_HOURS} hodin na
+                    odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou upozornění. Když akci jen
+                    nechcete dál spolupořádat, nemusíte žádat o smazání — použijte „Ukončit spolupořádání“.
+                  </>
+                ) : (
+                  <>
                 Akci pořádáte {obecTakesPart ? "s obcí" : "se spolupořadateli"}, takže se smaže jen s{" "}
                 {obecTakesPart ? "souhlasem obce (a případných dalších spolupořadatelů)" : "jejich souhlasem"}. Dostanou
                 upozornění a mají {DELETION_CONSENT_HOURS} hodin na odpověď. Když souhlasí, akce se nenávratně smaže a přihlášení dostanou
                 upozornění. Spolupořadatel si také může akci ponechat — vy ji pak opustíte. Když nesouhlasí nebo
                 neodpoví, akce zůstane.
+                  </>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
