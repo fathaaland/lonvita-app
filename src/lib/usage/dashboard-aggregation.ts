@@ -306,18 +306,19 @@ export async function getUsageDashboardData(
   return { summary, timeSeries, byModel, byOperationType, importRuns }
 }
 
-/** What each obec's AI calls cost in [from, to) — for the superadmin's import overview. Admin-only
- * callers, like getUsageDashboardData. */
+/** What each obec's AI calls cost in [from, to) — for the superadmin's import overview, and (with
+ * `municipalityId`) one obec's for its fair-use cap (lib/import/usage). Admin-only or system callers,
+ * like getUsageDashboardData. */
 export async function getCostByMunicipality(
   payload: Payload,
-  { from, to }: { from: Date; to: Date },
+  { from, to, municipalityId }: { from: Date; to: Date; municipalityId?: number },
 ): Promise<Map<number, number>> {
   const db = (payload.db as unknown as PostgresAdapter).drizzle
   const result = await db.execute(sql`
     SELECT municipality_id, COALESCE(SUM(cost_usd), 0)::float8 AS cost_usd
     FROM usage_events
     WHERE created_at >= ${from.toISOString()} AND created_at < ${to.toISOString()}
-      AND municipality_id IS NOT NULL
+      AND ${municipalityId === undefined ? sql`municipality_id IS NOT NULL` : sql`municipality_id = ${municipalityId}`}
     GROUP BY municipality_id
   `)
   const rows = result.rows as { municipality_id: number; cost_usd: number }[]

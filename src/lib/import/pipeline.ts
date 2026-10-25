@@ -2,18 +2,19 @@ import type { Payload, Where } from 'payload'
 
 import { pragueDateKey } from '@/lib/date'
 import { logger, serializeError } from '@/lib/logger'
+import { relationNumber } from '@/lib/relations'
 import type { EventImportCandidate } from '@/payload-types'
 
 import {
   extractEventDetailsWithAi,
   extractEventsWithAi,
+  ImportAiError,
   isAiConfigured,
   type AiContext,
   type AiInput,
 } from './ai'
 import {
   IMPORT_LIMITS,
-  isImportFileType,
   type ExtractedEvent,
   type ImportOrigin,
   type ImportWarning,
@@ -22,6 +23,7 @@ import {
   assertRobotsAllow,
   decodeBody,
   fetchPublic,
+  sniffFileType,
   type FetchedResource,
   type HttpValidators,
   type RobotsCache,
@@ -53,6 +55,7 @@ import {
 } from './normalize'
 import { markMissing, syncTakenOver, type SyncPair } from './sync'
 import { addDays, pragueToday, pragueWallTimeToIso } from './time'
+import { aiBudgetOf } from './usage'
 
 /**
  * From an input to candidates the obec's admin approves (docs/import-akci-z-webu.md):
@@ -85,7 +88,14 @@ export function defaultImportDeps(): ImportDeps {
   return {
     fetchUrl: async (url, options) => {
       if (!options?.ignoreRobots) await assertRobotsAllow(url, robots)
-      return fetchPublic(url, options)
+      return fetchPublic(url, {
+        ...options,
+        // Where a redirect leads keeps its robots.txt too — the waiver covers the source's own site.
+        beforeRedirect: async (target) => {
+          if (options?.ignoreRobots && siteOf(target) === siteOf(url)) return
+          await assertRobotsAllow(target, robots)
+        },
+      })
     },
     extractWithAi: extractEventsWithAi,
     extractDetailsWithAi: extractEventDetailsWithAi,
@@ -109,8 +119,9 @@ export function isSameSite(url: string, base: string): boolean {
   }
 }
 
-/** What the AI read off a page: an event's own page counts only on the page's site. A page can tell
- * the AI anything — a link elsewhere would be fetched by us and shown as the event's source. */
+/** An event's own page counts only on the site it was read from — what the AI read off a page, and
+ * what a calendar or schema.org says alike. A page can say anything: a link elsewhere would be
+ * fetched by us (and read with the AI) and shown as the event's source. */
 const keepOwnLinks = (events: ExtractedEvent[], pageUrl: string): ExtractedEvent[] =>
   events.map((e) =>
     e.detailUrl && !isSameSite(e.detailUrl, pageUrl) ? { ...e, detailUrl: null } : e,
@@ -155,8 +166,9 @@ export class ImportReadError extends Error {
 
 const requireAi = (deps: ImportDeps) => {
   if (!deps.aiAvailable()) {
-    throw new ImportReadError(
+    throw new ImportAiError(
       'Tenhle zdroj nemá kalendář ve strojově čitelné podobě a AI čtení není zapnuté.',
+      'not_configured',
     )
   }
 }
@@ -196,14 +208,31 @@ export async function readUrl(
   return { ...read, validators: resource.validators ?? null }
 }
 
+/** The marks of a page whose content a script fills in once it runs — its list a template here. */
+const BROWSER_TEMPLATE =
+  /\s(?:data-bind|v-for|v-if|ng-repeat|ng-if|x-for|x-data)=|<div id="(?:root|app|__next)">\s*<\/div>/i
+
+const rendersInBrowser = (html: string): boolean => BROWSER_TEMPLATE.test(html)
+
+/** A calendar that doesn't parse is the source's fault — said to its owner, not retried. */
+function readIcal(text: string, now: Date, until?: string): ExtractedEvent[] {
+  try {
+    return parseIcal(text, now, until)
+  } catch {
+    throw new ImportReadError('Kalendář iCal na téhle adrese nejde přečíst.')
+  }
+}
+
 async function readResource(
   resource: FetchedResource,
   { previousHash, aiContext }: { previousHash?: string | null; aiContext: AiContext },
   deps: ImportDeps,
 ): Promise<Omit<ReadResult, 'validators'>> {
-  const mimeType = resource.contentType.split(';')[0].trim()
+  // By its bytes — a server sending its PDF as application/octet-stream would otherwise have it read
+  // as a page, and binary noise sent to the AI.
+  const mimeType = sniffFileType(resource.body)
 
-  if (isImportFileType(mimeType)) {
+  if (mimeType) {
     const hash = contentHash(resource.body)
     const format = mimeType === 'application/pdf' ? 'pdf' : 'image'
     if (hash === previousHash) return { events: [], format, contentHash: hash, unchanged: true }
@@ -219,7 +248,7 @@ async function readResource(
   const text = decodeBody(resource)
   if (looksLikeIcal(text)) {
     return {
-      events: parseIcal(text, deps.now(), aiContext.until),
+      events: keepOwnLinks(readIcal(text, deps.now(), aiContext.until), resource.url),
       format: 'ical',
       contentHash: contentHash(text),
       unchanged: false,
@@ -264,15 +293,33 @@ async function readResource(
     }
   }
   if (feedRead)
-    return { events: fromFeeds, format: 'ical', contentHash: contentHash(text), unchanged: false }
+    return {
+      events: keepOwnLinks(fromFeeds, resource.url),
+      format: 'ical',
+      contentHash: contentHash(text),
+      unchanged: false,
+    }
 
   const declared = extractJsonLdEvents(text, resource.url)
   if (declared.length > 0)
-    return { events: declared, format: 'jsonld', contentHash: contentHash(text), unchanged: false }
+    return {
+      events: keepOwnLinks(declared, resource.url),
+      format: 'jsonld',
+      contentHash: contentHash(text),
+      unchanged: false,
+    }
 
   const pageText = htmlToText(text, resource.url)
+  const datedLines = eventLinesOf(pageText)
+  // A page that fills its calendar in the browser (knockout, Vue, Angular…) holds only the empty
+  // template — not a date on it. Read as it is, it'd be "0 events" every night, at the AI's price.
+  if (!datedLines && rendersInBrowser(text)) {
+    throw new ImportReadError(
+      'Stránka načítá akce až v prohlížeči (JavaScriptem), takže je import nevidí. Zkuste adresu, kde je program přímo v textu stránky (třeba program kulturního domu), nebo kalendář iCal.',
+    )
+  }
   // Only what says when events are decides whether the AI reads the page again (eventLinesOf).
-  const hash = contentHash(eventLinesOf(pageText) || pageText)
+  const hash = contentHash(datedLines || pageText)
   if (hash === previousHash)
     return { events: [], format: 'html', contentHash: hash, unchanged: true }
   if (!pageText.trim()) return { events: [], format: 'html', contentHash: hash, unchanged: false }
@@ -316,6 +363,8 @@ export type StoreResult = {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+const LOCATION_WARNINGS: ImportWarning[] = ['location_missing', 'location_not_found', 'outside_radius']
 
 /** The instants a candidate keeps — or null when it's no longer ahead. */
 function timesOf(
@@ -387,6 +436,7 @@ async function completeFromDetailPage(
 type Known = Pick<
   EventImportCandidate,
   | 'id'
+  | 'source'
   | 'externalKey'
   | 'sourceRef'
   | 'status'
@@ -461,6 +511,7 @@ export async function storeCandidates(
   // Organizers' candidates from before (access/import) aren't the obec's.
   const ofOwner: Where = { and: [ofObec, { organization: { exists: false } }] }
   const select = {
+    source: true,
     externalKey: true,
     sourceRef: true,
     status: true,
@@ -536,7 +587,8 @@ export async function storeCandidates(
   for (const doc of [...byKey.docs, ...byRef.docs, ...byDay.docs]) known.set(doc.id, doc as Known)
   const matched = new Set<number>()
   /** The candidate an event of the pass is: the same key, else the same ref (followed when it's one
-   * event's and one candidate's — the event moved to another day), else a similar name that day. */
+   * event's and one candidate's — the event moved to another day), else a similar name that day —
+   * the one closest in time, so the 8:00 and the 10:30 mass stay two. */
   const findKnown = (key: string, ref: string | null, title: string, startsAt: string) => {
     const open = [...known.values()].filter((k) => !matched.has(k.id))
     const byItsKey = open.find((k) => k.externalKey === key)
@@ -546,7 +598,14 @@ export async function storeCandidates(
       if (holders.length === 1 && !matched.has(holders[0].id)) return holders[0]
     }
     const day = pragueDateKey(startsAt)
-    return open.find((k) => pragueDateKey(k.startsAt) === day && similarTitles(k.title, title))
+    const at = new Date(startsAt).getTime()
+    return open
+      .filter((k) => pragueDateKey(k.startsAt) === day && similarTitles(k.title, title))
+      .sort(
+        (a, b) =>
+          Math.abs(new Date(a.startsAt).getTime() - at) -
+          Math.abs(new Date(b.startsAt).getTime() - at),
+      )[0]
   }
 
   const categoryByName = new Map(categories.docs.map((c) => [normalizeText(c.name), c.id]))
@@ -573,6 +632,11 @@ export async function storeCandidates(
     const existing = findKnown(key, ref, extracted.title, startsAt)
     if (existing) {
       matched.add(existing.id)
+      // Another source of the obec lists it too (a regional calendar besides its own web): it's kept in
+      // step with the source it came from only — two sources wording it differently would otherwise
+      // change it back and forth on every pass, its registrants told each time.
+      const existingSource = relationNumber(existing.source)
+      if (existingSource && existingSource !== input.sourceId) continue
       if (existing.status === 'approved') {
         // Taken over: kept in step with its source (lib/import/sync) — the obec's calendar, not a
         // pasted program read once.
@@ -596,14 +660,30 @@ export async function storeCandidates(
       else warnings.delete('cancelled_at_source')
       warnings.delete('missing_at_source')
       const moved = existing.externalKey !== key
+      // A place the source now gives (or gives differently) — looked up again, its warning with it.
+      const place = locationTextOf(extracted)
+      const placeChanged =
+        Boolean(place) && normalizeText(place!) !== normalizeText(existing.locationText ?? '')
       const changed =
         existing.startsAt !== startsAt ||
         existing.title !== extracted.title ||
         cancelledBefore !== extracted.cancelled ||
         wasMissing ||
-        moved
+        moved ||
+        placeChanged
       if (!changed) continue
       if (extracted.start.time) warnings.delete('time_missing')
+      let relocated: { locationText: string; lat: number | null; lng: number | null } | null = null
+      if (placeChanged) {
+        const located = await locate(extracted)
+        for (const w of LOCATION_WARNINGS) warnings.delete(w)
+        if ('warning' in located) warnings.add(located.warning)
+        relocated = {
+          locationText: place!,
+          lat: 'point' in located ? located.point.lat : null,
+          lng: 'point' in located ? located.point.lng : null,
+        }
+      }
       try {
         await payload.update({
           collection: 'event-import-candidates',
@@ -617,6 +697,7 @@ export async function storeCandidates(
             missingCount: 0,
             lastSeenAt: nowIso,
             ...(moved ? { externalKey: key, sourceRef: ref } : {}),
+            ...(relocated ?? {}),
             ...(extracted.description
               ? { description: withoutContacts(extracted.description) }
               : {}),
@@ -635,7 +716,9 @@ export async function storeCandidates(
     }
 
     if (extracted.cancelled) continue
-    if (result.created >= IMPORT_LIMITS.candidatesPerRun) break
+    // Past the run's limit nothing new is added — but the rest are still matched above, or the
+    // events after the cut would look missing from their source (markMissing).
+    if (result.created >= IMPORT_LIMITS.candidatesPerRun) continue
 
     let event = extracted
     const incomplete = !locationTextOf(event) || !event.start.time
@@ -734,11 +817,16 @@ export async function storeCandidates(
   return result
 }
 
-/** The obec as the pipeline needs it — and the categories the AI may pick from. */
+/** The obec as the pipeline needs it — the categories the AI may pick from, and what its imports may
+ * spend on the AI this month (lib/import/usage). */
 export async function loadImportContext(
   payload: Payload,
   municipalityId: number | string,
-): Promise<{ municipality: StoreInput['municipality']; aiContext: AiContext } | null> {
+): Promise<{
+  municipality: StoreInput['municipality']
+  aiContext: AiContext
+  aiBudgetUsd: number
+} | null> {
   const municipality = await payload
     .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true })
     .catch(() => null)
@@ -761,5 +849,6 @@ export async function loadImportContext(
       municipalityName: municipality.name,
       categoryNames: categories.docs.map((c) => c.name).sort(),
     },
+    aiBudgetUsd: aiBudgetOf(municipality),
   }
 }

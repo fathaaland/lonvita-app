@@ -11,6 +11,7 @@ import { mayManageImport } from '@/collections/access/import'
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { UNLIMITED_CAPACITY } from '@/lib/capacity'
+import { lockRow } from '@/lib/db-lock'
 import { formatPragueEventTime, pragueDateKey } from '@/lib/date'
 import { relationId, relationNumber } from '@/lib/relations'
 import type { EventImportCandidate, User } from '@/payload-types'
@@ -68,6 +69,22 @@ async function loadForDecision(
   }
   if (candidate.status !== 'pending') throw new APIError('O téhle akci už bylo rozhodnuto.', 409)
   return candidate
+}
+
+/** Holds the candidate for the rest of `req`'s transaction — and makes sure nobody decided it in the
+ * meantime. Two decisions at once (a double click, "Převzít vše" next to a single one, a reject
+ * racing an approval) would otherwise each go through: the event founded twice, or its link
+ * overwritten. The second one waits here for the first, then finds it decided. */
+async function lockUndecided(payload: Payload, req: PayloadRequest, candidateId: number) {
+  await lockRow(req, 'event_import_candidates', candidateId)
+  const current = await payload.findByID({
+    collection: 'event-import-candidates',
+    id: candidateId,
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  if (current.status !== 'pending') throw new APIError('O téhle akci už bylo rozhodnuto.', 409)
 }
 
 /** The event as the import found it — or why it can't go in without opening it first. */
@@ -152,6 +169,7 @@ export async function approveCandidate(
   const shouldCommit = await initTransaction(req)
   let eventId: number
   try {
+    await lockUndecided(payload, req, candidate.id)
     const importedFrom = await importedFromOf(payload, candidate, req)
     const event = await payload.create({
       collection: 'events',
@@ -220,10 +238,20 @@ export async function rejectCandidate(
   candidateId: number | string,
 ): Promise<void> {
   const candidate = await loadForDecision(payload, user, candidateId)
-  await payload.update({
-    collection: 'event-import-candidates',
-    id: candidate.id,
-    data: { status: 'rejected', decidedBy: Number(user.id), decidedAt: new Date().toISOString() },
-    overrideAccess: true,
-  })
+  const req = await createLocalReq({ user: user as never }, payload)
+  const shouldCommit = await initTransaction(req)
+  try {
+    await lockUndecided(payload, req, candidate.id)
+    await payload.update({
+      collection: 'event-import-candidates',
+      id: candidate.id,
+      data: { status: 'rejected', decidedBy: Number(user.id), decidedAt: new Date().toISOString() },
+      overrideAccess: true,
+      req,
+    })
+    if (shouldCommit) await commitTransaction(req)
+  } catch (error) {
+    if (shouldCommit) await killTransaction(req)
+    throw error
+  }
 }

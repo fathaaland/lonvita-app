@@ -31,7 +31,9 @@ import {
   isPublicAddress,
   normalizeSourceUrl,
   parseRobots,
+  sniffFileType,
 } from '@/lib/import/fetch'
+import { computeUsageCost, getUsagePricing } from '@/lib/providers/usage-pricing'
 import {
   extractJsonLdEvents,
   findCalendarFeeds,
@@ -123,6 +125,20 @@ describe('Import — fetching only from the public internet', () => {
     )
   })
 
+  it('a robots.txt group names us by our whole product token, not by a part of it', () => {
+    // "bot" is a part of "lonvitabot" — a group for some "bot" isn't ours, and neither is an empty one.
+    const notOurs = parseRobots('User-agent: bot\nDisallow: /\n\nUser-agent:\nDisallow: /')
+    expect(isAllowedByRobots(notOurs, '/akce')).toBe(true)
+    const versioned = parseRobots('User-agent: *\nDisallow:\n\nUser-agent: LonvitaBot/1.0\nDisallow: /akce')
+    expect(isAllowedByRobots(versioned, '/akce/koncert')).toBe(false)
+  })
+
+  it('tells a PDF or a picture by its bytes, whatever the server calls it', () => {
+    expect(sniffFileType(Buffer.from('%PDF-1.7\n…'))).toBe('application/pdf')
+    expect(sniffFileType(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg')
+    expect(sniffFileType(Buffer.from('<html><body>Akce</body></html>'))).toBeNull()
+  })
+
   it('the lines a webmaster is asked to add let us into a web that keeps all but search engines out', () => {
     // A web vendor's default (mestopelhrimov.cz): search engines in, everybody else out.
     const vendorDefault =
@@ -170,6 +186,16 @@ describe('Import — personal data, links and limits', () => {
     expect(aiBudgetOf({ importAiBudgetUsd: null })).toBe(IMPORT_LIMITS.aiMonthlyBudgetUsd)
     expect(aiBudgetOf({ importAiBudgetUsd: 12 })).toBe(12)
     expect(aiBudgetOf({ importAiBudgetUsd: 0 })).toBe(0)
+  })
+
+  it('bills a long prompt at the long-context rates — the whole call, as Anthropic does', () => {
+    const haiku = getUsagePricing('anthropic', 'claude-haiku-5-5')
+    const short = computeUsageCost({ kind: 'tokens', inputTokens: 100_000, outputTokens: 1_000 }, haiku)
+    expect(short!.costUsd).toBeCloseTo(0.01 + 0.0005, 9)
+    const long = computeUsageCost({ kind: 'tokens', inputTokens: 100_001, outputTokens: 1_000 }, haiku)
+    expect(long!.costUsd).toBeCloseTo((100_001 / 1e6) * 0.5 + 0.0025, 9)
+    // A model without a price is priced as unknown — never as $0.
+    expect(computeUsageCost({ kind: 'tokens', inputTokens: 1, outputTokens: 1 }, getUsagePricing('anthropic', 'claude-x'))).toBeNull()
   })
 
   it('tells a source being read from one waiting for the worker — and a dead worker from either', () => {
@@ -631,6 +657,58 @@ describe('Import — candidates, approval and access', () => {
     expect(jarmark.startsAt).toBe(pragueWallTimeToIso(inDays(11), '09:00'))
   })
 
+  it('two events of one name on one day stay two — the 8:00 and the 10:30 mass', async () => {
+    const masses = [
+      event({ title: 'Mše u svatého Jakuba', start: { date: inDays(15), time: '08:00' } }),
+      event({ title: 'Mše u svatého Jakuba', start: { date: inDays(15), time: '10:30' } }),
+    ]
+    expect((await storeAsText(masses)).created).toBe(2)
+    // Read again, each finds its own — nothing new, nothing moved.
+    const again = await storeAsText(masses)
+    expect(again).toMatchObject({ created: 0, updated: 0 })
+  })
+
+  it('a pending one takes up a place its source names later — looked up again, its warning gone', async () => {
+    const title = 'Přednáška o včelaření'
+    await storeAsText([event({ title, start: { date: inDays(16), time: '17:00' }, locationName: null })])
+    const before = (await candidatesOf(obec.id)).find((c) => c.title === title)!
+    expect(before.warnings).toEqual(['location_missing'])
+    const second = await storeAsText([event({ title, start: { date: inDays(16), time: '17:00' } })])
+    expect(second.updated).toBe(1)
+    const after = (await candidatesOf(obec.id)).find((c) => c.title === title)!
+    expect(after.warnings).toEqual([])
+    expect(after.locationText).toBe('Sokolovna')
+    expect(after.lat).toBeCloseTo(area.lat + 0.002)
+  })
+
+  it('two decisions at once found the event once — the other finds it decided', async () => {
+    const title = 'Souběžně převzatý jarmark'
+    await storeAsText([event({ title, start: { date: inDays(17), time: '09:00' } })])
+    const candidate = (await candidatesOf(obec.id)).find((c) => c.title === title)!
+    const outcomes = await Promise.allSettled([
+      approveCandidate(payload, admin, candidate.id),
+      approveCandidate(payload, admin, candidate.id),
+      rejectCandidate(payload, admin, candidate.id),
+    ])
+    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1)
+    for (const o of outcomes.filter((o) => o.status === 'rejected'))
+      expect((o as PromiseRejectedResult).reason).toMatchObject({ status: 409 })
+    const founded = await payload.find({
+      collection: 'events',
+      where: { and: [{ municipality: { equals: obec.id } }, { title: { equals: title } }] },
+      depth: 0,
+      overrideAccess: true,
+    })
+    const decided = await payload.findByID({
+      collection: 'event-import-candidates',
+      id: candidate.id,
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(founded.totalDocs).toBe(decided.status === 'approved' ? 1 : 0)
+    if (decided.status === 'approved') expect(decided.event).toBe(founded.docs[0].id)
+  })
+
   it("completes a place the list leaves out from the event's own page", async () => {
     const detailUrl = 'https://www.import-obec.cz/akce/divadlo'
     const result = await storeAsText(
@@ -719,6 +797,26 @@ describe('Import — candidates, approval and access', () => {
     )
     expect(again.unchanged).toBe(true)
     expect(ai).toHaveBeenCalledTimes(1)
+  })
+
+  it("a page that fills its calendar in the browser is said to be one — not read as '0 events' at the AI's price", async () => {
+    const context = (await loadImportContext(payload, obec.id))!
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async () => [])
+    // akce.zdarns.cz: knockout templates, the events posted in by a script.
+    const template =
+      '<main><h2>Nejbližší</h2><div data-bind="foreach: homepageData().EventsNearest">' +
+      '<a data-bind="attr: { href: \'/akce/\' + $data.SeoUrl }"><span data-bind="text: $data.Name">Akce</span>Více</a></div></main>'
+    await expect(
+      readUrl(
+        'https://akce.obec.test/',
+        { aiContext: context.aiContext },
+        deps({
+          fetchUrl: async (url) => ({ url, contentType: 'text/html', body: Buffer.from(template) }),
+          extractWithAi: ai,
+        }),
+      ),
+    ).rejects.toThrow(/JavaScriptem/)
+    expect(ai).not.toHaveBeenCalled()
   })
 
   it('asks the server whether a page the AI read changed — and reads nothing when it says no', async () => {
@@ -1287,7 +1385,7 @@ describe('Import — candidates, approval and access', () => {
           extractWithAi: ai,
         }),
       )
-      expect(result.skipped).toBe('read_failed')
+      expect(result.skipped).toBe('ai_held_back')
       expect(ai).not.toHaveBeenCalled()
       const read = await payload.findByID({
         collection: 'event-sources',
@@ -1297,6 +1395,10 @@ describe('Import — candidates, approval and access', () => {
       })
       expect(read.lastError).toContain('dočasně vypnuté')
       expect(read.lastErrorCode).toBe('disabled')
+      // Not the web's fault: no failure counted, so a week of it doesn't switch the source off.
+      expect(read.consecutiveFailures ?? 0).toBe(0)
+      expect(read.enabled).toBe(true)
+      expect(read.lastContentHash ?? null).toBeNull()
     } finally {
       await payload.updateGlobal({
         slug: 'import-settings',
@@ -1453,7 +1555,7 @@ describe('Import — candidates, approval and access', () => {
       {},
       fakeDeps,
     )
-    expect(capped.skipped).toBe('read_failed')
+    expect(capped.skipped).toBe('ai_held_back')
     expect(ai).not.toHaveBeenCalled()
     const afterCap = await payload.findByID({
       collection: 'event-sources',
@@ -1462,6 +1564,19 @@ describe('Import — candidates, approval and access', () => {
       overrideAccess: true,
     })
     expect(afterCap.lastError).toContain('limit')
+    expect(afterCap.consecutiveFailures ?? 0).toBe(0)
+    const [cappedRun] = (
+      await payload.find({
+        collection: 'import-runs',
+        where: { source: { equals: source.id } },
+        sort: '-startedAt',
+        limit: 1,
+        depth: 0,
+        overrideAccess: true,
+      })
+    ).docs
+    expect(cappedRun.status).toBe('skipped')
+    expect(cappedRun.errorCode).toBe('over_budget')
   })
 
   it('keeps a taken-over event in step with its calendar — never over what was changed in Lonvita', async () => {

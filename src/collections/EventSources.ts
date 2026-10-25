@@ -73,6 +73,9 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
   }
 }
 
+/** The failures a robots.txt waiver is the answer to (lib/import/fetch). */
+const ROBOTS_ERROR_CODES = new Set(['robots_disallowed', 'robots_unavailable'])
+
 /** Who let the import past the web's robots.txt, and when — set with the switch, cleared with it.
  * A source switched back on, or just let past robots.txt, is read right away (readNewSource) — the
  * panel shows it waiting. */
@@ -81,6 +84,21 @@ const recordSourceChange: CollectionBeforeChangeHook = ({ data, originalDoc, ope
   const now = new Date().toISOString()
   const waived = Boolean(data.ignoreRobots ?? originalDoc?.ignoreRobots)
   const waiverChanged = waived !== Boolean(originalDoc?.ignoreRobots)
+  // Only for a web whose robots.txt actually kept the import out (what the panel offers it for) —
+  // not a way to read any page past its robots.txt, nor to have it read through again and again by
+  // switching it off and on. The platform's admins may set it regardless.
+  if (
+    waiverChanged &&
+    waived &&
+    req.user &&
+    req.user.role !== 'admin' &&
+    !ROBOTS_ERROR_CODES.has(originalDoc?.lastErrorCode ?? '')
+  ) {
+    throw new APIError(
+      'Výjimku z robots.txt jde zapnout jen u zdroje, který robots.txt zablokoval.',
+      400,
+    )
+  }
   const enabled = Boolean(data.enabled ?? originalDoc?.enabled)
   const switchedOn = enabled && !originalDoc?.enabled
   return {

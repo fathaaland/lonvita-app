@@ -3,24 +3,11 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { IMPORT_LIMITS, isImportFileType } from '@/lib/import/contracts'
+import { sniffFileType } from '@/lib/import/fetch'
 import { aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
 import { importFileKey, uploadImportFile } from '@/lib/import/storage'
 import { logger, serializeError } from '@/lib/logger'
 import { enqueueImportEvents } from '@/lib/queue/queues'
-
-/** The magic bytes of what IMPORT_FILE_TYPES allows — the browser's declared type isn't proof. */
-function sniffType(bytes: Buffer): string | null {
-  if (bytes.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf'
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
-    return 'image/png'
-  if (
-    bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
-    bytes.subarray(8, 12).toString('latin1') === 'WEBP'
-  )
-    return 'image/webp'
-  return null
-}
 
 /**
  * A program as a file — a PDF of the zpravodaj, a photo of a poster. Stored for the worker (S3, until
@@ -49,7 +36,7 @@ export async function POST(request: Request) {
   }
 
   const bytes = Buffer.from(await file.arrayBuffer())
-  const mimeType = sniffType(bytes)
+  const mimeType = sniffFileType(bytes)
   if (!isImportFileType(mimeType)) {
     return NextResponse.json(
       { error: 'Nahrát jde PDF nebo obrázek (JPG, PNG, WebP).' },

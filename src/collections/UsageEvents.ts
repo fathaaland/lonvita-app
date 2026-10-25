@@ -34,7 +34,9 @@ export const UsageEvents: CollectionConfig = {
     // no client should be able to create billing rows directly through the API.
     create: () => false,
     update: () => false,
-    delete: adminOnly,
+    // Nor deleted through it — the ledger is what the obce's imports cost; a row gone from it is
+    // spend nobody sees, and under the obec's fair-use cap again.
+    delete: () => false,
   },
   fields: [
     {

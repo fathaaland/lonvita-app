@@ -44,14 +44,17 @@ const hash = (value: string) => createHash('sha1').update(value).digest('hex').s
 /**
  * What identifies the event across passes over its source: the source's own id (iCal UID and
  * occurrence), else its detail page, else its name — each with its date, so the weekly yoga stays one
- * candidate per week. Matching by a similar name on the same day catches the rest (pipeline).
+ * candidate per week. A page or a name with its time too: two screenings of one film, the 8:00 and
+ * the 10:30 mass, are two events. Matching by a similar name on the same day catches the rest — a
+ * time that changed or that a read left out (pipeline).
  */
 export function externalKeyOf(
   event: Pick<ExtractedEvent, 'externalId' | 'detailUrl' | 'title' | 'start'>,
 ): string {
   if (event.externalId) return `id:${hash(`${event.externalId}|${event.start.date}`)}`
-  if (event.detailUrl) return `url:${hash(`${pageOf(event.detailUrl)}|${event.start.date}`)}`
-  return `title:${hash(`${normalizeText(event.title)}|${event.start.date}`)}`
+  const when = `${event.start.date}|${event.start.time ?? ''}`
+  if (event.detailUrl) return `url:${hash(`${pageOf(event.detailUrl)}|${when}`)}`
+  return `title:${hash(`${normalizeText(event.title)}|${when}`)}`
 }
 
 const pageOf = (detailUrl: string): string => {

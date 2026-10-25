@@ -180,9 +180,11 @@ describe('usage dashboard aggregation', () => {
         overrideAccess: true,
       })
     ).docs
-    // 500k fresh × $0.10 + 500k cached × $0.01 + 100k out × $0.50 per million.
-    expect(row.costUsd).toBeCloseTo(0.05 + 0.005 + 0.05, 6)
-    expect(row.inputPricePerMTok).toBe(0.1)
+    // Over 100K input tokens Haiku 5.5 bills the whole call at 5×: 500k fresh × $0.50 + 500k cached
+    // × $0.01 + 100k out × $2.50 per million.
+    expect(row.costUsd).toBeCloseTo(0.25 + 0.005 + 0.25, 6)
+    expect(row.inputPricePerMTok).toBe(0.5)
+    expect(row.outputPricePerMTok).toBe(2.5)
     expect(row.totalTokens).toBe(1_100_000)
     expect(row.status).toBe('success')
   })

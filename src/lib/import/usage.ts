@@ -1,11 +1,13 @@
 import type { Payload } from 'payload'
 
 import { computeUsageCost, getUsagePricing } from '@/lib/providers/usage-pricing'
-import { getUsageDashboardData } from '@/lib/usage/dashboard-aggregation'
+import { getCostByMunicipality } from '@/lib/usage/dashboard-aggregation'
 import { recordUsageEvent } from '@/lib/usage/record-usage'
+import { logger } from '@/lib/logger'
 
 import {
   ImportAiError,
+  importModel,
   type AiMeter,
   type extractEventDetailsWithAi,
   type extractEventsWithAi,
@@ -53,20 +55,15 @@ export const aiBudgetOf = (municipality: { importAiBudgetUsd?: number | null }):
 
 export async function isOverAiBudget(
   payload: Payload,
-  municipalityId: number,
+  municipality: { id: number; aiBudgetUsd: number },
   now: Date,
 ): Promise<boolean> {
-  const [{ summary }, municipality] = await Promise.all([
-    getUsageDashboardData(payload, {
-      from: pragueMonthStart(now),
-      to: new Date(now.getTime() + 1),
-      municipalityId,
-    }),
-    payload
-      .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true })
-      .catch(() => null),
-  ])
-  return summary.totalCostUsd >= aiBudgetOf(municipality ?? {})
+  const spent = await getCostByMunicipality(payload, {
+    from: pragueMonthStart(now),
+    to: new Date(now.getTime() + 1),
+    municipalityId: municipality.id,
+  })
+  return (spent.get(municipality.id) ?? 0) >= municipality.aiBudgetUsd
 }
 
 /** Whether the platform's admins switched AI reads off for everybody (ImportSettings). */
@@ -82,18 +79,38 @@ const REFUSALS = {
     'Měsíční limit AI zpracování obce je vyčerpaný — do konce měsíce se čtou jen kalendáře iCal a strukturovaná data.',
   disabled:
     'Zpracování pomocí AI je dočasně vypnuté — zatím se čtou jen kalendáře iCal a strukturovaná data.',
+  unpriced:
+    'Zpracování pomocí AI je dočasně mimo provoz — zatím se čtou jen kalendáře iCal a strukturovaná data.',
 } as const
+
+/** Why the AI isn't asked — the obec's limit, the platform's switch, a model with no price — not the
+ * source's fault: such a run is skipped, not counted as the source failing (import-events.processor). */
+export const isAiHeldBack = (error: unknown): boolean =>
+  error instanceof ImportAiError &&
+  (error.code === 'over_budget' ||
+    error.code === 'disabled' ||
+    error.code === 'unpriced' ||
+    error.code === 'not_configured')
 
 export type AiRefusal = keyof typeof REFUSALS
 
-/** Why the AI may not be called for the obec right now — or null when it may. */
+/** Why the AI may not be called for the obec right now — or null when it may. A model the ledger
+ * has no price for (IMPORT_AI_MODEL set to one usage-pricing doesn't list) would cost $0 on it, and
+ * the obec's limit would never be reached — so it isn't called at all. */
 export async function aiRefusalFor(
   payload: Payload,
-  municipalityId: number,
+  municipality: { id: number; aiBudgetUsd: number },
   now: Date,
 ): Promise<AiRefusal | null> {
   if (await isAiSwitchedOff(payload)) return 'disabled'
-  if (await isOverAiBudget(payload, municipalityId, now)) return 'over_budget'
+  if (!getUsagePricing('anthropic', importModel())) {
+    logger.error('Import AI model has no price', {
+      event: 'import.ai_model_unpriced',
+      model: importModel(),
+    })
+    return 'unpriced'
+  }
+  if (await isOverAiBudget(payload, municipality, now)) return 'over_budget'
   return null
 }
 

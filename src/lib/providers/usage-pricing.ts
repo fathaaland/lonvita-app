@@ -4,6 +4,13 @@ export type TokenUsagePricing = {
   inputPerMTok: number
   outputPerMTok: number
   cachedInputPerMTok?: number
+  /** A prompt over `inputTokenThreshold` input tokens is billed at the multiplied rates — the whole
+   * call, not just the part over it (ported from hbai-app). */
+  longContext?: {
+    inputTokenThreshold: number
+    inputMultiplier: number
+    outputMultiplier: number
+  }
 }
 
 /** Pricing for a model billed per search/rerank unit rather than tokens (e.g. Cohere rerank). */
@@ -28,8 +35,15 @@ const USAGE_PRICING: UsagePricingEntry[] = [
   {
     provider: 'anthropic',
     model: 'claude-haiku-5-5',
-    // Verified against Anthropic's pricing (prompts up to 100K tokens — the imports stay under it).
-    pricing: { unit: 'tokens', inputPerMTok: 0.1, outputPerMTok: 0.5, cachedInputPerMTok: 0.01 },
+    // Verified against Anthropic's pricing: $0.10 / $0.50 up to 100K input tokens, $0.50 / $2.50
+    // beyond — a long zpravodaj PDF gets there.
+    pricing: {
+      unit: 'tokens',
+      inputPerMTok: 0.1,
+      outputPerMTok: 0.5,
+      cachedInputPerMTok: 0.01,
+      longContext: { inputTokenThreshold: 100_000, inputMultiplier: 5, outputMultiplier: 5 },
+    },
   },
   {
     provider: 'anthropic',
@@ -83,19 +97,25 @@ export function computeUsageCost(
   if (usage.kind === 'tokens') {
     if (pricing.unit !== 'tokens') return null
 
+    const tier =
+      pricing.longContext && usage.inputTokens > pricing.longContext.inputTokenThreshold
+        ? pricing.longContext
+        : undefined
+    const inputPricePerMTok = pricing.inputPerMTok * (tier?.inputMultiplier ?? 1)
+    const outputPricePerMTok = pricing.outputPerMTok * (tier?.outputMultiplier ?? 1)
     const cachedInputTokens = usage.cachedInputTokens ?? 0
     const billableInputTokens = Math.max(usage.inputTokens - cachedInputTokens, 0)
-    const inputCost = (billableInputTokens / 1_000_000) * pricing.inputPerMTok
+    const inputCost = (billableInputTokens / 1_000_000) * inputPricePerMTok
     // Models without a configured cache discount must bill cached reads at the full
     // input rate — falling back to 0 would make cached tokens free in the ledger.
     const cachedCost =
       (cachedInputTokens / 1_000_000) * (pricing.cachedInputPerMTok ?? pricing.inputPerMTok)
-    const outputCost = (usage.outputTokens / 1_000_000) * pricing.outputPerMTok
+    const outputCost = (usage.outputTokens / 1_000_000) * outputPricePerMTok
 
     return {
       costUsd: inputCost + cachedCost + outputCost,
-      inputPricePerMTok: pricing.inputPerMTok,
-      outputPricePerMTok: pricing.outputPerMTok,
+      inputPricePerMTok,
+      outputPricePerMTok,
     }
   }
 

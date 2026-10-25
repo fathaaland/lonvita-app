@@ -7,7 +7,7 @@ import { ImportFetchError } from '@/lib/import/fetch'
 import { defaultImportDeps, ImportReadError, loadImportContext, readUrl, storeCandidates, waiveRobotsFor, type ImportDeps } from '@/lib/import/pipeline'
 import { deleteImportFile, downloadImportFile } from '@/lib/import/storage'
 import { addDays, pragueToday } from '@/lib/import/time'
-import { aiRefusalFor, emptyTotals, meterAi, type UsageTotals } from '@/lib/import/usage'
+import { aiRefusalFor, emptyTotals, isAiHeldBack, meterAi, type UsageTotals } from '@/lib/import/usage'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId, relationNumber } from '@/lib/relations'
 
@@ -117,6 +117,7 @@ async function processSource(
   data: Extract<ImportEventsJobData, { kind: 'source' }>,
   deps: ImportDeps,
   context: DispatchContext,
+  isLastAttempt: boolean,
 ): Promise<ImportEventsJobResult> {
   const trigger: SourceTrigger = data.trigger ?? 'daily'
   const source = await payload
@@ -143,7 +144,7 @@ async function processSource(
     source.ignoreRobots ? waiveRobotsFor(deps, source.url) : deps,
     payload,
     { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
-    { refusal: await aiRefusalFor(payload, municipalityId, now), totals },
+    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd }, now), totals },
   )
   // The panel shows it being read (ImportPanel) until one of the updates below clears it.
   await payload
@@ -246,6 +247,25 @@ async function processSource(
     )
     return { found: read.events.length, created: stored.created, updated: stored.updated, ...(read.unchanged ? { skipped: 'unchanged' } : {}) }
   } catch (error) {
+    if (isAiHeldBack(error)) {
+      // The obec's limit, the platform's switch — not the web's fault: no failure counted, nobody
+      // told the web is broken, and the page's fingerprint is left as it was, so the next pass the AI
+      // may read it again reads it.
+      await payload.update({
+        collection: 'event-sources',
+        id: source.id,
+        data: { lastRunAt: runAt, lastError: messageOf(error), lastErrorCode: codeOf(error), runningSince: null },
+        overrideAccess: true,
+      })
+      await finishRun(payload, runId, { status: 'skipped', error: messageOf(error), errorCode: codeOf(error) }, totals, deps.now())
+      logger.info('Event source not read by the AI', { event: 'import.source_ai_held_back', sourceId: source.id, code: codeOf(error) })
+      return { found: 0, created: 0, updated: 0, skipped: 'ai_held_back' }
+    }
+    // A failure the queue retries is one failure, counted on its last attempt — not one per attempt.
+    if (!isExpected(error) && !isLastAttempt) {
+      await finishRun(payload, runId, { status: 'failed', error: messageOf(error), errorCode: codeOf(error) }, totals, deps.now())
+      throw error
+    }
     const failures = (source.consecutiveFailures ?? 0) + 1
     const pause = failures >= IMPORT_LIMITS.failuresBeforePause
     await payload.update({
@@ -297,7 +317,7 @@ async function processManual(
     deps,
     payload,
     { municipality: municipalityId, user: requestedBy, importRun: runId },
-    { refusal: await aiRefusalFor(payload, municipalityId, now), totals },
+    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd }, now), totals },
   )
 
   let succeeded = false
@@ -361,10 +381,11 @@ export const processImportEventsJob = async (
   deps: ImportDeps = defaultImportDeps(),
 ): Promise<ImportEventsJobResult> => {
   const payload = await getWorkerPayload()
+  const isLastAttempt = (context.attemptsMade ?? 0) + 1 >= (context.attempts ?? 3)
   const result =
     data.kind === 'source'
-      ? await processSource(payload, data, deps, context)
-      : await processManual(payload, data, deps, context, (context.attemptsMade ?? 0) + 1 >= (context.attempts ?? 3))
+      ? await processSource(payload, data, deps, context, isLastAttempt)
+      : await processManual(payload, data, deps, context, isLastAttempt)
   logger.info('Events imported', { event: 'import.finished', kind: data.kind, jobId: context.jobId, ...result })
   return result
 }

@@ -5,6 +5,7 @@ import { mayManageImport } from '@/collections/access/import'
 import { writeAuditLog } from '@/collections/shared/auditLog'
 import { pragueDateKey } from '@/lib/date'
 import { hasEventEnded } from '@/lib/eventEnded'
+import { haversineDistanceKm } from '@/lib/geo/distance'
 import { logger, serializeError } from '@/lib/logger'
 import { relationNumber } from '@/lib/relations'
 import type { Event, EventImportCandidate, User } from '@/payload-types'
@@ -65,6 +66,9 @@ export type SyncContext = {
   now: Date
   locate: (event: ExtractedEvent) => Promise<LocateResult>
 }
+
+/** How near a reworded place has to land to the last one to be the same place. */
+const SAME_PLACE_KM = 0.3
 
 const msOf = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : null)
 
@@ -147,19 +151,30 @@ async function syncOne(payload: Payload, pair: SyncPair, ctx: SyncContext): Prom
   if (theirs.end && msOf(theirs.end) !== msOf(base.end)) changed.push('end')
   if (theirs.place && !samePlace(theirs.place, base.place)) changed.push('place')
 
+  // A new place is looked up either way — applied now, or by the owner later (applySourceChanges).
+  let located: Point | null = null
+  if (changed.includes('place') && (open || !ctx.deterministic)) {
+    const result = await ctx.locate(extracted)
+    if ('point' in result) located = result.point
+  }
+  // The AI words a place anew on every read ("Sokolovna", "Sokolovna Dolní Lhota"): one that lands
+  // where the last one did is the same place, not a change to make and tell the registrants about —
+  // or the next read would change it back. The wording last kept stays the one compared with.
+  const reworded = Boolean(
+    !ctx.deterministic &&
+      located &&
+      c.lat != null &&
+      c.lng != null &&
+      haversineDistanceKm(located.lat, located.lng, c.lat, c.lng) <= SAME_PLACE_KM,
+  )
+  if (reworded) changed.splice(changed.indexOf('place'), 1)
+
   const before = noticesOf(c)
   let notices = withoutNotice(before, 'missing_at_source')
   notices =
     extracted.cancelled && open
       ? withNotice(notices, 'cancelled_at_source')
       : withoutNotice(notices, 'cancelled_at_source')
-
-  // A new place is looked up either way — applied now, or by the owner later (applySourceChanges).
-  let located: Point | null = null
-  if (changed.includes('place') && open) {
-    const result = await ctx.locate(extracted)
-    if ('point' in result) located = result.point
-  }
 
   const data: Partial<Event> = {}
   const applied: SyncField[] = []
@@ -262,7 +277,7 @@ async function syncOne(payload: Payload, pair: SyncPair, ctx: SyncContext): Prom
     startsAt: keepTime ? base.startsAt : theirs.startsAt,
     timeKnown: keepTime ? true : theirs.timeKnown,
     endsAt: theirs.end ? endsAt : (c.endsAt ?? null),
-    ...(theirs.place
+    ...(theirs.place && !reworded
       ? {
           locationText: theirs.place,
           ...(changed.includes('place')

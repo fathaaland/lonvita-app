@@ -5,7 +5,12 @@ import { Agent, fetch as undiciFetch } from 'undici'
 
 import { logger, serializeError } from '@/lib/logger'
 
-import { IMPORT_LIMITS, IMPORT_ROBOTS_TOKEN, IMPORT_USER_AGENT } from './contracts'
+import {
+  IMPORT_LIMITS,
+  IMPORT_ROBOTS_TOKEN,
+  IMPORT_USER_AGENT,
+  type ImportFileType,
+} from './contracts'
 
 /**
  * Fetching a page somebody typed into the app, from our own servers — a request the app makes on a
@@ -25,11 +30,14 @@ export class ImportFetchError extends Error {
       | 'invalid_url'
       | 'blocked_address'
       | 'robots_disallowed'
+      | 'robots_unavailable'
       | 'http_error'
       | 'too_large'
       | 'timeout'
       | 'unsupported_type'
       | 'network',
+    /** The HTTP status, for an `http_error`. */
+    readonly status?: number,
   ) {
     super(message)
     this.name = 'ImportFetchError'
@@ -207,14 +215,21 @@ async function readCapped(
   return Buffer.concat(chunks)
 }
 
-/** GET over the public internet only (see the module comment), following up to five redirects. */
+/** GET over the public internet only (see the module comment), following up to five redirects —
+ * each one asked about first (`beforeRedirect`: the robots.txt of where it leads). */
 export async function fetchPublic(
   rawUrl: string,
   {
     maxBytes = IMPORT_LIMITS.fetchMaxBytes,
     accept = '*/*',
     validators,
-  }: { maxBytes?: number; accept?: string; validators?: HttpValidators | null } = {},
+    beforeRedirect,
+  }: {
+    maxBytes?: number
+    accept?: string
+    validators?: HttpValidators | null
+    beforeRedirect?: (url: string) => Promise<void>
+  } = {},
 ): Promise<FetchedResource> {
   let url = normalizeSourceUrl(rawUrl)
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -251,6 +266,7 @@ export async function fetchPublic(
     if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
       await response.body?.cancel().catch(() => {})
       url = normalizeSourceUrl(new URL(response.headers.get('location')!, url).toString())
+      await beforeRedirect?.(url.toString())
       continue
     }
     const current: HttpValidators = {
@@ -272,7 +288,11 @@ export async function fetchPublic(
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
-      throw new ImportFetchError(`Stránka vrátila chybu ${response.status}.`, 'http_error')
+      throw new ImportFetchError(
+        `Stránka vrátila chybu ${response.status}.`,
+        'http_error',
+        response.status,
+      )
     }
     const body = await readCapped(response, maxBytes)
     return {
@@ -314,7 +334,8 @@ export function parseRobots(text: string, token = IMPORT_ROBOTS_TOKEN): RobotsRu
     if (field === 'disallow' && value) current.rules.push({ allow: false, pattern: value })
     if (field === 'allow' && value) current.rules.push({ allow: true, pattern: value })
   }
-  const ours = groups.filter((g) => g.agents.some((a) => a !== '*' && token.includes(a)))
+  // A group names us by our product token — "LonvitaBot", "lonvitabot/1.0" — not by any part of it.
+  const ours = groups.filter((g) => g.agents.some((a) => a.split('/')[0].trim() === token))
   const chosen = ours.length > 0 ? ours : groups.filter((g) => g.agents.includes('*'))
   return chosen.flatMap((g) => g.rules)
 }
@@ -347,8 +368,12 @@ export function isAllowedByRobots(rules: RobotsRule[], pathWithQuery: string): b
 /** robots.txt per origin, for the length of one import run. */
 export type RobotsCache = Map<string, RobotsRule[]>
 
-/** Throws when the site's robots.txt keeps us out of `url`. A missing or unreadable robots.txt
- * allows everything, as the convention goes. */
+/** What an unreachable robots.txt means (RFC 9309): one that isn't there (4xx) allows everything; a
+ * server failing (5xx) or not answering allows nothing — we don't know what it says. */
+const DISALLOW_ALL: RobotsRule[] = [{ allow: false, pattern: '/' }]
+
+/** Throws when the site's robots.txt keeps us out of `url` (see DISALLOW_ALL for one that can't be
+ * read). */
 export async function assertRobotsAllow(
   url: string,
   cache: RobotsCache = new Map(),
@@ -361,8 +386,19 @@ export async function assertRobotsAllow(
       accept: 'text/plain',
     })
       .then((r) => parseRobots(r.body.toString('utf8')))
-      .catch(() => [])
+      .catch((error) =>
+        error instanceof ImportFetchError &&
+        ((error.code === 'http_error' && error.status! < 500) || error.code === 'too_large')
+          ? []
+          : DISALLOW_ALL,
+      )
     cache.set(target.origin, rules)
+  }
+  if (rules === DISALLOW_ALL) {
+    throw new ImportFetchError(
+      'Web teď neodpovídá ani na dotaz na robots.txt — zkusíme to příště.',
+      'robots_unavailable',
+    )
   }
   if (!isAllowedByRobots(rules, `${target.pathname}${target.search}`)) {
     throw new ImportFetchError(
@@ -370,6 +406,21 @@ export async function assertRobotsAllow(
       'robots_disallowed',
     )
   }
+}
+
+/** What a file is by its magic bytes — one of IMPORT_FILE_TYPES, or null. A server's or a browser's
+ * declared type isn't proof: plenty of obec webs serve their zpravodaj as application/octet-stream. */
+export function sniffFileType(bytes: Buffer): ImportFileType | null {
+  if (bytes.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return 'image/png'
+  if (
+    bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  )
+    return 'image/webp'
+  return null
 }
 
 /** The text of a fetched page — in the charset it declares (Czech sites still use windows-1250). */

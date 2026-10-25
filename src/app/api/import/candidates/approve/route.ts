@@ -38,19 +38,20 @@ export async function POST(request: Request) {
       const { eventId } = await approveCandidate(payload, user, id, undefined, request)
       results.push({ id, eventId })
     } catch (error) {
-      if (
-        !(error instanceof APIError && error.status < 500) &&
-        !(error instanceof Error && error.name === 'ValidationError')
-      ) {
+      const readable =
+        (error instanceof APIError && error.status < 500) ||
+        (error instanceof Error && error.name === 'ValidationError')
+      if (!readable) {
         logger.error('Bulk import approval failed', {
           event: 'import.bulk_approve_failed',
           candidateId: id,
           ...serializeError(error),
         })
       }
+      // What broke inside (a database error) goes to the log, not to the browser.
       results.push({
         id,
-        error: error instanceof Error ? error.message : 'Akci se nepodařilo převzít.',
+        error: readable ? (error as Error).message : 'Akci se nepodařilo převzít.',
       })
     }
   }
