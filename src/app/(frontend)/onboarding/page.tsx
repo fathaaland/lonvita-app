@@ -26,6 +26,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { PayloadApiError } from "@/integrations/payload/client";
+import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
 /** The obec is picked on the map during registration — except for a Google sign-up, which
  * skips that form, so onboarding asks for it first (see /api/auth/onboarding-municipality). */
@@ -51,6 +52,8 @@ function OnboardingContent() {
   const [needsMunicipality, setNeedsMunicipality] = useState<boolean | null>(null);
   const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
   const [municipality, setMunicipality] = useState("");
+  // The SMS on a cancel is promised only where the home obec pays for them.
+  const homeFeatures = useMunicipalityFeatures(municipality || null);
   const [noMunicipality, setNoMunicipality] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -274,7 +277,9 @@ function OnboardingContent() {
                 <div>
                   <h2 className="text-xl font-extrabold">Vaše telefonní číslo</h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Na tohle číslo vám pošleme SMS, pokud se akce, na kterou jste přihlášeni, zruší.
+                    {homeFeatures.sms
+                      ? "Na tohle číslo vám pošleme SMS, pokud se akce, na kterou jste přihlášeni, zruší."
+                      : "Pořadatel akce, na kterou se přihlásíte, vás na něm může zastihnout."}
                   </p>
                 </div>
                 <div className="space-y-2">

@@ -94,6 +94,7 @@ export interface Config {
     'event-import-candidates': EventImportCandidate;
     'import-runs': ImportRun;
     'usage-events': UsageEvent;
+    'sms-messages': SmsMessage;
     'system-logs': SystemLog;
     'security-events': SecurityEvent;
     'payload-kv': PayloadKv;
@@ -130,6 +131,7 @@ export interface Config {
     'event-import-candidates': EventImportCandidatesSelect<false> | EventImportCandidatesSelect<true>;
     'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
     'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
+    'sms-messages': SmsMessagesSelect<false> | SmsMessagesSelect<true>;
     'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
     'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -268,6 +270,12 @@ export interface Municipality {
    */
   rulesForCreation: 'municipality_only' | 'approved_organizers';
   importAiBudgetUsd?: number | null;
+  emailPriceCzk?: number | null;
+  smsEnabled?: boolean | null;
+  smsPriceCzk?: number | null;
+  smsMonthlyLimit?: number | null;
+  importAiEnabled?: boolean | null;
+  importAiPriceCzk?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1122,6 +1130,18 @@ export interface UsageEvent {
   createdAt: string;
 }
 /**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "sms-messages".
+ */
+export interface SmsMessage {
+  id: number;
+  municipality?: (number | null) | Municipality;
+  requestId?: string | null;
+  providerMessageSid?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * Warnings, errors and notable events of the app and the worker. Kept 90 days. The correlation id joins every line of one request or job.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -1320,6 +1340,10 @@ export interface PayloadLockedDocument {
         value: number | UsageEvent;
       } | null)
     | ({
+        relationTo: 'sms-messages';
+        value: number | SmsMessage;
+      } | null)
+    | ({
         relationTo: 'system-logs';
         value: number | SystemLog;
       } | null)
@@ -1448,6 +1472,12 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   eventRadiusKm?: T;
   rulesForCreation?: T;
   importAiBudgetUsd?: T;
+  emailPriceCzk?: T;
+  smsEnabled?: T;
+  smsPriceCzk?: T;
+  smsMonthlyLimit?: T;
+  importAiEnabled?: T;
+  importAiPriceCzk?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1935,6 +1965,17 @@ export interface UsageEventsSelect<T extends boolean = true> {
   costUsd?: T;
   status?: T;
   requestId?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "sms-messages_select".
+ */
+export interface SmsMessagesSelect<T extends boolean = true> {
+  municipality?: T;
+  requestId?: T;
+  providerMessageSid?: T;
   updatedAt?: T;
   createdAt?: T;
 }

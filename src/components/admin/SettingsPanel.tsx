@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Settings } from "lucide-react";
 import { setMunicipalityRulesForCreation, RulesForCreation } from "@/integrations/payload/queries";
 import { toast } from "sonner";
+import { ServicesCostCard } from "@/components/admin/ServicesCostCard";
 
 const OPTIONS: { value: RulesForCreation; label: string }[] = [
   { value: "municipality_only", label: "Akce může zakládat pouze obec sama" },
@@ -30,19 +31,22 @@ export function SettingsPanel({ municipalityId, initialRules }: { municipalityId
   };
 
   return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <Settings className="h-5 w-5 text-primary" />
-          <p className="font-bold">Pravidla pro vytváření akcí</p>
-        </div>
-        <Select value={rules} onValueChange={handleChange} disabled={saving}>
-          <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </CardContent>
-    </Card>
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-primary" />
+            <p className="font-bold">Pravidla pro vytváření akcí</p>
+          </div>
+          <Select value={rules} onValueChange={handleChange} disabled={saving}>
+            <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+      <ServicesCostCard municipalityId={municipalityId} />
+    </div>
   );
 }

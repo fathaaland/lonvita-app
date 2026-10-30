@@ -4,6 +4,11 @@ import { describe, it, afterEach, expect, vi } from 'vitest'
 
 import { processSmsJob } from '../../worker/src/processors/sms.processor'
 
+const createRow = vi.fn(async () => ({}))
+vi.mock('../../worker/src/runtime/payload', () => ({
+  getWorkerPayload: async () => ({ create: createRow }),
+}))
+
 const job = { to: '+420735929442', message: 'Lonvita: akce „Posezení“ byla zrušena.', requestId: 'event-cancelled-1-7' }
 
 const twilioAnswers = (status: number, body: unknown) => {
@@ -22,6 +27,24 @@ describe('SMS go out through Twilio', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
+    createRow.mockClear()
+  })
+
+  it("counts a sent SMS against its obec's monthly SMS — and a job without an obec against nobody", async () => {
+    configure({ TWILIO_ACCOUNT_SID: 'AC123', TWILIO_AUTH_TOKEN: 'secret', TWILIO_FROM: 'Lonvita' })
+    twilioAnswers(201, { sid: 'SM9', status: 'queued' })
+
+    await processSmsJob({ ...job, municipalityId: 42 })
+    expect(createRow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collection: 'sms-messages',
+        data: { municipality: 42, requestId: job.requestId, providerMessageSid: 'SM9' },
+      }),
+    )
+
+    createRow.mockClear()
+    await processSmsJob(job)
+    expect(createRow).not.toHaveBeenCalled()
   })
 
   it('posts the message to the Messages API, from the configured sender', async () => {

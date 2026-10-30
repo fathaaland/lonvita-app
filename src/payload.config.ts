@@ -37,6 +37,7 @@ import { Microregions } from './collections/Microregions'
 import { EventImportCandidates } from './collections/EventImportCandidates'
 import { ImportRuns } from './collections/ImportRuns'
 import { UsageEvents } from './collections/UsageEvents'
+import { SmsMessages } from './collections/SmsMessages'
 import { SystemLogs } from './collections/SystemLogs'
 import { SecurityEvents } from './collections/SecurityEvents'
 import { writeAuditLog } from './collections/shared/auditLog'
@@ -168,6 +169,7 @@ export default buildConfig({
     EventImportCandidates,
     ImportRuns,
     UsageEvents,
+    SmsMessages,
     SystemLogs,
     SecurityEvents,
   ].map(withCrudLogging),

@@ -1,6 +1,7 @@
 import type { Payload } from 'payload'
 
 import { enqueueEventCancelled, enqueueEventUpdated } from '@/lib/queue/queues'
+import { requiredRelationNumber } from '@/lib/relations'
 
 /** Brief §7 "Úprava existující akce → všichni přihlášení účastníci" — every field a participant
  * can see on the event, with the (Czech) label used to tell them what changed. Routine internal
@@ -102,12 +103,25 @@ export async function queueEventUpdatedNotification(
  */
 export async function notifyEventCancelled(
   payload: Payload,
-  event: { id: number | string; title: string; organizer: number | { id: number } },
+  event: {
+    id: number | string
+    title: string
+    organizer: number | { id: number }
+    municipality: number | { id: number }
+  },
   options?: { delay?: number; registrants?: Awaited<ReturnType<typeof getEventRegistrants>> },
 ): Promise<void> {
   const organizerId = typeof event.organizer === 'object' ? event.organizer.id : event.organizer
   const registrants = options?.registrants ?? (await getEventRegistrants(payload, event.id, organizerId))
   // No fixed job id: a cancel that rolled back leaves a job behind (it skips), and a fixed id
   // would swallow the retried cancel's own.
-  await enqueueEventCancelled({ eventId: event.id, title: event.title, ...registrants }, { delay: options?.delay })
+  await enqueueEventCancelled(
+    {
+      eventId: event.id,
+      title: event.title,
+      municipalityId: requiredRelationNumber(event.municipality),
+      ...registrants,
+    },
+    { delay: options?.delay },
+  )
 }

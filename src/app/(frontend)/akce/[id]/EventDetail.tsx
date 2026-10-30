@@ -47,6 +47,7 @@ import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isEventShareable } from "@/lib/eventShare";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
+import { cancelChannels, useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
 interface Reg { id: string; user_id: string; status: string; role: "participant" | "volunteer"; full_name: string; avatar_url: string | null }
 
@@ -194,6 +195,7 @@ function EventDetailContent() {
   // In a mikroregion a spolupořadatel's organization leaves on its own, and a deletion request from it
   // goes to the event's creator alone (EventDeletionRequests).
   const region = useMunicipalityRegion(event?.municipality_id);
+  const eventFeatures = useMunicipalityFeatures(event?.municipality_id);
   // Also once the region split or changed: a co-operation across obce runs to its end on its rules.
   const regionShared =
     (!!region && region.municipalities.length > 1) ||
@@ -555,12 +557,13 @@ function EventDetailContent() {
               <p className="text-sm text-muted-foreground mt-0.5">
                 {event.deletion_needs_consent
                   ? `Akci pořádáte ${obecRuns || obecCoOrganizes ? "s obcí" : "se spolupořadateli"} — smazat ji jde jen s jejich souhlasem.`
-                  : "Přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci."}
+                  : `Přihlášení účastníci dostanou upozornění ${cancelChannels(eventFeatures.sms)}.`}
               </p>
             </div>
             {event.deletion_needs_consent && user ? (
               <EventDeletionConsent
                 eventId={event.id}
+                municipalityId={event.municipality_id}
                 title={event.title}
                 dateTime={event.date_time}
                 userId={String(user.id)}
@@ -583,6 +586,7 @@ function EventDetailContent() {
                 {(obecRuns || obecCoOrganizes) && isAdminOfEventMunicipality && user && (
                   <EventDeletionConsent
                     eventId={event.id}
+                    municipalityId={event.municipality_id}
                     title={event.title}
                     dateTime={event.date_time}
                     userId={String(user.id)}
@@ -593,7 +597,7 @@ function EventDetailContent() {
                     onOrganizersChanged={load}
                   />
                 )}
-                <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} />
+                <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} municipalityId={event.municipality_id} />
               </>
             )}
           </div>

@@ -30,9 +30,12 @@ import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { formatEventDateTime } from "@/lib/date";
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS } from "@/lib/eventCancellation";
 import { DELETION_CONSENT_HOURS } from "@/lib/requestDeadlines";
+import { cancelChannels, useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
 interface Props {
   eventId: string;
+  /** The event's obec — whether the registrants are texted too depends on its SMS service. */
+  municipalityId?: string | null;
   title: string;
   dateTime: string;
   userId: string;
@@ -74,6 +77,7 @@ const errorMessage = (error: unknown, fallback: string) =>
  * CancelEventButton for them. */
 export function EventDeletionConsent({
   eventId,
+  municipalityId,
   title,
   dateTime,
   userId,
@@ -89,6 +93,7 @@ export function EventDeletionConsent({
   onOrganizersChanged,
 }: Props) {
   const router = useRouter();
+  const { sms } = useMunicipalityFeatures(municipalityId);
   const [request, setRequest] = useState<EventDeletionRequestRow | null>(null);
   const [requesterName, setRequesterName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -195,8 +200,8 @@ export function EventDeletionConsent({
           <AlertDialogHeader>
             <AlertDialogTitle>Smazat akci „{title}“?</AlertDialogTitle>
             <AlertDialogDescription>
-              Akce se nenávratně smaže i s přihláškami a přihlášení účastníci dostanou upozornění e-mailem, SMS a v
-              aplikaci. Nejde to vrátit zpět.
+              Akce se nenávratně smaže i s přihláškami a přihlášení účastníci dostanou upozornění{" "}
+              {cancelChannels(sms)}. Nejde to vrátit zpět.
             </AlertDialogDescription>
           </AlertDialogHeader>
         )}

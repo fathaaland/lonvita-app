@@ -21,6 +21,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { formatEventDateTime } from "@/lib/date";
 import { canCancelEvent, EVENT_CANCELLATION_CUTOFF_HOURS, eventCancellationDeadline } from "@/lib/eventCancellation";
+import { cancelChannels, useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
 interface Props {
   eventId: string;
@@ -33,11 +34,14 @@ interface Props {
   /** Runs after a successful cancellation. Without it the viewer is taken to their own overview —
    * the cancelled event no longer exists for anyone. */
   onCancelled?: () => void;
+  /** The event's obec — whether the registrants are texted too depends on its SMS service. */
+  municipalityId?: string | null;
 }
 
 /** "Zrušit akci" with a confirmation dialog. The cut-off is enforced server-side as well
  * (Events' guardCancellationWindow hook); this only decides whether to offer the action. */
-export function CancelEventButton({ eventId, title, dateTime, variant = "button", onCancelled }: Props) {
+export function CancelEventButton({ eventId, title, dateTime, variant = "button", onCancelled, municipalityId }: Props) {
+  const { sms } = useMunicipalityFeatures(municipalityId);
   const router = useRouter();
   const { isSuperAdmin, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
@@ -101,7 +105,7 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
         <AlertDialogHeader>
           <AlertDialogTitle>Zrušit akci „{title}“?</AlertDialogTitle>
           <AlertDialogDescription>
-            Všichni přihlášení účastníci dostanou upozornění e-mailem, SMS a v aplikaci a akce zmizí z přehledu.
+            Všichni přihlášení účastníci dostanou upozornění {cancelChannels(sms)} a akce zmizí z přehledu.
             Zrušení nejde vrátit zpět.
           </AlertDialogDescription>
         </AlertDialogHeader>

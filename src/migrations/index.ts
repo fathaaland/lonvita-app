@@ -41,6 +41,7 @@ import * as migration_20261024_195157_import_robots_progress_admin from './20261
 import * as migration_20261024_204626_event_drafts from './20261024_204626_event_drafts';
 import * as migration_20261024_205849_microregions from './20261024_205849_microregions';
 import * as migration_20261025_101559_deletion_request_neighbour_obce from './20261025_101559_deletion_request_neighbour_obce';
+import * as migration_20261026_170350_municipality_services from './20261026_170350_municipality_services';
 
 export const migrations = [
   {
@@ -256,6 +257,11 @@ export const migrations = [
   {
     up: migration_20261025_101559_deletion_request_neighbour_obce.up,
     down: migration_20261025_101559_deletion_request_neighbour_obce.down,
-    name: '20261025_101559_deletion_request_neighbour_obce'
+    name: '20261025_101559_deletion_request_neighbour_obce',
+  },
+  {
+    up: migration_20261026_170350_municipality_services.up,
+    down: migration_20261026_170350_municipality_services.down,
+    name: '20261026_170350_municipality_services'
   },
 ];

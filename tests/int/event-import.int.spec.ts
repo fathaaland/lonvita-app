@@ -456,6 +456,7 @@ describe('Import — candidates, approval and access', () => {
       collection: 'municipalities',
       data: {
         name: `Import obec ${STAMP}`,
+        importAiEnabled: true,
         lat: area.lat,
         lng: area.lng,
         eventRadiusKm: 15,
@@ -467,6 +468,7 @@ describe('Import — candidates, approval and access', () => {
       collection: 'municipalities',
       data: {
         name: `Import jiná ${STAMP}`,
+        importAiEnabled: true,
         lat: 50.08,
         lng: 14.42,
         eventRadiusKm: 15,
@@ -1351,6 +1353,91 @@ describe('Import — candidates, approval and access', () => {
     expect(new Date(back.queuedAt!).getTime()).toBeGreaterThan(new Date(done.lastRunAt!).getTime())
   })
 
+  it('an obec that does not pay for the AI import is read without it — and its admins hear why', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec-bez-predplatneho.test/akce' },
+      overrideAccess: true,
+    })
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async () => [event({ title: 'Nemá se stát' })])
+    await payload.update({ collection: 'municipalities', id: obec.id, data: { importAiEnabled: false }, overrideAccess: true })
+    try {
+      // Only the platform's admins switch it on — not the obec's own.
+      await expect(
+        payload.update({
+          collection: 'municipalities',
+          id: obec.id,
+          data: { importAiEnabled: true },
+          user: admin,
+          overrideAccess: false,
+        }),
+      ).resolves.toMatchObject({ id: obec.id })
+      const stillOff = await payload.findByID({ collection: 'municipalities', id: obec.id, overrideAccess: true })
+      expect(stillOff.importAiEnabled).toBe(false)
+
+      const result = await processImportEventsJob(
+        { kind: 'source', sourceId: source.id, trigger: 'manual' },
+        {},
+        deps({
+          fetchUrl: async (url) => ({
+            url,
+            contentType: 'text/html',
+            body: Buffer.from('<main><p>20. 11. Koncert</p></main>'),
+          }),
+          extractWithAi: ai,
+        }),
+      )
+      expect(result.skipped).toBe('ai_held_back')
+      expect(ai).not.toHaveBeenCalled()
+      const read = await payload.findByID({ collection: 'event-sources', id: source.id, depth: 0, overrideAccess: true })
+      expect(read.lastErrorCode).toBe('not_subscribed')
+      expect(read.lastError).toContain('nemá objednané')
+      expect(read.consecutiveFailures ?? 0).toBe(0)
+    } finally {
+      await payload.update({ collection: 'municipalities', id: obec.id, data: { importAiEnabled: true }, overrideAccess: true })
+      // The obec's sources are capped — this one mustn't take a later test's place.
+      await payload.delete({ collection: 'import-runs', where: { source: { equals: source.id } }, overrideAccess: true })
+      await payload.delete({ collection: 'event-sources', id: source.id, overrideAccess: true })
+    }
+  })
+
+  it('pasting a program is refused without the AI import — and anyone may see which services an obec has, not their prices', async () => {
+    const { POST } = await import('@/app/api/import/text/route')
+    await payload.update({
+      collection: 'municipalities',
+      id: obec.id,
+      data: { importAiEnabled: false, importAiPriceCzk: 500 },
+      overrideAccess: true,
+    })
+    try {
+      const { token } = await payload.login({
+        collection: 'users',
+        data: { email: `import-admin-${STAMP}@test.local`, password: 'test1234' },
+      })
+      vi.mocked(enqueueImportEvents).mockClear()
+      const res = await POST(
+        new Request('http://localhost/api/import/text', {
+          method: 'POST',
+          headers: { Authorization: `JWT ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ municipalityId: obec.id, text: 'So 14. 11. v 19:00 – Martinská zábava, sokolovna' }),
+        }),
+      )
+      expect(res.status).toBe(403)
+      expect(vi.mocked(enqueueImportEvents)).not.toHaveBeenCalled()
+
+      const seen = await payload.findByID({ collection: 'municipalities', id: obec.id, user: resident, overrideAccess: false })
+      expect(seen.importAiEnabled).toBe(false)
+      expect(seen.importAiPriceCzk).toBeUndefined()
+    } finally {
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { importAiEnabled: true, importAiPriceCzk: null },
+        overrideAccess: true,
+      })
+    }
+  })
+
   it('with AI switched off for the platform, nothing is sent to it — and the obec hears why', async () => {
     const source = await payload.create({
       collection: 'event-sources',
@@ -1809,6 +1896,7 @@ describe('Import — candidates, approval and access', () => {
       collection: 'municipalities',
       data: {
         name: `Import dočasná ${STAMP}`,
+        importAiEnabled: true,
         lat: 49,
         lng: 16,
         eventRadiusKm: 15,

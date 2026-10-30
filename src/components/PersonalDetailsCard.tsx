@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { getCategoryIcon } from "@/lib/icons";
 import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 import { PayloadApiError } from "@/integrations/payload/client";
+import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
 
 type Gender = "zena" | "muz" | "jine" | "neuvedeno";
@@ -45,6 +46,8 @@ export function PersonalDetailsCard() {
   const [municipalities, setMunicipalities] = useState<Pick<MunicipalityRow, "id" | "name" | "lat" | "lng">[]>([]);
   const [municipality, setMunicipality] = useState("");
   const [noMunicipality, setNoMunicipality] = useState(false);
+  // The SMS on a cancel is promised only where the home obec pays for them.
+  const homeFeatures = useMunicipalityFeatures(noMunicipality ? null : municipality || null);
   const [editing, setEditing] = useState(false);
   const [phone, setPhone] = useState("");
   const [dob, setDob] = useState("");
@@ -163,7 +166,11 @@ export function PersonalDetailsCard() {
               {!phoneValid ? (
                 <p className="text-xs text-destructive">{INVALID_PHONE_MESSAGE}</p>
               ) : (
-                <p className="text-xs text-muted-foreground">Pošleme na něj SMS, když se akce, na kterou jste přihlášeni, zruší.</p>
+                <p className="text-xs text-muted-foreground">
+                  {homeFeatures.sms
+                    ? "Pošleme na něj SMS, když se akce, na kterou jste přihlášeni, zruší."
+                    : "Pořadatel akce, na kterou se přihlásíte, vás na něm může zastihnout."}
+                </p>
               )}
             </div>
 

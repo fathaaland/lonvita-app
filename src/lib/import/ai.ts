@@ -30,7 +30,8 @@ export class ImportAiError extends Error {
       | 'failed'
       | 'over_budget'
       | 'disabled'
-      | 'unpriced',
+      | 'unpriced'
+      | 'not_subscribed',
   ) {
     super(message)
     this.name = 'ImportAiError'

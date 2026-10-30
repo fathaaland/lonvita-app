@@ -3,7 +3,7 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
-import { aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
+import { aiImportNotSubscribed, aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 
 const MIN_TEXT_LENGTH = 20
@@ -38,6 +38,8 @@ export async function POST(request: Request) {
   }
   if (!(await mayImportFor(payload, user, municipalityId)))
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const notSubscribed = await aiImportNotSubscribed(payload, municipalityId)
+  if (notSubscribed) return notSubscribed
 
   const limited = await aiImportRateLimited(user.id)
   if (limited) return limited

@@ -78,7 +78,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert, Flag, Download, Map as MapIcon } from "lucide-react";
+import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert, Flag, Download, Map as MapIcon, Wallet } from "lucide-react";
 import { pct } from "@/lib/report";
 import { toast } from "sonner";
 import type { CategoryRow } from "@/lib/analytics";
@@ -784,6 +784,14 @@ function SuperAdminContent() {
                         <p className="font-bold truncate">{m.name}</p>
                         {m.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{m.description}</p>}
                       </div>
+                      <Link
+                        href={`/superadmin/obce/${m.id}`}
+                        className={buttonVariants({ variant: "ghost", size: "icon", className: "h-8 w-8 shrink-0" })}
+                        aria-label="Služby a ceny"
+                        title="Služby a ceny"
+                      >
+                        <Wallet className="h-4 w-4" />
+                      </Link>
                       <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => startEditMuni(m)} aria-label="Upravit">
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -1185,7 +1193,7 @@ function SuperAdminContent() {
                         </Link>
                       </Button>
                     )}
-                    <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} variant="icon" onCancelled={load} />
+                    <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} municipalityId={ev.municipalityId} variant="icon" onCancelled={load} />
                   </CardContent>
                 </Card>
               ))}

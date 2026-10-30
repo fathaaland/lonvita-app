@@ -3,6 +3,7 @@ import type { Payload, PayloadRequest } from 'payload'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import { toE164 } from '@/lib/phone'
 import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
+import { smsAllowanceOf } from '@/lib/services/municipality-services'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
@@ -18,17 +19,28 @@ export const notify = (
       data: { user: input.user, title: input.title, message: input.message, link: input.link },
       overrideAccess: true,
     })
-    .catch((error) => payload.logger.error({ err: error, user: input.user }, 'Failed to write notification'))
+    .catch((error) =>
+      payload.logger.error({ err: error, user: input.user }, 'Failed to write notification'),
+    )
 }
 
 /** IDs of users holding "municipality_admin" for the given municipality — the audience for
  * "new organizer/volunteering request" notifications (brief §7 notification table). */
-export const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+export const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-export const getMunicipalityAdminUserIds = async (payload: Payload, municipalityId: number | string): Promise<number[]> => {
+export const getMunicipalityAdminUserIds = async (
+  payload: Payload,
+  municipalityId: number | string,
+): Promise<number[]> => {
   const result = await payload.find({
     collection: 'user-roles',
-    where: { and: [{ municipality: { equals: municipalityId } }, { role: { equals: 'municipality_admin' } }] },
+    where: {
+      and: [
+        { municipality: { equals: municipalityId } },
+        { role: { equals: 'municipality_admin' } },
+      ],
+    },
     depth: 0,
     limit: 200,
     overrideAccess: true,
@@ -53,7 +65,9 @@ export async function getObecDeciders(
 
 /** The platform admins, in their own panel — for what an obec can't decide (an obec without an
  * admin, a complaint the obec is a party to). */
-export async function getPlatformDeciders(payload: Payload): Promise<{ userIds: number[]; requestsLink: string }> {
+export async function getPlatformDeciders(
+  payload: Payload,
+): Promise<{ userIds: number[]; requestsLink: string }> {
   const platformAdmins = await payload.find({
     collection: 'users',
     where: { role: { equals: 'admin' } },
@@ -86,10 +100,15 @@ const teamRelId = (value: unknown): string | null =>
 export async function getEventTeamUserIds(
   payload: Payload,
   event: EventTeamSource,
-  { exclude = [], req }: { exclude?: (number | string | null | undefined)[]; req?: PayloadRequest } = {},
+  {
+    exclude = [],
+    req,
+  }: { exclude?: (number | string | null | undefined)[]; req?: PayloadRequest } = {},
 ): Promise<string[]> {
   const ids = new Set(
-    [event.organizer, ...(event.coOrganizers ?? [])].map(teamRelId).filter((id): id is string => id !== null),
+    [event.organizer, ...(event.coOrganizers ?? [])]
+      .map(teamRelId)
+      .filter((id): id is string => id !== null),
   )
   const organizationIds = [event.organization, ...(event.coOrganizations ?? [])]
     .map(teamRelId)
@@ -97,7 +116,12 @@ export async function getEventTeamUserIds(
   if (organizationIds.length > 0) {
     const obce = await payload.find({
       collection: 'organizations',
-      where: { and: [{ id: { in: organizationIds } }, { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } }] },
+      where: {
+        and: [
+          { id: { in: organizationIds } },
+          { type: { equals: MUNICIPALITY_ORGANIZATION_TYPE } },
+        ],
+      },
       select: { municipality: true },
       depth: 0,
       pagination: false,
@@ -105,10 +129,13 @@ export async function getEventTeamUserIds(
       req,
     })
     const municipalityIds = [
-      ...new Set(obce.docs.map((o) => teamRelId(o.municipality)).filter((id): id is string => id !== null)),
+      ...new Set(
+        obce.docs.map((o) => teamRelId(o.municipality)).filter((id): id is string => id !== null),
+      ),
     ]
     for (const municipalityId of municipalityIds) {
-      for (const adminId of await getMunicipalityAdminUserIds(payload, municipalityId)) ids.add(String(adminId))
+      for (const adminId of await getMunicipalityAdminUserIds(payload, municipalityId))
+        ids.add(String(adminId))
     }
   }
   for (const id of exclude) if (id != null) ids.delete(String(id))
@@ -126,7 +153,9 @@ export async function describeUser(payload: Payload, userId: number | string): P
       limit: 1,
       overrideAccess: true,
     }),
-    payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }).catch(() => null),
+    payload
+      .findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true })
+      .catch(() => null),
   ])
   const name = profile.docs[0]?.fullName?.trim()
   // A deleted (anonymized) account's address is a placeholder nobody reads — just "Anonymní uživatel".
@@ -158,7 +187,10 @@ type SendNotificationInput = NotificationContent & { userId: number | string }
  * same two independent preferences (Profiles.notifyEmail / notifyInApp, both default true).
  * Fire-and-forget throughout: a failed send must never block the write that triggered it.
  */
-export async function sendNotification(payload: Payload, input: SendNotificationInput): Promise<void> {
+export async function sendNotification(
+  payload: Payload,
+  input: SendNotificationInput,
+): Promise<void> {
   const { userId, ...content } = input
   await sendNotificationToMany(payload, [userId], content)
 }
@@ -206,14 +238,21 @@ export async function sendNotificationToMany(
 
     // No profile yet (mid-onboarding) — fall back to both channels' defaults (true) rather
     // than silently dropping the notification.
-    const inAppIds = ids.filter((id) => content.critical || (profileByUser.get(id)?.notifyInApp ?? true))
+    const inAppIds = ids.filter(
+      (id) => content.critical || (profileByUser.get(id)?.notifyInApp ?? true),
+    )
     for (let i = 0; i < inAppIds.length; i += NOTIFICATION_WRITE_CONCURRENCY) {
       await Promise.all(
         inAppIds.slice(i, i + NOTIFICATION_WRITE_CONCURRENCY).map(async (id) => {
           try {
             await payload.create({
               collection: 'notifications',
-              data: { user: Number(id), title: content.title, message: content.message, link: content.link },
+              data: {
+                user: Number(id),
+                title: content.title,
+                message: content.message,
+                link: content.link,
+              },
               overrideAccess: true,
             })
             sent.inApp++
@@ -254,12 +293,15 @@ export { toE164 } from '@/lib/phone'
  * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — narrowed: SMS go out only when an
  * event is cancelled (event-cancelled processor), never for anything else. To whichever of these users
  * have a phone on file (onboarding step, still optional until they've filled it in). A no-op (not
- * an error) when Twilio isn't configured — the worker logs that. The request id becomes the queue
+ * an error) when Twilio isn't configured — the worker logs that. Only for an obec that pays for SMS
+ * (lib/services), and no more than its monthly limit leaves — the rest hear it in-app and by e-mail
+ * all the same. The request id becomes the queue
  * job id, so `requestIdPrefix` must be unique per announcement but stable across retries of it.
  * Never throws; returns how many were queued.
  */
 export async function sendSmsToMany(
   payload: Payload,
+  municipalityId: number,
   userIds: (number | string)[],
   message: string,
   requestIdPrefix: string,
@@ -267,6 +309,8 @@ export async function sendSmsToMany(
   const ids = [...new Set(userIds.map(String))]
   if (ids.length === 0) return 0
   try {
+    const allowance = await smsAllowanceOf(payload, municipalityId, new Date())
+    if (allowance === 0) return 0
     const profiles = await payload.find({
       collection: 'profiles',
       where: { user: { in: ids } },
@@ -274,13 +318,25 @@ export async function sendSmsToMany(
       pagination: false,
       overrideAccess: true,
     })
+    const reachable = profiles.docs.flatMap((p) => {
+      const to = p.phone ? toE164(p.phone) : null
+      return to ? [{ to, userId: typeof p.user === 'object' ? p.user.id : p.user }] : []
+    })
+    const recipients = allowance === null ? reachable : reachable.slice(0, allowance)
+    if (recipients.length < reachable.length) {
+      payload.logger.warn(
+        { municipalityId, skipped: reachable.length - recipients.length },
+        'SMS limit of the obec reached — the rest not texted',
+      )
+    }
     const queued = await Promise.all(
-      profiles.docs.map(async (p) => {
-        const to = p.phone ? toE164(p.phone) : null
-        if (!to) return false
-        const requestId = `${requestIdPrefix}-${typeof p.user === 'object' ? p.user.id : p.user}`
+      recipients.map(async ({ to, userId }) => {
+        const requestId = `${requestIdPrefix}-${userId}`
         try {
-          await enqueueSms({ to, message, requestId }, { jobId: `sms-${requestId}` })
+          await enqueueSms(
+            { to, message, requestId, municipalityId },
+            { jobId: `sms-${requestId}` },
+          )
           return true
         } catch (error) {
           payload.logger.error({ err: error, requestId }, 'Failed to enqueue SMS')

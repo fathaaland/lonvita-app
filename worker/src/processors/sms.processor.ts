@@ -1,6 +1,8 @@
 import { UnrecoverableError } from 'bullmq'
 
-import { logger } from '@/lib/logger'
+import { logger, serializeError } from '@/lib/logger'
+
+import { getWorkerPayload } from '../runtime/payload'
 
 import type { SmsJobData } from '@/lib/queue/contracts'
 
@@ -88,4 +90,24 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     messageSid: sent.sid,
     providerStatus: sent.status,
   })
+
+  // Counted against the obec's monthly SMS. Sent is sent: a failed write is logged, not retried —
+  // a retry would text the person again.
+  if (payload.municipalityId !== undefined) {
+    try {
+      const db = await getWorkerPayload()
+      await db.create({
+        collection: 'sms-messages',
+        data: { municipality: payload.municipalityId, requestId: payload.requestId, providerMessageSid: sent.sid },
+        overrideAccess: true,
+      })
+    } catch (error) {
+      logger.error('SMS not recorded', {
+        event: 'sms.record_failed',
+        jobId: context?.jobId,
+        municipalityId: payload.municipalityId,
+        ...serializeError(error),
+      })
+    }
+  }
 }

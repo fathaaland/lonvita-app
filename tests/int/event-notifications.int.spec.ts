@@ -125,6 +125,7 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       collection: 'municipalities',
       data: {
         name: `Test Muni Event Notify ${STAMP}`,
+        smsEnabled: true,
         rulesForCreation: 'approved_organizers',
         lat: 49.5661,
         lng: 15.9403,
@@ -271,6 +272,42 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
         message: `Lonvita: akce „${event.title}“ byla zrušena.`,
       })
+    })
+
+    it('texts nobody for an obec without the SMS service, and no more than its monthly limit', async () => {
+      const { event } = await createEvent()
+      await edit(event.id, { deletedAt: new Date().toISOString(), status: 'cancelled' })
+      const job = lastCancelledJob()
+      expect(job.municipalityId).toBe(municipality.id)
+
+      await payload.update({ collection: 'municipalities', id: municipality.id, data: { smsEnabled: false }, overrideAccess: true })
+      try {
+        expect(await processEventCancelledJob(job, { jobId: '9' })).toEqual({ notified: 2 })
+        expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
+        // E-mail and in-app go out all the same.
+        expect(vi.mocked(enqueueEmail)).toHaveBeenCalledTimes(2)
+
+        // Both registrants reachable by phone now, and room for only one of them.
+        await payload.update({ collection: 'profiles', where: { user: { equals: pending.id } }, data: { phone: '735 929 443' }, overrideAccess: true })
+        vi.clearAllMocks()
+        await payload.update({
+          collection: 'municipalities',
+          id: municipality.id,
+          data: { smsEnabled: true, smsMonthlyLimit: 1 },
+          overrideAccess: true,
+        })
+        await processEventCancelledJob(job, { jobId: '10' })
+        expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
+        expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({ municipalityId: municipality.id })
+      } finally {
+        await payload.update({ collection: 'profiles', where: { user: { equals: pending.id } }, data: { phone: null }, overrideAccess: true })
+        await payload.update({
+          collection: 'municipalities',
+          id: municipality.id,
+          data: { smsEnabled: true, smsMonthlyLimit: null },
+          overrideAccess: true,
+        })
+      }
     })
 
     it("withdraws volunteers' pending invitations and offers, and tells those volunteers too", async () => {

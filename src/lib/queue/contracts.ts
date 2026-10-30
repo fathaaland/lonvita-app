@@ -46,6 +46,9 @@ export type SmsJobData = {
   to: string
   message: string
   requestId?: string
+  /** The obec whose SMS it is — counted against its monthly SMS (SmsMessages). Optional: jobs queued
+   * before it existed carry none. */
+  municipalityId?: number
 }
 
 /**
@@ -134,6 +137,8 @@ export type EventUpdatedJobResult = {
 export type EventCancelledJobData = {
   eventId: number | string
   title: string
+  /** Whose SMS service texts the registrants. Optional: jobs queued before it existed carry none. */
+  municipalityId?: number
   /** Pending/approved registrants to tell (the organizer excluded). */
   userIds: (number | string)[]
   /** Every registration of the event, whose reminder jobs have to go. */

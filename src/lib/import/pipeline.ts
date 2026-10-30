@@ -826,6 +826,8 @@ export async function loadImportContext(
   municipality: StoreInput['municipality']
   aiContext: AiContext
   aiBudgetUsd: number
+  /** The obec pays for the AI import (Municipalities.importAiEnabled). */
+  aiEnabled: boolean
 } | null> {
   const municipality = await payload
     .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true })
@@ -850,5 +852,6 @@ export async function loadImportContext(
       categoryNames: categories.docs.map((c) => c.name).sort(),
     },
     aiBudgetUsd: aiBudgetOf(municipality),
+    aiEnabled: municipality.importAiEnabled === true,
   }
 }

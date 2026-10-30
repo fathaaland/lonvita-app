@@ -207,6 +207,7 @@ export function EventsTable({
                             eventId={e.id}
                             title={e.title}
                             dateTime={e.date_time}
+                            municipalityId={e.municipality_id}
                             onCancelled={onDeleted ?? (() => {})}
                           />
                         )}

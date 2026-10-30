@@ -31,6 +31,19 @@ export async function mayImportFor(
   return Boolean(Number(municipalityId)) && canAccessMunicipality(payload, user, municipalityId)
 }
 
+/** Pasted text and files are read by the AI alone — refused for an obec that doesn't pay for it. */
+export async function aiImportNotSubscribed(payload: Payload, municipalityId: string): Promise<NextResponse | null> {
+  const municipality = await payload.findByID({
+    collection: 'municipalities',
+    id: municipalityId,
+    depth: 0,
+    overrideAccess: true,
+    select: { importAiEnabled: true },
+  })
+  if (municipality.importAiEnabled) return null
+  return NextResponse.json({ error: 'Obec nemá objednaný import akcí pomocí AI.' }, { status: 403 })
+}
+
 /** A refusal from lib/import/approve or the Events hooks as the response it means; anything else 500. */
 export function decisionErrorResponse(
   error: unknown,

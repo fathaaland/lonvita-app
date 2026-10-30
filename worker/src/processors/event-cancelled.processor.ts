@@ -1,6 +1,7 @@
 import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
 import { cancelEventReminders } from '@/collections/shared/reminders'
 import { logger } from '@/lib/logger'
+import { relationNumber } from '@/lib/relations'
 
 import { getWorkerPayload } from '../runtime/payload'
 
@@ -56,12 +57,18 @@ export const processEventCancelledJob = async (
     },
     { jobIdPrefix: announcementId },
   )
-  const sms = await sendSmsToMany(
-    payload,
-    data.userIds,
-    `Lonvita: akce „${data.title}“ byla zrušena.`,
-    announcementId,
-  )
+  // Jobs from before the obec travelled in them: the (soft-deleted) event still says whose it was.
+  const municipalityId = data.municipalityId ?? relationNumber(event?.municipality)
+  const sms =
+    municipalityId === null
+      ? 0
+      : await sendSmsToMany(
+          payload,
+          municipalityId,
+          data.userIds,
+          `Lonvita: akce „${data.title}“ byla zrušena.`,
+          announcementId,
+        )
 
   // An invitation or offer that was still waiting is void now (withdrawn with the cancel) — whoever
   // was asked, or offered, would otherwise wait for an answer about an event that's gone.

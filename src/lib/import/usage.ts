@@ -81,15 +81,18 @@ const REFUSALS = {
     'Zpracování pomocí AI je dočasně vypnuté — zatím se čtou jen kalendáře iCal a strukturovaná data.',
   unpriced:
     'Zpracování pomocí AI je dočasně mimo provoz — zatím se čtou jen kalendáře iCal a strukturovaná data.',
+  not_subscribed:
+    'Obec nemá objednané zpracování pomocí AI — čtou se jen kalendáře iCal a strukturovaná data.',
 } as const
 
-/** Why the AI isn't asked — the obec's limit, the platform's switch, a model with no price — not the
+/** Why the AI isn't asked — the obec not paying for it, its limit, the platform's switch, a model with no price — not the
  * source's fault: such a run is skipped, not counted as the source failing (import-events.processor). */
 export const isAiHeldBack = (error: unknown): boolean =>
   error instanceof ImportAiError &&
   (error.code === 'over_budget' ||
     error.code === 'disabled' ||
     error.code === 'unpriced' ||
+    error.code === 'not_subscribed' ||
     error.code === 'not_configured')
 
 export type AiRefusal = keyof typeof REFUSALS
@@ -99,9 +102,10 @@ export type AiRefusal = keyof typeof REFUSALS
  * the obec's limit would never be reached — so it isn't called at all. */
 export async function aiRefusalFor(
   payload: Payload,
-  municipality: { id: number; aiBudgetUsd: number },
+  municipality: { id: number; aiBudgetUsd: number; aiEnabled: boolean },
   now: Date,
 ): Promise<AiRefusal | null> {
+  if (!municipality.aiEnabled) return 'not_subscribed'
   if (await isAiSwitchedOff(payload)) return 'disabled'
   if (!getUsagePricing('anthropic', importModel())) {
     logger.error('Import AI model has no price', {

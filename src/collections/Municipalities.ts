@@ -4,6 +4,7 @@ import type {
   CollectionBeforeDeleteHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
+  FieldAccess,
 } from 'payload'
 import { APIError } from 'payload'
 
@@ -15,7 +16,12 @@ import { notDeleted } from './shared/softDelete'
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
  * so "Blansko" and "blansko " are treated as the same obec (brief item 1: superadmin shouldn't
  * be able to re-create an obec that already exists). */
-const preventDuplicateName: CollectionBeforeValidateHook = async ({ data, req, operation, originalDoc }) => {
+const preventDuplicateName: CollectionBeforeValidateHook = async ({
+  data,
+  req,
+  operation,
+  originalDoc,
+}) => {
   if (!data?.name) return data
 
   const name = data.name.trim()
@@ -44,7 +50,12 @@ const preventDuplicateName: CollectionBeforeValidateHook = async ({ data, req, o
 
 /** Every obec runs its own events as its organization (Organizations, type "municipality") —
  * founded with it, and renamed along with it unless its admins gave it a name of its own. */
-const syncMunicipalityOrganization: CollectionAfterChangeHook = async ({ doc, previousDoc, operation, req }) => {
+const syncMunicipalityOrganization: CollectionAfterChangeHook = async ({
+  doc,
+  previousDoc,
+  operation,
+  req,
+}) => {
   if (operation === 'create') {
     await ensureMunicipalityOrganization(req, doc.id)
     return doc
@@ -127,13 +138,22 @@ const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) =
   const municipalityOrganizationId = await findMunicipalityOrganizationId(req, id)
   await payload.delete({
     collection: 'organizations',
-    where: municipalityOrganizationId === null ? ofObec : { and: [ofObec, { id: { not_equals: municipalityOrganizationId } }] },
+    where:
+      municipalityOrganizationId === null
+        ? ofObec
+        : { and: [ofObec, { id: { not_equals: municipalityOrganizationId } }] },
     overrideAccess: true,
     context,
     req,
   })
   if (municipalityOrganizationId !== null) {
-    await payload.delete({ collection: 'organizations', id: municipalityOrganizationId, overrideAccess: true, context, req })
+    await payload.delete({
+      collection: 'organizations',
+      id: municipalityOrganizationId,
+      overrideAccess: true,
+      context,
+      req,
+    })
   }
 }
 
@@ -149,6 +169,13 @@ const canUpdateOwnMunicipality: Access = async ({ req }) => {
   if (administeredIds.length === 0) return false
   return { id: { in: administeredIds } }
 }
+
+/** Set and read by the platform alone — an obec admin can update the rest of their obec. */
+const platformAdmin: FieldAccess = ({ req: { user } }) => user?.role === 'admin'
+const platformOnlyField = { read: platformAdmin, create: platformAdmin, update: platformAdmin }
+/** Whether the obec has a service is no secret — the app leaves out what it doesn't pay for (no
+ * "you'll get an SMS" without SMS); only the platform switches it. */
+const serviceSwitchField = { create: platformAdmin, update: platformAdmin }
 
 export const Municipalities: CollectionConfig = {
   slug: 'municipalities',
@@ -208,7 +235,10 @@ export const Municipalities: CollectionConfig = {
       defaultValue: 'approved_organizers',
       options: [
         { label: 'Akce může zakládat pouze obec sama', value: 'municipality_only' },
-        { label: 'Obec schvaluje každou žádost o roli organizátora (výchozí)', value: 'approved_organizers' },
+        {
+          label: 'Obec schvaluje každou žádost o roli organizátora (výchozí)',
+          value: 'approved_organizers',
+        },
       ],
       admin: {
         description:
@@ -221,11 +251,54 @@ export const Municipalities: CollectionConfig = {
       name: 'importAiBudgetUsd',
       type: 'number',
       min: 0,
-      access: {
-        read: ({ req: { user } }) => user?.role === 'admin',
-        create: ({ req: { user } }) => user?.role === 'admin',
-        update: ({ req: { user } }) => user?.role === 'admin',
-      },
+      access: platformOnlyField,
+      admin: { position: 'sidebar' },
+    },
+    // What the obec pays for and what it costs it (lib/services) — a flat monthly price per service,
+    // set by the platform. E-mails come with every obec; SMS and the AI import only when it pays for
+    // them. The obec's admins see prices and usage through /api/municipalities/:id/services.
+    {
+      name: 'emailPriceCzk',
+      type: 'number',
+      min: 0,
+      access: platformOnlyField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'smsEnabled',
+      type: 'checkbox',
+      defaultValue: false,
+      access: serviceSwitchField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'smsPriceCzk',
+      type: 'number',
+      min: 0,
+      access: platformOnlyField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      // How many SMS a month its price covers. Empty: no cap.
+      name: 'smsMonthlyLimit',
+      type: 'number',
+      min: 0,
+      access: platformOnlyField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      // Off: its sources are read from iCal and schema.org only, which cost nothing.
+      name: 'importAiEnabled',
+      type: 'checkbox',
+      defaultValue: false,
+      access: serviceSwitchField,
+      admin: { position: 'sidebar' },
+    },
+    {
+      name: 'importAiPriceCzk',
+      type: 'number',
+      min: 0,
+      access: platformOnlyField,
       admin: { position: 'sidebar' },
     },
   ],

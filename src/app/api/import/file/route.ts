@@ -4,7 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { IMPORT_LIMITS, isImportFileType } from '@/lib/import/contracts'
 import { sniffFileType } from '@/lib/import/fetch'
-import { aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
+import { aiImportNotSubscribed, aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
 import { importFileKey, uploadImportFile } from '@/lib/import/storage'
 import { logger, serializeError } from '@/lib/logger'
 import { enqueueImportEvents } from '@/lib/queue/queues'
@@ -28,6 +28,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Vyberte soubor.' }, { status: 400 })
   if (!(await mayImportFor(payload, user, municipalityId)))
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const notSubscribed = await aiImportNotSubscribed(payload, municipalityId)
+  if (notSubscribed) return notSubscribed
   if (file.size > IMPORT_LIMITS.fileMaxBytes) {
     return NextResponse.json(
       { error: 'Soubor je větší než 4 MB — zmenšete ho nebo nahrajte jen stránky s programem.' },

@@ -228,6 +228,7 @@ export type SuperAdminEventRow = {
   id: string;
   title: string;
   dateTimeIso: string;
+  municipalityId: string | null;
   municipalityName: string;
   /** It has taken place — nobody edits it any more, a superadmin neither (Events canUpdateEvent). */
   hasEnded: boolean;
@@ -251,6 +252,7 @@ export async function listAllEventsForSuperAdmin(): Promise<SuperAdminEventRow[]
     id: String(e.id),
     title: e.title,
     dateTimeIso: e.dateTime,
+    municipalityId: relationId(e.municipality),
     municipalityName: typeof e.municipality === "object" ? e.municipality.name : "Neznámá obec",
     hasEnded: e.status === "finished",
   }));

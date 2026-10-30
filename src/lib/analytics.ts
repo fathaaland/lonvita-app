@@ -24,6 +24,8 @@ export interface EventRow {
   is_volunteering?: boolean;
   /** Run with other organizers — deleting needs their consent, done from the event detail. */
   deletion_needs_consent?: boolean;
+  /** Whose event it is — what its registrants hear on a cancel depends on the obec's services. */
+  municipality_id?: string | null;
 }
 
 /** An event as Payload hands it out — over REST (the dashboards) or the Local API (the exports). */
@@ -36,6 +38,7 @@ export interface EventSource {
   status?: string | null;
   categories?: unknown[] | null;
   organizer?: unknown;
+  municipality?: unknown;
   createdAt: string;
   isPaid?: boolean | null;
   priceCents?: number | null;
@@ -54,6 +57,7 @@ export function toEventRow(e: EventSource): EventRow {
     status: e.status ?? "active",
     category_ids: (e.categories ?? []).map(relationId).filter((v): v is string => Boolean(v)),
     organizer_id: relationId(e.organizer) ?? "",
+    municipality_id: relationId(e.municipality),
     created_at: e.createdAt,
     is_paid: e.isPaid ?? undefined,
     price_cents: e.priceCents ?? null,

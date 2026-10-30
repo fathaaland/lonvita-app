@@ -144,7 +144,7 @@ async function processSource(
     source.ignoreRobots ? waiveRobotsFor(deps, source.url) : deps,
     payload,
     { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
-    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd }, now), totals },
+    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd, aiEnabled: importContext.aiEnabled }, now), totals },
   )
   // The panel shows it being read (ImportPanel) until one of the updates below clears it.
   await payload
@@ -317,7 +317,7 @@ async function processManual(
     deps,
     payload,
     { municipality: municipalityId, user: requestedBy, importRun: runId },
-    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd }, now), totals },
+    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd, aiEnabled: importContext.aiEnabled }, now), totals },
   )
 
   let succeeded = false

@@ -56,6 +56,7 @@ import {
   SYNC_NOTICES,
 } from '@/lib/import/contracts'
 import { formatEventDate, formatEventDateTime } from '@/lib/date'
+import { useMunicipalityFeatures } from '@/hooks/useMunicipalityFeatures'
 
 /** While anything is being read, the panel looks again this often. */
 const POLL_EVERY_MS = 5_000
@@ -265,10 +266,10 @@ function SourceRow({
     : !source.last_run_at
       ? 'Ještě nenačteno.'
       : source.last_error
-      ? null
-      : `Načteno ${formatEventDateTime(source.last_run_at)}${source.format ? ` (${FORMAT_LABELS[source.format] ?? source.format})` : ''}${
-          source.last_found_count != null ? ` — na stránce ${source.last_found_count} akcí` : ''
-        }`
+        ? null
+        : `Načteno ${formatEventDateTime(source.last_run_at)}${source.format ? ` (${FORMAT_LABELS[source.format] ?? source.format})` : ''}${
+            source.last_found_count != null ? ` — na stránce ${source.last_found_count} akcí` : ''
+          }`
 
   return (
     <li className="flex items-start gap-3 py-3">
@@ -561,6 +562,8 @@ export function ImportPanel({
   const fileInput = useRef<HTMLInputElement>(null)
   /** What each source was up to at the last look — a read that just ended is announced. */
   const lastActivity = useRef(new Map<string, 'running' | 'queued' | null>())
+  // Without the AI import (lib/services) only calendars are read — no pasting, no files.
+  const { importAi } = useMunicipalityFeatures(municipalityId)
 
   const load = useCallback(async () => {
     const [s, c, r, m] = await Promise.all([
@@ -703,11 +706,12 @@ export function ImportPanel({
             <p className="font-bold">Zdroje akcí</p>
           </div>
           <p className="text-sm text-muted-foreground">
-            Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí —
-            třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář. Lonvita ji každou noc
-            zkontroluje, jednou týdně projde celou a nové akce vám nabídne k převzetí. Akce, které
-            už jste převzali, upraví podle webu, pokud jste je v Lonvitě neměnili. Facebook projít
-            nejde.
+            {importAi
+              ? 'Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář.'
+              : 'Vložte odkaz na kalendář, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — veřejný Google Kalendář, kalendář iCal, nebo stránku webu, která akce nabízí v kalendářovém formátu.'}{' '}
+            Lonvita ji každou noc zkontroluje, jednou týdně projde celou a nové akce vám nabídne k
+            převzetí. Akce, které už jste převzali, upraví podle webu, pokud jste je v Lonvitě
+            neměnili. Facebook projít nejde.
           </p>
           <form onSubmit={addSource} className="space-y-2">
             <div className="flex gap-2">
@@ -751,53 +755,55 @@ export function ImportPanel({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Type className="h-5 w-5 text-primary" />
-            <p className="font-bold">Jednorázový import</p>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Program, který na webu není — z e-mailu, zpravodaje, plakátu. Vložte text, nebo nahrajte
-            PDF či fotku (do 4 MB).
-          </p>
-          <Textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            maxLength={IMPORT_LIMITS.textMaxChars}
-            placeholder="Např. „So 14. 11. v 19:00 – Martinská zábava, sokolovna, vstupné 150 Kč…“"
-            className="min-h-28"
-            aria-label="Text programu"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={submitText} disabled={busy === 'text' || text.trim().length < 20}>
-              Načíst akce z textu
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => fileInput.current?.click()}
-              disabled={busy === 'file'}
-              className="gap-2"
-            >
-              <FileUp className="h-4 w-4" />
-              {busy === 'file' ? 'Nahrávám…' : 'Nahrát PDF nebo fotku'}
-            </Button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={(e) => submitFile(e.target.files?.[0])}
+      {importAi && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Type className="h-5 w-5 text-primary" />
+              <p className="font-bold">Jednorázový import</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Program, který na webu není — z e-mailu, zpravodaje, plakátu. Vložte text, nebo
+              nahrajte PDF či fotku (do 4 MB).
+            </p>
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={IMPORT_LIMITS.textMaxChars}
+              placeholder="Např. „So 14. 11. v 19:00 – Martinská zábava, sokolovna, vstupné 150 Kč…“"
+              className="min-h-28"
+              aria-label="Text programu"
             />
-          </div>
-          {manualJobs.map((job) => (
-            <Working key={job.key}>{job.label} se zpracovává — může to trvat pár minut…</Working>
-          ))}
-          {manualJobs.length === 0 && runningManual.length > 0 && (
-            <Working>Zpracovává se dříve spuštěný import…</Working>
-          )}
-        </CardContent>
-      </Card>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={submitText} disabled={busy === 'text' || text.trim().length < 20}>
+                Načíst akce z textu
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => fileInput.current?.click()}
+                disabled={busy === 'file'}
+                className="gap-2"
+              >
+                <FileUp className="h-4 w-4" />
+                {busy === 'file' ? 'Nahrávám…' : 'Nahrát PDF nebo fotku'}
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => submitFile(e.target.files?.[0])}
+              />
+            </div>
+            {manualJobs.map((job) => (
+              <Working key={job.key}>{job.label} se zpracovává — může to trvat pár minut…</Working>
+            ))}
+            {manualJobs.length === 0 && runningManual.length > 0 && (
+              <Working>Zpracovává se dříve spuštěný import…</Working>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {syncRows.length > 0 && (
         <Card>
