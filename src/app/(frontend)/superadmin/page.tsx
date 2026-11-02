@@ -1,7 +1,7 @@
-"use client";
+'use client'
 
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   listMunicipalitiesForSuperAdmin,
   createMunicipality,
@@ -23,7 +23,7 @@ import {
   SuperAdminOrganizerRequestRow,
   MunicipalityComparisonRow,
   SuperAdminOrganizationRow,
-} from "@/integrations/payload/superadmin-queries";
+} from '@/integrations/payload/superadmin-queries'
 import {
   decideCoOrganizingRequest,
   decideOrganizerRequest,
@@ -31,35 +31,45 @@ import {
   getPlatformReviewComplaints,
   type CoOrganizingRequestAdminRow,
   type ReviewComplaintAdminRow,
-} from "@/integrations/payload/admin-queries";
-import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
-import { getEventCategories, createEvent, listMunicipalities } from "@/integrations/payload/queries";
-import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
-import { PayloadApiError } from "@/integrations/payload/client";
-import { useAuth } from "@/contexts/AuthContext";
-import { SignOutButton } from "@/components/SignOutButton";
-import { RequireAuth, RequireRole } from "@/components/RequireAuth";
-import { PageHeader } from "@/components/PageHeader";
-import { Loading } from "@/components/Loading";
-import { CancelEventButton } from "@/components/CancelEventButton";
-import { CoOrganizingRequestCard, OrganizerRequestReason, RequestsTable } from "@/components/admin/RequestsTable";
-import { OrganizationsTab } from "@/components/admin/OrganizationsTab";
-import { ImportAdminTab } from "@/components/admin/ImportAdminTab";
-import { MicroregionsTab } from "@/components/admin/MicroregionsTab";
-import { EventForm, EventFormValues } from "@/components/EventForm";
-import { sendFollowUpRequests } from "@/lib/eventFollowUpRequests";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ConfirmDeleteButton } from "@/components/ConfirmDeleteButton";
-import { ConfirmActionButton } from "@/components/ConfirmActionButton";
+} from '@/integrations/payload/admin-queries'
+import { ReviewComplaintCard } from '@/components/admin/ReviewComplaintCard'
+import { getEventCategories, createEvent, listMunicipalities } from '@/integrations/payload/queries'
+import type { MunicipalityMapPoint } from '@/components/map/MunicipalitiesMap'
+import { PayloadApiError } from '@/integrations/payload/client'
+import { useAuth } from '@/contexts/AuthContext'
+import { SignOutButton } from '@/components/SignOutButton'
+import { RequireAuth, RequireRole } from '@/components/RequireAuth'
+import { PageHeader } from '@/components/PageHeader'
+import { Loading } from '@/components/Loading'
+import { CancelEventButton } from '@/components/CancelEventButton'
+import {
+  CoOrganizingRequestCard,
+  OrganizerRequestReason,
+  RequestsTable,
+} from '@/components/admin/RequestsTable'
+import { OrganizationsTab } from '@/components/admin/OrganizationsTab'
+import { ImportAdminTab } from '@/components/admin/ImportAdminTab'
+import { MicroregionsTab } from '@/components/admin/MicroregionsTab'
+import { EventForm, EventFormValues } from '@/components/EventForm'
+import { sendFollowUpRequests } from '@/lib/eventFollowUpRequests'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Card, CardContent } from '@/components/ui/card'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { ConfirmDeleteButton } from '@/components/ConfirmDeleteButton'
+import { ConfirmActionButton } from '@/components/ConfirmActionButton'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,7 +79,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog'
 import {
   Dialog,
   DialogContent,
@@ -77,264 +87,300 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Building2, Users as UsersIcon, CalendarPlus, Shield, X, UserPlus, LogOut, MapPin, Pencil, ClipboardList, Check, Handshake, BarChart3, Store, ShieldAlert, Flag, Download, Map as MapIcon, Wallet } from "lucide-react";
-import { pct } from "@/lib/report";
-import { toast } from "sonner";
-import type { CategoryRow } from "@/lib/analytics";
-import { LocationPicker } from "@/components/map/LocationPickerClient";
-import type { PickedLocation } from "@/components/map/LocationPicker";
-import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
-import { formatEventDateTime, toDateInputValue } from "@/lib/date";
-import Link from "next/link";
-import { cn } from "@/lib/utils";
-import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
+} from '@/components/ui/dialog'
+import {
+  Building2,
+  Users as UsersIcon,
+  CalendarPlus,
+  Shield,
+  X,
+  UserPlus,
+  LogOut,
+  MapPin,
+  Pencil,
+  ClipboardList,
+  Check,
+  Handshake,
+  BarChart3,
+  Store,
+  ShieldAlert,
+  Flag,
+  Download,
+  Map as MapIcon,
+  Wallet,
+} from 'lucide-react'
+import { pct } from '@/lib/report'
+import { toast } from 'sonner'
+import type { CategoryRow } from '@/lib/analytics'
+import { LocationPicker } from '@/components/map/LocationPickerClient'
+import type { PickedLocation } from '@/components/map/LocationPicker'
+import { MunicipalitiesMap } from '@/components/map/MunicipalitiesMapClient'
+import { formatEventDateTime, toDateInputValue } from '@/lib/date'
+import Link from 'next/link'
+import { cn } from '@/lib/utils'
+import { INVALID_PHONE_MESSAGE, isValidPhone } from '@/lib/phone'
 
-const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
+const CZECHIA_CENTER: [number, number] = [49.8175, 15.473]
 
 const ROLE_LABEL: Record<string, string> = {
-  municipality_admin: "Admin obce",
-  organizer: "Organizátor",
-  prescriber: "Prescriber",
-};
+  municipality_admin: 'Admin obce',
+  organizer: 'Organizátor',
+  prescriber: 'Prescriber',
+}
 
 /** Radix Select has no empty-string value, so "bez obce" needs a sentinel of its own. */
-const NO_MUNICIPALITY = "none";
+const NO_MUNICIPALITY = 'none'
 
 /** Roles that make someone a legitimate pořadatel in an obec — the same pair Events' own
  * `requireOrganizerRole` hook checks server-side. */
-const ORGANIZER_ROLES = ["municipality_admin", "organizer"] as const;
+const ORGANIZER_ROLES = ['municipality_admin', 'organizer'] as const
 
-type Gender = "zena" | "muz" | "jine" | "neuvedeno";
+type Gender = 'zena' | 'muz' | 'jine' | 'neuvedeno'
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
-  { value: "zena", label: "Žena" },
-  { value: "muz", label: "Muž" },
-  { value: "jine", label: "Jiné" },
-  { value: "neuvedeno", label: "Neuvedeno" },
-];
+  { value: 'zena', label: 'Žena' },
+  { value: 'muz', label: 'Muž' },
+  { value: 'jine', label: 'Jiné' },
+  { value: 'neuvedeno', label: 'Neuvedeno' },
+]
 
 const chipClass = (active: boolean) =>
   cn(
-    "px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors",
+    'px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors',
     active
-      ? "bg-primary text-primary-foreground border-primary"
-      : "bg-card text-foreground border-border hover:border-brand-purple",
-  );
+      ? 'bg-primary text-primary-foreground border-primary'
+      : 'bg-card text-foreground border-border hover:border-brand-purple',
+  )
 
-const SUPERADMIN_TABS = ["municipalities", "microregions", "users", "events", "roles", "organizations", "import", "requests"];
+const SUPERADMIN_TABS = [
+  'municipalities',
+  'microregions',
+  'users',
+  'events',
+  'roles',
+  'organizations',
+  'import',
+  'requests',
+]
 
 function SuperAdminContent() {
   // A notification can open a section straight away — "?tab=requests" for an obec without an admin.
-  const tabParam = useSearchParams().get("tab");
-  const [tab, setTab] = useState(tabParam && SUPERADMIN_TABS.includes(tabParam) ? tabParam : "municipalities");
+  const tabParam = useSearchParams().get('tab')
+  const [tab, setTab] = useState(
+    tabParam && SUPERADMIN_TABS.includes(tabParam) ? tabParam : 'municipalities',
+  )
   useEffect(() => {
-    if (tabParam && SUPERADMIN_TABS.includes(tabParam)) setTab(tabParam);
-  }, [tabParam]);
-  const [municipalities, setMunicipalities] = useState<MunicipalityRow[]>([]);
-  const [mapPoints, setMapPoints] = useState<MunicipalityMapPoint[]>([]);
-  const [users, setUsers] = useState<PlatformUserRow[]>([]);
-  const [categories, setCategories] = useState<CategoryRow[]>([]);
-  const [events, setEvents] = useState<SuperAdminEventRow[]>([]);
-  const [organizations, setOrganizations] = useState<SuperAdminOrganizationRow[]>([]);
-  const [orgRequests, setOrgRequests] = useState<SuperAdminOrganizerRequestRow[]>([]);
-  const [coOrgRequests, setCoOrgRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
+    if (tabParam && SUPERADMIN_TABS.includes(tabParam)) setTab(tabParam)
+  }, [tabParam])
+  const [municipalities, setMunicipalities] = useState<MunicipalityRow[]>([])
+  const [mapPoints, setMapPoints] = useState<MunicipalityMapPoint[]>([])
+  const [users, setUsers] = useState<PlatformUserRow[]>([])
+  const [categories, setCategories] = useState<CategoryRow[]>([])
+  const [events, setEvents] = useState<SuperAdminEventRow[]>([])
+  const [organizations, setOrganizations] = useState<SuperAdminOrganizationRow[]>([])
+  const [orgRequests, setOrgRequests] = useState<SuperAdminOrganizerRequestRow[]>([])
+  const [coOrgRequests, setCoOrgRequests] = useState<CoOrganizingRequestAdminRow[]>([])
   // Complaints about reviews the obec itself is a party to — the platform admin decides them.
-  const [platformComplaints, setPlatformComplaints] = useState<ReviewComplaintAdminRow[]>([]);
-  const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [platformComplaints, setPlatformComplaints] = useState<ReviewComplaintAdminRow[]>([])
+  const [requestBusyId, setRequestBusyId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   // Obce tab — list vs. side-by-side comparison view
-  const [muniView, setMuniView] = useState<"list" | "comparison">("list");
-  const [comparison, setComparison] = useState<MunicipalityComparisonRow[] | null>(null);
-  const [loadingComparison, setLoadingComparison] = useState(false);
+  const [muniView, setMuniView] = useState<'list' | 'comparison'>('list')
+  const [comparison, setComparison] = useState<MunicipalityComparisonRow[] | null>(null)
+  const [loadingComparison, setLoadingComparison] = useState(false)
 
   // Obce tab — new municipality form
-  const [muniName, setMuniName] = useState("");
-  const [muniDescription, setMuniDescription] = useState("");
-  const [muniLocation, setMuniLocation] = useState<PickedLocation | null>(null);
-  const [creatingMuni, setCreatingMuni] = useState(false);
+  const [muniName, setMuniName] = useState('')
+  const [muniDescription, setMuniDescription] = useState('')
+  const [muniLocation, setMuniLocation] = useState<PickedLocation | null>(null)
+  const [creatingMuni, setCreatingMuni] = useState(false)
 
   // Obce tab — edit existing municipality (inline, one at a time)
-  const [editingMuniId, setEditingMuniId] = useState<string | null>(null);
-  const [editMuniName, setEditMuniName] = useState("");
-  const [editMuniDescription, setEditMuniDescription] = useState("");
-  const [editMuniLocation, setEditMuniLocation] = useState<PickedLocation | null>(null);
-  const [savingMuni, setSavingMuni] = useState(false);
+  const [editingMuniId, setEditingMuniId] = useState<string | null>(null)
+  const [editMuniName, setEditMuniName] = useState('')
+  const [editMuniDescription, setEditMuniDescription] = useState('')
+  const [editMuniLocation, setEditMuniLocation] = useState<PickedLocation | null>(null)
+  const [savingMuni, setSavingMuni] = useState(false)
 
   // Uživatelé tab — new user form: the same data a self-signup gives across registration
   // (/auth: home obec on the map or "bez obce") and onboarding (date of birth, gender, interests, phone).
-  const [newFullName, setNewFullName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [newUserMuniId, setNewUserMuniId] = useState("");
-  const [newNoMunicipality, setNewNoMunicipality] = useState(false);
-  const [newDob, setNewDob] = useState("");
-  const [newGender, setNewGender] = useState<Gender>("neuvedeno");
-  const [newPhone, setNewPhone] = useState("");
-  const [newInterests, setNewInterests] = useState<string[]>([]);
-  const [creatingUser, setCreatingUser] = useState(false);
+  const [newFullName, setNewFullName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newUserMuniId, setNewUserMuniId] = useState('')
+  const [newNoMunicipality, setNewNoMunicipality] = useState(false)
+  const [newDob, setNewDob] = useState('')
+  const [newGender, setNewGender] = useState<Gender>('neuvedeno')
+  const [newPhone, setNewPhone] = useState('')
+  const [newInterests, setNewInterests] = useState<string[]>([])
+  const [creatingUser, setCreatingUser] = useState(false)
 
   // Uživatelé tab — edit an existing account (the pencil next to the bin). Profile data only:
   // the platform role isn't editable anywhere anymore (Users.role field access), the e-mail is
   // what Google sign-ins are matched on, and obec roles live in the Role tab.
-  const [editUser, setEditUser] = useState<PlatformUserRow | null>(null);
-  const [editFullName, setEditFullName] = useState("");
-  const [editUserMuniId, setEditUserMuniId] = useState("");
-  const [editDob, setEditDob] = useState("");
-  const [editGender, setEditGender] = useState<Gender>("neuvedeno");
-  const [editPhone, setEditPhone] = useState("");
-  const [editInterests, setEditInterests] = useState<string[]>([]);
-  const [savingUser, setSavingUser] = useState(false);
+  const [editUser, setEditUser] = useState<PlatformUserRow | null>(null)
+  const [editFullName, setEditFullName] = useState('')
+  const [editUserMuniId, setEditUserMuniId] = useState('')
+  const [editDob, setEditDob] = useState('')
+  const [editGender, setEditGender] = useState<Gender>('neuvedeno')
+  const [editPhone, setEditPhone] = useState('')
+  const [editInterests, setEditInterests] = useState<string[]>([])
+  const [savingUser, setSavingUser] = useState(false)
 
   // Role tab — revoking someone's last obec role deletes the account with it, so that one
   // needs its own confirm (the other revokes are a single click, as before).
-  const [lastRoleRevoke, setLastRoleRevoke] = useState<PlatformUserRow | null>(null);
+  const [lastRoleRevoke, setLastRoleRevoke] = useState<PlatformUserRow | null>(null)
   // Any other role — still asked about first, nothing goes until confirmed.
-  const [roleRevoke, setRoleRevoke] = useState<{ userRoleId: string; who: string; what: string } | null>(null);
-  const [deletingLastRole, setDeletingLastRole] = useState(false);
+  const [roleRevoke, setRoleRevoke] = useState<{
+    userRoleId: string
+    who: string
+    what: string
+  } | null>(null)
+  const [deletingLastRole, setDeletingLastRole] = useState(false)
 
   // Akce tab — new event form. Superadmin picks obec + pořadatel first (an organizer/admin's
   // own /vytvorit derives these from their own roles instead), then gets the exact same
   // EventForm every organizer/admin uses (brief §2 "flow ... musí kopírovat" — 1:1, not a
   // separate hand-rolled form).
-  const [evMuniId, setEvMuniId] = useState("");
-  const [evOrganizerId, setEvOrganizerId] = useState("");
+  const [evMuniId, setEvMuniId] = useState('')
+  const [evOrganizerId, setEvOrganizerId] = useState('')
   // Bumped after each successful create to remount EventForm with a clean slate — it owns its
   // own internal state, so there's nothing here to reset otherwise.
-  const [eventFormKey, setEventFormKey] = useState(0);
+  const [eventFormKey, setEventFormKey] = useState(0)
 
   // Role tab — grant form
-  const [grantUserId, setGrantUserId] = useState("");
-  const [grantMuniId, setGrantMuniId] = useState("");
-  const [granting, setGranting] = useState(false);
+  const [grantUserId, setGrantUserId] = useState('')
+  const [grantMuniId, setGrantMuniId] = useState('')
+  const [granting, setGranting] = useState(false)
 
   const load = async () => {
-    setLoading(true);
+    setLoading(true)
     // "Porovnání" used to be fetched once and cached forever, so every event/user/role mutation
     // made elsewhere in the panel silently went stale there until a full page reload (brief §3
     // "prubezne propisovani do porovnani"). load() is the one function every mutation handler
     // below already calls, so folding the comparison refetch in here — whenever that view is the
     // one on screen — keeps it live without threading a refetch through each handler individually.
-    const wantsComparison = muniView === "comparison";
-    const [munis, points, us, cats, evs, orgs, orgReqs, coOrgReqs, complaints, comp] = await Promise.all([
-      listMunicipalitiesForSuperAdmin(),
-      listMunicipalities(),
-      listAllUsersForSuperAdmin(),
-      getEventCategories(),
-      listAllEventsForSuperAdmin(),
-      listOrganizationsForSuperAdmin(),
-      getAllOrganizerRequestsForSuperAdmin(),
-      getCoOrganizingRequestsForAdmin(),
-      getPlatformReviewComplaints().catch(() => [] as ReviewComplaintAdminRow[]),
-      wantsComparison ? getMunicipalityComparison() : Promise.resolve(null),
-    ]);
-    setMunicipalities(munis);
-    setMapPoints(points);
-    setUsers(us);
-    setCategories(cats);
-    setEvents(evs);
-    setOrganizations(orgs);
-    setOrgRequests(orgReqs);
-    setCoOrgRequests(coOrgReqs);
-    setPlatformComplaints(complaints);
-    if (wantsComparison) setComparison(comp);
-    setLoading(false);
-  };
+    const wantsComparison = muniView === 'comparison'
+    const [munis, points, us, cats, evs, orgs, orgReqs, coOrgReqs, complaints, comp] =
+      await Promise.all([
+        listMunicipalitiesForSuperAdmin(),
+        listMunicipalities(),
+        listAllUsersForSuperAdmin(),
+        getEventCategories(),
+        listAllEventsForSuperAdmin(),
+        listOrganizationsForSuperAdmin(),
+        getAllOrganizerRequestsForSuperAdmin(),
+        getCoOrganizingRequestsForAdmin(),
+        getPlatformReviewComplaints().catch(() => [] as ReviewComplaintAdminRow[]),
+        wantsComparison ? getMunicipalityComparison() : Promise.resolve(null),
+      ])
+    setMunicipalities(munis)
+    setMapPoints(points)
+    setUsers(us)
+    setCategories(cats)
+    setEvents(evs)
+    setOrganizations(orgs)
+    setOrgRequests(orgReqs)
+    setCoOrgRequests(coOrgReqs)
+    setPlatformComplaints(complaints)
+    if (wantsComparison) setComparison(comp)
+    setLoading(false)
+  }
 
   useEffect(() => {
-    load();
-  }, []);
+    load()
+  }, [])
 
   const handleCreateMunicipality = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (!muniName.trim()) {
-      toast.error("Zadejte název obce.");
-      return;
+      toast.error('Zadejte název obce.')
+      return
     }
     if (!muniLocation) {
-      toast.error("Vyberte polohu obce na mapě.");
-      return;
+      toast.error('Vyberte polohu obce na mapě.')
+      return
     }
-    setCreatingMuni(true);
+    setCreatingMuni(true)
     try {
       await createMunicipality({
         name: muniName.trim(),
         description: muniDescription.trim() || undefined,
         lat: muniLocation.lat,
         lng: muniLocation.lng,
-      });
-      toast.success("Obec vytvořena.");
-      setMuniName("");
-      setMuniDescription("");
-      setMuniLocation(null);
-      load();
+      })
+      toast.success('Obec vytvořena.')
+      setMuniName('')
+      setMuniDescription('')
+      setMuniLocation(null)
+      load()
     } catch {
-      toast.error("Nepodařilo se vytvořit obec.");
+      toast.error('Nepodařilo se vytvořit obec.')
     } finally {
-      setCreatingMuni(false);
+      setCreatingMuni(false)
     }
-  };
+  }
 
   const startEditMuni = (m: MunicipalityRow) => {
-    setEditingMuniId(m.id);
-    setEditMuniName(m.name);
-    setEditMuniDescription(m.description ?? "");
-    const point = mapPoints.find((p) => p.id === m.id);
-    setEditMuniLocation(point ? { lat: point.lat, lng: point.lng, label: point.name } : null);
-  };
+    setEditingMuniId(m.id)
+    setEditMuniName(m.name)
+    setEditMuniDescription(m.description ?? '')
+    const point = mapPoints.find((p) => p.id === m.id)
+    setEditMuniLocation(point ? { lat: point.lat, lng: point.lng, label: point.name } : null)
+  }
 
-  const cancelEditMuni = () => setEditingMuniId(null);
+  const cancelEditMuni = () => setEditingMuniId(null)
 
   const handleSaveMuni = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingMuniId || !editMuniName.trim() || !editMuniLocation) return;
-    setSavingMuni(true);
+    e.preventDefault()
+    if (!editingMuniId || !editMuniName.trim() || !editMuniLocation) return
+    setSavingMuni(true)
     try {
       await updateMunicipality(editingMuniId, {
         name: editMuniName.trim(),
         description: editMuniDescription.trim() || undefined,
         lat: editMuniLocation.lat,
         lng: editMuniLocation.lng,
-      });
-      toast.success("Obec upravena.");
-      setEditingMuniId(null);
-      load();
+      })
+      toast.success('Obec upravena.')
+      setEditingMuniId(null)
+      load()
     } catch (error) {
-      toast.error(error instanceof PayloadApiError ? error.message : "Nepodařilo se uložit obec.");
+      toast.error(error instanceof PayloadApiError ? error.message : 'Nepodařilo se uložit obec.')
     } finally {
-      setSavingMuni(false);
+      setSavingMuni(false)
     }
-  };
+  }
 
   const handleDeleteMuni = async (id: string) => {
-    await deleteMunicipality(id);
-    toast.success("Obec smazána.");
-    load();
-  };
+    await deleteMunicipality(id)
+    toast.success('Obec smazána.')
+    load()
+  }
 
   const startEditUser = (u: PlatformUserRow) => {
-    setEditUser(u);
-    setEditFullName(u.fullName ?? "");
-    setEditUserMuniId(u.homeMunicipalityId ?? "");
-    setEditDob(u.dateOfBirth ?? "");
-    setEditGender(u.gender);
-    setEditPhone(u.phone ?? "");
-    setEditInterests(u.interestIds);
-  };
+    setEditUser(u)
+    setEditFullName(u.fullName ?? '')
+    setEditUserMuniId(u.homeMunicipalityId ?? '')
+    setEditDob(u.dateOfBirth ?? '')
+    setEditGender(u.gender)
+    setEditPhone(u.phone ?? '')
+    setEditInterests(u.interestIds)
+  }
 
   const handleSaveUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editUser?.profileId) return;
+    e.preventDefault()
+    if (!editUser?.profileId) return
     if (!editFullName.trim()) {
-      toast.error("Zadejte celé jméno.");
-      return;
+      toast.error('Zadejte celé jméno.')
+      return
     }
     if (editPhone.trim() && !isValidPhone(editPhone)) {
-      toast.error(INVALID_PHONE_MESSAGE);
-      return;
+      toast.error(INVALID_PHONE_MESSAGE)
+      return
     }
-    setSavingUser(true);
+    setSavingUser(true)
     try {
       await updateUserAsSuperAdmin(editUser.profileId, {
         fullName: editFullName.trim(),
@@ -343,54 +389,56 @@ function SuperAdminContent() {
         gender: editGender,
         phone: editPhone.trim() || null,
         interestIds: editInterests,
-      });
-      toast.success("Uživatel upraven.");
-      setEditUser(null);
-      load();
+      })
+      toast.success('Uživatel upraven.')
+      setEditUser(null)
+      load()
     } catch (error) {
-      toast.error(error instanceof PayloadApiError ? error.message : "Nepodařilo se uložit uživatele.");
+      toast.error(
+        error instanceof PayloadApiError ? error.message : 'Nepodařilo se uložit uživatele.',
+      )
     } finally {
-      setSavingUser(false);
+      setSavingUser(false)
     }
-  };
+  }
 
   const handleDeleteUser = async (id: string) => {
-    await deleteUserAsSuperAdmin(id);
-    toast.success("Uživatel smazán.");
-    load();
-  };
+    await deleteUserAsSuperAdmin(id)
+    toast.success('Uživatel smazán.')
+    load()
+  }
 
   const resetNewUserForm = () => {
-    setNewFullName("");
-    setNewEmail("");
-    setNewPassword("");
-    setNewUserMuniId("");
-    setNewNoMunicipality(false);
-    setNewDob("");
-    setNewGender("neuvedeno");
-    setNewPhone("");
-    setNewInterests([]);
-  };
+    setNewFullName('')
+    setNewEmail('')
+    setNewPassword('')
+    setNewUserMuniId('')
+    setNewNoMunicipality(false)
+    setNewDob('')
+    setNewGender('neuvedeno')
+    setNewPhone('')
+    setNewInterests([])
+  }
 
   const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (!newFullName.trim() || !newEmail.trim() || !newPassword) {
-      toast.error("Vyplňte jméno, e-mail a heslo.");
-      return;
+      toast.error('Vyplňte jméno, e-mail a heslo.')
+      return
     }
     if (newPassword.length < 8) {
-      toast.error("Heslo musí mít alespoň 8 znaků.");
-      return;
+      toast.error('Heslo musí mít alespoň 8 znaků.')
+      return
     }
     if (!newUserMuniId && !newNoMunicipality) {
-      toast.error("Vyberte obec na mapě, nebo zaškrtněte „bez obce“.");
-      return;
+      toast.error('Vyberte obec na mapě, nebo zaškrtněte „bez obce“.')
+      return
     }
     if (newPhone.trim() && !isValidPhone(newPhone)) {
-      toast.error(INVALID_PHONE_MESSAGE);
-      return;
+      toast.error(INVALID_PHONE_MESSAGE)
+      return
     }
-    setCreatingUser(true);
+    setCreatingUser(true)
     try {
       await createUserAsSuperAdmin({
         email: newEmail.trim(),
@@ -401,25 +449,25 @@ function SuperAdminContent() {
         gender: newGender,
         phone: newPhone.trim() || null,
         interestIds: newInterests,
-      });
+      })
       toast.success(
         newDob && newPhone.trim()
-          ? "Uživatel vytvořen."
-          : "Uživatel vytvořen. Chybějící údaje (datum narození, telefon) doplní při prvním přihlášení.",
-      );
-      resetNewUserForm();
-      load();
+          ? 'Uživatel vytvořen.'
+          : 'Uživatel vytvořen. Chybějící údaje (datum narození, telefon) doplní při prvním přihlášení.',
+      )
+      resetNewUserForm()
+      load()
     } catch (error) {
       // E.g. the phone number already belongs to another account — the server says which.
       toast.error(
         error instanceof PayloadApiError && error.status < 500
           ? error.message
-          : "Nepodařilo se vytvořit uživatele — e-mail už možná existuje.",
-      );
+          : 'Nepodařilo se vytvořit uživatele — e-mail už možná existuje.',
+      )
     } finally {
-      setCreatingUser(false);
+      setCreatingUser(false)
     }
-  };
+  }
 
   // Same call shape as /vytvorit's handleSubmit — the only difference is organizer + obec come
   // from the pickers above instead of the logged-in user's own roles.
@@ -445,113 +493,125 @@ function SuperAdminContent() {
         isVolunteering: values.isVolunteering,
         isPaid: values.isPaid,
         priceCents: values.priceCents ?? undefined,
-      });
+      })
       // Spolupořadatelé join only once they accept — even an event the superadmin creates.
-      const sent = await sendFollowUpRequests(created.id, values.inviteOrganizationIds);
-      toast.success(sent ? `Akce vytvořena, ${sent}.` : "Akce vytvořena.");
-      setEventFormKey((k) => k + 1);
-      await load();
+      const sent = await sendFollowUpRequests(created.id, values.inviteOrganizationIds)
+      toast.success(sent ? `Akce vytvořena, ${sent}.` : 'Akce vytvořena.')
+      setEventFormKey((k) => k + 1)
+      await load()
     } catch (error) {
       toast.error(
-        error instanceof PayloadApiError && error.status === 400 ? error.message : "Nepodařilo se vytvořit akci.",
-      );
+        error instanceof PayloadApiError && error.status === 400
+          ? error.message
+          : 'Nepodařilo se vytvořit akci.',
+      )
     }
-  };
+  }
 
   const handleGrant = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (!grantUserId || !grantMuniId) {
-      toast.error("Vyberte uživatele a obec.");
-      return;
+      toast.error('Vyberte uživatele a obec.')
+      return
     }
-    setGranting(true);
+    setGranting(true)
     try {
-      await grantCommunityRole(grantUserId, grantMuniId, "municipality_admin");
-      toast.success("Role přidána.");
-      setGrantUserId("");
-      setGrantMuniId("");
-      load();
+      await grantCommunityRole(grantUserId, grantMuniId, 'municipality_admin')
+      toast.success('Role přidána.')
+      setGrantUserId('')
+      setGrantMuniId('')
+      load()
     } catch {
-      toast.error("Nepodařilo se přidat roli — uživatel ji už možná má.");
+      toast.error('Nepodařilo se přidat roli — uživatel ji už možná má.')
     } finally {
-      setGranting(false);
+      setGranting(false)
     }
-  };
+  }
 
   const handleRevoke = async (userRoleId: string) => {
     try {
-      await revokeCommunityRole(userRoleId);
-      toast.success("Role odebrána.");
-      load();
+      await revokeCommunityRole(userRoleId)
+      toast.success('Role odebrána.')
+      load()
     } catch (error) {
       // E.g. the obec's only admin — the server says what to do about it.
-      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se odebrat roli.");
+      toast.error(
+        error instanceof PayloadApiError && error.status < 500
+          ? error.message
+          : 'Nepodařilo se odebrat roli.',
+      )
     }
-  };
+  }
 
   /** Taking away someone's only remaining obec role leaves an account that belongs nowhere, so
    * it goes with the role. Deleting the account is enough on its own — the anonymization takes
    * every role with it in the same transaction, so there's no window where the role is gone but
    * the account isn't. */
   const handleDeleteWithLastRole = async () => {
-    if (!lastRoleRevoke) return;
-    setDeletingLastRole(true);
+    if (!lastRoleRevoke) return
+    setDeletingLastRole(true)
     try {
-      await deleteUserAsSuperAdmin(lastRoleRevoke.id);
-      toast.success("Poslední role odebrána — účet smazán.");
-      setLastRoleRevoke(null);
-      load();
+      await deleteUserAsSuperAdmin(lastRoleRevoke.id)
+      toast.success('Poslední role odebrána — účet smazán.')
+      setLastRoleRevoke(null)
+      load()
     } catch (error) {
-      toast.error(error instanceof PayloadApiError ? error.message : "Uživatele se nepodařilo smazat.");
+      toast.error(
+        error instanceof PayloadApiError ? error.message : 'Uživatele se nepodařilo smazat.',
+      )
     } finally {
-      setDeletingLastRole(false);
+      setDeletingLastRole(false)
     }
-  };
+  }
 
   const handleShowComparison = async () => {
-    setMuniView("comparison");
+    setMuniView('comparison')
     // Always refetch — load() only refreshes this while the view is already open (see load()'s
     // comment), so switching into it needs its own fetch too. No caching: this is a superadmin
     // ops panel, not a hot path, and stale numbers here are exactly the bug being fixed.
-    setLoadingComparison(true);
+    setLoadingComparison(true)
     try {
-      setComparison(await getMunicipalityComparison());
+      setComparison(await getMunicipalityComparison())
     } catch {
-      toast.error("Nepodařilo se načíst porovnání obcí.");
+      toast.error('Nepodařilo se načíst porovnání obcí.')
     } finally {
-      setLoadingComparison(false);
+      setLoadingComparison(false)
     }
-  };
+  }
 
   const handleOrganizerRequestDecision = async (id: string, approve: boolean) => {
-    setRequestBusyId(id);
+    setRequestBusyId(id)
     try {
-      await decideOrganizerRequest(id, approve);
-      toast.success(approve ? "Role organizátora schválena." : "Žádost zamítnuta.");
-      await load();
+      await decideOrganizerRequest(id, approve)
+      toast.success(approve ? 'Role organizátora schválena.' : 'Žádost zamítnuta.')
+      await load()
     } catch {
-      toast.error("Nepodařilo se vyřídit žádost.");
+      toast.error('Nepodařilo se vyřídit žádost.')
     } finally {
-      setRequestBusyId(null);
+      setRequestBusyId(null)
     }
-  };
+  }
 
   const handleCoOrganizingRequestDecision = async (id: string, approve: boolean) => {
-    setRequestBusyId(id);
+    setRequestBusyId(id)
     try {
-      await decideCoOrganizingRequest(id, approve);
-      toast.success(approve ? "Obec teď akci spolupořádá." : "Žádost zamítnuta.");
+      await decideCoOrganizingRequest(id, approve)
+      toast.success(approve ? 'Obec teď akci spolupořádá.' : 'Žádost zamítnuta.')
     } catch (error) {
-      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se vyřídit žádost.");
+      toast.error(
+        error instanceof PayloadApiError && error.status < 500
+          ? error.message
+          : 'Nepodařilo se vyřídit žádost.',
+      )
     } finally {
-      setRequestBusyId(null);
-      await load();
+      setRequestBusyId(null)
+      await load()
     }
-  };
+  }
 
-  const pendingRequestCount = orgRequests.length + coOrgRequests.length + platformComplaints.length;
+  const pendingRequestCount = orgRequests.length + coOrgRequests.length + platformComplaints.length
   // Nobody there decides complaints, escalated deletions or invitations to the obec — the platform does.
-  const obceWithoutAdmin = municipalities.filter((m) => m.has_admin === false);
+  const obceWithoutAdmin = municipalities.filter((m) => m.has_admin === false)
 
   const logoutAction = (
     <SignOutButton>
@@ -560,29 +620,41 @@ function SuperAdminContent() {
         Odhlásit
       </Button>
     </SignOutButton>
-  );
+  )
 
-  if (loading) return <><PageHeader title="Superadmin" right={logoutAction} /><Loading /></>;
+  if (loading)
+    return (
+      <>
+        <PageHeader title="Superadmin" right={logoutAction} />
+        <Loading />
+      </>
+    )
 
-  const newUserMuniName = mapPoints.find((m) => m.id === newUserMuniId)?.name;
-  const evMuniPoint = mapPoints.find((m) => m.id === evMuniId);
-  const evMuniCenter: [number, number] = evMuniPoint ? [evMuniPoint.lat, evMuniPoint.lng] : CZECHIA_CENTER;
+  const newUserMuniName = mapPoints.find((m) => m.id === newUserMuniId)?.name
+  const evMuniPoint = mapPoints.find((m) => m.id === evMuniId)
+  const evMuniCenter: [number, number] = evMuniPoint
+    ? [evMuniPoint.lat, evMuniPoint.lng]
+    : CZECHIA_CENTER
   // Only people who already organize in the chosen obec. A superadmin used to be able to file
   // an obec's event under any účastník at all; now the role comes first (Events' own
   // `requireOrganizerRole` hook enforces the same thing server-side).
   const evOrganizerOptions = evMuniId
     ? users.filter((u) =>
         u.communityRoles.some(
-          (r) => r.municipalityId === evMuniId && ORGANIZER_ROLES.includes(r.role as (typeof ORGANIZER_ROLES)[number]),
+          (r) =>
+            r.municipalityId === evMuniId &&
+            ORGANIZER_ROLES.includes(r.role as (typeof ORGANIZER_ROLES)[number]),
         ),
       )
-    : [];
+    : []
   // The obec's admin founds the event as the obec itself — then it can't co-organize it too.
   const evRunsAsObec = Boolean(
     users
       .find((u) => u.id === evOrganizerId)
-      ?.communityRoles.some((r) => r.role === "municipality_admin" && r.municipalityId === evMuniId),
-  );
+      ?.communityRoles.some(
+        (r) => r.role === 'municipality_admin' && r.municipalityId === evMuniId,
+      ),
+  )
 
   return (
     <div className="animate-fade-in">
@@ -615,7 +687,10 @@ function SuperAdminContent() {
             <TabsTrigger value="requests" className="relative flex-col gap-0.5 text-2xs">
               <ClipboardList className="h-4 w-4" /> Žádosti
               {pendingRequestCount > 0 && (
-                <Badge variant="secondary" className="h-4 min-w-4 px-1 text-3xs absolute -top-1 -right-1">
+                <Badge
+                  variant="secondary"
+                  className="h-4 min-w-4 px-1 text-3xs absolute -top-1 -right-1"
+                >
                   {pendingRequestCount}
                 </Badge>
               )}
@@ -624,6 +699,15 @@ function SuperAdminContent() {
 
           {/* --- Obce ------------------------------------------------------------------ */}
           <TabsContent value="municipalities" className="pt-4 space-y-4">
+            <Link
+              href="/superadmin/fakturace"
+              className={buttonVariants({
+                variant: 'outline',
+                className: 'w-full h-11 justify-start gap-2',
+              })}
+            >
+              <Wallet className="h-4 w-4" /> Balíčky a fakturace — ceník, přehled obcí, CSV
+            </Link>
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="eyebrow">
@@ -632,7 +716,12 @@ function SuperAdminContent() {
                 <form onSubmit={handleCreateMunicipality} className="space-y-3">
                   <div>
                     <Label htmlFor="muni-name">Název obce *</Label>
-                    <Input id="muni-name" value={muniName} onChange={(e) => setMuniName(e.target.value)} className="h-11 mt-1.5" />
+                    <Input
+                      id="muni-name"
+                      value={muniName}
+                      onChange={(e) => setMuniName(e.target.value)}
+                      className="h-11 mt-1.5"
+                    />
                   </div>
                   <div>
                     <Label htmlFor="muni-desc">Popis</Label>
@@ -666,9 +755,11 @@ function SuperAdminContent() {
 
             <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-xs">
               <button
-                onClick={() => setMuniView("list")}
+                onClick={() => setMuniView('list')}
                 className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
-                  muniView === "list" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  muniView === 'list'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Seznam
@@ -676,14 +767,16 @@ function SuperAdminContent() {
               <button
                 onClick={handleShowComparison}
                 className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
-                  muniView === "comparison" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  muniView === 'comparison'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Porovnání
               </button>
             </div>
 
-            {muniView === "comparison" ? (
+            {muniView === 'comparison' ? (
               loadingComparison || comparison === null ? (
                 <p className="text-center text-muted-foreground py-8">Načítám…</p>
               ) : comparison.length === 0 ? (
@@ -709,19 +802,31 @@ function SuperAdminContent() {
                           // still goes first rather than wherever the list happened to put it.
                           .sort(
                             (a, b) =>
-                              (b.metrics.datavita.current ?? -1) - (a.metrics.datavita.current ?? -1) ||
+                              (b.metrics.datavita.current ?? -1) -
+                                (a.metrics.datavita.current ?? -1) ||
                               b.metrics.current.eventsCount - a.metrics.current.eventsCount ||
-                              b.metrics.current.participantsUnique - a.metrics.current.participantsUnique,
+                              b.metrics.current.participantsUnique -
+                                a.metrics.current.participantsUnique,
                           )
                           .map((c) => (
                             <tr key={c.municipality_id} className="border-t border-border">
-                              <td className="p-3 font-medium whitespace-nowrap sticky left-0 bg-background">{c.municipality_name}</td>
-                              <td className="p-3 text-right tabular-nums">{c.metrics.current.eventsCount}</td>
-                              <td className="p-3 text-right tabular-nums">{c.metrics.current.participantsUnique}</td>
-                              <td className="p-3 text-right tabular-nums">{pct(c.metrics.current.avgFillRate)}</td>
-                              <td className="p-3 text-right tabular-nums">{c.metrics.current.activeOrganizers}</td>
+                              <td className="p-3 font-medium whitespace-nowrap sticky left-0 bg-background">
+                                {c.municipality_name}
+                              </td>
+                              <td className="p-3 text-right tabular-nums">
+                                {c.metrics.current.eventsCount}
+                              </td>
+                              <td className="p-3 text-right tabular-nums">
+                                {c.metrics.current.participantsUnique}
+                              </td>
+                              <td className="p-3 text-right tabular-nums">
+                                {pct(c.metrics.current.avgFillRate)}
+                              </td>
+                              <td className="p-3 text-right tabular-nums">
+                                {c.metrics.current.activeOrganizers}
+                              </td>
                               <td className="p-3 text-right tabular-nums font-bold">
-                                {c.metrics.datavita.current ?? "—"}
+                                {c.metrics.datavita.current ?? '—'}
                               </td>
                             </tr>
                           ))}
@@ -731,81 +836,100 @@ function SuperAdminContent() {
                 </Card>
               )
             ) : (
-            <div className="space-y-2">
-              {municipalities.map((m) =>
-                editingMuniId === m.id ? (
-                  <Card key={m.id}>
-                    <CardContent className="p-4">
-                      <form onSubmit={handleSaveMuni} className="space-y-3">
-                        <div>
-                          <Label htmlFor="edit-muni-name">Název obce *</Label>
-                          <Input
-                            id="edit-muni-name"
-                            value={editMuniName}
-                            onChange={(e) => setEditMuniName(e.target.value)}
-                            className="h-11 mt-1.5"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="edit-muni-desc">Popis</Label>
-                          <Textarea
-                            id="edit-muni-desc"
-                            value={editMuniDescription}
-                            onChange={(e) => setEditMuniDescription(e.target.value)}
-                            className="mt-1.5"
-                          />
-                        </div>
-                        <div>
-                          <Label>Poloha na mapě *</Label>
-                          <div className="mt-1.5">
-                            <LocationPicker
-                              value={editMuniLocation}
-                              onChange={setEditMuniLocation}
-                              initialCenter={CZECHIA_CENTER}
-                              existingPoints={mapPoints.filter((p) => p.id !== m.id)}
+              <div className="space-y-2">
+                {municipalities.map((m) =>
+                  editingMuniId === m.id ? (
+                    <Card key={m.id}>
+                      <CardContent className="p-4">
+                        <form onSubmit={handleSaveMuni} className="space-y-3">
+                          <div>
+                            <Label htmlFor="edit-muni-name">Název obce *</Label>
+                            <Input
+                              id="edit-muni-name"
+                              value={editMuniName}
+                              onChange={(e) => setEditMuniName(e.target.value)}
+                              className="h-11 mt-1.5"
                             />
                           </div>
+                          <div>
+                            <Label htmlFor="edit-muni-desc">Popis</Label>
+                            <Textarea
+                              id="edit-muni-desc"
+                              value={editMuniDescription}
+                              onChange={(e) => setEditMuniDescription(e.target.value)}
+                              className="mt-1.5"
+                            />
+                          </div>
+                          <div>
+                            <Label>Poloha na mapě *</Label>
+                            <div className="mt-1.5">
+                              <LocationPicker
+                                value={editMuniLocation}
+                                onChange={setEditMuniLocation}
+                                initialCenter={CZECHIA_CENTER}
+                                existingPoints={mapPoints.filter((p) => p.id !== m.id)}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button type="submit" disabled={savingMuni} className="flex-1 h-11">
+                              Uložit
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={cancelEditMuni}
+                              className="flex-1 h-11"
+                            >
+                              Zrušit
+                            </Button>
+                          </div>
+                        </form>
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    <Card key={m.id}>
+                      <CardContent className="p-4 flex items-center gap-2.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold truncate">{m.name}</p>
+                          {m.description && (
+                            <p className="text-sm text-muted-foreground mt-0.5 truncate">
+                              {m.description}
+                            </p>
+                          )}
                         </div>
-                        <div className="flex gap-2">
-                          <Button type="submit" disabled={savingMuni} className="flex-1 h-11">
-                            Uložit
-                          </Button>
-                          <Button type="button" variant="outline" onClick={cancelEditMuni} className="flex-1 h-11">
-                            Zrušit
-                          </Button>
-                        </div>
-                      </form>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card key={m.id}>
-                    <CardContent className="p-4 flex items-center gap-2.5">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold truncate">{m.name}</p>
-                        {m.description && <p className="text-sm text-muted-foreground mt-0.5 truncate">{m.description}</p>}
-                      </div>
-                      <Link
-                        href={`/superadmin/obce/${m.id}`}
-                        className={buttonVariants({ variant: "ghost", size: "icon", className: "h-8 w-8 shrink-0" })}
-                        aria-label="Služby a ceny"
-                        title="Služby a ceny"
-                      >
-                        <Wallet className="h-4 w-4" />
-                      </Link>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => startEditMuni(m)} aria-label="Upravit">
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <ConfirmDeleteButton
-                        title={`Smazat obec „${m.name}“?`}
-                        description="Smažou se i všechna data obce — proběhlé akce s přihláškami a hodnoceními, role, organizace a žádosti. Obyvatelé si ponechají účty, jen bez obce. Nejde to vrátit zpět; dokud má obec nadcházející akce, smazat nepůjde."
-                        onConfirm={() => handleDeleteMuni(m.id)}
-                        errorMessage="Obec se nepodařilo smazat."
-                      />
-                    </CardContent>
-                  </Card>
-                ),
-              )}
-            </div>
+                        <Link
+                          href={`/superadmin/obce/${m.id}`}
+                          className={buttonVariants({
+                            variant: 'ghost',
+                            size: 'icon',
+                            className: 'h-8 w-8 shrink-0',
+                          })}
+                          aria-label="Služby a ceny"
+                          title="Služby a ceny"
+                        >
+                          <Wallet className="h-4 w-4" />
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => startEditMuni(m)}
+                          aria-label="Upravit"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <ConfirmDeleteButton
+                          title={`Smazat obec „${m.name}“?`}
+                          description="Smažou se i všechna data obce — proběhlé akce s přihláškami a hodnoceními, role, organizace a žádosti. Obyvatelé si ponechají účty, jen bez obce. Nejde to vrátit zpět; dokud má obec nadcházející akce, smazat nepůjde."
+                          onConfirm={() => handleDeleteMuni(m.id)}
+                          errorMessage="Obec se nepodařilo smazat."
+                        />
+                      </CardContent>
+                    </Card>
+                  ),
+                )}
+              </div>
             )}
           </TabsContent>
 
@@ -819,7 +943,12 @@ function SuperAdminContent() {
                 <form onSubmit={handleCreateUser} className="space-y-4">
                   <div>
                     <Label htmlFor="u-name">Celé jméno *</Label>
-                    <Input id="u-name" value={newFullName} onChange={(e) => setNewFullName(e.target.value)} className="h-11 mt-1.5" />
+                    <Input
+                      id="u-name"
+                      value={newFullName}
+                      onChange={(e) => setNewFullName(e.target.value)}
+                      className="h-11 mt-1.5"
+                    />
                   </div>
                   <div>
                     <Label htmlFor="u-email">E-mail *</Label>
@@ -863,9 +992,9 @@ function SuperAdminContent() {
                       <Checkbox
                         checked={newNoMunicipality}
                         onCheckedChange={(v) => {
-                          const on = v === true;
-                          setNewNoMunicipality(on);
-                          if (on) setNewUserMuniId("");
+                          const on = v === true
+                          setNewNoMunicipality(on)
+                          if (on) setNewUserMuniId('')
                         }}
                         className="mt-0.5"
                       />
@@ -903,7 +1032,12 @@ function SuperAdminContent() {
                     <Label>Pohlaví</Label>
                     <div className="flex flex-wrap gap-2 mt-1.5">
                       {GENDER_OPTIONS.map((g) => (
-                        <button key={g.value} type="button" onClick={() => setNewGender(g.value)} className={chipClass(newGender === g.value)}>
+                        <button
+                          key={g.value}
+                          type="button"
+                          onClick={() => setNewGender(g.value)}
+                          className={chipClass(newGender === g.value)}
+                        >
                           {g.label}
                         </button>
                       ))}
@@ -914,25 +1048,28 @@ function SuperAdminContent() {
                     <Label>Zájmy</Label>
                     <div className="flex flex-wrap gap-2 mt-1.5">
                       {categories.map((c) => {
-                        const active = newInterests.includes(c.id);
+                        const active = newInterests.includes(c.id)
                         return (
                           <button
                             key={c.id}
                             type="button"
                             onClick={() =>
-                              setNewInterests((prev) => (active ? prev.filter((id) => id !== c.id) : [...prev, c.id]))
+                              setNewInterests((prev) =>
+                                active ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                              )
                             }
                             className={chipClass(active)}
                           >
                             {c.name}
                           </button>
-                        );
+                        )
                       })}
                     </div>
                   </div>
 
                   <p className="text-xs text-muted-foreground">
-                    Když datum narození nebo telefon nevyplníte, uživatel je doplní v onboardingu při prvním přihlášení.
+                    Když datum narození nebo telefon nevyplníte, uživatel je doplní v onboardingu
+                    při prvním přihlášení.
                   </p>
 
                   <Button type="submit" disabled={creatingUser} className="w-full h-11">
@@ -952,13 +1089,17 @@ function SuperAdminContent() {
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <p className="font-bold truncate">{u.fullName ?? "Bez profilu"}</p>
+                      <p className="font-bold truncate">{u.fullName ?? 'Bez profilu'}</p>
                       <p className="text-xs text-muted-foreground truncate">
                         {u.email}
-                        {u.homeMunicipalityName ? ` · ${u.homeMunicipalityName}` : u.fullName ? " · bez obce" : ""}
+                        {u.homeMunicipalityName
+                          ? ` · ${u.homeMunicipalityName}`
+                          : u.fullName
+                            ? ' · bez obce'
+                            : ''}
                       </p>
                     </div>
-                    {u.platformRole === "admin" && (
+                    {u.platformRole === 'admin' && (
                       <Badge variant="secondary" className="shrink-0">
                         Superadmin
                       </Badge>
@@ -973,7 +1114,7 @@ function SuperAdminContent() {
                       onClick={() => startEditUser(u)}
                       disabled={!u.profileId}
                       aria-label="Upravit uživatele"
-                      title={u.profileId ? "Upravit uživatele" : "Účet zatím nemá profil"}
+                      title={u.profileId ? 'Upravit uživatele' : 'Účet zatím nemá profil'}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -988,13 +1129,16 @@ function SuperAdminContent() {
               ))}
             </div>
 
-            <Dialog open={editUser !== null} onOpenChange={(open) => !open && !savingUser && setEditUser(null)}>
+            <Dialog
+              open={editUser !== null}
+              onOpenChange={(open) => !open && !savingUser && setEditUser(null)}
+            >
               <DialogContent className="max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Upravit uživatele</DialogTitle>
                   <DialogDescription>
-                    {editUser?.email} — e-mail ani platformní roli odsud měnit nelze. E-mailem se účet páruje
-                    s přihlášením, role obce se přiřazují v záložce „Role“.
+                    {editUser?.email} — e-mail ani platformní roli odsud měnit nelze. E-mailem se
+                    účet páruje s přihlášením, role obce se přiřazují v záložce „Role“.
                   </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSaveUser} className="space-y-4">
@@ -1011,13 +1155,15 @@ function SuperAdminContent() {
                     <Label>Obec</Label>
                     <Select
                       value={editUserMuniId || NO_MUNICIPALITY}
-                      onValueChange={(v) => setEditUserMuniId(v === NO_MUNICIPALITY ? "" : v)}
+                      onValueChange={(v) => setEditUserMuniId(v === NO_MUNICIPALITY ? '' : v)}
                     >
                       <SelectTrigger className="h-11 mt-1.5">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NO_MUNICIPALITY}>Bez obce — vidí akce ze všech obcí</SelectItem>
+                        <SelectItem value={NO_MUNICIPALITY}>
+                          Bez obce — vidí akce ze všech obcí
+                        </SelectItem>
                         {municipalities.map((m) => (
                           <SelectItem key={m.id} value={m.id}>
                             {m.name}
@@ -1070,28 +1216,35 @@ function SuperAdminContent() {
                     <Label>Zájmy</Label>
                     <div className="flex flex-wrap gap-2 mt-1.5">
                       {categories.map((c) => {
-                        const active = editInterests.includes(c.id);
+                        const active = editInterests.includes(c.id)
                         return (
                           <button
                             key={c.id}
                             type="button"
                             onClick={() =>
-                              setEditInterests((prev) => (active ? prev.filter((id) => id !== c.id) : [...prev, c.id]))
+                              setEditInterests((prev) =>
+                                active ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                              )
                             }
                             className={chipClass(active)}
                           >
                             {c.name}
                           </button>
-                        );
+                        )
                       })}
                     </div>
                   </div>
                   <DialogFooter className="gap-2">
-                    <Button type="button" variant="outline" onClick={() => setEditUser(null)} disabled={savingUser}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setEditUser(null)}
+                      disabled={savingUser}
+                    >
                       Zrušit
                     </Button>
                     <Button type="submit" disabled={savingUser}>
-                      {savingUser ? "Ukládám…" : "Uložit"}
+                      {savingUser ? 'Ukládám…' : 'Uložit'}
                     </Button>
                   </DialogFooter>
                 </form>
@@ -1107,18 +1260,19 @@ function SuperAdminContent() {
                   <CalendarPlus className="h-3 w-3" /> Nová akce
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Obec a pořadatel se vybírají tady — organizátor a admin obce mají tyhle dvě věci dané
-                  vlastní rolí, superadmin je vybírá ručně. Zbytek je přesně ten samý formulář jako na „Vytvořit akci“.
+                  Obec a pořadatel se vybírají tady — organizátor a admin obce mají tyhle dvě věci
+                  dané vlastní rolí, superadmin je vybírá ručně. Zbytek je přesně ten samý formulář
+                  jako na „Vytvořit akci“.
                 </p>
                 <div>
                   <Label>Obec *</Label>
                   <Select
                     value={evMuniId}
                     onValueChange={(v) => {
-                      setEvMuniId(v);
+                      setEvMuniId(v)
                       // The eligible pořadatelé differ per obec — a pick from the previous one
                       // would silently stay selected (and be rejected on submit).
-                      setEvOrganizerId("");
+                      setEvOrganizerId('')
                     }}
                   >
                     <SelectTrigger className="h-11 mt-1.5">
@@ -1135,9 +1289,15 @@ function SuperAdminContent() {
                 </div>
                 <div>
                   <Label>Pořadatel *</Label>
-                  <Select value={evOrganizerId} onValueChange={setEvOrganizerId} disabled={!evMuniId}>
+                  <Select
+                    value={evOrganizerId}
+                    onValueChange={setEvOrganizerId}
+                    disabled={!evMuniId}
+                  >
                     <SelectTrigger className="h-11 mt-1.5">
-                      <SelectValue placeholder={evMuniId ? "Vyberte pořadatele" : "Nejdřív vyberte obec"} />
+                      <SelectValue
+                        placeholder={evMuniId ? 'Vyberte pořadatele' : 'Nejdřív vyberte obec'}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {evOrganizerOptions.map((u) => (
@@ -1149,8 +1309,8 @@ function SuperAdminContent() {
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1.5">
                     {evMuniId && evOrganizerOptions.length === 0
-                      ? "V téhle obci zatím nikdo nemá roli „Admin obce“ ani „Organizátor“. Přiřaďte ji v záložce „Role“, potom půjde akci vytvořit."
-                      : "Nabízí se jen lidé s rolí „Admin obce“ nebo „Organizátor“ ve vybrané obci."}
+                      ? 'V téhle obci zatím nikdo nemá roli „Admin obce“ ani „Organizátor“. Přiřaďte ji v záložce „Role“, potom půjde akci vytvořit.'
+                      : 'Nabízí se jen lidé s rolí „Admin obce“ nebo „Organizátor“ ve vybrané obci.'}
                   </p>
                 </div>
               </CardContent>
@@ -1173,7 +1333,9 @@ function SuperAdminContent() {
                 </CardContent>
               </Card>
             ) : (
-              <p className="text-center text-sm text-muted-foreground py-6">Nejdřív vyberte obec a pořadatele.</p>
+              <p className="text-center text-sm text-muted-foreground py-6">
+                Nejdřív vyberte obec a pořadatele.
+              </p>
             )}
 
             <div className="space-y-2">
@@ -1193,7 +1355,15 @@ function SuperAdminContent() {
                         </Link>
                       </Button>
                     )}
-                    <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} municipalityId={ev.municipalityId} capacity={ev.capacity} variant="icon" onCancelled={load} />
+                    <CancelEventButton
+                      eventId={ev.id}
+                      title={ev.title}
+                      dateTime={ev.dateTimeIso}
+                      municipalityId={ev.municipalityId}
+                      capacity={ev.capacity}
+                      variant="icon"
+                      onCancelled={load}
+                    />
                   </CardContent>
                 </Card>
               ))}
@@ -1250,7 +1420,7 @@ function SuperAdminContent() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="font-bold truncate">{u.fullName ?? "Bez profilu"}</p>
+                        <p className="font-bold truncate">{u.fullName ?? 'Bez profilu'}</p>
                         <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                       </div>
                     </div>
@@ -1284,7 +1454,10 @@ function SuperAdminContent() {
               ))}
             </div>
 
-            <AlertDialog open={roleRevoke !== null} onOpenChange={(open) => !open && setRoleRevoke(null)}>
+            <AlertDialog
+              open={roleRevoke !== null}
+              onOpenChange={(open) => !open && setRoleRevoke(null)}
+            >
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Odebrat roli „{roleRevoke?.what}“?</AlertDialogTitle>
@@ -1296,7 +1469,7 @@ function SuperAdminContent() {
                   <AlertDialogCancel>Zpět</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => roleRevoke && handleRevoke(roleRevoke.userRoleId)}
-                    className={buttonVariants({ variant: "destructive" })}
+                    className={buttonVariants({ variant: 'destructive' })}
                   >
                     Odebrat roli
                   </AlertDialogAction>
@@ -1314,22 +1487,23 @@ function SuperAdminContent() {
                     Odebrat poslední roli „{lastRoleRevoke?.fullName ?? lastRoleRevoke?.email}“?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    Tohle je jediná role, kterou uživatel má. Bez role by účet nepatřil do žádné obce, takže se
-                    spolu s rolí smaže i on — jméno a kontakty zmizí, z budoucích akcí se odhlásí a účast na
-                    proběhlých akcích zůstane obci jen jako anonymní statistika. Nejde to vrátit zpět.
+                    Tohle je jediná role, kterou uživatel má. Bez role by účet nepatřil do žádné
+                    obce, takže se spolu s rolí smaže i on — jméno a kontakty zmizí, z budoucích
+                    akcí se odhlásí a účast na proběhlých akcích zůstane obci jen jako anonymní
+                    statistika. Nejde to vrátit zpět.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={deletingLastRole}>Zrušit</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={(e) => {
-                      e.preventDefault();
-                      handleDeleteWithLastRole();
+                      e.preventDefault()
+                      handleDeleteWithLastRole()
                     }}
                     disabled={deletingLastRole}
-                    className={buttonVariants({ variant: "destructive" })}
+                    className={buttonVariants({ variant: 'destructive' })}
                   >
-                    {deletingLastRole ? "Mažu…" : "Odebrat a smazat účet"}
+                    {deletingLastRole ? 'Mažu…' : 'Odebrat a smazat účet'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1365,8 +1539,8 @@ function SuperAdminContent() {
                   <p className="font-bold text-sm">Obce bez admina</p>
                 </div>
                 <p className="px-1 text-sm text-muted-foreground">
-                  Nikdo tu nevyřizuje stížnosti, žádosti o odebrání pořadatele ani pozvánky obci — dokud obci admina
-                  neurčíte (záložka Role), rozhodujete za ni vy.
+                  Nikdo tu nevyřizuje stížnosti, žádosti o odebrání pořadatele ani pozvánky obci —
+                  dokud obci admina neurčíte (záložka Role), rozhodujete za ni vy.
                 </p>
                 {obceWithoutAdmin.map((m) => (
                   <details key={m.id} className="rounded-xl border border-border">
@@ -1395,7 +1569,8 @@ function SuperAdminContent() {
                             <div className="flex-1 min-w-0">
                               <p className="font-semibold text-sm truncate">{r.full_name}</p>
                               <p className="text-xs text-muted-foreground">
-                                {r.municipality_name} · {new Date(r.created_at).toLocaleDateString("cs-CZ")}
+                                {r.municipality_name} ·{' '}
+                                {new Date(r.created_at).toLocaleDateString('cs-CZ')}
                               </p>
                             </div>
                             <ConfirmActionButton
@@ -1404,7 +1579,7 @@ function SuperAdminContent() {
                               className="h-9 text-success border-success/40"
                               disabled={requestBusyId === r.id}
                               title={`Schválit žádost – ${r.full_name}?`}
-                              description={`${r.full_name} dostane v obci ${r.municipality_name} roli organizátora${r.organization_name ? ` za „${r.organization_name}“` : ""} a bude moct zakládat akce.`}
+                              description={`${r.full_name} dostane v obci ${r.municipality_name} roli organizátora${r.organization_name ? ` za „${r.organization_name}“` : ''} a bude moct zakládat akce.`}
                               confirmLabel="Schválit"
                               onConfirm={() => handleOrganizerRequestDecision(r.id, true)}
                             >
@@ -1442,13 +1617,14 @@ function SuperAdminContent() {
                       <p className="font-bold text-sm">Stížnosti na recenze, kde je stranou obec</p>
                     </div>
                     <p className="px-1 text-sm text-muted-foreground">
-                      Recenze akce, kterou obec pořádá, nebo stížnost od admina obce — obec o vlastní věci
-                      nerozhoduje, rozhodujete vy.
+                      Recenze akce, kterou obec pořádá, nebo stížnost od admina obce — obec o
+                      vlastní věci nerozhoduje, rozhodujete vy.
                     </p>
                     {platformComplaints.map((c) => (
                       <div key={c.id} className="space-y-1">
                         <p className="px-1 text-xs text-muted-foreground">
-                          {municipalities.find((m) => m.id === c.municipality_id)?.name ?? "Neznámá obec"}
+                          {municipalities.find((m) => m.id === c.municipality_id)?.name ??
+                            'Neznámá obec'}
                         </p>
                         <ReviewComplaintCard complaint={c} onDecided={load} />
                       </div>
@@ -1467,7 +1643,10 @@ function SuperAdminContent() {
                         key={r.id}
                         request={r}
                         busy={requestBusyId === r.id}
-                        subtitle={municipalities.find((m) => m.id === r.municipality_id)?.name ?? "Neznámá obec"}
+                        subtitle={
+                          municipalities.find((m) => m.id === r.municipality_id)?.name ??
+                          'Neznámá obec'
+                        }
                         onDecide={(approve) => handleCoOrganizingRequestDecision(r.id, approve)}
                       />
                     ))}
@@ -1479,7 +1658,7 @@ function SuperAdminContent() {
         </Tabs>
       </div>
     </div>
-  );
+  )
 }
 
 export default function SuperAdminPage() {
@@ -1491,5 +1670,5 @@ export default function SuperAdminPage() {
         </Suspense>
       </RequireRole>
     </RequireAuth>
-  );
+  )
 }

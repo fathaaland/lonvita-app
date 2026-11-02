@@ -4,7 +4,8 @@ import {
   changedNotifiableFields,
   getEventRegistrants,
 } from '@/collections/shared/eventNotifications'
-import { escapeHtml, sendNotificationToMany } from '@/collections/shared/notify'
+import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
+import { smsSentForCapacity } from '@/lib/capacity'
 import { rescheduleEventReminders } from '@/collections/shared/reminders'
 import { formatPragueDateTime } from '@/lib/date'
 import { logger } from '@/lib/logger'
@@ -12,13 +13,16 @@ import { logger } from '@/lib/logger'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { EventUpdatedJobData, EventUpdatedJobResult } from '@/lib/queue/contracts'
-import { requiredRelationNumber } from '@/lib/relations'
+import { relationNumber, requiredRelationNumber } from '@/lib/relations'
+
+/** What moving makes worth an SMS (Balíčky služeb: "změna času nebo místa") — not every edit. */
+const SMS_FIELDS = new Set(['dateTime', 'locationText', 'lat', 'lng'])
 
 type DispatchContext = { jobId?: string }
 
 /**
- * "Akce byla upravena" for every registrant — in-app and e-mail (SMS go out only when an event is
- * cancelled — event-cancelled.processor). Runs a minute after the
+ * "Akce byla upravena" for every registrant — in-app and e-mail, and by SMS when its time or place
+ * moved on an event of fewer than SMS_LARGE_EVENT_CAPACITY places. Runs a minute after the
  * first edit of a burst and diffs the event as it is now against that edit's starting point, so
  * a rolled-back edit, or one undone straight away, tells nobody anything.
  *
@@ -85,6 +89,19 @@ export const processEventUpdatedJob = async (
     { jobIdPrefix: announcementId },
   )
 
+  const municipalityId = relationNumber(event.municipality)
+  const smsWorthy = changedFields.some((field) => SMS_FIELDS.has(field))
+  const sms =
+    smsWorthy && municipalityId !== null && smsSentForCapacity(event.capacity)
+      ? await sendSmsToMany(
+          payload,
+          municipalityId,
+          userIds,
+          `Lonvita: akce „${event.title}“ se změnila. Nově: ${when}, ${event.locationText}.`,
+          announcementId,
+        )
+      : 0
+
   logger.info('Event update announced', {
     event: 'event.update_notified',
     eventId: event.id,
@@ -92,6 +109,7 @@ export const processEventUpdatedJob = async (
     registrants: userIds.length,
     inApp: sent.inApp,
     emails: sent.emails,
+    sms,
   })
   return { notified: userIds.length }
 }

@@ -12,7 +12,7 @@ type DispatchContext = { jobId?: string }
 
 /**
  * "Akce byla zrušena" for every registrant — in-app, e-mail and (an event of at most
- * SMS_MAX_CAPACITY places only) SMS — and none of the event's
+ * fewer than SMS_LARGE_EVENT_CAPACITY places only) SMS — and none of the event's
  * reminders go out anymore. Works from the snapshot in the job: a consented delete has removed
  * the event and its registrations by now. An event that's still there and not cancelled means
  * the cancel rolled back (or was undone) — then nobody hears anything.

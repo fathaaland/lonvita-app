@@ -17,7 +17,7 @@ import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
 import { MULTI_DAY_END_MESSAGE, nextDateInputValue, toDateInputValue } from "@/lib/date";
-import { SMS_MAX_CAPACITY, UNLIMITED_CAPACITY, isUnlimitedCapacity, smsSentForCapacity } from "@/lib/capacity";
+import { SMS_LARGE_EVENT_CAPACITY, UNLIMITED_CAPACITY, isUnlimitedCapacity, smsSentForCapacity } from "@/lib/capacity";
 import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 import { CO_ORGANIZING_INVITATION_HOURS } from "@/lib/requestDeadlines";
@@ -175,7 +175,7 @@ export function EventForm({
   );
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? prefill?.capacity ?? 0));
-  // The obec texts registrants on a cancel — but only for an event of at most SMS_MAX_CAPACITY places.
+  // The obec texts registrants on a cancel — but only for an event of fewer than SMS_LARGE_EVENT_CAPACITY places.
   const { sms: obecSendsSms } = useMunicipalityFeatures(municipalityId);
   const capacityValue = unlimitedCapacity ? UNLIMITED_CAPACITY : Number(form.capacity);
   const smsWithheld = obecSendsSms && Number.isFinite(capacityValue) && capacityValue >= 1 && !smsSentForCapacity(capacityValue);
@@ -438,7 +438,7 @@ export function EventForm({
         )}
         {smsWithheld && (
           <p className="text-xs text-warning mt-1.5">
-            Při kapacitě nad {SMS_MAX_CAPACITY} míst se při zrušení akce SMS neposílají — účastníci dostanou upozornění pouze e-mailem a v aplikaci.
+            U akce pro {SMS_LARGE_EVENT_CAPACITY} a více lidí (i s neomezenou kapacitou) se SMS neposílají — o zrušení či změně dostanou účastníci upozornění pouze e-mailem a v aplikaci.
           </p>
         )}
       </div>

@@ -25,11 +25,12 @@ export function mayRateEvent(
 }
 
 /**
- * SMS about a cancelled event go out only for events of at most this many places — anything bigger
- * (unlimited included) is announced in-app and by e-mail only, so one cancel can't eat the obec's SMS.
- * Both the pořadatel and the participants are told so up front (EventForm, the event detail).
+ * A "large" event — this many places or more (unlimited included) — gets no SMS at all (decided
+ * 23. 10. and 2. 11. 2026): its people hear of a cancel, a change or the reminder in-app and by
+ * e-mail only, so one event can't eat the obec's SMS quota. Both the pořadatel and the participants
+ * are told so up front (EventForm, the event detail).
  */
-export const SMS_MAX_CAPACITY = 50
+export const SMS_LARGE_EVENT_CAPACITY = 50
 
 export const smsSentForCapacity = (capacity: number | null | undefined): boolean =>
-  typeof capacity === "number" && capacity >= 1 && capacity <= SMS_MAX_CAPACITY
+  typeof capacity === "number" && capacity >= 1 && capacity < SMS_LARGE_EVENT_CAPACITY

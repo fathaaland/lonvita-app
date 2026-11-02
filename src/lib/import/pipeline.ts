@@ -1,4 +1,5 @@
 import type { Payload, Where } from 'payload'
+import { scrapingLimitsOf } from '@/lib/billing/scraping'
 
 import { pragueDateKey } from '@/lib/date'
 import { logger, serializeError } from '@/lib/logger'
@@ -55,7 +56,6 @@ import {
 } from './normalize'
 import { markMissing, syncTakenOver, type SyncPair } from './sync'
 import { addDays, pragueToday, pragueWallTimeToIso } from './time'
-import { aiBudgetOf } from './usage'
 
 /**
  * From an input to candidates the obec's admin approves (docs/import-akci-z-webu.md):
@@ -817,17 +817,21 @@ export async function storeCandidates(
   return result
 }
 
-/** The obec as the pipeline needs it — the categories the AI may pick from, and what its imports may
- * spend on the AI this month (lib/import/usage). */
+/** The obec as the pipeline needs it — the categories the AI may pick from, whether it has the
+ * scraping package (Municipalities.importAiEnabled) or is suspended, and the input tokens one run
+ * may use (lib/billing/scraping). */
 export async function loadImportContext(
   payload: Payload,
   municipalityId: number | string,
 ): Promise<{
   municipality: StoreInput['municipality']
   aiContext: AiContext
-  aiBudgetUsd: number
   /** The obec pays for the AI import (Municipalities.importAiEnabled). */
   aiEnabled: boolean
+  /** Doesn't pay — no AI at all (Municipalities.billingStatus). */
+  suspended: boolean
+  /** The technical safety net on one run (BillingSettings.maxInputTokensPerRun or the obec's own). */
+  maxInputTokensPerRun: number
 } | null> {
   const municipality = await payload
     .findByID({ collection: 'municipalities', id: municipalityId, depth: 0, overrideAccess: true })
@@ -851,7 +855,8 @@ export async function loadImportContext(
       municipalityName: municipality.name,
       categoryNames: categories.docs.map((c) => c.name).sort(),
     },
-    aiBudgetUsd: aiBudgetOf(municipality),
     aiEnabled: municipality.importAiEnabled === true,
+    suspended: municipality.billingStatus === 'suspended',
+    maxInputTokensPerRun: (await scrapingLimitsOf(payload, municipality.id)).maxInputTokensPerRun,
   }
 }

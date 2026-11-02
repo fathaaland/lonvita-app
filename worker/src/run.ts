@@ -22,9 +22,11 @@ const SYNC_STATUSES_CRON = '*/15 * * * *'
 /** Data retention (lib/retention/policy.ts) — after the two cleanups, still in the quiet window.
  * Deletes only with DATA_RETENTION_MODE=enforce; until then each night just reports what's due. */
 const DATA_RETENTION_CRON = '0 4 * * *'
-/** Event sources (EventSources) — every midnight the nightly check; the night to Monday the weekly
- * full pass (scan-event-sources decides which). */
-const SCAN_EVENT_SOURCES_CRON = '0 0 * * *'
+/** Event sources (EventSources) — every hour; scan-event-sources reads the sources of the obce whose
+ * weekly slot (Municipalities.scrapingSlotDay/Hour) is that hour. */
+const SCAN_EVENT_SOURCES_CRON = '0 * * * *'
+/** Each obec's users (lib/billing/active-users) — the 1st of the month, early morning. */
+const SNAPSHOT_ACTIVE_USERS_CRON = '15 1 1 * *'
 /** Audit trail copy (export-audit-trail) — past midnight UTC in either Prague offset, so the day it
  * writes (UTC) is finished; before data retention, which may remove rows the copy should hold. */
 const EXPORT_AUDIT_TRAIL_CRON = '30 2 * * *'
@@ -102,6 +104,20 @@ await getQueue().upsertJobScheduler(
 logger.info('Event source scan schedule registered', {
   event: 'worker.import_schedule_registered',
   pattern: SCAN_EVENT_SOURCES_CRON,
+  tz: APP_TIME_ZONE,
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.SNAPSHOT_ACTIVE_USERS,
+  { pattern: SNAPSHOT_ACTIVE_USERS_CRON, tz: APP_TIME_ZONE },
+  {
+    name: JOB_NAMES.SNAPSHOT_ACTIVE_USERS,
+    data: { jobType: JOB_NAMES.SNAPSHOT_ACTIVE_USERS, payload: {} },
+  },
+)
+logger.info('Active user snapshot schedule registered', {
+  event: 'worker.snapshot_schedule_registered',
+  pattern: SNAPSHOT_ACTIVE_USERS_CRON,
   tz: APP_TIME_ZONE,
 })
 

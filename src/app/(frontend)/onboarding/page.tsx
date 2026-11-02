@@ -278,7 +278,7 @@ function OnboardingContent() {
                   <h2 className="text-xl font-extrabold">Vaše telefonní číslo</h2>
                   <p className="text-sm text-muted-foreground mt-1">
                     {homeFeatures.sms
-                      ? "Na tohle číslo vám pošleme SMS, pokud se akce (s kapacitou do 50 míst), na kterou jste přihlášeni, zruší."
+                      ? "SMS o zrušení či změně akce si můžete zapnout později v profilu (Notifikace)."
                       : "Pořadatel akce, na kterou se přihlásíte, vás na něm může zastihnout."}
                   </p>
                 </div>

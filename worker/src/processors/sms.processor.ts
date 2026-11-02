@@ -1,5 +1,7 @@
 import { UnrecoverableError } from 'bullmq'
 
+import { checkSmsUsageAlerts } from '@/lib/billing/sms-alerts'
+import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
 import { logger, serializeError } from '@/lib/logger'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -17,9 +19,10 @@ type QueueJobContext = {
  *   body: JSON application_id, application_token, number, text, unicode, sender_id(_value)
  * `BULKGATE_SENDER_ID` is the sender type (gSystem = BulkGate's own number, the default; gText =
  * an alphanumeric sender like "Lonvita"; gOwn = a verified own number; gProfile = a profile id)
- * and `BULKGATE_SENDER_ID_VALUE` its value. Czech text needs `unicode` for the diacritics.
+ * and `BULKGATE_SENDER_ID_VALUE` its value.
  *
- * `duplicates_check: on` makes BulkGate drop the same text to the same number within 5 minutes, so
+ * Text goes without diacritics (lib/billing/sms toSmsText), so `unicode` stays off — 160 characters
+ * a part instead of 70. `duplicates_check: on` makes BulkGate drop the same text to the same number within 5 minutes, so
  * a retry after a send that went through but whose answer got lost doesn't text anyone twice. What
  * retrying can't fix (missing configuration, a rejected number, bad credentials, no credit) fails
  * the job straight away instead of three times.
@@ -55,8 +58,9 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
       application_token: applicationToken,
       // toE164 gives "+420…"; BulkGate takes the international number without the plus.
       number: payload.to.replace(/^\+/, ''),
-      text: payload.message,
-      unicode: true,
+      // Already without diacritics when queued (sendSmsToMany); again for a job queued before that.
+      text: toSmsText(payload.message),
+      unicode: false,
       sender_id: senderId,
       ...(senderIdValue ? { sender_id_value: senderIdValue } : {}),
       duplicates_check: 'on',
@@ -92,14 +96,21 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     providerStatus: sent.status,
   })
 
-  // Counted against the obec's monthly SMS. Sent is sent: a failed write is logged, not retried —
-  // a retry would text the person again.
+  // Counted against the obec's yearly SMS quota, part by part. Sent is sent: a failed write is logged,
+  // not retried — a retry would text the person again.
   if (payload.municipalityId !== undefined) {
     try {
       const db = await getWorkerPayload()
       await db.create({
         collection: 'sms-messages',
-        data: { municipality: payload.municipalityId, requestId: payload.requestId, providerMessageSid: sent.sms_id },
+        data: {
+          municipality: payload.municipalityId,
+          requestId: payload.requestId,
+          providerMessageSid: sent.sms_id,
+          // Counted off our own text — BulkGate's part ids don't say it reliably.
+          parts: smsPartsOf(toSmsText(payload.message)),
+          overage: payload.overage === true,
+        },
         overrideAccess: true,
       })
     } catch (error) {
@@ -110,5 +121,7 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
         ...serializeError(error),
       })
     }
+    // 80 % / 100 % of the quota — its admins hear it once a licence year.
+    await checkSmsUsageAlerts(await getWorkerPayload(), payload.municipalityId, new Date())
   }
 }

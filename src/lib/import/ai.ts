@@ -28,7 +28,8 @@ export class ImportAiError extends Error {
       | 'refused'
       | 'truncated'
       | 'failed'
-      | 'over_budget'
+      | 'token_cap'
+      | 'suspended'
       | 'disabled'
       | 'unpriced'
       | 'not_subscribed',

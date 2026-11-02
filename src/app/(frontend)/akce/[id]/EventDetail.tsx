@@ -44,7 +44,7 @@ import { formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/dat
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS, registrationDeadline } from "@/lib/registrationCutoff";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
-import { SMS_MAX_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
+import { SMS_LARGE_EVENT_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
 import { isEventShareable } from "@/lib/eventShare";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 import { cancelChannels, smsWithheldForCapacity, useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
@@ -457,7 +457,7 @@ function EventDetailContent() {
             <div className="flex items-start gap-3">
               <Info className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
               <p className="text-sm text-muted-foreground">
-                Pokud by se akce zrušila, upozorníme vás pouze e-mailem a v aplikaci — SMS posíláme jen u akcí s kapacitou do {SMS_MAX_CAPACITY} míst.
+                O zrušení nebo změně akce vás upozorníme pouze e-mailem a v aplikaci — u akcí pro {SMS_LARGE_EVENT_CAPACITY} a více lidí ani s neomezenou kapacitou SMS neposíláme.
               </p>
             </div>
           )}

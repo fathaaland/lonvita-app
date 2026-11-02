@@ -13,8 +13,10 @@ import { processFeedbackRequestJob } from '../processors/feedback-request.proces
 import { processGenerateExportJob } from '../processors/generate-export.processor'
 import { processImportEventsJob } from '../processors/import-events.processor'
 import { processPasswordResetJob } from '../processors/password-reset.processor'
+import { processReminderSmsJob } from '../processors/reminder-sms.processor'
 import { processScanEventSourcesJob } from '../processors/scan-event-sources.processor'
 import { processSmsJob } from '../processors/sms.processor'
+import { processSnapshotActiveUsersJob } from '../processors/snapshot-active-users.processor'
 import { processSyncStatusesJob } from '../processors/sync-statuses.processor'
 
 import type {
@@ -32,7 +34,9 @@ import type {
   ImportEventsJobResult,
   PasswordResetJobResult,
   QueueJobEnvelope,
+  ReminderSmsJobResult,
   ScanEventSourcesJobResult,
+  SnapshotActiveUsersJobResult,
   SyncStatusesJobResult,
 } from '@/lib/queue/contracts'
 
@@ -56,6 +60,8 @@ type JobResult =
   | AttendanceReminderJobResult
   | DataRetentionJobResult
   | ScanEventSourcesJobResult
+  | ReminderSmsJobResult
+  | SnapshotActiveUsersJobResult
   | ImportEventsJobResult
   | ExportAuditTrailJobResult
   | void
@@ -109,6 +115,12 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.IMPORT_EVENTS:
       return processImportEventsJob(job.payload, context)
+
+    case JOB_NAMES.REMINDER_SMS:
+      return processReminderSmsJob(job.payload)
+
+    case JOB_NAMES.SNAPSHOT_ACTIVE_USERS:
+      return processSnapshotActiveUsersJob()
 
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)

@@ -1,7 +1,6 @@
 import type { Payload } from 'payload'
 
 import { computeUsageCost, getUsagePricing } from '@/lib/providers/usage-pricing'
-import { getCostByMunicipality } from '@/lib/usage/dashboard-aggregation'
 import { recordUsageEvent } from '@/lib/usage/record-usage'
 import { logger } from '@/lib/logger'
 
@@ -12,13 +11,12 @@ import {
   type extractEventDetailsWithAi,
   type extractEventsWithAi,
 } from './ai'
-import { IMPORT_LIMITS } from './contracts'
 import { pragueToday, pragueWallTimeToIso } from './time'
 
 /**
  * The imports' AI calls on the usage-events ledger (lib/usage — the same accounting hbai-app uses),
  * each counted against the obec. Obce pay a flat fee for imports: the ledger is what their imports
- * cost us, and the fair-use cap (IMPORT_LIMITS.aiMonthlyBudgetUsd) is read off it.
+ * cost us. The only cap is technical — the input tokens of one run (meterAi).
  */
 
 /** Whose import a call was made for. */
@@ -48,24 +46,6 @@ export const emptyTotals = (): UsageTotals => ({
 export const pragueMonthStart = (now: Date): Date =>
   new Date(pragueWallTimeToIso(`${pragueToday(now).slice(0, 7)}-01`, null))
 
-/** What an obec's imports may spend on the AI this month — its own limit when the platform gave it
- * one (Municipalities.importAiBudgetUsd), else IMPORT_LIMITS.aiMonthlyBudgetUsd. */
-export const aiBudgetOf = (municipality: { importAiBudgetUsd?: number | null }): number =>
-  municipality.importAiBudgetUsd ?? IMPORT_LIMITS.aiMonthlyBudgetUsd
-
-export async function isOverAiBudget(
-  payload: Payload,
-  municipality: { id: number; aiBudgetUsd: number },
-  now: Date,
-): Promise<boolean> {
-  const spent = await getCostByMunicipality(payload, {
-    from: pragueMonthStart(now),
-    to: new Date(now.getTime() + 1),
-    municipalityId: municipality.id,
-  })
-  return (spent.get(municipality.id) ?? 0) >= municipality.aiBudgetUsd
-}
-
 /** Whether the platform's admins switched AI reads off for everybody (ImportSettings). */
 export async function isAiSwitchedOff(payload: Payload): Promise<boolean> {
   const settings = await payload
@@ -75,8 +55,10 @@ export async function isAiSwitchedOff(payload: Payload): Promise<boolean> {
 }
 
 const REFUSALS = {
-  over_budget:
-    'Měsíční limit AI zpracování obce je vyčerpaný — do konce měsíce se čtou jen kalendáře iCal a strukturovaná data.',
+  token_cap:
+    'Běh překročil technický limit vstupních tokenů a zastavil se. Provozovatel Lonvity dostal hlášení a zdroj zkontroluje.',
+  suspended:
+    'Služby obce jsou pozastavené — čtou se jen kalendáře iCal a strukturovaná data.',
   disabled:
     'Zpracování pomocí AI je dočasně vypnuté — zatím se čtou jen kalendáře iCal a strukturovaná data.',
   unpriced:
@@ -89,7 +71,7 @@ const REFUSALS = {
  * source's fault: such a run is skipped, not counted as the source failing (import-events.processor). */
 export const isAiHeldBack = (error: unknown): boolean =>
   error instanceof ImportAiError &&
-  (error.code === 'over_budget' ||
+  (error.code === 'suspended' ||
     error.code === 'disabled' ||
     error.code === 'unpriced' ||
     error.code === 'not_subscribed' ||
@@ -98,13 +80,13 @@ export const isAiHeldBack = (error: unknown): boolean =>
 export type AiRefusal = keyof typeof REFUSALS
 
 /** Why the AI may not be called for the obec right now — or null when it may. A model the ledger
- * has no price for (IMPORT_AI_MODEL set to one usage-pricing doesn't list) would cost $0 on it, and
- * the obec's limit would never be reached — so it isn't called at all. */
+ * has no price for (IMPORT_AI_MODEL set to one usage-pricing doesn't list) would cost $0 on it and
+ * hide what the imports cost us — so it isn't called at all. */
 export async function aiRefusalFor(
   payload: Payload,
-  municipality: { id: number; aiBudgetUsd: number; aiEnabled: boolean },
-  now: Date,
+  municipality: { aiEnabled: boolean; suspended: boolean },
 ): Promise<AiRefusal | null> {
+  if (municipality.suspended) return 'suspended'
   if (!municipality.aiEnabled) return 'not_subscribed'
   if (await isAiSwitchedOff(payload)) return 'disabled'
   if (!getUsagePricing('anthropic', importModel())) {
@@ -114,7 +96,6 @@ export async function aiRefusalFor(
     })
     return 'unpriced'
   }
-  if (await isOverAiBudget(payload, municipality, now)) return 'over_budget'
   return null
 }
 
@@ -128,14 +109,19 @@ type MeteredAi = {
 
 /**
  * The AI of `deps`, with every call written to the ledger against `attribution` (and added to
- * `totals`). Over the obec's monthly budget, or with AI switched off for the platform, it isn't
- * called at all — the import goes on with what needs no AI.
+ * `totals`). Refused (`refusal`) it isn't called at all — the import goes on with what needs no AI.
+ * Once the run's input tokens reach `maxInputTokens` (Balíčky služeb: "max. 60 000 vstupních tokenů
+ * na běh") no further call is made: the run stops with `token_cap` and the platform is told.
  */
 export function meterAi<D extends MeteredAi>(
   deps: D,
   payload: Payload,
   attribution: UsageAttribution,
-  { refusal, totals }: { refusal: AiRefusal | null; totals: UsageTotals },
+  {
+    refusal,
+    totals,
+    maxInputTokens = Infinity,
+  }: { refusal: AiRefusal | null; totals: UsageTotals; maxInputTokens?: number },
 ): D {
   const meter: AiMeter = async (call) => {
     const usage = {
@@ -163,14 +149,19 @@ export function meterAi<D extends MeteredAi>(
       usage,
     })
   }
-  const refuse = (): never => {
-    throw new ImportAiError(REFUSALS[refusal!], refusal!)
+  const check = () => {
+    if (refusal) throw new ImportAiError(REFUSALS[refusal], refusal)
+    if (totals.inputTokens >= maxInputTokens) throw new ImportAiError(REFUSALS.token_cap, 'token_cap')
   }
   return {
     ...deps,
-    extractWithAi: async (input, context) =>
-      refusal ? refuse() : deps.extractWithAi(input, { ...context, meter }),
-    extractDetailsWithAi: async (text, event, context) =>
-      refusal ? refuse() : deps.extractDetailsWithAi(text, event, { ...context, meter }),
+    extractWithAi: async (input, context) => {
+      check()
+      return deps.extractWithAi(input, { ...context, meter })
+    },
+    extractDetailsWithAi: async (text, event, context) => {
+      check()
+      return deps.extractDetailsWithAi(text, event, { ...context, meter })
+    },
   }
 }

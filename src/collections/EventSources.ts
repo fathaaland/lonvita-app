@@ -6,6 +6,8 @@ import type {
 } from 'payload'
 import { APIError } from 'payload'
 
+import { scrapingLimitsOf, sourceRefusal } from '@/lib/billing/scraping'
+
 import { canAccessImportRecords } from './access/import'
 import { canCreateForAdministeredMunicipality } from './access/shared'
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
@@ -48,7 +50,7 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
     where: {
       and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }],
     },
-    select: { url: true },
+    select: { url: true, enabled: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
@@ -58,6 +60,14 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
   const limit = IMPORT_LIMITS.sourcesPerMunicipality
   if (existing.docs.length >= limit) {
     throw new APIError(`Obec může mít nejvýš ${limit} zdrojů akcí.`, 400)
+  }
+  // The obec's scraping package (lib/billing/scraping) — trusted internal writes (seeds, tests) aside.
+  if (req.user && data.enabled !== false) {
+    const refusal = sourceRefusal(
+      await scrapingLimitsOf(req.payload, Number(municipalityId), { req }),
+      existing.docs.filter((s) => s.enabled).length,
+    )
+    if (refusal) throw new APIError(refusal, 400)
   }
 
   const label = typeof data.label === 'string' ? data.label.trim().slice(0, 120) : ''
@@ -79,7 +89,7 @@ const ROBOTS_ERROR_CODES = new Set(['robots_disallowed', 'robots_unavailable'])
 /** Who let the import past the web's robots.txt, and when — set with the switch, cleared with it.
  * A source switched back on, or just let past robots.txt, is read right away (readNewSource) — the
  * panel shows it waiting. */
-const recordSourceChange: CollectionBeforeChangeHook = ({ data, originalDoc, operation, req }) => {
+const recordSourceChange: CollectionBeforeChangeHook = async ({ data, originalDoc, operation, req }) => {
   if (operation !== 'update' || !data) return data
   const now = new Date().toISOString()
   const waived = Boolean(data.ignoreRobots ?? originalDoc?.ignoreRobots)
@@ -101,6 +111,25 @@ const recordSourceChange: CollectionBeforeChangeHook = ({ data, originalDoc, ope
   }
   const enabled = Boolean(data.enabled ?? originalDoc?.enabled)
   const switchedOn = enabled && !originalDoc?.enabled
+  // Switching one back on counts against the package like adding one (the system's own writes aside).
+  if (switchedOn && req.user) {
+    const municipalityId = Number(relationId(originalDoc?.municipality))
+    const others = await req.payload.count({
+      collection: 'event-sources',
+      where: {
+        and: [
+          { municipality: { equals: municipalityId } },
+          { organization: { exists: false } },
+          { enabled: { equals: true } },
+          { id: { not_equals: originalDoc?.id } },
+        ],
+      },
+      overrideAccess: true,
+      req,
+    })
+    const refusal = sourceRefusal(await scrapingLimitsOf(req.payload, municipalityId, { req }), others.totalDocs)
+    if (refusal) throw new APIError(refusal, 400)
+  }
   return {
     ...data,
     ...(waiverChanged

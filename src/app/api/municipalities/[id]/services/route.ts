@@ -4,11 +4,11 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { canAccessMunicipality } from '@/lib/exports/access'
 import { logger, serializeError } from '@/lib/logger'
-import { getMunicipalityServices, withoutCosts } from '@/lib/services/municipality-services'
+import { getMunicipalityServices, withoutPrices } from '@/lib/services/municipality-services'
 
 /**
- * What the obec pays for and what it has used of it this month (lib/services) — for its admins, and
- * for a platform admin with what the AI actually cost us on top.
+ * The obec's packages and how much of them it used (lib/services) — for its admins without the
+ * prices, for a platform admin with them.
  *
  * GET /api/municipalities/:id/services
  */
@@ -23,7 +23,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   try {
     const services = await getMunicipalityServices(payload, Number(id), new Date())
-    return NextResponse.json(user.role === 'admin' ? services : withoutCosts(services))
+    return NextResponse.json(user.role === 'admin' ? services : withoutPrices(services))
   } catch (error) {
     logger.error('Municipality services failed', {
       event: 'municipality.services_failed',

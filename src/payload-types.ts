@@ -95,6 +95,7 @@ export interface Config {
     'import-runs': ImportRun;
     'usage-events': UsageEvent;
     'sms-messages': SmsMessage;
+    'active-user-snapshots': ActiveUserSnapshot;
     'system-logs': SystemLog;
     'security-events': SecurityEvent;
     'payload-kv': PayloadKv;
@@ -132,6 +133,7 @@ export interface Config {
     'import-runs': ImportRunsSelect<false> | ImportRunsSelect<true>;
     'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
     'sms-messages': SmsMessagesSelect<false> | SmsMessagesSelect<true>;
+    'active-user-snapshots': ActiveUserSnapshotsSelect<false> | ActiveUserSnapshotsSelect<true>;
     'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
     'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -145,9 +147,11 @@ export interface Config {
   fallbackLocale: null;
   globals: {
     'import-settings': ImportSetting;
+    'billing-settings': BillingSetting;
   };
   globalsSelect: {
     'import-settings': ImportSettingsSelect<false> | ImportSettingsSelect<true>;
+    'billing-settings': BillingSettingsSelect<false> | BillingSettingsSelect<true>;
   };
   locale: null;
   widgets: {
@@ -269,13 +273,25 @@ export interface Municipality {
    * Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.
    */
   rulesForCreation: 'municipality_only' | 'approved_organizers';
-  importAiBudgetUsd?: number | null;
-  emailPriceCzk?: number | null;
   smsEnabled?: boolean | null;
-  smsPriceCzk?: number | null;
-  smsMonthlyLimit?: number | null;
   importAiEnabled?: boolean | null;
-  importAiPriceCzk?: number | null;
+  billingStatus?: ('active' | 'suspended') | null;
+  billingNote?: string | null;
+  licencePeriodStart?: string | null;
+  licencePeriodEnd?: string | null;
+  licenceTier?: number | null;
+  licenceCustomYearlyCzk?: number | null;
+  implementationFeeCzk?: number | null;
+  smsPackage?: ('s' | 'm' | 'l') | null;
+  smsQuotaOverride?: number | null;
+  smsOverageAllowed?: boolean | null;
+  smsAlertState?: string | null;
+  scrapingPackage?: ('s' | 'm' | 'l') | null;
+  scrapingMaxSourcesOverride?: number | null;
+  scrapingSlotDay?: number | null;
+  scrapingSlotHour?: number | null;
+  scrapingFrequency?: ('weekly' | 'twice_weekly') | null;
+  scrapingMaxInputTokensOverride?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -324,6 +340,7 @@ export interface Profile {
    * Brief §7 "Preferovaný kanál notifikací... e-mail defaultně."
    */
   notifyEmail?: boolean | null;
+  notifySms?: boolean | null;
   /**
    * Brief §7 "...aplikace volitelně."
    */
@@ -1078,6 +1095,10 @@ export interface ImportRun {
    */
   costUsd?: number | null;
   jobId?: string | null;
+  reviewStatus?: ('ok' | 'problem') | null;
+  reviewNote?: string | null;
+  reviewedBy?: (number | null) | User;
+  reviewedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -1138,6 +1159,22 @@ export interface SmsMessage {
   municipality?: (number | null) | Municipality;
   requestId?: string | null;
   providerMessageSid?: string | null;
+  parts?: number | null;
+  overage?: boolean | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "active-user-snapshots".
+ */
+export interface ActiveUserSnapshot {
+  id: number;
+  municipality: number | Municipality;
+  month: string;
+  activeUsers: number;
+  takenAt: string;
+  takenBy?: (number | null) | User;
   updatedAt: string;
   createdAt: string;
 }
@@ -1344,6 +1381,10 @@ export interface PayloadLockedDocument {
         value: number | SmsMessage;
       } | null)
     | ({
+        relationTo: 'active-user-snapshots';
+        value: number | ActiveUserSnapshot;
+      } | null)
+    | ({
         relationTo: 'system-logs';
         value: number | SystemLog;
       } | null)
@@ -1471,13 +1512,25 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   lng?: T;
   eventRadiusKm?: T;
   rulesForCreation?: T;
-  importAiBudgetUsd?: T;
-  emailPriceCzk?: T;
   smsEnabled?: T;
-  smsPriceCzk?: T;
-  smsMonthlyLimit?: T;
   importAiEnabled?: T;
-  importAiPriceCzk?: T;
+  billingStatus?: T;
+  billingNote?: T;
+  licencePeriodStart?: T;
+  licencePeriodEnd?: T;
+  licenceTier?: T;
+  licenceCustomYearlyCzk?: T;
+  implementationFeeCzk?: T;
+  smsPackage?: T;
+  smsQuotaOverride?: T;
+  smsOverageAllowed?: T;
+  smsAlertState?: T;
+  scrapingPackage?: T;
+  scrapingMaxSourcesOverride?: T;
+  scrapingSlotDay?: T;
+  scrapingSlotHour?: T;
+  scrapingFrequency?: T;
+  scrapingMaxInputTokensOverride?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1503,6 +1556,7 @@ export interface ProfilesSelect<T extends boolean = true> {
   municipality?: T;
   phone?: T;
   notifyEmail?: T;
+  notifySms?: T;
   notifyInApp?: T;
   dateOfBirth?: T;
   over50?: T;
@@ -1936,6 +1990,10 @@ export interface ImportRunsSelect<T extends boolean = true> {
   outputTokens?: T;
   costUsd?: T;
   jobId?: T;
+  reviewStatus?: T;
+  reviewNote?: T;
+  reviewedBy?: T;
+  reviewedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1976,6 +2034,21 @@ export interface SmsMessagesSelect<T extends boolean = true> {
   municipality?: T;
   requestId?: T;
   providerMessageSid?: T;
+  parts?: T;
+  overage?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "active-user-snapshots_select".
+ */
+export interface ActiveUserSnapshotsSelect<T extends boolean = true> {
+  municipality?: T;
+  month?: T;
+  activeUsers?: T;
+  takenAt?: T;
+  takenBy?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -2069,10 +2142,122 @@ export interface ImportSetting {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-settings".
+ */
+export interface BillingSetting {
+  id: number;
+  licenceTiers?:
+    | {
+        maxUsers?: number | null;
+        yearlyPriceCzk: number;
+        id?: string | null;
+      }[]
+    | null;
+  implementationFeeCzk: number;
+  smsPackages: {
+    s: {
+      quota: number;
+      yearlyPriceCzk: number;
+    };
+    m: {
+      quota: number;
+      yearlyPriceCzk: number;
+    };
+    l: {
+      quota: number;
+      yearlyPriceCzk: number;
+    };
+  };
+  smsOveragePriceCzk: number;
+  scrapingPackages: {
+    s: {
+      maxSources: number;
+      yearlyPriceCzk: number;
+    };
+    m: {
+      maxSources: number;
+      yearlyPriceCzk: number;
+    };
+    l: {
+      maxSources: number;
+      yearlyPriceCzk: number;
+    };
+  };
+  sourceSetupFeeCzk: number;
+  maxInputTokensPerRun: number;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "import-settings_select".
  */
 export interface ImportSettingsSelect<T extends boolean = true> {
   aiEnabled?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "billing-settings_select".
+ */
+export interface BillingSettingsSelect<T extends boolean = true> {
+  licenceTiers?:
+    | T
+    | {
+        maxUsers?: T;
+        yearlyPriceCzk?: T;
+        id?: T;
+      };
+  implementationFeeCzk?: T;
+  smsPackages?:
+    | T
+    | {
+        s?:
+          | T
+          | {
+              quota?: T;
+              yearlyPriceCzk?: T;
+            };
+        m?:
+          | T
+          | {
+              quota?: T;
+              yearlyPriceCzk?: T;
+            };
+        l?:
+          | T
+          | {
+              quota?: T;
+              yearlyPriceCzk?: T;
+            };
+      };
+  smsOveragePriceCzk?: T;
+  scrapingPackages?:
+    | T
+    | {
+        s?:
+          | T
+          | {
+              maxSources?: T;
+              yearlyPriceCzk?: T;
+            };
+        m?:
+          | T
+          | {
+              maxSources?: T;
+              yearlyPriceCzk?: T;
+            };
+        l?:
+          | T
+          | {
+              maxSources?: T;
+              yearlyPriceCzk?: T;
+            };
+      };
+  sourceSetupFeeCzk?: T;
+  maxInputTokensPerRun?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

@@ -1,59 +1,67 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Bot, Mail, MessageSquare, Wallet } from 'lucide-react'
+import { Bot, Mail, MessageSquare, ShieldCheck, Wallet } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { getMunicipalityServices } from '@/integrations/payload/queries'
-import type {
-  MunicipalityServices,
-  MunicipalityServicesWithCosts,
-} from '@/lib/services/municipality-services'
+import { PACKAGE_LABELS } from '@/lib/billing/catalog'
+import type { MunicipalityServices } from '@/lib/services/municipality-services'
 
 const czk = (value: number) => `${value.toLocaleString('cs-CZ')} Kč`
-const usd = (value: number) => `$${value.toFixed(2)}`
+const num = (value: number) => value.toLocaleString('cs-CZ')
+const date = (iso: string) =>
+  new Date(iso).toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' })
+/** The period's last day — `periodEnd` is the first moment after it. */
+const lastDay = (iso: string) => date(new Date(new Date(iso).getTime() - 1).toISOString())
 
-const hasCosts = (s: MunicipalityServices): s is MunicipalityServicesWithCosts =>
-  'spentUsd' in s.importAi
+export const WEEKDAY_NAMES = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle']
 
-function ServiceRow({
+function Meter({ used, limit }: { used: number; limit: number }) {
+  const share = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 100
+  return (
+    <div className="h-2 rounded-full bg-muted overflow-hidden">
+      <div
+        className={`h-full rounded-full ${share >= 100 ? 'bg-destructive' : share >= 80 ? 'bg-warning' : 'bg-primary'}`}
+        style={{ width: `${share}%` }}
+      />
+    </div>
+  )
+}
+
+function Row({
   icon: Icon,
   title,
-  enabled,
-  priceCzk,
+  badge,
+  price,
   children,
 }: {
   icon: LucideIcon
   title: string
-  enabled: boolean
-  priceCzk: number | null
+  badge?: React.ReactNode
+  price?: string | null
   children?: React.ReactNode
 }) {
   return (
     <div className="flex items-start gap-2.5">
       <Icon className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center justify-between gap-2">
           <p className="font-semibold">{title}</p>
-          {enabled ? (
-            <span className="text-sm font-semibold tabular-nums">
-              {priceCzk ? `${czk(priceCzk)} / měs.` : 'v ceně'}
-            </span>
-          ) : (
-            <Badge variant="outline">Neobjednáno</Badge>
-          )}
+          {badge}
         </div>
         {children}
+        {price && <p className="text-sm font-semibold tabular-nums">{price}</p>}
       </div>
     </div>
   )
 }
 
 /**
- * What the obec pays for and how much of it it has used this month (lib/services) — a flat price
- * per service, so the obec always knows what Lonvita costs it. A platform admin sees what the AI
- * actually cost us too. `refreshKey` loads it again after the services changed.
+ * The obec's packages and how much of them it used (Balíčky služeb) — the licence band, SMS and
+ * scraping. Its admins see this in Nastavení, without prices (they can't change anything here); a
+ * platform admin sees the prices too. `refreshKey` loads it again after the packages changed.
  */
 export function ServicesCostCard({
   municipalityId,
@@ -79,89 +87,141 @@ export function ServicesCostCard({
     }
   }, [municipalityId, refreshKey])
 
+  const s = services
   return (
     <Card>
       <CardContent className="p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <Wallet className="h-5 w-5 text-primary" />
-          <p className="font-bold">Služby a náklady</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Wallet className="h-5 w-5 text-primary" />
+            <p className="font-bold">Balíček služeb</p>
+          </div>
+          {s?.billingStatus === 'suspended' && <Badge variant="destructive">Pozastaveno</Badge>}
         </div>
 
         {failed ? (
           <p className="text-sm text-muted-foreground">Služby se nepodařilo načíst.</p>
-        ) : !services ? (
+        ) : !s ? (
           <p className="text-sm text-muted-foreground">Načítám…</p>
         ) : (
           <>
-            <ServiceRow
+            {s.billingStatus === 'suspended' && (
+              <p className="text-sm text-destructive">
+                SMS a import akcí z webu jsou pozastavené. Akce, přihlášky a e-maily fungují dál.
+              </p>
+            )}
+            <Row
+              icon={ShieldCheck}
+              title="Licence"
+              badge={<Badge variant="outline">Pásmo {s.licence.tier}</Badge>}
+              price={
+                s.licence.yearlyPriceCzk != null
+                  ? `${czk(s.licence.yearlyPriceCzk)} / rok${s.licence.customPrice ? ' (individuální)' : ''}`
+                  : null
+              }
+            >
+              <p className="text-sm text-muted-foreground">
+                {num(s.licence.activeUsers)} uživatelů obce · pásmo pro {s.licence.tierRange}{' '}
+                uživatelů
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Licenční období {date(s.licence.periodStart)} – {lastDay(s.licence.periodEnd)}
+              </p>
+            </Row>
+
+            <Row
               icon={Mail}
               title="E-mailová upozornění"
-              enabled
-              priceCzk={services.email.priceCzk}
+              badge={<Badge variant="outline">V licenci</Badge>}
             >
-              <p className="text-sm text-muted-foreground mt-0.5">
+              <p className="text-sm text-muted-foreground">
                 Přihlášky, změny a zrušení akcí e-mailem.
               </p>
-            </ServiceRow>
+            </Row>
 
-            <ServiceRow
+            <Row
               icon={MessageSquare}
-              title="SMS při zrušení akce"
-              enabled={services.sms.enabled}
-              priceCzk={services.sms.priceCzk}
+              title="SMS"
+              badge={
+                <Badge variant="outline">
+                  {s.sms.enabled ? `Balíček ${PACKAGE_LABELS[s.sms.package]}` : 'Neobjednáno'}
+                </Badge>
+              }
+              price={
+                s.sms.enabled && s.sms.yearlyPriceCzk != null
+                  ? `${czk(s.sms.yearlyPriceCzk)} / rok`
+                  : null
+              }
             >
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {services.sms.enabled
-                  ? services.sms.monthlyLimit != null
-                    ? `Tento měsíc odesláno ${services.sms.sentThisMonth} z ${services.sms.monthlyLimit} SMS.`
-                    : `Tento měsíc odesláno ${services.sms.sentThisMonth} SMS.`
-                  : 'Přihlášení dostanou zprávu o zrušení akce i na telefon.'}
-              </p>
-            </ServiceRow>
-
-            <ServiceRow
-              icon={Bot}
-              title="Import akcí pomocí AI"
-              enabled={services.importAi.enabled}
-              priceCzk={services.importAi.priceCzk}
-            >
-              {services.importAi.enabled ? (
-                <div className="mt-1.5 space-y-1">
-                  <div className="h-2 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${services.importAi.usedPercent >= 90 ? 'bg-destructive' : 'bg-primary'}`}
-                      style={{ width: `${services.importAi.usedPercent}%` }}
-                    />
-                  </div>
+              {s.sms.enabled ? (
+                <>
+                  <Meter used={s.sms.usedParts} limit={s.sms.quota} />
                   <p className="text-sm text-muted-foreground">
-                    Tento měsíc využito {services.importAi.usedPercent} % měsíčního limitu
-                    {hasCosts(services) &&
-                      ` · ${usd(services.importAi.spentUsd)} z ${usd(services.importAi.budgetUsd)}`}
+                    V licenčním roce odesláno {num(s.sms.usedParts)} z {num(s.sms.quota)} SMS
+                    {s.sms.overageParts > 0 &&
+                      ` (z toho přečerpání ${num(s.sms.overageParts)})`}.{' '}
+                    {s.sms.overageAllowed
+                      ? 'Po vyčerpání se posílá dál jako přečerpání.'
+                      : 'Po vyčerpání jde upozornění jen e-mailem a v aplikaci.'}
                   </p>
-                </div>
+                </>
               ) : (
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  Akce z webu obce se čtou jen z kalendářů iCal a strukturovaných dat. AI přečte i
-                  běžné stránky a zpravodaje.
+                <p className="text-sm text-muted-foreground">
+                  Zrušení či změna akce a připomínka i na telefon — lidem, kteří si SMS zapnou.
                 </p>
               )}
-            </ServiceRow>
+            </Row>
 
-            <div className="border-t border-border pt-3 flex items-baseline justify-between gap-2">
-              <p className="font-bold">Celkem</p>
-              <p className="text-right">
-                <span className="font-bold tabular-nums">
-                  {czk(services.monthlyTotalCzk)} / měs.
-                </span>
-                <span className="block text-sm text-muted-foreground tabular-nums">
-                  {czk(services.monthlyTotalCzk * 12)} / rok
-                </span>
-              </p>
-            </div>
-            {(!services.sms.enabled || !services.importAi.enabled) && (
-              <p className="text-xs text-muted-foreground">
-                Neobjednanou službu vám zapneme na požádání u provozovatele Lonvity.
-              </p>
+            <Row
+              icon={Bot}
+              title="Import akcí z webu"
+              badge={
+                <Badge variant="outline">
+                  {s.scraping.enabled
+                    ? `Balíček ${PACKAGE_LABELS[s.scraping.package]}`
+                    : 'Neobjednáno'}
+                </Badge>
+              }
+              price={
+                s.scraping.enabled && s.scraping.yearlyPriceCzk != null
+                  ? `${czk(s.scraping.yearlyPriceCzk)} / rok`
+                  : null
+              }
+            >
+              {s.scraping.enabled ? (
+                <>
+                  <Meter used={s.scraping.enabledSources} limit={s.scraping.maxSources} />
+                  <p className="text-sm text-muted-foreground">
+                    Zapnuté zdroje {s.scraping.enabledSources} z {s.scraping.maxSources} · kontrola{' '}
+                    {s.scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně'},{' '}
+                    {WEEKDAY_NAMES[s.scraping.slotDay - 1]} v {s.scraping.slotHour}:00
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Akce z webu obce se samy načtou k převzetí.
+                </p>
+              )}
+            </Row>
+
+            {s.yearlyTotalCzk != null ? (
+              <div className="border-t border-border pt-3 flex items-baseline justify-between gap-2">
+                <p className="font-bold">Celkem</p>
+                <p className="text-right">
+                  <span className="font-bold tabular-nums">{czk(s.yearlyTotalCzk)} / rok</span>
+                  {s.licence.implementationFeeCzk != null && (
+                    <span className="block text-sm text-muted-foreground tabular-nums">
+                      + implementace {czk(s.licence.implementationFeeCzk)} jednorázově
+                    </span>
+                  )}
+                </p>
+              </div>
+            ) : (
+              (!s.sms.enabled || !s.scraping.enabled) && (
+                <p className="text-xs text-muted-foreground">
+                  Neobjednanou službu nebo větší balíček vám zapne provozovatel Lonvity.
+                </p>
+              )
             )}
           </>
         )}

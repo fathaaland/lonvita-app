@@ -1,147 +1,172 @@
 import type { Payload } from 'payload'
 
 import type { Municipality } from '@/payload-types'
-import { aiBudgetOf, pragueMonthStart } from '@/lib/import/usage'
-import { getCostByMunicipality } from '@/lib/usage/dashboard-aggregation'
+import { computedTierOf, countActiveUsers, listActiveUserSnapshots } from '@/lib/billing/active-users'
+import { getBillingCatalog, isPackageKey, tierRangeLabel, type PackageKey } from '@/lib/billing/catalog'
+import { licencePeriodOf } from '@/lib/billing/period'
+import { scrapingLimitsOf } from '@/lib/billing/scraping'
+import { countSmsParts, smsQuotaOf } from '@/lib/billing/sms'
 
 /**
- * What an obec pays us for, and what it has used of it this month. Every obec gets e-mails; SMS and
- * the AI import only when it pays for them (Municipalities.smsEnabled / importAiEnabled). Each
- * service is a flat monthly price in Kč the platform sets — what the obec uses never changes what it
- * pays: the SMS count and the share of the AI limit are there so it sees how close to the limit it is.
+ * What the obec has bought and how much of it it used (Balíčky služeb, lib/billing): the yearly
+ * licence by the band of its users, the SMS package (a yearly quota of parts) and the scraping
+ * package (a number of sources). E-mails come with the licence. The platform sees the prices too;
+ * the obec only its packages and use (withoutPrices) — the prices are internal for now.
  */
-
-type ServiceFields = Pick<
-  Municipality,
-  | 'emailPriceCzk'
-  | 'smsEnabled'
-  | 'smsPriceCzk'
-  | 'smsMonthlyLimit'
-  | 'importAiEnabled'
-  | 'importAiPriceCzk'
-  | 'importAiBudgetUsd'
->
-
 export type MunicipalityServices = {
-  email: { enabled: true; priceCzk: number | null }
+  billingStatus: 'active' | 'suspended'
+  licence: {
+    periodStart: string
+    periodEnd: string
+    /** Set by the platform rather than the calendar year. */
+    periodCustom: boolean
+    /** Its users right now (lib/billing/active-users). */
+    activeUsers: number
+    /** The average of the last three monthly snapshots — what the band is computed from. */
+    averageUsers: number
+    snapshotsUsed: number
+    computedTier: number
+    /** The band it's billed by — set by hand (tierManual), else the computed one. */
+    tier: number
+    tierManual: boolean
+    tierRange: string
+    yearlyPriceCzk: number | null
+    customPrice: boolean
+    implementationFeeCzk: number | null
+  }
   sms: {
     enabled: boolean
-    priceCzk: number | null
-    sentThisMonth: number
-    monthlyLimit: number | null
+    package: PackageKey
+    quota: number
+    usedParts: number
+    overageParts: number
+    overageAllowed: boolean
+    yearlyPriceCzk: number | null
+    overagePriceCzk: number | null
   }
-  importAi: { enabled: boolean; priceCzk: number | null; usedPercent: number }
-  /** The prices of what it has switched on, together — a month. */
-  monthlyTotalCzk: number
+  scraping: {
+    enabled: boolean
+    package: PackageKey
+    maxSources: number
+    enabledSources: number
+    totalSources: number
+    slotDay: number
+    slotHour: number
+    frequency: 'weekly' | 'twice_weekly'
+    maxInputTokensPerRun: number
+    yearlyPriceCzk: number | null
+    setupFeeCzk: number | null
+  }
+  /** Licence + the add-ons it has on, a year — none for the obec's own view. */
+  yearlyTotalCzk: number | null
 }
 
-/** The platform's own view on top — what the AI actually cost us, in USD. Never shown to the obec. */
-export type MunicipalityServicesWithCosts = MunicipalityServices & {
-  importAi: MunicipalityServices['importAi'] & { spentUsd: number; budgetUsd: number }
-}
-
-const findServiceFields = async (
-  payload: Payload,
-  municipalityId: number,
-): Promise<ServiceFields> =>
-  payload.findByID({
-    collection: 'municipalities',
-    id: municipalityId,
-    depth: 0,
-    overrideAccess: true,
-    select: {
-      emailPriceCzk: true,
-      smsEnabled: true,
-      smsPriceCzk: true,
-      smsMonthlyLimit: true,
-      importAiEnabled: true,
-      importAiPriceCzk: true,
-      importAiBudgetUsd: true,
-    },
-  })
-
-export async function countSmsThisMonth(
-  payload: Payload,
-  municipalityId: number,
-  now: Date,
-): Promise<number> {
-  const { totalDocs } = await payload.count({
-    collection: 'sms-messages',
-    where: {
-      and: [
-        { municipality: { equals: municipalityId } },
-        { createdAt: { greater_than_equal: pragueMonthStart(now).toISOString() } },
-      ],
-    },
-    overrideAccess: true,
-  })
-  return totalDocs
-}
-
-/** How many more SMS the obec may send this month — 0 without the service, null when uncapped. */
-export async function smsAllowanceOf(
-  payload: Payload,
-  municipalityId: number,
-  now: Date,
-): Promise<number | null> {
-  const fields = await findServiceFields(payload, municipalityId)
-  if (!fields.smsEnabled) return 0
-  if (fields.smsMonthlyLimit == null) return null
-  return Math.max(
-    0,
-    fields.smsMonthlyLimit - (await countSmsThisMonth(payload, municipalityId, now)),
-  )
-}
+type BillingDoc = Pick<
+  Municipality,
+  | 'billingStatus'
+  | 'licencePeriodStart'
+  | 'licencePeriodEnd'
+  | 'licenceTier'
+  | 'licenceCustomYearlyCzk'
+  | 'implementationFeeCzk'
+  | 'smsEnabled'
+  | 'smsPackage'
+  | 'smsQuotaOverride'
+  | 'smsOverageAllowed'
+  | 'importAiEnabled'
+  | 'scrapingSlotDay'
+  | 'scrapingSlotHour'
+  | 'scrapingFrequency'
+>
 
 export async function getMunicipalityServices(
   payload: Payload,
   municipalityId: number,
   now: Date,
-): Promise<MunicipalityServicesWithCosts> {
-  const [fields, sentThisMonth, costs] = await Promise.all([
-    findServiceFields(payload, municipalityId),
-    countSmsThisMonth(payload, municipalityId, now),
-    getCostByMunicipality(payload, {
-      from: pragueMonthStart(now),
-      to: new Date(now.getTime() + 1),
-      municipalityId,
+): Promise<MunicipalityServices> {
+  const catalog = await getBillingCatalog(payload)
+  const m = (await payload.findByID({
+    collection: 'municipalities',
+    id: municipalityId,
+    depth: 0,
+    overrideAccess: true,
+  })) as BillingDoc
+  const period = licencePeriodOf(m, now)
+  const [activeUsers, snapshots, smsUsed, scraping, sources] = await Promise.all([
+    countActiveUsers(payload, municipalityId),
+    listActiveUserSnapshots(payload, municipalityId, 3),
+    countSmsParts(payload, municipalityId, period.start, period.end),
+    scrapingLimitsOf(payload, municipalityId, { catalog }),
+    payload.find({
+      collection: 'event-sources',
+      where: { and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }] },
+      select: { enabled: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
     }),
   ])
-  const smsEnabled = fields.smsEnabled === true
-  const importAiEnabled = fields.importAiEnabled === true
-  const spentUsd = costs.get(municipalityId) ?? 0
-  const budgetUsd = aiBudgetOf(fields)
+
+  const tiers = catalog.licenceTiers
+  const computed = computedTierOf(tiers, snapshots, activeUsers)
+  const tierManual = m.licenceTier != null
+  const tier = Math.min(tiers.length - 1, Math.max(0, m.licenceTier ?? computed.tier))
+  const licencePrice = m.licenceCustomYearlyCzk ?? tiers[tier]?.yearlyPriceCzk ?? 0
+  const smsPackage = isPackageKey(m.smsPackage) ? m.smsPackage : 's'
+  const smsEnabled = m.smsEnabled === true
+  const smsPrice = catalog.smsPackages[smsPackage].yearlyPriceCzk
+  const scrapingPrice = catalog.scrapingPackages[scraping.package].yearlyPriceCzk
+
   return {
-    email: { enabled: true, priceCzk: fields.emailPriceCzk ?? null },
+    billingStatus: m.billingStatus === 'suspended' ? 'suspended' : 'active',
+    licence: {
+      periodStart: period.start.toISOString(),
+      periodEnd: period.end.toISOString(),
+      periodCustom: period.custom,
+      activeUsers,
+      averageUsers: computed.averageUsers,
+      snapshotsUsed: computed.fromSnapshots,
+      computedTier: computed.tier,
+      tier,
+      tierManual,
+      tierRange: tierRangeLabel(tiers, tier),
+      yearlyPriceCzk: licencePrice,
+      customPrice: m.licenceCustomYearlyCzk != null,
+      implementationFeeCzk: m.implementationFeeCzk ?? catalog.implementationFeeCzk,
+    },
     sms: {
       enabled: smsEnabled,
-      priceCzk: fields.smsPriceCzk ?? null,
-      sentThisMonth,
-      monthlyLimit: fields.smsMonthlyLimit ?? null,
+      package: smsPackage,
+      quota: smsQuotaOf(m, catalog),
+      usedParts: smsUsed.parts,
+      overageParts: smsUsed.overageParts,
+      overageAllowed: m.smsOverageAllowed === true,
+      yearlyPriceCzk: smsPrice,
+      overagePriceCzk: catalog.smsOveragePriceCzk,
     },
-    importAi: {
-      enabled: importAiEnabled,
-      priceCzk: fields.importAiPriceCzk ?? null,
-      usedPercent: budgetUsd > 0 ? Math.min(100, Math.round((spentUsd / budgetUsd) * 100)) : 0,
-      spentUsd,
-      budgetUsd,
+    scraping: {
+      enabled: scraping.enabled,
+      package: scraping.package,
+      maxSources: scraping.maxSources,
+      enabledSources: sources.docs.filter((s) => s.enabled).length,
+      totalSources: sources.docs.length,
+      slotDay: m.scrapingSlotDay ?? 1,
+      slotHour: m.scrapingSlotHour ?? 2,
+      frequency: m.scrapingFrequency === 'twice_weekly' ? 'twice_weekly' : 'weekly',
+      maxInputTokensPerRun: scraping.maxInputTokensPerRun,
+      yearlyPriceCzk: scrapingPrice,
+      setupFeeCzk: catalog.sourceSetupFeeCzk,
     },
-    monthlyTotalCzk:
-      (fields.emailPriceCzk ?? 0) +
-      (smsEnabled ? (fields.smsPriceCzk ?? 0) : 0) +
-      (importAiEnabled ? (fields.importAiPriceCzk ?? 0) : 0),
+    yearlyTotalCzk:
+      licencePrice + (smsEnabled ? smsPrice : 0) + (scraping.enabled ? scrapingPrice : 0),
   }
 }
 
-/** The obec's view — without what anything costs us. */
-export const withoutCosts = ({
-  importAi,
-  ...rest
-}: MunicipalityServicesWithCosts): MunicipalityServices => ({
-  ...rest,
-  importAi: {
-    enabled: importAi.enabled,
-    priceCzk: importAi.priceCzk,
-    usedPercent: importAi.usedPercent,
-  },
+/** The obec's own view — its packages and use, no prices (internal for now). */
+export const withoutPrices = (s: MunicipalityServices): MunicipalityServices => ({
+  ...s,
+  licence: { ...s.licence, yearlyPriceCzk: null, implementationFeeCzk: null },
+  sms: { ...s.sms, yearlyPriceCzk: null, overagePriceCzk: null },
+  scraping: { ...s.scraping, yearlyPriceCzk: null, setupFeeCzk: null },
+  yearlyTotalCzk: null,
 })

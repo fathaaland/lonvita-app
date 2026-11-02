@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
-import { IMPORT_LIMITS } from '@/lib/import/contracts'
 import { pragueMonthStart } from '@/lib/import/usage'
 import { getCostByMunicipality } from '@/lib/usage/dashboard-aggregation'
 import { logger, serializeError } from '@/lib/logger'
@@ -28,7 +27,7 @@ export async function GET(request: Request) {
       payload.findGlobal({ slug: 'import-settings', depth: 0, overrideAccess: true }),
       payload.find({
         collection: 'municipalities',
-        select: { name: true, importAiBudgetUsd: true },
+        select: { name: true },
         depth: 0,
         pagination: false,
         sort: 'name',
@@ -68,11 +67,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       aiEnabled: settings.aiEnabled !== false,
-      defaultBudgetUsd: IMPORT_LIMITS.aiMonthlyBudgetUsd,
       municipalities: municipalities.docs.map((m) => ({
         id: m.id,
         name: m.name,
-        budgetUsd: m.importAiBudgetUsd ?? null,
         spentUsd: costs.get(m.id) ?? 0,
         pendingCandidates: pendingBy.get(m.id) ?? 0,
         sources: sources.docs.filter((s) => relationNumber(s.municipality) === m.id),

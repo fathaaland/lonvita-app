@@ -9,7 +9,6 @@ import {
   runImportSource,
   setImportAiEnabled,
   setImportSourceEnabled,
-  setMunicipalityAiBudget,
   sourceActivity,
   type ImportOverview,
   type ImportOverviewMunicipality,
@@ -19,12 +18,11 @@ import { PayloadApiError } from '@/integrations/payload/client'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
 import { formatEventDateTime } from '@/lib/date'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Loading } from '@/components/Loading'
-import { cn } from '@/lib/utils'
+import Link from 'next/link'
 
 /** While a source is being read somewhere, the tab looks again this often. */
 const POLL_EVERY_MS = 10_000
@@ -117,38 +115,14 @@ function SourceLine({ source, onChanged }: { source: ImportSourceRow; onChanged:
 
 function MunicipalityImport({
   municipality,
-  defaultBudget,
   onChanged,
 }: {
   municipality: ImportOverviewMunicipality
-  defaultBudget: number
   onChanged: () => void
 }) {
-  const [budget, setBudget] = useState(municipality.budget_usd?.toString() ?? '')
-  const [saving, setSaving] = useState(false)
-  const limit = municipality.budget_usd ?? defaultBudget
-  const share = limit > 0 ? Math.min(1, municipality.spent_usd / limit) : 1
   const failing = municipality.sources.filter(
     (s) => s.last_error && s.consecutive_failures > 0,
   ).length
-
-  const saveBudget = async () => {
-    const value = budget.trim() === '' ? null : Number(budget.replace(',', '.'))
-    if (value !== null && (!Number.isFinite(value) || value < 0)) {
-      toast.error('Zadejte částku v dolarech, nebo nechte prázdné pro výchozí limit.')
-      return
-    }
-    setSaving(true)
-    try {
-      await setMunicipalityAiBudget(municipality.id, value)
-      toast.success(`Limit obce ${municipality.name} uložen.`)
-      onChanged()
-    } catch (error) {
-      toast.error(errorText(error, 'Limit se nepodařilo uložit.'))
-    } finally {
-      setSaving(false)
-    }
-  }
 
   return (
     <Card>
@@ -165,33 +139,13 @@ function MunicipalityImport({
           )}
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-baseline justify-between text-xs">
-            <span className="text-muted-foreground">AI tento měsíc</span>
-            <span className={cn('font-semibold', share >= 1 && 'text-destructive')}>
-              {usd(municipality.spent_usd)} / {usd(limit)}
-            </span>
-          </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn('h-full rounded-full', share >= 1 ? 'bg-destructive' : 'bg-primary')}
-              style={{ width: `${Math.round(share * 100)}%` }}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Input
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              inputMode="decimal"
-              placeholder={`Výchozí ${usd(defaultBudget)}`}
-              className="h-8 w-36 text-sm"
-              aria-label={`Měsíční limit AI obce ${municipality.name} v USD`}
-            />
-            <Button size="sm" variant="outline" onClick={saveBudget} disabled={saving}>
-              Uložit limit
-            </Button>
-          </div>
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="text-muted-foreground">AI tento měsíc (náklad pro nás)</span>
+          <span className="font-semibold">{usd(municipality.spent_usd)}</span>
         </div>
+        <Link href={`/superadmin/obce/${municipality.id}`} className="text-xs underline text-muted-foreground">
+          Balíček, log běhů a kontrola
+        </Link>
 
         {municipality.sources.length > 0 ? (
           <ul className="divide-y divide-border">
@@ -209,8 +163,8 @@ function MunicipalityImport({
 
 /**
  * Importing events across the platform (docs/import-akci-z-webu.md): the AI switch, and per obec its
- * sources (being read, failing, let past robots.txt — paused or read now from here), its AI spend
- * this month against its own limit, and what waits for its admins.
+ * sources (being read, failing, let past robots.txt — paused or read now from here), what its AI
+ * cost us this month, and what waits for its admins. Its package and limits are on its billing page.
  */
 export function ImportAdminTab() {
   const [overview, setOverview] = useState<ImportOverview | null>(null)
@@ -256,7 +210,7 @@ export function ImportAdminTab() {
   const spent = overview.municipalities.reduce((sum, m) => sum + m.spent_usd, 0)
   const withImport = overview.municipalities.filter(
     (m) =>
-      m.sources.length > 0 || m.spent_usd > 0 || m.pending_candidates > 0 || m.budget_usd != null,
+      m.sources.length > 0 || m.spent_usd > 0 || m.pending_candidates > 0,
   )
   const rest = overview.municipalities.length - withImport.length
 
@@ -284,7 +238,7 @@ export function ImportAdminTab() {
             AI tento měsíc celkem: <span className="font-semibold">{usd(spent)}</span>
             <span className="text-muted-foreground">
               {' '}
-              · výchozí limit obce {usd(overview.default_budget_usd)} · zdroj se po{' '}
+              · běh se zastaví nad limitem tokenů (Balíčky a fakturace) · zdroj se po{' '}
               {IMPORT_LIMITS.failuresBeforePause} selháních po sobě sám vypne
             </span>
           </p>
@@ -295,7 +249,6 @@ export function ImportAdminTab() {
         <MunicipalityImport
           key={m.id}
           municipality={m}
-          defaultBudget={overview.default_budget_usd}
           onChanged={() => void load()}
         />
       ))}

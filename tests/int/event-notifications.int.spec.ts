@@ -43,7 +43,7 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
   let municipality: { id: number }
   let category: { id: number }
   let organizer: TestUser
-  /** Approved, has a phone. */
+  /** Approved, has a phone and chose SMS. */
   let approved: TestUser
   /** Pending, wants no in-app notifications. */
   let pending: TestUser
@@ -160,7 +160,7 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       data: { user: organizer.id, municipality: municipality.id, role: 'organizer' },
       overrideAccess: true,
     })
-    approved = await makeUser('approved', { phone: '735 929 442' })
+    approved = await makeUser('approved', { phone: '735 929 442', notifySms: true })
     // Has switched both channels off — a change to the event reaches them anyway.
     pending = await makeUser('pending', { notifyInApp: false, notifyEmail: false })
     rejected = await makeUser('rejected')
@@ -259,8 +259,9 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         ]),
       )
 
-      // SMS go out only when an event is cancelled — an edit is in-app and e-mail only.
-      expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
+      // A new place is worth an SMS — to the one who chose SMS, without diacritics.
+      expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(enqueueSms).mock.calls[0][0].message).toContain('se zmenila')
       // Nothing about the time changed.
       expect(vi.mocked(rescheduleEventReminders)).not.toHaveBeenCalled()
     })
@@ -317,11 +318,11 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       expect(notification.message).toContain(event.title)
       expect(vi.mocked(enqueueEmail)).toHaveBeenCalledTimes(2)
       expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
-        message: `Lonvita: akce „${event.title}“ byla zrušena.`,
+        message: `Lonvita: akce "${event.title}" byla zrusena.`,
       })
     })
 
-    it('texts nobody for an obec without the SMS service, and no more than its monthly limit', async () => {
+    it('texts nobody for an obec without SMS or suspended, only those who chose SMS, and past the quota only with overage', async () => {
       const { event } = await createEvent()
       await edit(event.id, { deletedAt: new Date().toISOString(), status: 'cancelled' })
       const job = lastCancelledJob()
@@ -339,7 +340,18 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         // E-mail and in-app go out all the same.
         expect(vi.mocked(enqueueEmail)).toHaveBeenCalledTimes(2)
 
-        // Both registrants reachable by phone now, and room for only one of them.
+        // Suspended for not paying — no SMS whatever the package.
+        vi.clearAllMocks()
+        await payload.update({
+          collection: 'municipalities',
+          id: municipality.id,
+          data: { smsEnabled: true, billingStatus: 'suspended' },
+          overrideAccess: true,
+        })
+        await processEventCancelledJob(job, { jobId: '9b' })
+        expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
+
+        // A phone alone isn't enough — only who chose SMS is texted.
         await payload.update({
           collection: 'profiles',
           where: { user: { equals: pending.id } },
@@ -350,7 +362,7 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         await payload.update({
           collection: 'municipalities',
           id: municipality.id,
-          data: { smsEnabled: true, smsMonthlyLimit: 1 },
+          data: { billingStatus: 'active', smsQuotaOverride: 1 },
           overrideAccess: true,
         })
         await processEventCancelledJob(job, { jobId: '10' })
@@ -358,34 +370,57 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
           municipalityId: municipality.id,
         })
+
+        // Both chose SMS, the quota has room for one: the other only with overage allowed.
+        await payload.update({
+          collection: 'profiles',
+          where: { user: { equals: pending.id } },
+          data: { notifySms: true },
+          overrideAccess: true,
+        })
+        vi.clearAllMocks()
+        await processEventCancelledJob(job, { jobId: '10b' })
+        expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
+
+        vi.clearAllMocks()
+        await payload.update({
+          collection: 'municipalities',
+          id: municipality.id,
+          data: { smsOverageAllowed: true },
+          overrideAccess: true,
+        })
+        await processEventCancelledJob(job, { jobId: '10c' })
+        const queued = vi.mocked(enqueueSms).mock.calls.map((c) => c[0])
+        expect(queued).toHaveLength(2)
+        expect(queued.filter((q) => q.overage)).toHaveLength(1)
       } finally {
         await payload.update({
           collection: 'profiles',
           where: { user: { equals: pending.id } },
-          data: { phone: null },
+          data: { phone: null, notifySms: false },
           overrideAccess: true,
         })
         await payload.update({
           collection: 'municipalities',
           id: municipality.id,
-          data: { smsEnabled: true, smsMonthlyLimit: null },
+          data: { smsEnabled: true, billingStatus: 'active', smsQuotaOverride: null, smsOverageAllowed: false },
           overrideAccess: true,
         })
       }
     })
 
-    it('texts only for an event of at most 50 places — a bigger or unlimited one hears it by e-mail only', async () => {
+    it('texts only for an event of fewer than 50 places — 50 and more or unlimited hear it by e-mail only', async () => {
       const { event } = await createEvent()
       await edit(event.id, { deletedAt: new Date().toISOString(), status: 'cancelled' })
       const job = lastCancelledJob()
       expect(job.capacity).toBe(event.capacity)
 
       vi.clearAllMocks()
-      await processEventCancelledJob({ ...job, capacity: 50 }, { jobId: '11' })
+      await processEventCancelledJob({ ...job, capacity: 49 }, { jobId: '11' })
       expect(vi.mocked(enqueueSms)).toHaveBeenCalled()
 
       for (const [capacity, jobId] of [
-        [51, '12'],
+        [50, '12'],
         [999999999, '13'],
       ] as const) {
         vi.clearAllMocks()

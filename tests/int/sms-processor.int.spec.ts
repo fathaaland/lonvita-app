@@ -2,12 +2,16 @@
 import { UnrecoverableError } from 'bullmq'
 import { describe, it, afterEach, expect, vi } from 'vitest'
 
+import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
+
 import { processSmsJob } from '../../worker/src/processors/sms.processor'
 
 const createRow = vi.fn(async () => ({}))
 vi.mock('../../worker/src/runtime/payload', () => ({
   getWorkerPayload: async () => ({ create: createRow }),
 }))
+const { checkAlerts } = vi.hoisted(() => ({ checkAlerts: vi.fn(async () => undefined) }))
+vi.mock('@/lib/billing/sms-alerts', () => ({ checkSmsUsageAlerts: checkAlerts }))
 
 const job = {
   to: '+420735929442',
@@ -48,9 +52,18 @@ describe('SMS go out through BulkGate', () => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     createRow.mockClear()
+    checkAlerts.mockClear()
   })
 
-  it("counts a sent SMS against its obec's monthly SMS — and a job without an obec against nobody", async () => {
+  it('sends Czech text without diacritics and counts the parts it goes out as', () => {
+    expect(toSmsText('Lonvita: akce „Žluťoučký kůň“ – čtvrtek…')).toBe('Lonvita: akce "Zlutoucky kun" - ctvrtek...')
+    expect(smsPartsOf('a'.repeat(160))).toBe(1)
+    expect(smsPartsOf('a'.repeat(161))).toBe(2)
+    expect(smsPartsOf('a'.repeat(306))).toBe(2)
+    expect(smsPartsOf('a'.repeat(307))).toBe(3)
+  })
+
+  it("counts a sent SMS against its obec's yearly quota, part by part — and a job without an obec against nobody", async () => {
     configure(credentials)
     bulkGateAnswers(200, accepted('tmp9'))
 
@@ -58,9 +71,10 @@ describe('SMS go out through BulkGate', () => {
     expect(createRow).toHaveBeenCalledWith(
       expect.objectContaining({
         collection: 'sms-messages',
-        data: { municipality: 42, requestId: job.requestId, providerMessageSid: 'tmp9' },
+        data: { municipality: 42, requestId: job.requestId, providerMessageSid: 'tmp9', parts: 1, overage: false },
       }),
     )
+    expect(checkAlerts).toHaveBeenCalledWith(expect.anything(), 42, expect.any(Date))
 
     createRow.mockClear()
     await processSmsJob(job)
@@ -81,8 +95,8 @@ describe('SMS go out through BulkGate', () => {
       application_id: '451',
       application_token: 'secret',
       number: '420735929442',
-      text: job.message,
-      unicode: true,
+      text: 'Lonvita: akce "Posezeni" byla zrusena.',
+      unicode: false,
       sender_id: 'gText',
       sender_id_value: 'Lonvita',
       duplicates_check: 'on',

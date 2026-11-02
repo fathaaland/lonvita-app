@@ -36,7 +36,7 @@ interface Props {
   onCancelled?: () => void;
   /** The event's obec — whether the registrants are texted too depends on its SMS service. */
   municipalityId?: string | null;
-  /** SMS go out only for an event of at most SMS_MAX_CAPACITY places — the dialog says which. */
+  /** SMS go out only for an event of fewer than SMS_LARGE_EVENT_CAPACITY places — the dialog says which. */
   capacity: number;
 }
 

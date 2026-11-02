@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { getMunicipality } from '@/integrations/payload/queries'
-import { SMS_MAX_CAPACITY, smsSentForCapacity } from '@/lib/capacity'
+import { SMS_LARGE_EVENT_CAPACITY, smsSentForCapacity } from '@/lib/capacity'
 
 export type MunicipalityFeatures = { sms: boolean; importAi: boolean }
 
@@ -43,13 +43,13 @@ export function useMunicipalityFeatures(
 
 /**
  * "e-mailem, SMS a v aplikaci" or "e-mailem a v aplikaci" — how the registrants hear of a cancel.
- * SMS go out only for an event of at most SMS_MAX_CAPACITY places; where the obec has SMS but the
+ * SMS go out only for an event of fewer than SMS_LARGE_EVENT_CAPACITY places; where the obec has SMS but the
  * event is bigger, it says so, so nobody expects a text that won't come.
  */
 export const cancelChannels = (sms: boolean, capacity: number) => {
   if (!sms) return 'e-mailem a v aplikaci'
-  if (smsSentForCapacity(capacity)) return 'e-mailem, SMS a v aplikaci'
-  return `pouze e-mailem a v aplikaci (SMS se posílají jen u akcí s kapacitou do ${SMS_MAX_CAPACITY} míst)`
+  if (smsSentForCapacity(capacity)) return 'e-mailem, v aplikaci a SMS (kdo si je zvolil)'
+  return `pouze e-mailem a v aplikaci (u akcí pro ${SMS_LARGE_EVENT_CAPACITY} a více lidí se SMS neposílají)`
 }
 
 /** The obec has SMS, but this event is too big (or unlimited) for them — worth telling up front. */

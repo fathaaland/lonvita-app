@@ -19,6 +19,8 @@ export const JOB_NAMES = {
   SCAN_EVENT_SOURCES: 'scan-event-sources',
   IMPORT_EVENTS: 'import-events',
   EXPORT_AUDIT_TRAIL: 'export-audit-trail',
+  REMINDER_SMS: 'reminder-sms',
+  SNAPSHOT_ACTIVE_USERS: 'snapshot-active-users',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -39,22 +41,36 @@ export type EmailJobResult = {
 /**
  * Brief §8 "Webová aplikace, tudíž oznámení o změně/zrušení musí jít přes SMS/mail" — sent via
  * BulkGate (worker sms.processor). `requestId` makes the queue job id, so the same announcement
- * isn't enqueued twice for one person. Sent only when an event of at most SMS_MAX_CAPACITY places
- * is cancelled (event-cancelled processor) — edits and organizers' messages go in-app and by e-mail.
+ * isn't enqueued twice for one person. Sent on a cancel, a change of time or place and the reminder a
+ * day before, for an event of fewer than SMS_LARGE_EVENT_CAPACITY places (collections/shared/notify).
  */
 export type SmsJobData = {
   to: string
   message: string
   requestId?: string
-  /** The obec whose SMS it is — counted against its monthly SMS (SmsMessages). Optional: jobs queued
-   * before it existed carry none. */
+  /** The obec whose SMS it is — counted against its yearly SMS quota (SmsMessages). Optional: jobs
+   * queued before it existed carry none. */
   municipalityId?: number
+  /** Past the obec's quota, sent because it allows overage — billed at the year's end. */
+  overage?: boolean
 }
 
 /**
  * Notifications pile up forever otherwise — nothing in the app ever deletes one (Notifications'
  * own access.delete is closed). Enqueued only by the worker's own scheduler, on a daily cron.
  */
+/**
+ * The day-before reminder by SMS, for a participant who chose SMS (Profiles.notifySms) — delayed to
+ * fire 24 h before the event, with a fixed job id per registration (collections/shared/reminders).
+ * Everything is checked again when it fires: still approved, the event still on and small enough.
+ */
+export type ReminderSmsJobData = { registrationId: number | string }
+export type ReminderSmsJobResult = { sent: number; skipped?: string }
+
+/** The monthly snapshot of every obec's users (lib/billing/active-users) — on the worker's cron. */
+export type SnapshotActiveUsersJobData = Record<string, never>
+export type SnapshotActiveUsersJobResult = { snapshots: number; failed: number }
+
 export type CleanupNotificationsJobData = Record<string, never>
 
 export type CleanupNotificationsJobResult = {
@@ -139,7 +155,7 @@ export type EventCancelledJobData = {
   title: string
   /** Whose SMS service texts the registrants. Optional: jobs queued before it existed carry none. */
   municipalityId?: number
-  /** The event's capacity — SMS go out only up to SMS_MAX_CAPACITY places (lib/capacity). Optional:
+  /** The event's capacity — SMS go out only below SMS_LARGE_EVENT_CAPACITY places (lib/capacity). Optional:
    * jobs queued before it existed carry none (then the event row, if still there, says). */
   capacity?: number
   /** Pending/approved registrants to tell (the organizer excluded). */
@@ -235,6 +251,7 @@ export type AttendanceReminderJobResult = {
  * nightly check, or the night to Monday the full pass (`trigger` forces one). Enqueued only by the
  * worker's own scheduler.
  */
+/** Empty — which obce are due is worked out from their slots (scan-event-sources). */
 export type ScanEventSourcesJobData = { trigger?: 'daily' | 'weekly' }
 
 export type ScanEventSourcesJobResult = {
@@ -299,3 +316,5 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.SCAN_EVENT_SOURCES; payload: ScanEventSourcesJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.IMPORT_EVENTS; payload: ImportEventsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.EXPORT_AUDIT_TRAIL; payload: ExportAuditTrailJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.REMINDER_SMS; payload: ReminderSmsJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.SNAPSHOT_ACTIVE_USERS; payload: SnapshotActiveUsersJobData } & Traced)

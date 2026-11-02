@@ -38,8 +38,11 @@ export async function aiImportNotSubscribed(payload: Payload, municipalityId: st
     id: municipalityId,
     depth: 0,
     overrideAccess: true,
-    select: { importAiEnabled: true },
+    select: { importAiEnabled: true, billingStatus: true },
   })
+  if (municipality.billingStatus === 'suspended') {
+    return NextResponse.json({ error: 'Služby obce jsou pozastavené.' }, { status: 403 })
+  }
   if (municipality.importAiEnabled) return null
   return NextResponse.json({ error: 'Obec nemá objednaný import akcí pomocí AI.' }, { status: 403 })
 }

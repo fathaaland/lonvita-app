@@ -113,8 +113,9 @@ export type ImportInput =
     }
 
 export const IMPORT_LIMITS = {
-  /** Sources one obec may keep. */
-  sourcesPerMunicipality: 10,
+  /** Sources one obec may keep at all, switched on or off — a technical ceiling only. How many it
+   * may have switched on is its scraping package's (lib/billing/scraping). */
+  sourcesPerMunicipality: 100,
   /** A pasted program. */
   textMaxChars: 50_000,
   /** An uploaded file — under Vercel's 4.5 MB request body limit. */
@@ -140,9 +141,6 @@ export const IMPORT_LIMITS = {
   runStaleMinutes: 15,
   /** "Zkontrolovat teď" on one source per day — each one may cost an AI read. */
   manualRunsPerSourcePerDay: 5,
-  /** Fair use under the flat fee: what one obec's imports may spend on the AI in a calendar month
-   * (USD, list prices — lib/import/usage). Past it only iCal and schema.org sources are read. */
-  aiMonthlyBudgetUsd: 5,
   /** How far ahead a recurring schedule is spelled out into single dates. */
   recurrenceDaysAhead: 60,
   /** How far ahead a pasted program or an uploaded file is taken — the admin brought all of it. */

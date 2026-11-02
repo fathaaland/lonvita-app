@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 
-import { getMunicipalityAdminUserIds, sendNotificationToMany } from '@/collections/shared/notify'
+import { getMunicipalityAdminUserIds, getPlatformDeciders, sendNotificationToMany } from '@/collections/shared/notify'
 import { ImportAiError } from '@/lib/import/ai'
 import { IMPORT_LIMITS, isFullPass, isImportFileType, type SourceTrigger } from '@/lib/import/contracts'
 import { ImportFetchError } from '@/lib/import/fetch'
@@ -112,6 +112,33 @@ async function noticeFailures(
   )
 }
 
+/** The platform's admins hear of a run the token cap stopped — they check the source in the run log. */
+async function reportTokenCap(
+  payload: Payload,
+  source: { id: number; url: string; label?: string | null },
+  municipalityId: number,
+  totals: UsageTotals,
+  cap: number,
+): Promise<void> {
+  logger.warn('Import run stopped at the token cap', {
+    event: 'import.token_cap',
+    sourceId: source.id,
+    municipalityId,
+    inputTokens: totals.inputTokens,
+    cap,
+  })
+  try {
+    const { userIds } = await getPlatformDeciders(payload)
+    await sendNotificationToMany(payload, userIds, {
+      title: 'Scraping: běh zastaven limitem tokenů',
+      link: `/superadmin/obce/${municipalityId}`,
+      message: `Zdroj ${source.label || source.url} spotřeboval ${totals.inputTokens.toLocaleString('cs-CZ')} vstupních tokenů (limit ${cap.toLocaleString('cs-CZ')}) a běh se zastavil. Zkontrolujte ho v logu běhů obce.`,
+    })
+  } catch (error) {
+    logger.warn('Token cap report not sent', { event: 'import.token_cap_report_failed', ...serializeError(error) })
+  }
+}
+
 async function processSource(
   payload: Payload,
   data: Extract<ImportEventsJobData, { kind: 'source' }>,
@@ -144,7 +171,7 @@ async function processSource(
     source.ignoreRobots ? waiveRobotsFor(deps, source.url) : deps,
     payload,
     { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
-    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd, aiEnabled: importContext.aiEnabled }, now), totals },
+    { refusal: await aiRefusalFor(payload, importContext), totals, maxInputTokens: importContext.maxInputTokensPerRun },
   )
   // The panel shows it being read (ImportPanel) until one of the updates below clears it.
   await payload
@@ -247,8 +274,21 @@ async function processSource(
     )
     return { found: read.events.length, created: stored.created, updated: stored.updated, ...(read.unchanged ? { skipped: 'unchanged' } : {}) }
   } catch (error) {
+    if (codeOf(error) === 'token_cap') {
+      // The technical safety net (Balíčky služeb: "běh se zastaví a superadmin dostane hlášení") — the
+      // run stops; not the web's fault, so no failure counted and the fingerprint is left as it was.
+      await payload.update({
+        collection: 'event-sources',
+        id: source.id,
+        data: { lastRunAt: runAt, lastError: messageOf(error), lastErrorCode: 'token_cap', runningSince: null },
+        overrideAccess: true,
+      })
+      await finishRun(payload, runId, { status: 'failed', error: messageOf(error), errorCode: 'token_cap' }, totals, deps.now())
+      await reportTokenCap(payload, source, municipalityId, totals, importContext.maxInputTokensPerRun)
+      return { found: 0, created: 0, updated: 0, skipped: 'token_cap' }
+    }
     if (isAiHeldBack(error)) {
-      // The obec's limit, the platform's switch — not the web's fault: no failure counted, nobody
+      // The obec's package, the platform's switch — not the web's fault: no failure counted, nobody
       // told the web is broken, and the page's fingerprint is left as it was, so the next pass the AI
       // may read it again reads it.
       await payload.update({
@@ -317,7 +357,7 @@ async function processManual(
     deps,
     payload,
     { municipality: municipalityId, user: requestedBy, importRun: runId },
-    { refusal: await aiRefusalFor(payload, { id: municipalityId, aiBudgetUsd: importContext.aiBudgetUsd, aiEnabled: importContext.aiEnabled }, now), totals },
+    { refusal: await aiRefusalFor(payload, importContext), totals, maxInputTokens: importContext.maxInputTokensPerRun },
   )
 
   let succeeded = false

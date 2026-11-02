@@ -168,7 +168,7 @@ export function PersonalDetailsCard() {
               ) : (
                 <p className="text-xs text-muted-foreground">
                   {homeFeatures.sms
-                    ? "Pošleme na něj SMS, když se akce (s kapacitou do 50 míst), na kterou jste přihlášeni, zruší."
+                    ? "Pokud si v Notifikacích zapnete SMS, pošleme na něj zprávu o zrušení či změně akce a připomínku."
                     : "Pořadatel akce, na kterou se přihlásíte, vás na něm může zastihnout."}
                 </p>
               )}

@@ -424,8 +424,7 @@ export async function decideSyncNotices(id: string, action: 'apply' | 'dismiss')
 export type ImportOverviewMunicipality = {
   id: string
   name: string
-  /** Its own monthly AI limit (USD) — null: the default. */
-  budget_usd: number | null
+  /** What its AI calls cost us this month (USD) — internal, never billed. */
   spent_usd: number
   pending_candidates: number
   sources: ImportSourceRow[]
@@ -433,18 +432,15 @@ export type ImportOverviewMunicipality = {
 
 export type ImportOverview = {
   ai_enabled: boolean
-  default_budget_usd: number
   municipalities: ImportOverviewMunicipality[]
 }
 
 export async function getImportOverview(): Promise<ImportOverview> {
   const result = await get<{
     aiEnabled: boolean
-    defaultBudgetUsd: number
     municipalities: {
       id: number
       name: string
-      budgetUsd: number | null
       spentUsd: number
       pendingCandidates: number
       sources: PayloadSource[]
@@ -452,11 +448,9 @@ export async function getImportOverview(): Promise<ImportOverview> {
   }>('/admin/import-overview')
   return {
     ai_enabled: result.aiEnabled,
-    default_budget_usd: result.defaultBudgetUsd,
     municipalities: result.municipalities.map((m) => ({
       id: String(m.id),
       name: m.name,
-      budget_usd: m.budgetUsd,
       spent_usd: m.spentUsd,
       pending_candidates: m.pendingCandidates,
       sources: m.sources.map(mapSource),
@@ -469,10 +463,3 @@ export async function setImportAiEnabled(aiEnabled: boolean): Promise<void> {
   await post('/globals/import-settings', { aiEnabled })
 }
 
-/** The obec's own monthly AI limit — null back to the default. */
-export async function setMunicipalityAiBudget(
-  municipalityId: string,
-  budgetUsd: number | null,
-): Promise<void> {
-  await patch(`/municipalities/${municipalityId}`, { importAiBudgetUsd: budgetUsd })
-}

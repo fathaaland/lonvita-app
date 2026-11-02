@@ -2,16 +2,19 @@ import type {
   Access,
   CollectionAfterChangeHook,
   CollectionBeforeDeleteHook,
+  CollectionBeforeReadHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
+  Field,
   FieldAccess,
 } from 'payload'
 import { APIError } from 'payload'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
 import { ensureMunicipalityOrganization, findMunicipalityOrganizationId } from './Organizations'
-import { auditDeletion } from './shared/auditLog'
+import { auditDeletion, writeAuditLog } from './shared/auditLog'
 import { notDeleted } from './shared/softDelete'
+import { PACKAGE_KEYS, PACKAGE_LABELS } from '@/lib/billing/catalog'
 
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
  * so "Blansko" and "blansko " are treated as the same obec (brief item 1: superadmin shouldn't
@@ -131,6 +134,8 @@ const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) =
     'import-runs',
     'event-sources',
     'user-roles',
+    // Its monthly user counts (billing) — the obec is gone, so are they.
+    'active-user-snapshots',
   ] as const) {
     await payload.delete({ collection, where: ofObec, overrideAccess: true, context, req })
   }
@@ -176,6 +181,150 @@ const platformOnlyField = { read: platformAdmin, create: platformAdmin, update: 
 /** Whether the obec has a service is no secret — the app leaves out what it doesn't pay for (no
  * "you'll get an SMS" without SMS); only the platform switches it. */
 const serviceSwitchField = { create: platformAdmin, update: platformAdmin }
+
+/**
+ * What the obec has bought (Balíčky služeb, lib/billing) — the yearly licence, the SMS and scraping
+ * packages, and whether it's suspended (doesn't pay: SMS and scraping stop, the community module
+ * stays). Set by the platform alone in the superadmin panel; the obec's admins see their package
+ * and use through /api/municipalities/:id/services, never the fields themselves.
+ */
+const billingFields: Field[] = [
+  {
+    name: 'billingStatus',
+    type: 'select',
+    defaultValue: 'active',
+    options: [
+      { label: 'Aktivní', value: 'active' },
+      { label: 'Pozastaveno', value: 'suspended' },
+    ],
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  { name: 'billingNote', type: 'textarea', access: platformOnlyField, admin: { position: 'sidebar' } },
+  // The licence year — the SMS quota counts within it. Empty: the calendar year.
+  { name: 'licencePeriodStart', type: 'date', access: platformOnlyField, admin: { position: 'sidebar' } },
+  { name: 'licencePeriodEnd', type: 'date', access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    // The band set by hand (Žďár, exceptions, or fixed at the yearly invoice). Empty: computed from
+    // the average of the last three monthly snapshots of its users.
+    name: 'licenceTier',
+    type: 'number',
+    min: 0,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  // An individual yearly price instead of the band's (Žďár: 120 000).
+  { name: 'licenceCustomYearlyCzk', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
+  // An individual one-off implementation fee instead of the price list's.
+  { name: 'implementationFeeCzk', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    name: 'smsPackage',
+    type: 'select',
+    defaultValue: 's',
+    options: PACKAGE_KEYS.map((k) => ({ label: PACKAGE_LABELS[k], value: k })),
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  // A yearly quota of SMS parts other than the package's.
+  { name: 'smsQuotaOverride', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    // Past the quota: on — keep texting (billed at the year's end); off — e-mail instead.
+    name: 'smsOverageAllowed',
+    type: 'checkbox',
+    defaultValue: false,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    // Which usage alert (80 / 100 %) its admins already got, and for which licence year.
+    name: 'smsAlertState',
+    type: 'text',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
+  },
+  {
+    name: 'scrapingPackage',
+    type: 'select',
+    defaultValue: 's',
+    options: PACKAGE_KEYS.map((k) => ({ label: PACKAGE_LABELS[k], value: k })),
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  // How many sources it may have, other than the package's.
+  { name: 'scrapingMaxSourcesOverride', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    // The weekly slot agreed with the obec — ISO weekday (1 = Monday) and the hour, Prague time.
+    name: 'scrapingSlotDay',
+    type: 'number',
+    min: 1,
+    max: 7,
+    defaultValue: 1,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    name: 'scrapingSlotHour',
+    type: 'number',
+    min: 0,
+    max: 23,
+    defaultValue: 2,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    // Twice a week: the slot and again three days later.
+    name: 'scrapingFrequency',
+    type: 'select',
+    defaultValue: 'weekly',
+    options: [
+      { label: '1× týdně', value: 'weekly' },
+      { label: '2× týdně', value: 'twice_weekly' },
+    ],
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  // Input tokens one run may use, other than the price list's safety net.
+  { name: 'scrapingMaxInputTokensOverride', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
+]
+
+/**
+ * A suspended obec (doesn't pay) has no SMS nor import, so the app mustn't promise them — but why is
+ * the platform's business. Everyone but a platform admin reads both switches off; the stored values
+ * stay, so lifting the suspension brings the packages back as they were. Before field access strips
+ * billingStatus from the doc.
+ */
+const hideSuspendedServices: CollectionBeforeReadHook = ({ doc, req }) => {
+  if (doc?.billingStatus !== 'suspended' || req.user?.role === 'admin') return doc
+  return { ...doc, smsEnabled: false, importAiEnabled: false }
+}
+
+/** What the platform changed of an obec's services — on the record: who, when, from what to what. */
+export const BILLING_AUDITED_FIELDS = [
+  'smsEnabled',
+  'importAiEnabled',
+  ...billingFields.map((f) => ('name' in f ? f.name : '')).filter((n) => n && n !== 'smsAlertState'),
+] as const
+
+const auditBillingChange: CollectionAfterChangeHook = ({ doc, previousDoc, operation, req }) => {
+  if (operation !== 'update' || !req.user) return doc
+  const changes: Record<string, { from: unknown; to: unknown }> = {}
+  for (const field of BILLING_AUDITED_FIELDS) {
+    const from = previousDoc?.[field] ?? null
+    const to = doc[field] ?? null
+    if (from !== to) changes[field] = { from, to }
+  }
+  if (Object.keys(changes).length === 0) return doc
+  writeAuditLog(req.payload, {
+    action: 'municipalities.billing-change',
+    actor: Number(req.user.id),
+    targetCollection: 'municipalities',
+    targetId: doc.id,
+    municipality: doc.id,
+    metadata: { changes },
+    source: req,
+  })
+  return doc
+}
 
 export const Municipalities: CollectionConfig = {
   slug: 'municipalities',
@@ -245,45 +394,13 @@ export const Municipalities: CollectionConfig = {
           'Brief §3 "Pravidla pro vznik akcí" — controls who may create events for this municipality (see Events.access.create). A signed-out visitor is always read-only regardless of this setting. The former "anyone can create" option was removed for security (task 5) — an obec admin must never be able to create events outside their own obec, which an open-to-anyone mode elsewhere would have allowed.',
       },
     },
-    {
-      // The obec's own monthly AI limit for importing events (USD) — set by the platform when the
-      // default (IMPORT_LIMITS.aiMonthlyBudgetUsd) doesn't fit it. Empty: the default.
-      name: 'importAiBudgetUsd',
-      type: 'number',
-      min: 0,
-      access: platformOnlyField,
-      admin: { position: 'sidebar' },
-    },
-    // What the obec pays for and what it costs it (lib/services) — a flat monthly price per service,
-    // set by the platform. E-mails come with every obec; SMS and the AI import only when it pays for
-    // them. The obec's admins see prices and usage through /api/municipalities/:id/services.
-    {
-      name: 'emailPriceCzk',
-      type: 'number',
-      min: 0,
-      access: platformOnlyField,
-      admin: { position: 'sidebar' },
-    },
+    // Whether the obec has the SMS and the scraping add-on (Balíčky služeb) — readable by all, so the
+    // app promises only what it has; their packages and limits are in billingFields.
     {
       name: 'smsEnabled',
       type: 'checkbox',
       defaultValue: false,
       access: serviceSwitchField,
-      admin: { position: 'sidebar' },
-    },
-    {
-      name: 'smsPriceCzk',
-      type: 'number',
-      min: 0,
-      access: platformOnlyField,
-      admin: { position: 'sidebar' },
-    },
-    {
-      // How many SMS a month its price covers. Empty: no cap.
-      name: 'smsMonthlyLimit',
-      type: 'number',
-      min: 0,
-      access: platformOnlyField,
       admin: { position: 'sidebar' },
     },
     {
@@ -294,17 +411,12 @@ export const Municipalities: CollectionConfig = {
       access: serviceSwitchField,
       admin: { position: 'sidebar' },
     },
-    {
-      name: 'importAiPriceCzk',
-      type: 'number',
-      min: 0,
-      access: platformOnlyField,
-      admin: { position: 'sidebar' },
-    },
+    ...billingFields,
   ],
   hooks: {
     beforeValidate: [preventDuplicateName],
-    afterChange: [syncMunicipalityOrganization],
+    beforeRead: [hideSuspendedServices],
+    afterChange: [syncMunicipalityOrganization, auditBillingChange],
     beforeDelete: [deleteMunicipalityData],
     // Takes everything of the obec along (deleteMunicipalityData) — one entry for all of it.
     afterDelete: [auditDeletion<{ name?: string }>((doc) => ({ metadata: { name: doc.name } }))],

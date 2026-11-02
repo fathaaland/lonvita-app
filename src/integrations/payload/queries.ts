@@ -18,7 +18,7 @@ import type { PayloadListResponse } from './client'
 import type { AnyOrganizationType, OrganizationType } from '@/lib/organizations'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import type { OrganizationFeedbackSummary } from '@/lib/organization-stats'
-import type { MunicipalityServices, MunicipalityServicesWithCosts } from '@/lib/services/municipality-services'
+import type { MunicipalityServices } from '@/lib/services/municipality-services'
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   type AccountDeletionBlockingEvent,
@@ -73,50 +73,9 @@ export async function getMunicipality(id: string): Promise<MunicipalityRow | nul
   }
 }
 
-/** What the obec pays for and what it has used of it this month — a platform admin gets the AI's
- * USD on top (MunicipalityServicesWithCosts). */
-export async function getMunicipalityServices(
-  municipalityId: string,
-): Promise<MunicipalityServices | MunicipalityServicesWithCosts> {
+/** The obec's packages and how much of them it used — with the prices for a platform admin only. */
+export async function getMunicipalityServices(municipalityId: string): Promise<MunicipalityServices> {
   return get(`/municipalities/${municipalityId}/services`)
-}
-
-export type MunicipalityServicesSettings = {
-  emailPriceCzk: number | null
-  smsEnabled: boolean
-  smsPriceCzk: number | null
-  smsMonthlyLimit: number | null
-  importAiEnabled: boolean
-  importAiPriceCzk: number | null
-  importAiBudgetUsd: number | null
-}
-
-/** The obec's name and services as set — readable by platform admins only. */
-export async function getMunicipalityServicesSettings(
-  municipalityId: string,
-): Promise<{ name: string } & MunicipalityServicesSettings> {
-  const doc = await get<{ name: string } & Partial<Record<keyof MunicipalityServicesSettings, unknown>>>(
-    `/municipalities/${municipalityId}?depth=0`,
-  )
-  const num = (value: unknown) => (typeof value === 'number' ? value : null)
-  return {
-    name: doc.name,
-    emailPriceCzk: num(doc.emailPriceCzk),
-    smsEnabled: doc.smsEnabled === true,
-    smsPriceCzk: num(doc.smsPriceCzk),
-    smsMonthlyLimit: num(doc.smsMonthlyLimit),
-    importAiEnabled: doc.importAiEnabled === true,
-    importAiPriceCzk: num(doc.importAiPriceCzk),
-    importAiBudgetUsd: num(doc.importAiBudgetUsd),
-  }
-}
-
-/** The obec's services and their prices — platform admins only (Municipalities' platformOnlyField). */
-export async function setMunicipalityServices(
-  municipalityId: string,
-  settings: MunicipalityServicesSettings,
-): Promise<void> {
-  await patch(`/municipalities/${municipalityId}`, settings)
 }
 
 export async function setMunicipalityRulesForCreation(
@@ -864,6 +823,8 @@ export type ProfileRow = {
   phone: string | null
   notify_email: boolean
   notify_in_app: boolean
+  /** Chose SMS (Profiles.notifySms) — off unless they did. */
+  notify_sms: boolean
   municipality_id: string | null
   onboarding_completed: boolean
   date_of_birth: string | null
@@ -889,6 +850,7 @@ type PayloadProfile = {
   phone?: string | null
   notifyEmail?: boolean
   notifyInApp?: boolean
+  notifySms?: boolean
   municipality?: number | { id: number } | null
   onboardingCompleted?: boolean
   dateOfBirth?: string | null
@@ -935,6 +897,7 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   phone: p.phone ?? null,
   notify_email: p.notifyEmail ?? true,
   notify_in_app: p.notifyInApp ?? true,
+  notify_sms: p.notifySms === true,
   municipality_id: relationId(p.municipality),
   onboarding_completed: Boolean(p.onboardingCompleted),
   date_of_birth: p.dateOfBirth ?? null,

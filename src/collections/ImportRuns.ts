@@ -118,6 +118,19 @@ export const ImportRuns: CollectionConfig = {
       admin: { description: 'USD, from usage-events at the price of the day.' },
     },
     { name: 'jobId', type: 'text' },
+    {
+      // The platform's check of the run (Log běhů scrapingu) — set in the superadmin panel through
+      // /api/superadmin/import-runs/:id; empty until someone looked at it.
+      name: 'reviewStatus',
+      type: 'select',
+      options: [
+        { label: 'Zkontrolováno', value: 'ok' },
+        { label: 'Problém', value: 'problem' },
+      ],
+    },
+    { name: 'reviewNote', type: 'text' },
+    { name: 'reviewedBy', type: 'relationship', relationTo: 'users' },
+    { name: 'reviewedAt', type: 'date' },
   ],
   timestamps: true,
 }

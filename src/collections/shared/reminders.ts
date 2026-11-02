@@ -2,7 +2,7 @@ import type { Payload } from 'payload'
 
 import { isUnlimitedCapacity } from '@/lib/capacity'
 
-import { enqueueAttendanceReminder, enqueueEmail, enqueueFeedbackRequest, getQueue } from '@/lib/queue/queues'
+import { enqueueAttendanceReminder, enqueueEmail, enqueueFeedbackRequest, enqueueReminderSms, getQueue } from '@/lib/queue/queues'
 import { requiredRelationNumber } from '@/lib/relations'
 
 type RelId = number | { id: number }
@@ -19,6 +19,7 @@ type EventForReminders = {
 
 const attendanceJobId = (eventId: number | string) => `attendance-reminder-${eventId}`
 const participantJobId = (registrationId: number | string) => `reminder-${registrationId}`
+const participantSmsJobId = (registrationId: number | string) => `reminder-sms-${registrationId}`
 /** Keyed by the end time too: a rescheduled event gets a fresh job at the new time, and the old
  * one — which BullMQ would otherwise keep in place of it — finds the event not over yet and skips. */
 const feedbackJobId = (registrationId: number | string, endsAt: number) => `feedback-request-${registrationId}-${endsAt}`
@@ -58,10 +59,17 @@ export async function scheduleParticipantReminder(
     payload.find({ collection: 'profiles', where: { user: { equals: userId } }, limit: 1, depth: 0, overrideAccess: true }),
     payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }),
   ])
-  if (!user?.email || !(profiles.docs[0]?.notifyEmail ?? true)) return
-
   const delay = new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000 - Date.now()
   if (delay <= 0) return
+
+  // By SMS too for whoever chose it — the worker checks the obec's package, its quota and the
+  // event's size when it fires (reminder-sms.processor).
+  const profile = profiles.docs[0]
+  if (profile?.notifySms && profile.phone) {
+    await enqueueReminderSms({ registrationId }, { jobId: participantSmsJobId(registrationId), delay })
+  }
+
+  if (!user?.email || !(profile?.notifyEmail ?? true)) return
 
   await enqueueEmail(
     {
@@ -76,6 +84,7 @@ export async function scheduleParticipantReminder(
 /** They're no longer coming (taken off the event, or cancelled themselves) — no reminder for it. */
 export async function cancelParticipantReminder(registrationId: number | string): Promise<void> {
   await removeJob(participantJobId(registrationId))
+  await removeJob(participantSmsJobId(registrationId))
 }
 
 /** US-U-03 — ask a participant the organizer confirmed as attended to rate the event. Goes out as
@@ -108,6 +117,7 @@ export async function rescheduleEventReminders(payload: Payload, event: EventFor
   })
   for (const reg of approved.docs) {
     await removeJob(participantJobId(reg.id))
+    await removeJob(participantSmsJobId(reg.id))
     await scheduleParticipantReminder(payload, reg.id, requiredRelationNumber(reg.user), event)
     if (reg.attendanceStatus === 'attended' || isUnlimitedCapacity(event.capacity)) {
       await scheduleFeedbackRequest(reg.id, event)
@@ -124,5 +134,6 @@ export async function cancelEventReminders(
   await removeJob(attendanceJobId(eventId))
   for (const registrationId of registrationIds) {
     await removeJob(participantJobId(registrationId))
+    await removeJob(participantSmsJobId(registrationId))
   }
 }

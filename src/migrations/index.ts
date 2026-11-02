@@ -42,6 +42,7 @@ import * as migration_20261024_204626_event_drafts from './20261024_204626_event
 import * as migration_20261024_205849_microregions from './20261024_205849_microregions';
 import * as migration_20261025_101559_deletion_request_neighbour_obce from './20261025_101559_deletion_request_neighbour_obce';
 import * as migration_20261026_170350_municipality_services from './20261026_170350_municipality_services';
+import * as migration_20261102_155104_billing_packages from './20261102_155104_billing_packages';
 
 export const migrations = [
   {
@@ -262,6 +263,11 @@ export const migrations = [
   {
     up: migration_20261026_170350_municipality_services.up,
     down: migration_20261026_170350_municipality_services.down,
-    name: '20261026_170350_municipality_services'
+    name: '20261026_170350_municipality_services',
+  },
+  {
+    up: migration_20261102_155104_billing_packages.up,
+    down: migration_20261102_155104_billing_packages.down,
+    name: '20261102_155104_billing_packages',
   },
 ];

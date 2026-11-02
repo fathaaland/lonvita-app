@@ -3,7 +3,7 @@ import type { Payload, PayloadRequest } from 'payload'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import { toE164 } from '@/lib/phone'
 import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
-import { smsAllowanceOf } from '@/lib/services/municipality-services'
+import { smsAllowanceOf, smsPartsOf, toSmsText } from '@/lib/billing/sms'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
@@ -290,15 +290,16 @@ export async function sendNotificationToMany(
 export { toE164 } from '@/lib/phone'
 
 /**
- * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — narrowed: SMS go out only when an
- * event of at most SMS_MAX_CAPACITY places is cancelled (event-cancelled processor, which checks
- * the capacity), never for anything else. To whichever of these users
- * have a phone on file (onboarding step, still optional until they've filled it in). A no-op (not
- * an error) when BulkGate isn't configured — the worker logs that. Only for an obec that pays for SMS
- * (lib/services), and no more than its monthly limit leaves — the rest hear it in-app and by e-mail
- * all the same. The request id becomes the queue
- * job id, so `requestIdPrefix` must be unique per announcement but stable across retries of it.
- * Never throws; returns how many were queued.
+ * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail", narrowed by the SMS package (Balíčky
+ * služeb): SMS go out on a cancel, a change of time or place and the reminder a day before — and only
+ * for an event of fewer than SMS_LARGE_EVENT_CAPACITY places (the callers check the capacity). Only to
+ * those of these users who chose SMS in their profile (Profiles.notifySms) and have a phone on file,
+ * without diacritics (lib/billing/sms), and only for an obec that has the SMS package and isn't
+ * suspended. Its yearly quota counts parts: once it's used up, the rest are texted only if the obec
+ * allows overage (marked so, billed at the year's end) — otherwise they hear it in-app and by e-mail,
+ * which go out all the same. A no-op (not an error) when BulkGate isn't configured — the worker logs
+ * that. The request id becomes the queue job id, so `requestIdPrefix` must be unique per announcement
+ * but stable across retries of it. Never throws; returns how many were queued.
  */
 export async function sendSmsToMany(
   payload: Payload,
@@ -311,10 +312,10 @@ export async function sendSmsToMany(
   if (ids.length === 0) return 0
   try {
     const allowance = await smsAllowanceOf(payload, municipalityId, new Date())
-    if (allowance === 0) return 0
+    if (allowance.remainingParts === 0 && !allowance.overageAllowed) return 0
     const profiles = await payload.find({
       collection: 'profiles',
-      where: { user: { in: ids } },
+      where: { and: [{ user: { in: ids } }, { notifySms: { equals: true } }] },
       depth: 0,
       pagination: false,
       overrideAccess: true,
@@ -323,19 +324,30 @@ export async function sendSmsToMany(
       const to = p.phone ? toE164(p.phone) : null
       return to ? [{ to, userId: typeof p.user === 'object' ? p.user.id : p.user }] : []
     })
-    const recipients = allowance === null ? reachable : reachable.slice(0, allowance)
+    const text = toSmsText(message)
+    const parts = smsPartsOf(text)
+    let left = allowance.remainingParts
+    const recipients: { to: string; userId: number; overage: boolean }[] = []
+    for (const r of reachable) {
+      if (left >= parts) {
+        left -= parts
+        recipients.push({ ...r, overage: false })
+      } else if (allowance.overageAllowed) {
+        recipients.push({ ...r, overage: true })
+      } else break
+    }
     if (recipients.length < reachable.length) {
       payload.logger.warn(
         { municipalityId, skipped: reachable.length - recipients.length },
-        'SMS limit of the obec reached — the rest not texted',
+        'SMS quota of the obec used up — the rest not texted',
       )
     }
     const queued = await Promise.all(
-      recipients.map(async ({ to, userId }) => {
+      recipients.map(async ({ to, userId, overage }) => {
         const requestId = `${requestIdPrefix}-${userId}`
         try {
           await enqueueSms(
-            { to, message, requestId, municipalityId },
+            { to, message: text, requestId, municipalityId, ...(overage ? { overage } : {}) },
             { jobId: `sms-${requestId}` },
           )
           return true

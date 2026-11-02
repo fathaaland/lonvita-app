@@ -42,7 +42,6 @@ import {
 } from '@/lib/import/html'
 import { parseIcal } from '@/lib/import/ical'
 import { similarTitles, withoutContacts } from '@/lib/import/normalize'
-import { aiBudgetOf } from '@/lib/import/usage'
 import { sourceActivity, type ImportSourceRow } from '@/integrations/payload/import-queries'
 import {
   loadImportContext,
@@ -179,13 +178,6 @@ describe('Import — personal data, links and limits', () => {
     )
     expect(withoutContacts('tel. 777 123 456')).toBeNull()
     expect(withoutContacts(null)).toBeNull()
-  })
-
-  it("an obec's own AI limit wins over the default", () => {
-    expect(aiBudgetOf({})).toBe(IMPORT_LIMITS.aiMonthlyBudgetUsd)
-    expect(aiBudgetOf({ importAiBudgetUsd: null })).toBe(IMPORT_LIMITS.aiMonthlyBudgetUsd)
-    expect(aiBudgetOf({ importAiBudgetUsd: 12 })).toBe(12)
-    expect(aiBudgetOf({ importAiBudgetUsd: 0 })).toBe(0)
   })
 
   it('bills a long prompt at the long-context rates — the whole call, as Anthropic does', () => {
@@ -457,6 +449,8 @@ describe('Import — candidates, approval and access', () => {
       data: {
         name: `Import obec ${STAMP}`,
         importAiEnabled: true,
+        // The tests add many sources; the package limit has its own test.
+        scrapingMaxSourcesOverride: 100,
         lat: area.lat,
         lng: area.lng,
         eventRadiusKm: 15,
@@ -1406,7 +1400,7 @@ describe('Import — candidates, approval and access', () => {
     await payload.update({
       collection: 'municipalities',
       id: obec.id,
-      data: { importAiEnabled: false, importAiPriceCzk: 500 },
+      data: { importAiEnabled: false, licenceCustomYearlyCzk: 500 },
       overrideAccess: true,
     })
     try {
@@ -1427,12 +1421,12 @@ describe('Import — candidates, approval and access', () => {
 
       const seen = await payload.findByID({ collection: 'municipalities', id: obec.id, user: resident, overrideAccess: false })
       expect(seen.importAiEnabled).toBe(false)
-      expect(seen.importAiPriceCzk).toBeUndefined()
+      expect(seen.licenceCustomYearlyCzk).toBeUndefined()
     } finally {
       await payload.update({
         collection: 'municipalities',
         id: obec.id,
-        data: { importAiEnabled: true, importAiPriceCzk: null },
+        data: { importAiEnabled: true, licenceCustomYearlyCzk: null },
         overrideAccess: true,
       })
     }
@@ -1621,49 +1615,64 @@ describe('Import — candidates, approval and access', () => {
       payload.find({ collection: 'usage-events', user: admin, overrideAccess: false }),
     ).rejects.toThrow()
 
-    // Past the obec's fair-use cap the AI isn't called at all — and the owner is told why.
-    await payload.create({
-      collection: 'usage-events',
-      data: {
-        municipality: obec.id,
-        provider: 'anthropic',
-        model: 'claude-haiku-5-5',
-        operationType: 'event_import',
-        source: 'worker',
-        usageKind: 'tokens',
-        costUsd: 1_000,
-        status: 'success',
-      },
+    const lastRun = async () =>
+      (
+        await payload.find({
+          collection: 'import-runs',
+          where: { source: { equals: source.id } },
+          sort: '-startedAt',
+          limit: 1,
+          depth: 0,
+          overrideAccess: true,
+        })
+      ).docs[0]
+
+    // The technical cap on one run's input tokens: reached, no further AI call — the run stops, the
+    // platform is told, and it isn't the web's failure.
+    await payload.update({
+      collection: 'municipalities',
+      id: obec.id,
+      data: { scrapingMaxInputTokensOverride: 0 },
       overrideAccess: true,
     })
-    ai.mockClear()
-    const capped = await processImportEventsJob(
-      { kind: 'source', sourceId: source.id, trigger: 'manual' },
-      {},
-      fakeDeps,
-    )
-    expect(capped.skipped).toBe('ai_held_back')
-    expect(ai).not.toHaveBeenCalled()
-    const afterCap = await payload.findByID({
-      collection: 'event-sources',
-      id: source.id,
-      depth: 0,
-      overrideAccess: true,
-    })
-    expect(afterCap.lastError).toContain('limit')
-    expect(afterCap.consecutiveFailures ?? 0).toBe(0)
-    const [cappedRun] = (
-      await payload.find({
-        collection: 'import-runs',
-        where: { source: { equals: source.id } },
-        sort: '-startedAt',
-        limit: 1,
-        depth: 0,
+    try {
+      ai.mockClear()
+      const capped = await processImportEventsJob(
+        { kind: 'source', sourceId: source.id, trigger: 'manual' },
+        {},
+        fakeDeps,
+      )
+      expect(capped.skipped).toBe('token_cap')
+      expect(ai).not.toHaveBeenCalled()
+      const afterCap = await payload.findByID({ collection: 'event-sources', id: source.id, depth: 0, overrideAccess: true })
+      expect(afterCap.lastErrorCode).toBe('token_cap')
+      expect(afterCap.consecutiveFailures ?? 0).toBe(0)
+      expect(await lastRun()).toMatchObject({ status: 'failed', errorCode: 'token_cap' })
+
+      // Suspended for not paying: the AI isn't asked at all.
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { scrapingMaxInputTokensOverride: null, billingStatus: 'suspended' },
         overrideAccess: true,
       })
-    ).docs
-    expect(cappedRun.status).toBe('skipped')
-    expect(cappedRun.errorCode).toBe('over_budget')
+      ai.mockClear()
+      const suspended = await processImportEventsJob(
+        { kind: 'source', sourceId: source.id, trigger: 'manual' },
+        {},
+        fakeDeps,
+      )
+      expect(suspended.skipped).toBe('ai_held_back')
+      expect(ai).not.toHaveBeenCalled()
+      expect(await lastRun()).toMatchObject({ status: 'skipped', errorCode: 'suspended' })
+    } finally {
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { scrapingMaxInputTokensOverride: null, billingStatus: 'active' },
+        overrideAccess: true,
+      })
+    }
   })
 
   it('keeps a taken-over event in step with its calendar — never over what was changed in Lonvita', async () => {
@@ -1786,6 +1795,55 @@ describe('Import — candidates, approval and access', () => {
     found = await ofSource()
     expect(found.get('Vánoční besídka')!.syncNotices).toEqual([{ code: 'missing_at_source' }])
     expect((await eventOf(besidkaEvent)).status).toBe('active')
+  })
+
+  it('the scraping package caps the sources switched on — and a suspended obec adds none', async () => {
+    const add = (url: string) =>
+      payload.create({
+        collection: 'event-sources',
+        data: { municipality: obec.id, url, ownerConsent: true } as never,
+        user: admin,
+        overrideAccess: false,
+      })
+    const enabledNow = (
+      await payload.count({
+        collection: 'event-sources',
+        where: { and: [{ municipality: { equals: obec.id } }, { enabled: { equals: true } }] },
+        overrideAccess: true,
+      })
+    ).totalDocs
+    await payload.update({
+      collection: 'municipalities',
+      id: obec.id,
+      data: { scrapingMaxSourcesOverride: enabledNow + 1 },
+      overrideAccess: true,
+    })
+    try {
+      const last = await add(`https://balicek-${STAMP}.cz/akce`)
+      await expect(add(`https://balicek-${STAMP}.cz/dalsi`)).rejects.toThrow('nejvýš')
+      // Switched off it frees a place; switching it back on over the limit is refused the same way.
+      await payload.update({ collection: 'event-sources', id: last.id, data: { enabled: false }, user: admin, overrideAccess: false })
+      const other = await add(`https://balicek-${STAMP}.cz/jina`)
+      await expect(
+        payload.update({ collection: 'event-sources', id: last.id, data: { enabled: true }, user: admin, overrideAccess: false }),
+      ).rejects.toThrow('nejvýš')
+      await payload.update({ collection: 'event-sources', id: other.id, data: { enabled: false }, overrideAccess: true })
+
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { billingStatus: 'suspended', scrapingMaxSourcesOverride: 100 },
+        overrideAccess: true,
+      })
+      await expect(add(`https://balicek-${STAMP}.cz/pozastaveno`)).rejects.toThrow('pozastavené')
+    } finally {
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { billingStatus: 'active', scrapingMaxSourcesOverride: 100 },
+        overrideAccess: true,
+      })
+    }
   })
 
   it("import is the obec's alone — an organizer neither adds sources nor sees or takes over candidates", async () => {

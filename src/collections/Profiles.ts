@@ -305,6 +305,12 @@ export const Profiles: CollectionConfig = {
       },
     },
     {
+      // Balíčky služeb: "SMS dostane jen uživatel, který si je v profilu zvolil" — off by default.
+      name: 'notifySms',
+      type: 'checkbox',
+      defaultValue: false,
+    },
+    {
       name: 'notifyInApp',
       type: 'checkbox',
       defaultValue: true,
