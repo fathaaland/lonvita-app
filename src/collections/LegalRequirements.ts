@@ -1,4 +1,8 @@
-import type { CollectionAfterChangeHook, CollectionBeforeChangeHook, CollectionConfig } from 'payload'
+import type {
+  CollectionAfterChangeHook,
+  CollectionBeforeChangeHook,
+  CollectionConfig,
+} from 'payload'
 
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
 
@@ -18,7 +22,8 @@ const recordReview: CollectionBeforeChangeHook = ({ data, originalDoc, req }) =>
   if (!data) return data
   const reviewedAt = data.lastReviewedAt ?? originalDoc?.lastReviewedAt
   const interval = data.reviewIntervalMonths ?? originalDoc?.reviewIntervalMonths ?? 12
-  const justReviewed = Boolean(data.lastReviewedAt) && data.lastReviewedAt !== originalDoc?.lastReviewedAt
+  const justReviewed =
+    Boolean(data.lastReviewedAt) && data.lastReviewedAt !== originalDoc?.lastReviewedAt
   return {
     ...data,
     nextReviewAt: reviewedAt
@@ -79,7 +84,12 @@ export const LegalRequirements: CollectionConfig = {
   labels: { singular: 'Legal Requirement', plural: 'Legal Requirements' },
   admin: { useAsTitle: 'code', defaultColumns: ['code', 'title', 'status', 'nextReviewAt'] },
   defaultSort: 'code',
-  access: { read: platformAdmin, create: platformAdmin, update: platformAdmin, delete: platformAdmin },
+  access: {
+    read: platformAdmin,
+    create: platformAdmin,
+    update: platformAdmin,
+    delete: platformAdmin,
+  },
   hooks: {
     beforeChange: [recordReview],
     afterChange: [auditChange],

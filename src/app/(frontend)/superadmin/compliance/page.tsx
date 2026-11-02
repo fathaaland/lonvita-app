@@ -26,7 +26,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ConfirmDeleteButton } from '@/components/ConfirmDeleteButton'
 import { PayloadApiError } from '@/integrations/payload/client'
 import {
@@ -134,7 +140,10 @@ function RequirementForm({
         </div>
         <div className="space-y-1">
           <Label>Druh</Label>
-          <Select value={form.kind} onValueChange={(v) => set('kind')(v as LegalRequirement['kind'])}>
+          <Select
+            value={form.kind}
+            onValueChange={(v) => set('kind')(v as LegalRequirement['kind'])}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -187,7 +196,10 @@ function RequirementForm({
         </div>
         <div className="space-y-1">
           <Label>Stav</Label>
-          <Select value={form.status} onValueChange={(v) => set('status')(v as LegalRequirement['status'])}>
+          <Select
+            value={form.status}
+            onValueChange={(v) => set('status')(v as LegalRequirement['status'])}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -211,12 +223,18 @@ function RequirementForm({
       </div>
       {!watchable && form.code.trim() && (
         <p className="text-xs text-muted-foreground">
-          V e-Sbírce jde hlídat jen předpis Sbírky zákonů ve tvaru „číslo/rok Sb.“ — tento kontrolujte ručně.
+          V e-Sbírce jde hlídat jen předpis Sbírky zákonů ve tvaru „číslo/rok Sb.“ — tento
+          kontrolujte ručně.
         </p>
       )}
       <div className="space-y-1">
         <Label htmlFor="lr-notes">Poznámky</Label>
-        <Textarea id="lr-notes" rows={2} value={form.notes ?? ''} onChange={(e) => set('notes')(e.target.value)} />
+        <Textarea
+          id="lr-notes"
+          rows={2}
+          value={form.notes ?? ''}
+          onChange={(e) => set('notes')(e.target.value)}
+        />
       </div>
       <div className="flex gap-2">
         <Button type="submit" disabled={saving}>
@@ -285,7 +303,9 @@ function RequirementCard({ item, onChanged }: { item: LegalRequirement; onChange
   }
 
   const reviewer =
-    item.lastReviewedBy && typeof item.lastReviewedBy === 'object' ? ` (${item.lastReviewedBy.email})` : ''
+    item.lastReviewedBy && typeof item.lastReviewedBy === 'object'
+      ? ` (${item.lastReviewedBy.email})`
+      : ''
 
   return (
     <Card>
@@ -313,8 +333,8 @@ function RequirementCard({ item, onChanged }: { item: LegalRequirement; onChange
 
         {item.status === 'changed' && item.esbirkaChangeSummary && (
           <p className="text-sm rounded-md border border-destructive/40 bg-destructive/5 p-2">
-            <strong>Zjištěno {date(item.esbirkaChangedAt)}:</strong> {item.esbirkaChangeSummary} Posuďte dopad
-            (požadavky, lhůty uchování) a označte jako zkontrolováno.
+            <strong>Zjištěno {date(item.esbirkaChangedAt)}:</strong> {item.esbirkaChangeSummary}{' '}
+            Posuďte dopad (požadavky, lhůty uchování) a označte jako zkontrolováno.
           </p>
         )}
         {item.requirement && (
@@ -335,14 +355,20 @@ function RequirementCard({ item, onChanged }: { item: LegalRequirement; onChange
           {item.esbirkaWatch &&
             ` · e-Sbírka ${item.esbirkaCheckedAt ? `ověřena ${date(item.esbirkaCheckedAt)}` : 'zatím neověřena'}`}
         </p>
-        {item.esbirkaError && <p className="text-xs text-destructive">e-Sbírka: {item.esbirkaError}</p>}
+        {item.esbirkaError && (
+          <p className="text-xs text-destructive">e-Sbírka: {item.esbirkaError}</p>
+        )}
 
         <div className="flex flex-wrap gap-2 pt-1">
           <Button
             size="sm"
             disabled={busy}
             onClick={() =>
-              act(() => markLegalRequirementReviewed(item.id), 'Označeno jako zkontrolované.', 'Nepodařilo se uložit.')
+              act(
+                () => markLegalRequirementReviewed(item.id),
+                'Označeno jako zkontrolované.',
+                'Nepodařilo se uložit.',
+              )
             }
           >
             <CheckCircle2 className="h-4 w-4" /> Zkontrolováno
@@ -424,8 +450,9 @@ function Register() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Každou noc se v e-Sbírce ověří, jestli u hlídaných předpisů nevyšlo nové znění nebo nebyla vyhlášena změna. Pak
-        přijde upozornění a předpis se označí „Změna předpisu“. Co změna znamená pro Lonvitu, musí posoudit člověk.
+        Každou noc se v e-Sbírce ověří, jestli u hlídaných předpisů nevyšlo nové znění nebo nebyla
+        vyhlášena změna. Pak přijde upozornění a předpis se označí „Změna předpisu“. Co změna
+        znamená pro Lonvitu, musí posoudit člověk.
       </p>
       {adding && (
         <Card>
@@ -463,7 +490,10 @@ function RetentionEditor() {
       .then((stored) =>
         setValues(
           Object.fromEntries(
-            EDITABLE_RETENTION_KEYS.map((k) => [k, typeof stored[k] === 'number' ? String(stored[k]) : '']),
+            EDITABLE_RETENTION_KEYS.map((k) => [
+              k,
+              typeof stored[k] === 'number' ? String(stored[k]) : '',
+            ]),
           ) as Record<EditableRetentionKey, string>,
         ),
       )
@@ -507,8 +537,9 @@ function RetentionEditor() {
           <p className="font-bold">Lhůty uchování</p>
         </div>
         <p className="text-sm text-muted-foreground">
-          Jak dlouho se co uchovává. Když se změní zákon, upravíte číslo tady — bez programování. Pod zákonné minimum
-          to nejde. Prázdné = výchozí hodnota. Každá změna se zapíše do audit logu.
+          Jak dlouho se co uchovává. Když se změní zákon, upravíte číslo tady — bez programování.
+          Pod zákonné minimum to nejde. Prázdné = výchozí hodnota. Každá změna se zapíše do audit
+          logu.
         </p>
         {EDITABLE_RETENTION_KEYS.map((key) => {
           const rule = EDITABLE_RETENTION[key]
@@ -561,8 +592,9 @@ export default function CompliancePage() {
               <Register />
               <RetentionEditor />
               <p className="text-xs text-muted-foreground">
-                Registr je pomůcka k plnění povinností, ne právní posudek. Zda je Lonvita povinnou osobou podle zákona
-                o kybernetické bezpečnosti (a v jakém režimu), má potvrdit právník.
+                Registr je pomůcka k plnění povinností, ne právní posudek. Zda je Lonvita povinnou
+                osobou podle zákona o kybernetické bezpečnosti (a v jakém režimu), má potvrdit
+                právník.
               </p>
             </div>
           </div>

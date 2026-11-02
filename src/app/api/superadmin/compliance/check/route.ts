@@ -15,7 +15,8 @@ import { enqueueComplianceCheck } from '@/lib/queue/queues'
 export async function POST(request: Request) {
   const payload = await getPayload({ config })
   const { user } = await payload.auth({ headers: request.headers })
-  if (!user || user.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!user || user.role !== 'admin')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
     await enqueueComplianceCheck()
@@ -28,7 +29,10 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ queued: true })
   } catch (error) {
-    logger.error('Compliance check not queued', { event: 'compliance.enqueue_failed', ...serializeError(error) })
+    logger.error('Compliance check not queued', {
+      event: 'compliance.enqueue_failed',
+      ...serializeError(error),
+    })
     return NextResponse.json({ error: 'Kontrolu se nepodařilo spustit.' }, { status: 500 })
   }
 }

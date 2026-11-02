@@ -54,7 +54,10 @@ export async function fetchVersions(
 ): Promise<EsbirkaVersion[]> {
   const staleUrl = staleUrlOf(code)
   if (!staleUrl) {
-    throw new EsbirkaError(`„${code}“ není předpis Sbírky zákonů — v e-Sbírce ho hlídat nejde.`, false)
+    throw new EsbirkaError(
+      `„${code}“ není předpis Sbírky zákonů — v e-Sbírce ho hlídat nejde.`,
+      false,
+    )
   }
   const key = process.env.ESBIRKA_API_KEY?.trim()
   const base = key ? API_BASE : PUBLIC_BASE
@@ -74,9 +77,13 @@ export async function fetchVersions(
     throw new EsbirkaError('e-Sbírka neodpověděla.', true)
   }
   if (res.status === 404) throw new EsbirkaError(`Předpis ${code} v e-Sbírce není.`, false)
-  if (res.status === 401) throw new EsbirkaError('e-Sbírka odmítla API klíč (ESBIRKA_API_KEY).', false)
+  if (res.status === 401)
+    throw new EsbirkaError('e-Sbírka odmítla API klíč (ESBIRKA_API_KEY).', false)
   if (!res.ok) {
-    throw new EsbirkaError(`e-Sbírka vrátila chybu ${res.status}.`, res.status === 429 || res.status >= 500)
+    throw new EsbirkaError(
+      `e-Sbírka vrátila chybu ${res.status}.`,
+      res.status === 429 || res.status >= 500,
+    )
   }
 
   const body = (await res.json().catch(() => null)) as HistoryResponse | null
@@ -107,7 +114,9 @@ export const fingerprintOf = (versions: EsbirkaVersion[]): string =>
     .join('|')
 
 const czDate = (iso: string | null) =>
-  iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' }) : '?'
+  iso
+    ? new Date(`${iso}T12:00:00Z`).toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' })
+    : '?'
 
 /** What's new against the versions known before — in words, for the register and the notification. */
 export function describeChange(previous: string, versions: EsbirkaVersion[]): string {

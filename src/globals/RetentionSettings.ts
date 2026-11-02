@@ -38,14 +38,12 @@ export const RetentionSettings: GlobalConfig = {
   slug: 'retention-settings',
   access: { read: platformAdmin, update: platformAdmin },
   hooks: { afterChange: [auditChange] },
-  fields: EDITABLE_RETENTION_KEYS.map(
-    (key): Field => ({
-      name: key,
-      type: 'number',
-      min: EDITABLE_RETENTION[key].min,
-      admin: {
-        description: `${EDITABLE_RETENTION[key].basis} Výchozí: ${RETENTION[key]} ${EDITABLE_RETENTION[key].unit}.`,
-      },
-    }),
-  ),
+  fields: EDITABLE_RETENTION_KEYS.map((key): Field => ({
+    name: key,
+    type: 'number',
+    min: EDITABLE_RETENTION[key].min,
+    admin: {
+      description: `${EDITABLE_RETENTION[key].basis} Výchozí: ${RETENTION[key]} ${EDITABLE_RETENTION[key].unit}.`,
+    },
+  })),
 }

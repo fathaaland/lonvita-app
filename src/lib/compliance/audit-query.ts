@@ -97,16 +97,38 @@ export async function queryAuditLog(
     overrideAccess: false,
   })
 
-  const actorIds = [...new Set(result.docs.map((d) => relationNumber(d.actor)).filter((id): id is number => id !== null))]
+  const actorIds = [
+    ...new Set(
+      result.docs.map((d) => relationNumber(d.actor)).filter((id): id is number => id !== null),
+    ),
+  ]
   const municipalityIds = [
-    ...new Set(result.docs.map((d) => relationNumber(d.municipality)).filter((id): id is number => id !== null)),
+    ...new Set(
+      result.docs
+        .map((d) => relationNumber(d.municipality))
+        .filter((id): id is number => id !== null),
+    ),
   ]
   const [actors, municipalities] = await Promise.all([
     actorIds.length
-      ? payload.find({ collection: 'users', where: { id: { in: actorIds } }, select: { email: true }, depth: 0, pagination: false, overrideAccess: true })
+      ? payload.find({
+          collection: 'users',
+          where: { id: { in: actorIds } },
+          select: { email: true },
+          depth: 0,
+          pagination: false,
+          overrideAccess: true,
+        })
       : null,
     municipalityIds.length
-      ? payload.find({ collection: 'municipalities', where: { id: { in: municipalityIds } }, select: { name: true }, depth: 0, pagination: false, overrideAccess: true })
+      ? payload.find({
+          collection: 'municipalities',
+          where: { id: { in: municipalityIds } },
+          select: { name: true },
+          depth: 0,
+          pagination: false,
+          overrideAccess: true,
+        })
       : null,
   ])
   const emailOf = new Map(actors?.docs.map((u) => [u.id, u.email]) ?? [])
@@ -126,7 +148,8 @@ export async function queryAuditLog(
         outcome: d.outcome,
         actor: actorId === null ? null : (emailOf.get(actorId) ?? `#${actorId}`),
         actorId,
-        municipality: municipalityId === null ? null : (nameOf.get(municipalityId) ?? `#${municipalityId}`),
+        municipality:
+          municipalityId === null ? null : (nameOf.get(municipalityId) ?? `#${municipalityId}`),
         targetCollection: d.targetCollection,
         targetId: d.targetId,
         ipAddress: d.ipAddress ?? null,

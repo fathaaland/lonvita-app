@@ -9,7 +9,12 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
   enqueueEmail: vi.fn(async () => undefined),
 }))
 
-import { describeChange, fingerprintOf, staleUrlOf, type EsbirkaVersion } from '@/lib/compliance/esbirka'
+import {
+  describeChange,
+  fingerprintOf,
+  staleUrlOf,
+  type EsbirkaVersion,
+} from '@/lib/compliance/esbirka'
 import { retentionFrom } from '@/lib/retention/settings'
 import { RETENTION } from '@/lib/retention/policy'
 import { DEFAULT_REQUIREMENTS } from '@/migrations/20261102_200114_compliance_register'
@@ -19,7 +24,9 @@ import { processComplianceCheckJob } from '../../worker/src/processors/complianc
 let payload: Payload
 const STAMP = Date.now()
 
-const history = (versions: { staleUrl: string; typZneni: string; od: string; novely?: string[] }[]) =>
+const history = (
+  versions: { staleUrl: string; typZneni: string; od: string; novely?: string[] }[],
+) =>
   JSON.stringify({
     historie: versions.map((v) => ({
       staleUrl: v.staleUrl,
@@ -62,7 +69,9 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
 
   afterAll(async () => {
     for (const id of created) {
-      await payload.delete({ collection: 'legal-requirements', id, overrideAccess: true }).catch(() => {})
+      await payload
+        .delete({ collection: 'legal-requirements', id, overrideAccess: true })
+        .catch(() => {})
     }
     for (const id of [admin.id, resident.id]) {
       await payload.delete({ collection: 'users', id, overrideAccess: true }).catch(() => {})
@@ -75,14 +84,24 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
     expect(staleUrlOf('2016/679 (EU)')).toBeNull()
 
     const versions: EsbirkaVersion[] = [
-      { staleUrl: '/sb/2012/89/2026-01-01', type: 'AKTUALNI', effectiveFrom: '2026-01-01', amendments: [] },
+      {
+        staleUrl: '/sb/2012/89/2026-01-01',
+        type: 'AKTUALNI',
+        effectiveFrom: '2026-01-01',
+        amendments: [],
+      },
       {
         staleUrl: '/sb/2012/89/2027-01-01',
         type: 'BUDOUCI',
         effectiveFrom: '2027-01-01',
         amendments: ['159/2026 Sb.'],
       },
-      { staleUrl: '/sb/2012/89/2025-07-01', type: 'MINULE', effectiveFrom: '2025-07-01', amendments: [] },
+      {
+        staleUrl: '/sb/2012/89/2025-07-01',
+        type: 'MINULE',
+        effectiveFrom: '2025-07-01',
+        amendments: [],
+      },
     ]
     // Past versions don't count, nor does their order.
     expect(fingerprintOf(versions)).toBe('/sb/2012/89/2026-01-01|/sb/2012/89/2027-01-01')
@@ -119,7 +138,13 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
   it('learns a watched regulation, then flags a change, tells the platform and writes it down', async () => {
     const req = await payload.create({
       collection: 'legal-requirements',
-      data: { code: '99/2031 Sb.', title: `Test zákon ${STAMP}`, kind: 'zakon', status: 'ok', esbirkaWatch: true },
+      data: {
+        code: '99/2031 Sb.',
+        title: `Test zákon ${STAMP}`,
+        kind: 'zakon',
+        status: 'ok',
+        esbirkaWatch: true,
+      },
       overrideAccess: true,
     })
     created.push(req.id)
@@ -128,10 +153,16 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
     const first = await processComplianceCheckJob({
       now,
       paceMs: 0,
-      fetchImpl: answering(history([{ staleUrl: '/sb/2031/99/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' }])),
+      fetchImpl: answering(
+        history([{ staleUrl: '/sb/2031/99/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' }]),
+      ),
     })
     expect(first.changed).toEqual([])
-    const learned = await payload.findByID({ collection: 'legal-requirements', id: req.id, overrideAccess: true })
+    const learned = await payload.findByID({
+      collection: 'legal-requirements',
+      id: req.id,
+      overrideAccess: true,
+    })
     expect(learned).toMatchObject({ status: 'ok', esbirkaFingerprint: '/sb/2031/99/2031-01-01' })
 
     const second = await processComplianceCheckJob({
@@ -140,18 +171,29 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
       fetchImpl: answering(
         history([
           { staleUrl: '/sb/2031/99/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' },
-          { staleUrl: '/sb/2031/99/2032-07-01', typZneni: 'BUDOUCI', od: '2032-07-01', novely: ['12/2032 Sb.'] },
+          {
+            staleUrl: '/sb/2031/99/2032-07-01',
+            typZneni: 'BUDOUCI',
+            od: '2032-07-01',
+            novely: ['12/2032 Sb.'],
+          },
         ]),
       ),
     })
     expect(second.changed).toEqual(['99/2031 Sb.'])
-    const flagged = await payload.findByID({ collection: 'legal-requirements', id: req.id, overrideAccess: true })
+    const flagged = await payload.findByID({
+      collection: 'legal-requirements',
+      id: req.id,
+      overrideAccess: true,
+    })
     expect(flagged.status).toBe('changed')
     expect(flagged.esbirkaChangeSummary).toContain('účinná od 1. 7. 2032')
 
     const notice = await payload.find({
       collection: 'notifications',
-      where: { and: [{ user: { equals: admin.id } }, { title: { equals: 'Změna předpisu v registru' } }] },
+      where: {
+        and: [{ user: { equals: admin.id } }, { title: { equals: 'Změna předpisu v registru' } }],
+      },
       overrideAccess: true,
     })
     expect(notice.docs[0]?.message).toContain('99/2031 Sb.')
@@ -181,16 +223,36 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
       depth: 0,
       overrideAccess: true,
     })
-    expect(reviewed).toMatchObject({ status: 'ok', esbirkaChangeSummary: null, lastReviewedBy: admin.id })
+    expect(reviewed).toMatchObject({
+      status: 'ok',
+      esbirkaChangeSummary: null,
+      lastReviewedBy: admin.id,
+    })
     expect(new Date(reviewed.nextReviewAt!).getUTCFullYear()).toBe(2027)
 
     // e-Sbírka down: written on the regulation, nothing else changes.
-    const failed = await processComplianceCheckJob({ now, paceMs: 0, fetchImpl: answering('{}', 503) })
+    const failed = await processComplianceCheckJob({
+      now,
+      paceMs: 0,
+      fetchImpl: answering('{}', 503),
+    })
     expect(failed.failed).toEqual(['99/2031 Sb.'])
-    const afterFailure = await payload.findByID({ collection: 'legal-requirements', id: req.id, overrideAccess: true })
-    expect(afterFailure).toMatchObject({ status: 'ok', esbirkaError: 'e-Sbírka vrátila chybu 503.' })
+    const afterFailure = await payload.findByID({
+      collection: 'legal-requirements',
+      id: req.id,
+      overrideAccess: true,
+    })
+    expect(afterFailure).toMatchObject({
+      status: 'ok',
+      esbirkaError: 'e-Sbírka vrátila chybu 503.',
+    })
 
-    await payload.update({ collection: 'legal-requirements', id: req.id, data: { esbirkaWatch: false }, overrideAccess: true })
+    await payload.update({
+      collection: 'legal-requirements',
+      id: req.id,
+      data: { esbirkaWatch: false },
+      overrideAccess: true,
+    })
   })
 
   it('flags a review that came due', async () => {
@@ -214,7 +276,11 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
       fetchImpl: answering('{}', 503),
     })
     expect(result.dueForReview).toContain(`GDPR-test-${STAMP}`)
-    const due = await payload.findByID({ collection: 'legal-requirements', id: req.id, overrideAccess: true })
+    const due = await payload.findByID({
+      collection: 'legal-requirements',
+      id: req.id,
+      overrideAccess: true,
+    })
     expect(due.status).toBe('review_needed')
   })
 

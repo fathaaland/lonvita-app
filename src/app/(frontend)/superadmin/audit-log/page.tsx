@@ -11,7 +11,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   auditCsvUrl,
   getAuditLog,
@@ -72,7 +78,8 @@ function AuditLogContent() {
 
   useEffect(() => load(filters, page), [load, filters, page])
 
-  const set = (key: keyof AuditFilterInput) => (value: string) => setDraft({ ...draft, [key]: value })
+  const set = (key: keyof AuditFilterInput) => (value: string) =>
+    setDraft({ ...draft, [key]: value })
   const apply = (e: React.FormEvent) => {
     e.preventDefault()
     setPage(1)
@@ -86,8 +93,8 @@ function AuditLogContent() {
         <div className="flex items-start gap-2 text-sm text-muted-foreground">
           <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0" />
           <p>
-            Záznamy nejde upravit ani smazat dřív než po 18 měsících (hlídá to databáze), každou noc se ukládá
-            neměnná kopie mimo aplikaci. I toto prohlížení se zapisuje do audit logu.
+            Záznamy nejde upravit ani smazat dřív než po 18 měsících (hlídá to databáze), každou noc
+            se ukládá neměnná kopie mimo aplikaci. I toto prohlížení se zapisuje do audit logu.
           </p>
         </div>
 
@@ -105,7 +112,11 @@ function AuditLogContent() {
               </div>
               <div className="space-y-1">
                 <Label htmlFor="f-actor">Kdo (e-mail)</Label>
-                <Input id="f-actor" value={draft.actor} onChange={(e) => set('actor')(e.target.value)} />
+                <Input
+                  id="f-actor"
+                  value={draft.actor}
+                  onChange={(e) => set('actor')(e.target.value)}
+                />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="f-target">Cíl (kolekce)</Label>
@@ -118,7 +129,10 @@ function AuditLogContent() {
               </div>
               <div className="space-y-1">
                 <Label>Výsledek</Label>
-                <Select value={draft.outcome || 'all'} onValueChange={(v) => set('outcome')(v === 'all' ? '' : v)}>
+                <Select
+                  value={draft.outcome || 'all'}
+                  onValueChange={(v) => set('outcome')(v === 'all' ? '' : v)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -131,11 +145,21 @@ function AuditLogContent() {
               </div>
               <div className="space-y-1">
                 <Label htmlFor="f-from">Od</Label>
-                <Input id="f-from" type="date" value={draft.from} onChange={(e) => set('from')(e.target.value)} />
+                <Input
+                  id="f-from"
+                  type="date"
+                  value={draft.from}
+                  onChange={(e) => set('from')(e.target.value)}
+                />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="f-to">Do</Label>
-                <Input id="f-to" type="date" value={draft.to} onChange={(e) => set('to')(e.target.value)} />
+                <Input
+                  id="f-to"
+                  type="date"
+                  value={draft.to}
+                  onChange={(e) => set('to')(e.target.value)}
+                />
               </div>
               <Button type="submit">Filtrovat</Button>
               <Button asChild variant="outline">
@@ -156,7 +180,8 @@ function AuditLogContent() {
             ) : (
               <>
                 <p className="text-xs text-muted-foreground mb-2">
-                  {data.totalDocs.toLocaleString('cs-CZ')} záznamů · strana {data.page} z {data.totalPages}
+                  {data.totalDocs.toLocaleString('cs-CZ')} záznamů · strana {data.page} z{' '}
+                  {data.totalPages}
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -178,12 +203,22 @@ function AuditLogContent() {
                             onClick={() => setOpen(open === r.id ? null : r.id)}
                           >
                             <td className="py-2 pr-2">
-                              {open === r.id ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              {open === r.id ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
                             </td>
-                            <td className="py-2 pr-3 whitespace-nowrap tabular-nums">{dateTime(r.at)}</td>
+                            <td className="py-2 pr-3 whitespace-nowrap tabular-nums">
+                              {dateTime(r.at)}
+                            </td>
                             <td className="py-2 pr-3 font-mono text-xs">{r.action}</td>
-                            <td className="py-2 pr-3 max-w-[14rem] truncate">{r.actor ?? 'systém'}</td>
-                            <td className="py-2 pr-3 max-w-[10rem] truncate">{r.municipality ?? '—'}</td>
+                            <td className="py-2 pr-3 max-w-[14rem] truncate">
+                              {r.actor ?? 'systém'}
+                            </td>
+                            <td className="py-2 pr-3 max-w-[10rem] truncate">
+                              {r.municipality ?? '—'}
+                            </td>
                             <td className="py-2">
                               {r.outcome === 'failure' ? (
                                 <Badge variant="destructive">Odmítnuto</Badge>
@@ -206,7 +241,12 @@ function AuditLogContent() {
                   </table>
                 </div>
                 <div className="flex justify-between mt-3">
-                  <Button variant="outline" size="sm" disabled={data.page <= 1} onClick={() => setPage(data.page - 1)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={data.page <= 1}
+                    onClick={() => setPage(data.page - 1)}
+                  >
                     Novější
                   </Button>
                   <Button

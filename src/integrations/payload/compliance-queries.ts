@@ -23,7 +23,8 @@ export type AuditFilterInput = {
 
 const auditParams = (filters: AuditFilterInput, extra: Record<string, string> = {}) => {
   const params = new URLSearchParams()
-  for (const [key, value] of Object.entries({ ...filters, ...extra })) if (value) params.set(key, value)
+  for (const [key, value] of Object.entries({ ...filters, ...extra }))
+    if (value) params.set(key, value)
   return params.toString()
 }
 
@@ -70,7 +71,10 @@ export async function updateLegalRequirement(
 }
 
 /** "Zkontrolováno" — today; the next review moves a whole interval on (LegalRequirements). */
-export async function markLegalRequirementReviewed(id: number, status: 'ok' | 'gap' = 'ok'): Promise<void> {
+export async function markLegalRequirementReviewed(
+  id: number,
+  status: 'ok' | 'gap' = 'ok',
+): Promise<void> {
   await patch(`/legal-requirements/${id}`, { lastReviewedAt: new Date().toISOString(), status })
 }
 

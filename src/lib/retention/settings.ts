@@ -25,7 +25,8 @@ export const EDITABLE_RETENTION = {
     label: 'Neměnná kopie audit logu (úložiště)',
     unit: 'měsíců',
     min: RETENTION.auditLogMinimumMonths,
-    basis: 'Uzamčení noční kopie mimo aplikaci — min. 18 měsíců (vyhláška 409/2025 Sb. § 22 odst. 5 písm. c).',
+    basis:
+      'Uzamčení noční kopie mimo aplikaci — min. 18 měsíců (vyhláška 409/2025 Sb. § 22 odst. 5 písm. c).',
   },
   securityEventMonths: {
     label: 'Bezpečnostní události (přihlášení, limity)',
@@ -33,8 +34,18 @@ export const EDITABLE_RETENTION = {
     min: 1,
     basis: 'Rok ukáže vzorec přes sezóny; jejich kopie zůstává v neměnném úložišti.',
   },
-  systemLogDays: { label: 'Systémové logy (diagnostika)', unit: 'dní', min: 1, basis: 'Provozní potřeba.' },
-  importRunDays: { label: 'Běhy importu akcí', unit: 'dní', min: 1, basis: 'Provozní potřeba (podpora, kontrola zdrojů).' },
+  systemLogDays: {
+    label: 'Systémové logy (diagnostika)',
+    unit: 'dní',
+    min: 1,
+    basis: 'Provozní potřeba.',
+  },
+  importRunDays: {
+    label: 'Běhy importu akcí',
+    unit: 'dní',
+    min: 1,
+    basis: 'Provozní potřeba (podpora, kontrola zdrojů).',
+  },
   notificationDays: {
     label: 'Oznámení v aplikaci',
     unit: 'dní',
@@ -59,14 +70,18 @@ export const EDITABLE_RETENTION = {
     min: 1,
     basis: 'Žadatel vidí výsledek v profilu.',
   },
-} as const satisfies Partial<Record<keyof Retention, { label: string; unit: string; min: number; basis: string }>>
+} as const satisfies Partial<
+  Record<keyof Retention, { label: string; unit: string; min: number; basis: string }>
+>
 
 export type EditableRetentionKey = keyof typeof EDITABLE_RETENTION
 
 export const EDITABLE_RETENTION_KEYS = Object.keys(EDITABLE_RETENTION) as EditableRetentionKey[]
 
 /** The stored settings over the defaults, never under a floor. */
-export function retentionFrom(stored: Partial<Record<string, unknown>> | null | undefined): Retention {
+export function retentionFrom(
+  stored: Partial<Record<string, unknown>> | null | undefined,
+): Retention {
   const retention: Retention = { ...RETENTION }
   for (const key of EDITABLE_RETENTION_KEYS) {
     const value = stored?.[key]

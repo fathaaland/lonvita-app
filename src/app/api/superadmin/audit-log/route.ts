@@ -18,7 +18,8 @@ const CSV_MAX_ROWS = 10_000
 export async function GET(request: Request) {
   const payload = await getPayload({ config })
   const { user } = await payload.auth({ headers: request.headers })
-  if (!user || user.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!user || user.role !== 'admin')
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const params = new URL(request.url).searchParams
   const filters = parseAuditFilters(params)
@@ -45,7 +46,10 @@ export async function GET(request: Request) {
     }
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
-    logger.error('Audit log query failed', { event: 'audit.query_failed', ...serializeError(error) })
+    logger.error('Audit log query failed', {
+      event: 'audit.query_failed',
+      ...serializeError(error),
+    })
     return NextResponse.json({ error: 'Audit log se nepodařilo načíst.' }, { status: 500 })
   }
 }
