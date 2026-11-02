@@ -67,7 +67,7 @@ services:
   # exports, event update/cancel notifications, password reset — see src/lib/queue/) and owns the scheduled jobs:
   # the nightly notification/export cleanups and data retention (dry run unless
   # DATA_RETENTION_MODE=enforce) and the 15-minute finished/expired status sync.
-  # Without this service nothing processes what the app enqueues, so Resend emails and Twilio
+  # Without this service nothing processes what the app enqueues, so Resend emails and BulkGate
   # texts get queued but never actually sent, notifications are never pruned and past events
   # keep 'active' in the database (reads still show them as finished).
   worker:

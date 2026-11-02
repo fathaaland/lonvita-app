@@ -20,7 +20,12 @@ vi.mock('@/collections/shared/reminders', async (importOriginal) => ({
 }))
 
 import { cancelEventReminders, rescheduleEventReminders } from '@/collections/shared/reminders'
-import { enqueueEmail, enqueueEventCancelled, enqueueEventUpdated, enqueueSms } from '@/lib/queue/queues'
+import {
+  enqueueEmail,
+  enqueueEventCancelled,
+  enqueueEventUpdated,
+  enqueueSms,
+} from '@/lib/queue/queues'
 
 import type { EventCancelledJobData, EventUpdatedJobData } from '@/lib/queue/contracts'
 
@@ -49,13 +54,22 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
   const makeUser = async (name: string, profile?: Record<string, unknown>): Promise<TestUser> => {
     const user = await payload.create({
       collection: 'users',
-      data: { email: `event-notify-${name}-${STAMP}@test.local`, password: 'test1234', role: 'user' },
+      data: {
+        email: `event-notify-${name}-${STAMP}@test.local`,
+        password: 'test1234',
+        role: 'user',
+      },
       overrideAccess: true,
     })
     if (profile) {
       await payload.create({
         collection: 'profiles',
-        data: { user: user.id, fullName: `Notify ${name}`, municipality: municipality.id, ...profile },
+        data: {
+          user: user.id,
+          fullName: `Notify ${name}`,
+          municipality: municipality.id,
+          ...profile,
+        },
         overrideAccess: true,
       })
     }
@@ -105,8 +119,10 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
   const edit = (id: number, data: Record<string, unknown>) =>
     payload.update({ collection: 'events', id, data, overrideAccess: true })
 
-  const lastUpdatedJob = () => vi.mocked(enqueueEventUpdated).mock.calls.at(-1)?.[0] as EventUpdatedJobData
-  const lastCancelledJob = () => vi.mocked(enqueueEventCancelled).mock.calls.at(-1)?.[0] as EventCancelledJobData
+  const lastUpdatedJob = () =>
+    vi.mocked(enqueueEventUpdated).mock.calls.at(-1)?.[0] as EventUpdatedJobData
+  const lastCancelledJob = () =>
+    vi.mocked(enqueueEventCancelled).mock.calls.at(-1)?.[0] as EventCancelledJobData
 
   const notificationsFor = async (user: TestUser, title: string) =>
     (
@@ -153,21 +169,47 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
   afterAll(async () => {
     const userIds = [organizer, approved, pending, rejected].map((u) => u.id)
     for (const id of eventIds) {
-      await payload.delete({ collection: 'registrations', where: { event: { equals: id } }, overrideAccess: true }).catch(() => {})
+      await payload
+        .delete({
+          collection: 'registrations',
+          where: { event: { equals: id } },
+          overrideAccess: true,
+        })
+        .catch(() => {})
       await payload.delete({ collection: 'events', id, overrideAccess: true }).catch(() => {})
     }
-    await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true }).catch(() => {})
-    await payload.delete({ collection: 'municipalities', id: municipality.id, overrideAccess: true }).catch(() => {})
+    await payload
+      .delete({
+        collection: 'notifications',
+        where: { user: { in: userIds } },
+        overrideAccess: true,
+      })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'user-roles', where: { user: { in: userIds } }, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'users', where: { id: { in: userIds } }, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'event-categories', id: category.id, overrideAccess: true })
+      .catch(() => {})
+    await payload
+      .delete({ collection: 'municipalities', id: municipality.id, overrideAccess: true })
+      .catch(() => {})
   })
 
   beforeEach(async () => {
     vi.clearAllMocks()
     const userIds = [organizer, approved, pending, rejected].map((u) => u.id)
-    await payload.delete({ collection: 'notifications', where: { user: { in: userIds } }, overrideAccess: true })
+    await payload.delete({
+      collection: 'notifications',
+      where: { user: { in: userIds } },
+      overrideAccess: true,
+    })
   })
 
   describe('edits', () => {
@@ -176,7 +218,10 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       await edit(event.id, { locationText: 'Sokolovna' })
 
       expect(vi.mocked(enqueueEventUpdated)).toHaveBeenCalledTimes(1)
-      expect(lastUpdatedJob()).toMatchObject({ eventId: event.id, before: { locationText: '"Náves"' } })
+      expect(lastUpdatedJob()).toMatchObject({
+        eventId: event.id,
+        before: { locationText: '"Náves"' },
+      })
       expect(await notificationsFor(approved, 'Akce byla upravena')).toHaveLength(0)
       expect(vi.mocked(enqueueEmail)).not.toHaveBeenCalled()
     })
@@ -203,7 +248,9 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       expect(await notificationsFor(rejected, 'Akce byla upravena')).toHaveLength(0)
       expect(await notificationsFor(organizer, 'Akce byla upravena')).toHaveLength(0)
 
-      const emailed = vi.mocked(enqueueEmail).mock.calls.map(([data, options]) => ({ to: data.to, jobId: options?.jobId }))
+      const emailed = vi
+        .mocked(enqueueEmail)
+        .mock.calls.map(([data, options]) => ({ to: data.to, jobId: options?.jobId }))
       expect(emailed).toHaveLength(2)
       expect(emailed).toEqual(
         expect.arrayContaining([
@@ -280,7 +327,12 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       const job = lastCancelledJob()
       expect(job.municipalityId).toBe(municipality.id)
 
-      await payload.update({ collection: 'municipalities', id: municipality.id, data: { smsEnabled: false }, overrideAccess: true })
+      await payload.update({
+        collection: 'municipalities',
+        id: municipality.id,
+        data: { smsEnabled: false },
+        overrideAccess: true,
+      })
       try {
         expect(await processEventCancelledJob(job, { jobId: '9' })).toEqual({ notified: 2 })
         expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
@@ -288,7 +340,12 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         expect(vi.mocked(enqueueEmail)).toHaveBeenCalledTimes(2)
 
         // Both registrants reachable by phone now, and room for only one of them.
-        await payload.update({ collection: 'profiles', where: { user: { equals: pending.id } }, data: { phone: '735 929 443' }, overrideAccess: true })
+        await payload.update({
+          collection: 'profiles',
+          where: { user: { equals: pending.id } },
+          data: { phone: '735 929 443' },
+          overrideAccess: true,
+        })
         vi.clearAllMocks()
         await payload.update({
           collection: 'municipalities',
@@ -298,15 +355,45 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         })
         await processEventCancelledJob(job, { jobId: '10' })
         expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
-        expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({ municipalityId: municipality.id })
+        expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
+          municipalityId: municipality.id,
+        })
       } finally {
-        await payload.update({ collection: 'profiles', where: { user: { equals: pending.id } }, data: { phone: null }, overrideAccess: true })
+        await payload.update({
+          collection: 'profiles',
+          where: { user: { equals: pending.id } },
+          data: { phone: null },
+          overrideAccess: true,
+        })
         await payload.update({
           collection: 'municipalities',
           id: municipality.id,
           data: { smsEnabled: true, smsMonthlyLimit: null },
           overrideAccess: true,
         })
+      }
+    })
+
+    it('texts only for an event of at most 50 places — a bigger or unlimited one hears it by e-mail only', async () => {
+      const { event } = await createEvent()
+      await edit(event.id, { deletedAt: new Date().toISOString(), status: 'cancelled' })
+      const job = lastCancelledJob()
+      expect(job.capacity).toBe(event.capacity)
+
+      vi.clearAllMocks()
+      await processEventCancelledJob({ ...job, capacity: 50 }, { jobId: '11' })
+      expect(vi.mocked(enqueueSms)).toHaveBeenCalled()
+
+      for (const [capacity, jobId] of [
+        [51, '12'],
+        [999999999, '13'],
+      ] as const) {
+        vi.clearAllMocks()
+        expect(await processEventCancelledJob({ ...job, capacity }, { jobId })).toEqual({
+          notified: 2,
+        })
+        expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
+        expect(vi.mocked(enqueueEmail)).toHaveBeenCalledTimes(2)
       }
     })
 
@@ -328,7 +415,11 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
 
       await edit(event.id, { deletedAt: new Date().toISOString(), status: 'cancelled' })
 
-      const stored = await payload.findByID({ collection: 'volunteer-invitations', id: invitation.id, overrideAccess: true })
+      const stored = await payload.findByID({
+        collection: 'volunteer-invitations',
+        id: invitation.id,
+        overrideAccess: true,
+      })
       expect(stored.status).toBe('withdrawn')
       const job = lastCancelledJob()
       expect(job.volunteerUserIds?.map(Number)).toEqual([volunteer.id])
@@ -337,8 +428,16 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
       const [notice] = await notificationsFor(volunteer, 'Akce byla zrušena')
       expect(notice.message).toMatch(/dobrovoln/)
 
-      await payload.delete({ collection: 'notifications', where: { user: { equals: volunteer.id } }, overrideAccess: true })
-      await payload.delete({ collection: 'volunteer-invitations', id: invitation.id, overrideAccess: true })
+      await payload.delete({
+        collection: 'notifications',
+        where: { user: { equals: volunteer.id } },
+        overrideAccess: true,
+      })
+      await payload.delete({
+        collection: 'volunteer-invitations',
+        id: invitation.id,
+        overrideAccess: true,
+      })
       await payload.delete({ collection: 'users', id: volunteer.id, overrideAccess: true })
     })
 

@@ -39,15 +39,15 @@ import { Badge } from "@/components/ui/badge";
 import { JoinEventDialog } from "@/components/JoinEventDialog";
 import { ShareEventDialog } from "@/components/ShareEventDialog";
 import { toast } from "sonner";
-import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart, XCircle, Share2, EyeOff } from "lucide-react";
+import { Calendar, MapPin, Users, Navigation, CheckCircle2, Clock, User as UserIcon, Settings, Tag, Accessibility, Pencil, HandHeart, XCircle, Share2, EyeOff, Info } from "lucide-react";
 import { formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/date";
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS, registrationDeadline } from "@/lib/registrationCutoff";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatCzk } from "@/lib/money";
-import { isUnlimitedCapacity } from "@/lib/capacity";
+import { SMS_MAX_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
 import { isEventShareable } from "@/lib/eventShare";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
-import { cancelChannels, useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
+import { cancelChannels, smsWithheldForCapacity, useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
 interface Reg { id: string; user_id: string; status: string; role: "participant" | "volunteer"; full_name: string; avatar_url: string | null }
 
@@ -451,6 +451,16 @@ function EventDetailContent() {
               )}
             </p>
           </div>
+          {/* The obec texts on a cancel, but not for an event this big — said up front, so a
+              participant doesn't wait for an SMS that won't come. */}
+          {smsWithheldForCapacity(eventFeatures.sms, event.capacity) && !hasEnded && (
+            <div className="flex items-start gap-3">
+              <Info className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                Pokud by se akce zrušila, upozorníme vás pouze e-mailem a v aplikaci — SMS posíláme jen u akcí s kapacitou do {SMS_MAX_CAPACITY} míst.
+              </p>
+            </div>
+          )}
           {organizerName && (
             <div className="flex items-start gap-3">
               <UserIcon className="h-5 w-5 mt-0.5 text-primary shrink-0" />
@@ -557,13 +567,14 @@ function EventDetailContent() {
               <p className="text-sm text-muted-foreground mt-0.5">
                 {event.deletion_needs_consent
                   ? `Akci pořádáte ${obecRuns || obecCoOrganizes ? "s obcí" : "se spolupořadateli"} — smazat ji jde jen s jejich souhlasem.`
-                  : `Přihlášení účastníci dostanou upozornění ${cancelChannels(eventFeatures.sms)}.`}
+                  : `Přihlášení účastníci dostanou upozornění ${cancelChannels(eventFeatures.sms, event.capacity)}.`}
               </p>
             </div>
             {event.deletion_needs_consent && user ? (
               <EventDeletionConsent
                 eventId={event.id}
                 municipalityId={event.municipality_id}
+                capacity={event.capacity}
                 title={event.title}
                 dateTime={event.date_time}
                 userId={String(user.id)}
@@ -587,6 +598,7 @@ function EventDetailContent() {
                   <EventDeletionConsent
                     eventId={event.id}
                     municipalityId={event.municipality_id}
+                    capacity={event.capacity}
                     title={event.title}
                     dateTime={event.date_time}
                     userId={String(user.id)}
@@ -597,7 +609,7 @@ function EventDetailContent() {
                     onOrganizersChanged={load}
                   />
                 )}
-                <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} municipalityId={event.municipality_id} />
+                <CancelEventButton eventId={event.id} title={event.title} dateTime={event.date_time} municipalityId={event.municipality_id} capacity={event.capacity} />
               </>
             )}
           </div>

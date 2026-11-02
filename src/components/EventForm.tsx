@@ -17,7 +17,8 @@ import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
 import { MULTI_DAY_END_MESSAGE, nextDateInputValue, toDateInputValue } from "@/lib/date";
-import { UNLIMITED_CAPACITY, isUnlimitedCapacity } from "@/lib/capacity";
+import { SMS_MAX_CAPACITY, UNLIMITED_CAPACITY, isUnlimitedCapacity, smsSentForCapacity } from "@/lib/capacity";
+import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
 import { CO_ORGANIZING_INVITATION_HOURS } from "@/lib/requestDeadlines";
 
@@ -174,6 +175,10 @@ export function EventForm({
   );
   const [coOrganizations, setCoOrganizations] = useState<OrganizationRef[]>(initial?.co_organizations ?? []);
   const [unlimitedCapacity, setUnlimitedCapacity] = useState(isUnlimitedCapacity(initial?.capacity ?? prefill?.capacity ?? 0));
+  // The obec texts registrants on a cancel — but only for an event of at most SMS_MAX_CAPACITY places.
+  const { sms: obecSendsSms } = useMunicipalityFeatures(municipalityId);
+  const capacityValue = unlimitedCapacity ? UNLIMITED_CAPACITY : Number(form.capacity);
+  const smsWithheld = obecSendsSms && Number.isFinite(capacityValue) && capacityValue >= 1 && !smsSentForCapacity(capacityValue);
   const [isPaid, setIsPaid] = useState(Boolean(initial?.is_paid ?? prefill?.isPaid));
   const [imageId, setImageId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initial?.image_url ?? null);
@@ -429,6 +434,11 @@ export function EventForm({
         {unlimitedCapacity && (
           <p className="text-xs text-muted-foreground mt-1.5">
             U akce bez omezení kapacity se nevyplňuje docházka — po akci jen ohodnotíte dobrovolníky.
+          </p>
+        )}
+        {smsWithheld && (
+          <p className="text-xs text-warning mt-1.5">
+            Při kapacitě nad {SMS_MAX_CAPACITY} míst se při zrušení akce SMS neposílají — účastníci dostanou upozornění pouze e-mailem a v aplikaci.
           </p>
         )}
       </div>

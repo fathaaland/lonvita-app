@@ -1193,7 +1193,7 @@ function SuperAdminContent() {
                         </Link>
                       </Button>
                     )}
-                    <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} municipalityId={ev.municipalityId} variant="icon" onCancelled={load} />
+                    <CancelEventButton eventId={ev.id} title={ev.title} dateTime={ev.dateTimeIso} municipalityId={ev.municipalityId} capacity={ev.capacity} variant="icon" onCancelled={load} />
                   </CardContent>
                 </Card>
               ))}

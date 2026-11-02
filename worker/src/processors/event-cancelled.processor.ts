@@ -1,5 +1,6 @@
 import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
 import { cancelEventReminders } from '@/collections/shared/reminders'
+import { smsSentForCapacity } from '@/lib/capacity'
 import { logger } from '@/lib/logger'
 import { relationNumber } from '@/lib/relations'
 
@@ -10,7 +11,8 @@ import type { EventCancelledJobData, EventCancelledJobResult } from '@/lib/queue
 type DispatchContext = { jobId?: string }
 
 /**
- * "Akce byla zrušena" for every registrant — in-app, e-mail and SMS — and none of the event's
+ * "Akce byla zrušena" for every registrant — in-app, e-mail and (an event of at most
+ * SMS_MAX_CAPACITY places only) SMS — and none of the event's
  * reminders go out anymore. Works from the snapshot in the job: a consented delete has removed
  * the event and its registrations by now. An event that's still there and not cancelled means
  * the cancel rolled back (or was undone) — then nobody hears anything.
@@ -59,8 +61,11 @@ export const processEventCancelledJob = async (
   )
   // Jobs from before the obec travelled in them: the (soft-deleted) event still says whose it was.
   const municipalityId = data.municipalityId ?? relationNumber(event?.municipality)
+  // A bigger event (unlimited included) hears it in-app and by e-mail only — both the pořadatel and
+  // the participants were told so up front. Unknown capacity (an old job, event gone): no SMS.
+  const smsAllowed = smsSentForCapacity(data.capacity ?? event?.capacity)
   const sms =
-    municipalityId === null
+    municipalityId === null || !smsAllowed
       ? 0
       : await sendSmsToMany(
           payload,
@@ -98,6 +103,7 @@ export const processEventCancelledJob = async (
     inApp: sent.inApp,
     emails: sent.emails,
     sms,
+    smsSkippedForCapacity: !smsAllowed,
   })
   return { notified: data.userIds.length }
 }

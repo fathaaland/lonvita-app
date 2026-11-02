@@ -3,117 +3,124 @@
  * /superadmin — creating municipalities and managing users/roles across all of them. Distinct
  * from admin-queries.ts, which is scoped to a single municipality's admin dashboard.
  */
-import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
+import { buildQuery, buildWhereParams, del, get, patch, post } from './client'
 
-import type { PayloadListResponse } from "./client";
-import type { OrganizerRequestAdminRow } from "./admin-queries";
-import { toEventRow } from "@/lib/analytics";
-import type { EventRow, RegistrationRow } from "@/lib/analytics";
-import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from "@/lib/report";
-import type { AnyOrganizationType, OrganizationType } from "@/lib/organizations";
-import { relationId } from "@/lib/relations";
-import { fullNamesByUserIds } from "./profile-names";
+import type { PayloadListResponse } from './client'
+import type { OrganizerRequestAdminRow } from './admin-queries'
+import { toEventRow } from '@/lib/analytics'
+import type { EventRow, RegistrationRow } from '@/lib/analytics'
+import { computeReportMetrics, type ReportMetrics, type ProfileWithDob } from '@/lib/report'
+import type { AnyOrganizationType, OrganizationType } from '@/lib/organizations'
+import { relationId } from '@/lib/relations'
+import { fullNamesByUserIds } from './profile-names'
 
 // --- Municipalities ---------------------------------------------------------------------
 
 export type MunicipalityRow = {
-  id: string;
-  name: string;
-  description: string | null;
+  id: string
+  name: string
+  description: string | null
   /** Whether anyone holds "municipality_admin" there. Without one, its requests wait on the platform admin. */
-  has_admin?: boolean;
-};
+  has_admin?: boolean
+}
 
 type PayloadMunicipality = {
-  id: number;
-  name: string;
-  description?: string | null;
-};
+  id: number
+  name: string
+  description?: string | null
+}
 
 export async function listMunicipalitiesForSuperAdmin(): Promise<MunicipalityRow[]> {
-  const adminRolesWhere = buildWhereParams({ role: { equals: "municipality_admin" } });
+  const adminRolesWhere = buildWhereParams({ role: { equals: 'municipality_admin' } })
   const [result, adminRoles] = await Promise.all([
-    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?sort=name&limit=500&depth=0"),
-    get<PayloadListResponse<{ municipality: number | { id: number } }>>(`/user-roles?${adminRolesWhere}&depth=0&limit=2000`),
-  ]);
-  const administered = new Set(adminRoles.docs.map((r) => relationId(r.municipality)));
+    get<PayloadListResponse<PayloadMunicipality>>('/municipalities?sort=name&limit=500&depth=0'),
+    get<PayloadListResponse<{ municipality: number | { id: number } }>>(
+      `/user-roles?${adminRolesWhere}&depth=0&limit=2000`,
+    ),
+  ])
+  const administered = new Set(adminRoles.docs.map((r) => relationId(r.municipality)))
   return result.docs.map((m) => ({
     id: String(m.id),
     name: m.name,
     description: m.description ?? null,
     has_admin: administered.has(String(m.id)),
-  }));
+  }))
 }
 
 export async function createMunicipality(input: {
-  name: string;
-  description?: string;
-  lat: number;
-  lng: number;
+  name: string
+  description?: string
+  lat: number
+  lng: number
 }): Promise<MunicipalityRow> {
-  const doc = await post<PayloadMunicipality>("/municipalities", input);
+  const doc = await post<PayloadMunicipality>('/municipalities', input)
   return {
     id: String(doc.id),
     name: doc.name,
     description: doc.description ?? null,
-  };
+  }
 }
 
 export async function updateMunicipality(
   municipalityId: string,
   input: { name: string; description?: string; lat: number; lng: number },
 ): Promise<MunicipalityRow> {
-  const doc = await patch<PayloadMunicipality>(`/municipalities/${municipalityId}`, input);
+  const doc = await patch<PayloadMunicipality>(`/municipalities/${municipalityId}`, input)
   return {
     id: String(doc.id),
     name: doc.name,
     description: doc.description ?? null,
-  };
+  }
 }
 
 export async function deleteMunicipality(municipalityId: string): Promise<void> {
-  await del(`/municipalities/${municipalityId}`);
+  await del(`/municipalities/${municipalityId}`)
 }
 
 // --- Users + community roles -------------------------------------------------------------
 
-export type Gender = "zena" | "muz" | "jine" | "neuvedeno";
+export type Gender = 'zena' | 'muz' | 'jine' | 'neuvedeno'
 
 export type CommunityRoleEntry = {
-  userRoleId: string;
-  role: "municipality_admin" | "organizer" | "prescriber";
-  municipalityId: string;
-  municipalityName: string;
-};
+  userRoleId: string
+  role: 'municipality_admin' | 'organizer' | 'prescriber'
+  municipalityId: string
+  municipalityName: string
+}
 
 export type PlatformUserRow = {
-  id: string;
-  email: string;
-  platformRole: "admin" | "user";
+  id: string
+  email: string
+  platformRole: 'admin' | 'user'
   /** null when the account has no profile row yet — nothing to edit in that case. */
-  profileId: string | null;
-  fullName: string | null;
-  homeMunicipalityId: string | null;
-  homeMunicipalityName: string | null;
-  dateOfBirth: string | null;
-  gender: Gender;
-  phone: string | null;
-  interestIds: string[];
-  communityRoles: CommunityRoleEntry[];
-};
+  profileId: string | null
+  fullName: string | null
+  homeMunicipalityId: string | null
+  homeMunicipalityName: string | null
+  dateOfBirth: string | null
+  gender: Gender
+  phone: string | null
+  interestIds: string[]
+  communityRoles: CommunityRoleEntry[]
+}
 
-type PayloadUserRaw = { id: number; email: string; role: "admin" | "user"; createdAt: string };
+type PayloadUserRaw = { id: number; email: string; role: 'admin' | 'user'; createdAt: string }
 type PayloadProfileRaw = {
-  id: number;
-  user: number | { id: number };
-  fullName: string;
-  municipality?: number | { id: number } | null;
-  dateOfBirth?: string | null;
-  gender?: Gender | null;
-  phone?: string | null;
-  interests?: (number | { id: number })[] | null;
-};
-type PayloadUserRoleRaw = { id: number; user: number | { id: number }; municipality: number | { id: number }; role: CommunityRoleEntry["role"] };
+  id: number
+  user: number | { id: number }
+  fullName: string
+  municipality?: number | { id: number } | null
+  dateOfBirth?: string | null
+  gender?: Gender | null
+  phone?: string | null
+  interests?: (number | { id: number })[] | null
+}
+type PayloadUserRoleRaw = {
+  id: number
+  user: number | { id: number }
+  municipality: number | { id: number }
+  role: CommunityRoleEntry['role']
+}
 
 export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
   const [usersRes, profilesRes, rolesRes, munisRes] = await Promise.all([
@@ -121,24 +128,24 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
     get<PayloadListResponse<PayloadUserRaw>>(
       `/users?${buildWhereParams({ anonymizedAt: { exists: false } })}&sort=email&depth=0&limit=1000`,
     ),
-    get<PayloadListResponse<PayloadProfileRaw>>("/profiles?depth=0&limit=1000"),
-    get<PayloadListResponse<PayloadUserRoleRaw>>("/user-roles?depth=0&limit=2000"),
-    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
-  ]);
+    get<PayloadListResponse<PayloadProfileRaw>>('/profiles?depth=0&limit=1000'),
+    get<PayloadListResponse<PayloadUserRoleRaw>>('/user-roles?depth=0&limit=2000'),
+    get<PayloadListResponse<PayloadMunicipality>>('/municipalities?depth=0&limit=500'),
+  ])
 
-  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
-  const profileByUserId = new Map(profilesRes.docs.map((p) => [relationId(p.user)!, p]));
-  const rolesByUserId = new Map<string, PayloadUserRoleRaw[]>();
+  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]))
+  const profileByUserId = new Map(profilesRes.docs.map((p) => [relationId(p.user)!, p]))
+  const rolesByUserId = new Map<string, PayloadUserRoleRaw[]>()
   for (const r of rolesRes.docs) {
-    const uid = relationId(r.user)!;
-    if (!rolesByUserId.has(uid)) rolesByUserId.set(uid, []);
-    rolesByUserId.get(uid)!.push(r);
+    const uid = relationId(r.user)!
+    if (!rolesByUserId.has(uid)) rolesByUserId.set(uid, [])
+    rolesByUserId.get(uid)!.push(r)
   }
 
   return usersRes.docs.map((u) => {
-    const uid = String(u.id);
-    const profile = profileByUserId.get(uid);
-    const homeMuniId = profile ? relationId(profile.municipality) : null;
+    const uid = String(u.id)
+    const profile = profileByUserId.get(uid)
+    const homeMuniId = profile ? relationId(profile.municipality) : null
     return {
       id: uid,
       email: u.email,
@@ -148,37 +155,39 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
       homeMunicipalityId: homeMuniId,
       homeMunicipalityName: homeMuniId ? (muniNameById.get(homeMuniId) ?? null) : null,
       dateOfBirth: profile?.dateOfBirth ? profile.dateOfBirth.slice(0, 10) : null,
-      gender: profile?.gender ?? "neuvedeno",
+      gender: profile?.gender ?? 'neuvedeno',
       phone: profile?.phone ?? null,
-      interestIds: (profile?.interests ?? []).map(relationId).filter((v): v is string => Boolean(v)),
+      interestIds: (profile?.interests ?? [])
+        .map(relationId)
+        .filter((v): v is string => Boolean(v)),
       communityRoles: (rolesByUserId.get(uid) ?? []).map((r) => {
-        const municipalityId = relationId(r.municipality)!;
+        const municipalityId = relationId(r.municipality)!
         return {
           userRoleId: String(r.id),
           role: r.role,
           municipalityId,
-          municipalityName: muniNameById.get(municipalityId) ?? "Neznámá obec",
-        };
+          municipalityName: muniNameById.get(municipalityId) ?? 'Neznámá obec',
+        }
       }),
-    };
-  });
+    }
+  })
 }
 
 /** Superadmin-only account provisioning — creates the user, their full profile (the same data
  * registration + onboarding collect) and a "participant" role in the chosen municipality via a
  * dedicated server route (Users.create is otherwise locked to the /api/auth/register flow). */
 export async function createUserAsSuperAdmin(input: {
-  email: string;
-  password: string;
-  fullName: string;
+  email: string
+  password: string
+  fullName: string
   /** null = "bez obce". */
-  municipalityId: string | null;
-  dateOfBirth: string | null;
-  gender: Gender;
-  phone: string | null;
-  interestIds: string[];
+  municipalityId: string | null
+  dateOfBirth: string | null
+  gender: Gender
+  phone: string | null
+  interestIds: string[]
 }): Promise<void> {
-  await post("/superadmin/create-user", {
+  await post('/superadmin/create-user', {
     email: input.email,
     password: input.password,
     fullName: input.fullName,
@@ -187,7 +196,7 @@ export async function createUserAsSuperAdmin(input: {
     gender: input.gender,
     phone: input.phone,
     interests: input.interestIds.map(Number),
-  });
+  })
 }
 
 /** Edits an existing account's profile from the Uživatelé tab's pencil. Deliberately limited to
@@ -197,13 +206,13 @@ export async function createUserAsSuperAdmin(input: {
 export async function updateUserAsSuperAdmin(
   profileId: string,
   input: {
-    fullName: string;
+    fullName: string
     /** null = "bez obce". */
-    municipalityId: string | null;
-    dateOfBirth: string | null;
-    gender: Gender;
-    phone: string | null;
-    interestIds: string[];
+    municipalityId: string | null
+    dateOfBirth: string | null
+    gender: Gender
+    phone: string | null
+    interestIds: string[]
   },
 ): Promise<void> {
   await patch(`/profiles/${profileId}`, {
@@ -213,61 +222,64 @@ export async function updateUserAsSuperAdmin(
     gender: input.gender,
     phone: input.phone,
     interests: input.interestIds.map(Number),
-  });
+  })
 }
 
 /** "Smazat účet" — anonymizes it rather than deleting it, so the obec's and the organizers'
  * overviews keep what the person took part in (shared/anonymizeUser). */
 export async function deleteUserAsSuperAdmin(userId: string): Promise<void> {
-  await post(`/superadmin/users/${userId}/anonymize`);
+  await post(`/superadmin/users/${userId}/anonymize`)
 }
 
 // --- Events -------------------------------------------------------------------------------
 
 export type SuperAdminEventRow = {
-  id: string;
-  title: string;
-  dateTimeIso: string;
-  municipalityId: string | null;
-  municipalityName: string;
+  id: string
+  title: string
+  dateTimeIso: string
+  municipalityId: string | null
+  municipalityName: string
+  capacity: number
   /** It has taken place — nobody edits it any more, a superadmin neither (Events canUpdateEvent). */
-  hasEnded: boolean;
-};
+  hasEnded: boolean
+}
 
 type PayloadEventForSuperAdmin = {
-  id: number;
-  title: string;
-  dateTime: string;
-  status: string;
-  municipality: number | { id: number; name: string };
-};
+  id: number
+  title: string
+  dateTime: string
+  capacity: number
+  status: string
+  municipality: number | { id: number; name: string }
+}
 
 /** Every event platform-wide (across every obec) — for the superadmin "Akce" list. REST calls
  * go through real access control (unlike the Local API's overrideAccess default), so this only
  * ever returns non-deleted events regardless of who's asking (Events.access.read). */
 export async function listAllEventsForSuperAdmin(): Promise<SuperAdminEventRow[]> {
-  const query = buildQuery({ sort: "-dateTime", depth: 1, limit: 1000 });
-  const result = await get<PayloadListResponse<PayloadEventForSuperAdmin>>(`/events?${query}`);
+  const query = buildQuery({ sort: '-dateTime', depth: 1, limit: 1000 })
+  const result = await get<PayloadListResponse<PayloadEventForSuperAdmin>>(`/events?${query}`)
   return result.docs.map((e) => ({
     id: String(e.id),
     title: e.title,
     dateTimeIso: e.dateTime,
     municipalityId: relationId(e.municipality),
-    municipalityName: typeof e.municipality === "object" ? e.municipality.name : "Neznámá obec",
-    hasEnded: e.status === "finished",
-  }));
+    municipalityName: typeof e.municipality === 'object' ? e.municipality.name : 'Neznámá obec',
+    capacity: e.capacity,
+    hasEnded: e.status === 'finished',
+  }))
 }
 
 export async function grantCommunityRole(
   userId: string,
   municipalityId: string,
-  role: "municipality_admin",
+  role: 'municipality_admin',
 ): Promise<void> {
-  await post("/user-roles", { user: Number(userId), municipality: Number(municipalityId), role });
+  await post('/user-roles', { user: Number(userId), municipality: Number(municipalityId), role })
 }
 
 export async function revokeCommunityRole(userRoleId: string): Promise<void> {
-  await del(`/user-roles/${userRoleId}`);
+  await del(`/user-roles/${userRoleId}`)
 }
 
 // --- Organizations ----------------------------------------------------------------------
@@ -275,21 +287,21 @@ export async function revokeCommunityRole(userRoleId: string): Promise<void> {
 // created; creating one grants its owner the organizer role, deleting it takes the role away.
 
 export type SuperAdminOrganizationRow = {
-  id: string;
-  name: string;
-  type: AnyOrganizationType;
+  id: string
+  name: string
+  type: AnyOrganizationType
   /** Null for the obec's own organization — it belongs to the obec, not to a person. */
-  ownerId: string | null;
-  municipalityId: string;
-};
+  ownerId: string | null
+  municipalityId: string
+}
 
 type PayloadOrganizationRaw = {
-  id: number;
-  name: string;
-  type: AnyOrganizationType;
-  owner?: number | { id: number } | null;
-  municipality: number | { id: number };
-};
+  id: number
+  name: string
+  type: AnyOrganizationType
+  owner?: number | { id: number } | null
+  municipality: number | { id: number }
+}
 
 const toOrganizationRow = (o: PayloadOrganizationRaw): SuperAdminOrganizationRow => ({
   id: String(o.id),
@@ -297,25 +309,27 @@ const toOrganizationRow = (o: PayloadOrganizationRaw): SuperAdminOrganizationRow
   type: o.type,
   ownerId: relationId(o.owner),
   municipalityId: relationId(o.municipality)!,
-});
+})
 
 export async function listOrganizationsForSuperAdmin(): Promise<SuperAdminOrganizationRow[]> {
-  const result = await get<PayloadListResponse<PayloadOrganizationRaw>>("/organizations?sort=name&depth=0&limit=2000");
-  return result.docs.map(toOrganizationRow);
+  const result = await get<PayloadListResponse<PayloadOrganizationRaw>>(
+    '/organizations?sort=name&depth=0&limit=2000',
+  )
+  return result.docs.map(toOrganizationRow)
 }
 
 export async function createOrganizationAsSuperAdmin(input: {
-  name: string;
-  type: OrganizationType;
-  ownerId: string;
-  municipalityId: string;
+  name: string
+  type: OrganizationType
+  ownerId: string
+  municipalityId: string
 }): Promise<void> {
-  await post("/organizations", {
+  await post('/organizations', {
     name: input.name,
     type: input.type,
     owner: Number(input.ownerId),
     municipality: Number(input.municipalityId),
-  });
+  })
 }
 
 export async function updateOrganizationAsSuperAdmin(
@@ -323,11 +337,11 @@ export async function updateOrganizationAsSuperAdmin(
   input: { name: string; type?: OrganizationType },
 ): Promise<void> {
   // The obec's own organization only gets renamed — its type is fixed.
-  await patch(`/organizations/${organizationId}`, input);
+  await patch(`/organizations/${organizationId}`, input)
 }
 
 export async function deleteOrganizationAsSuperAdmin(organizationId: string): Promise<void> {
-  await del(`/organizations/${organizationId}`);
+  await del(`/organizations/${organizationId}`)
 }
 
 // --- Cross-municipality request hub (US-S-04) -------------------------------------------
@@ -336,48 +350,50 @@ export async function deleteOrganizationAsSuperAdmin(organizationId: string): Pr
 // action itself is reused as-is from admin-queries.ts (same PATCH call either way).
 
 export type SuperAdminOrganizerRequestRow = OrganizerRequestAdminRow & {
-  municipality_id: string;
-  municipality_name: string;
-};
+  municipality_id: string
+  municipality_name: string
+}
 
 type PayloadOrganizerRequestSuper = {
-  id: number;
-  user: number | { id: number };
-  municipality: number | { id: number };
-  status: string;
-  reason?: string | null;
-  organizationName?: string | null;
-  organizationType?: OrganizationType | null;
-  createdAt: string;
-};
+  id: number
+  user: number | { id: number }
+  municipality: number | { id: number }
+  status: string
+  reason?: string | null
+  organizationName?: string | null
+  organizationType?: OrganizationType | null
+  createdAt: string
+}
 
-export async function getAllOrganizerRequestsForSuperAdmin(): Promise<SuperAdminOrganizerRequestRow[]> {
-  const where = buildWhereParams({ status: { equals: "pending" } });
-  const query = buildQuery({ depth: 0, sort: "createdAt", limit: 1000 });
+export async function getAllOrganizerRequestsForSuperAdmin(): Promise<
+  SuperAdminOrganizerRequestRow[]
+> {
+  const where = buildWhereParams({ status: { equals: 'pending' } })
+  const query = buildQuery({ depth: 0, sort: 'createdAt', limit: 1000 })
   const [result, munisRes] = await Promise.all([
     get<PayloadListResponse<PayloadOrganizerRequestSuper>>(`/organizer-requests?${where}&${query}`),
-    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
-  ]);
-  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]));
+    get<PayloadListResponse<PayloadMunicipality>>('/municipalities?depth=0&limit=500'),
+  ])
+  const muniNameById = new Map(munisRes.docs.map((m) => [String(m.id), m.name]))
 
-  const userIds = result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v));
-  const nameById = await fullNamesByUserIds(userIds);
+  const userIds = result.docs.map((r) => relationId(r.user)).filter((v): v is string => Boolean(v))
+  const nameById = await fullNamesByUserIds(userIds)
 
   return result.docs.map((r) => {
-    const municipalityId = relationId(r.municipality)!;
+    const municipalityId = relationId(r.municipality)!
     return {
       id: String(r.id),
       user_id: relationId(r.user)!,
-      full_name: nameById.get(relationId(r.user) ?? "") ?? "Účastník",
-      status: r.status as OrganizerRequestAdminRow["status"],
+      full_name: nameById.get(relationId(r.user) ?? '') ?? 'Účastník',
+      status: r.status as OrganizerRequestAdminRow['status'],
       reason: r.reason ?? null,
       organization_name: r.organizationName ?? null,
       organization_type: r.organizationType ?? null,
       created_at: r.createdAt,
       municipality_id: municipalityId,
-      municipality_name: muniNameById.get(municipalityId) ?? "Neznámá obec",
-    };
-  });
+      municipality_name: muniNameById.get(municipalityId) ?? 'Neznámá obec',
+    }
+  })
 }
 
 // --- Municipality comparison (US-S-07) ----------------------------------------------------
@@ -385,142 +401,144 @@ export async function getAllOrganizerRequestsForSuperAdmin(): Promise<SuperAdmin
 // municipality, to feed a side-by-side comparison table instead of one narrated report.
 
 export type MunicipalityComparisonRow = {
-  municipality_id: string;
-  municipality_name: string;
-  metrics: ReportMetrics;
-};
+  municipality_id: string
+  municipality_name: string
+  metrics: ReportMetrics
+}
 
 type PayloadEventSuperFull = {
-  id: number;
-  title: string;
-  dateTime: string;
-  endDateTime?: string | null;
-  capacity: number;
-  status: string;
-  categories?: (number | { id: number })[] | null;
-  organizer?: number | { id: number } | null;
-  createdAt: string;
-  isPaid?: boolean;
-  priceCents?: number | null;
-  isVolunteering?: boolean;
-  municipality: number | { id: number };
-};
+  id: number
+  title: string
+  dateTime: string
+  endDateTime?: string | null
+  capacity: number
+  status: string
+  categories?: (number | { id: number })[] | null
+  organizer?: number | { id: number } | null
+  createdAt: string
+  isPaid?: boolean
+  priceCents?: number | null
+  isVolunteering?: boolean
+  municipality: number | { id: number }
+}
 
 type PayloadRegistrationSuperFull = {
-  id: number;
-  event: number | { id: number };
-  user: number | { id: number };
-  status: string;
-  createdAt: string;
-  attendanceStatus?: string;
-  role?: RegistrationRow["role"] | null;
-};
+  id: number
+  event: number | { id: number }
+  user: number | { id: number }
+  status: string
+  createdAt: string
+  attendanceStatus?: string
+  role?: RegistrationRow['role'] | null
+}
 
 type PayloadProfileSuperFull = {
-  id: number;
-  user: number | { id: number };
-  fullName: string;
-  createdAt: string;
-  dateOfBirth?: string | null;
-  over50?: boolean | null;
-  municipality?: number | { id: number } | null;
-};
+  id: number
+  user: number | { id: number }
+  fullName: string
+  createdAt: string
+  dateOfBirth?: string | null
+  over50?: boolean | null
+  municipality?: number | { id: number } | null
+}
 
 export async function getMunicipalityComparison(): Promise<MunicipalityComparisonRow[]> {
   const [munisRes, eventsRes, regsRes, profilesRes] = await Promise.all([
-    get<PayloadListResponse<PayloadMunicipality>>("/municipalities?depth=0&limit=500"),
-    get<PayloadListResponse<PayloadEventSuperFull>>("/events?depth=0&limit=5000"),
-    get<PayloadListResponse<PayloadRegistrationSuperFull>>("/registrations?depth=0&limit=20000"),
-    get<PayloadListResponse<PayloadProfileSuperFull>>("/profiles?depth=0&limit=20000"),
-  ]);
+    get<PayloadListResponse<PayloadMunicipality>>('/municipalities?depth=0&limit=500'),
+    get<PayloadListResponse<PayloadEventSuperFull>>('/events?depth=0&limit=5000'),
+    get<PayloadListResponse<PayloadRegistrationSuperFull>>('/registrations?depth=0&limit=20000'),
+    get<PayloadListResponse<PayloadProfileSuperFull>>('/profiles?depth=0&limit=20000'),
+  ])
 
-  const eventsByMuni = new Map<string, EventRow[]>();
-  const eventMuniById = new Map<string, string>();
+  const eventsByMuni = new Map<string, EventRow[]>()
+  const eventMuniById = new Map<string, string>()
   for (const e of eventsRes.docs) {
-    const muniId = relationId(e.municipality);
-    if (!muniId) continue;
-    const row = toEventRow(e);
-    eventMuniById.set(row.id, muniId);
-    if (!eventsByMuni.has(muniId)) eventsByMuni.set(muniId, []);
-    eventsByMuni.get(muniId)!.push(row);
+    const muniId = relationId(e.municipality)
+    if (!muniId) continue
+    const row = toEventRow(e)
+    eventMuniById.set(row.id, muniId)
+    if (!eventsByMuni.has(muniId)) eventsByMuni.set(muniId, [])
+    eventsByMuni.get(muniId)!.push(row)
   }
 
-  const regsByMuni = new Map<string, RegistrationRow[]>();
+  const regsByMuni = new Map<string, RegistrationRow[]>()
   for (const r of regsRes.docs) {
-    const eventId = relationId(r.event);
-    const muniId = eventId ? eventMuniById.get(eventId) : undefined;
-    if (!muniId) continue;
+    const eventId = relationId(r.event)
+    const muniId = eventId ? eventMuniById.get(eventId) : undefined
+    if (!muniId) continue
     const row: RegistrationRow = {
       id: String(r.id),
       event_id: eventId!,
       user_id: relationId(r.user)!,
       status: r.status,
       created_at: r.createdAt,
-      attendance_status: (r.attendanceStatus ?? "not_marked") as RegistrationRow["attendance_status"],
-      role: r.role ?? "participant",
-    };
-    if (!regsByMuni.has(muniId)) regsByMuni.set(muniId, []);
-    regsByMuni.get(muniId)!.push(row);
+      attendance_status: (r.attendanceStatus ??
+        'not_marked') as RegistrationRow['attendance_status'],
+      role: r.role ?? 'participant',
+    }
+    if (!regsByMuni.has(muniId)) regsByMuni.set(muniId, [])
+    regsByMuni.get(muniId)!.push(row)
   }
 
-  const profilesByMuni = new Map<string, ProfileWithDob[]>();
+  const profilesByMuni = new Map<string, ProfileWithDob[]>()
   for (const p of profilesRes.docs) {
-    const muniId = relationId(p.municipality);
-    if (!muniId) continue;
+    const muniId = relationId(p.municipality)
+    if (!muniId) continue
     const row: ProfileWithDob = {
       id: String(p.id),
-      user_id: relationId(p.user) ?? "",
+      user_id: relationId(p.user) ?? '',
       full_name: p.fullName,
       created_at: p.createdAt,
       date_of_birth: p.dateOfBirth ?? null,
       // A deleted account keeps only this — still one of the obec's residents aged 50+.
       over_50: Boolean(p.over50),
-    };
-    if (!profilesByMuni.has(muniId)) profilesByMuni.set(muniId, []);
-    profilesByMuni.get(muniId)!.push(row);
+    }
+    if (!profilesByMuni.has(muniId)) profilesByMuni.set(muniId, [])
+    profilesByMuni.get(muniId)!.push(row)
   }
 
   return munisRes.docs.map((m) => {
-    const muniId = String(m.id);
+    const muniId = String(m.id)
     const metrics = computeReportMetrics(
       eventsByMuni.get(muniId) ?? [],
       regsByMuni.get(muniId) ?? [],
       profilesByMuni.get(muniId) ?? [],
-    );
-    return { municipality_id: muniId, municipality_name: m.name, metrics };
-  });
+    )
+    return { municipality_id: muniId, municipality_name: m.name, metrics }
+  })
 }
 
 // --- Mikroregiony (Microregions) ---------------------------------------------------------------
 
 export type MicroregionRow = {
-  id: string;
-  name: string;
-  main_municipality_id: string | null;
-  municipality_ids: string[];
-};
+  id: string
+  name: string
+  main_municipality_id: string | null
+  municipality_ids: string[]
+}
 
 type PayloadMicroregion = {
-  id: number;
-  name: string;
-  mainMunicipality?: number | { id: number } | null;
-  municipalities?: (number | { id: number })[] | null;
-};
+  id: number
+  name: string
+  mainMunicipality?: number | { id: number } | null
+  municipalities?: (number | { id: number })[] | null
+}
 
-const idOf = (value: number | { id: number }) => String(typeof value === "object" ? value.id : value);
+const idOf = (value: number | { id: number }) =>
+  String(typeof value === 'object' ? value.id : value)
 
 const mapMicroregion = (r: PayloadMicroregion): MicroregionRow => ({
   id: String(r.id),
   name: r.name,
   main_municipality_id: r.mainMunicipality ? idOf(r.mainMunicipality) : null,
   municipality_ids: (r.municipalities ?? []).map(idOf),
-});
+})
 
 export async function listMicroregions(): Promise<MicroregionRow[]> {
   const result = await get<PayloadListResponse<PayloadMicroregion>>(
-    `/microregions?${buildQuery({ depth: 0, limit: 500, sort: "name" })}`,
-  );
-  return result.docs.map(mapMicroregion);
+    `/microregions?${buildQuery({ depth: 0, limit: 500, sort: 'name' })}`,
+  )
+  return result.docs.map(mapMicroregion)
 }
 
 /** Upcoming events co-organized across obce that would stop sharing a region — saving with these
@@ -529,26 +547,32 @@ export async function getMicroregionImpact(
   regionId: string,
   municipalityIds: string[],
 ): Promise<{ id: string; title: string }[]> {
-  const params = new URLSearchParams({ regionId, municipalityIds: municipalityIds.join(",") });
-  return (await get<{ events: { id: string; title: string }[] }>(`/admin/microregions/impact?${params}`)).events;
+  const params = new URLSearchParams({ regionId, municipalityIds: municipalityIds.join(',') })
+  return (
+    await get<{ events: { id: string; title: string }[] }>(`/admin/microregions/impact?${params}`)
+  ).events
 }
 
-export type MicroregionInput = { name: string; mainMunicipalityId: string; municipalityIds: string[] };
+export type MicroregionInput = {
+  name: string
+  mainMunicipalityId: string
+  municipalityIds: string[]
+}
 
 const microregionBody = (input: MicroregionInput) => ({
   name: input.name,
   mainMunicipality: Number(input.mainMunicipalityId),
   municipalities: input.municipalityIds.map(Number),
-});
+})
 
 export async function createMicroregion(input: MicroregionInput): Promise<void> {
-  await post("/microregions", microregionBody(input));
+  await post('/microregions', microregionBody(input))
 }
 
 export async function updateMicroregion(id: string, input: MicroregionInput): Promise<void> {
-  await patch(`/microregions/${id}`, microregionBody(input));
+  await patch(`/microregions/${id}`, microregionBody(input))
 }
 
 export async function deleteMicroregion(id: string): Promise<void> {
-  await del(`/microregions/${id}`);
+  await del(`/microregions/${id}`)
 }

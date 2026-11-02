@@ -106,6 +106,7 @@ export async function notifyEventCancelled(
   event: {
     id: number | string
     title: string
+    capacity: number
     organizer: number | { id: number }
     municipality: number | { id: number }
   },
@@ -119,6 +120,7 @@ export async function notifyEventCancelled(
     {
       eventId: event.id,
       title: event.title,
+      capacity: event.capacity,
       municipalityId: requiredRelationNumber(event.municipality),
       ...registrants,
     },

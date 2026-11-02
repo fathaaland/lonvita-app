@@ -291,9 +291,10 @@ export { toE164 } from '@/lib/phone'
 
 /**
  * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail" — narrowed: SMS go out only when an
- * event is cancelled (event-cancelled processor), never for anything else. To whichever of these users
+ * event of at most SMS_MAX_CAPACITY places is cancelled (event-cancelled processor, which checks
+ * the capacity), never for anything else. To whichever of these users
  * have a phone on file (onboarding step, still optional until they've filled it in). A no-op (not
- * an error) when Twilio isn't configured — the worker logs that. Only for an obec that pays for SMS
+ * an error) when BulkGate isn't configured — the worker logs that. Only for an obec that pays for SMS
  * (lib/services), and no more than its monthly limit leaves — the rest hear it in-app and by e-mail
  * all the same. The request id becomes the queue
  * job id, so `requestIdPrefix` must be unique per announcement but stable across retries of it.

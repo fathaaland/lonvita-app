@@ -36,6 +36,8 @@ interface Props {
   eventId: string;
   /** The event's obec — whether the registrants are texted too depends on its SMS service. */
   municipalityId?: string | null;
+  /** SMS go out only for an event of at most SMS_MAX_CAPACITY places — the dialog says which. */
+  capacity: number;
   title: string;
   dateTime: string;
   userId: string;
@@ -78,6 +80,7 @@ const errorMessage = (error: unknown, fallback: string) =>
 export function EventDeletionConsent({
   eventId,
   municipalityId,
+  capacity,
   title,
   dateTime,
   userId,
@@ -201,7 +204,7 @@ export function EventDeletionConsent({
             <AlertDialogTitle>Smazat akci „{title}“?</AlertDialogTitle>
             <AlertDialogDescription>
               Akce se nenávratně smaže i s přihláškami a přihlášení účastníci dostanou upozornění{" "}
-              {cancelChannels(sms)}. Nejde to vrátit zpět.
+              {cancelChannels(sms, capacity)}. Nejde to vrátit zpět.
             </AlertDialogDescription>
           </AlertDialogHeader>
         )}

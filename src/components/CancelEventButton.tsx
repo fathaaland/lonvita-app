@@ -36,11 +36,13 @@ interface Props {
   onCancelled?: () => void;
   /** The event's obec — whether the registrants are texted too depends on its SMS service. */
   municipalityId?: string | null;
+  /** SMS go out only for an event of at most SMS_MAX_CAPACITY places — the dialog says which. */
+  capacity: number;
 }
 
 /** "Zrušit akci" with a confirmation dialog. The cut-off is enforced server-side as well
  * (Events' guardCancellationWindow hook); this only decides whether to offer the action. */
-export function CancelEventButton({ eventId, title, dateTime, variant = "button", onCancelled, municipalityId }: Props) {
+export function CancelEventButton({ eventId, title, dateTime, variant = "button", onCancelled, municipalityId, capacity }: Props) {
   const { sms } = useMunicipalityFeatures(municipalityId);
   const router = useRouter();
   const { isSuperAdmin, isAdmin } = useAuth();
@@ -105,7 +107,7 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
         <AlertDialogHeader>
           <AlertDialogTitle>Zrušit akci „{title}“?</AlertDialogTitle>
           <AlertDialogDescription>
-            Všichni přihlášení účastníci dostanou upozornění {cancelChannels(sms)} a akce zmizí z přehledu.
+            Všichni přihlášení účastníci dostanou upozornění {cancelChannels(sms, capacity)} a akce zmizí z přehledu.
             Zrušení nejde vrátit zpět.
           </AlertDialogDescription>
         </AlertDialogHeader>

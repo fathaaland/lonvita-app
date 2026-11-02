@@ -1,9 +1,9 @@
 import type { CollectionConfig } from 'payload'
 
 /**
- * Every SMS Twilio took — one row per message, against the obec whose event it was about. What the
+ * Every SMS BulkGate took — one row per message, against the obec whose event it was about. What the
  * obec's SMS service has used up this month is counted off it (lib/services). Written by the worker
- * once Twilio accepted the message (sms.processor), never through the API; no phone number or text
+ * once BulkGate accepted the message (sms.processor), never through the API; no phone number or text
  * kept — the count is what matters.
  */
 export const SmsMessages: CollectionConfig = {

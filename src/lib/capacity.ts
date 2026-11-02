@@ -23,3 +23,13 @@ export function mayRateEvent(
   if (!isUnlimitedCapacity(event.capacity)) return registration.attendanceStatus === "attended";
   return new Date(event.endDateTime ?? event.dateTime).getTime() < now;
 }
+
+/**
+ * SMS about a cancelled event go out only for events of at most this many places — anything bigger
+ * (unlimited included) is announced in-app and by e-mail only, so one cancel can't eat the obec's SMS.
+ * Both the pořadatel and the participants are told so up front (EventForm, the event detail).
+ */
+export const SMS_MAX_CAPACITY = 50
+
+export const smsSentForCapacity = (capacity: number | null | undefined): boolean =>
+  typeof capacity === "number" && capacity >= 1 && capacity <= SMS_MAX_CAPACITY

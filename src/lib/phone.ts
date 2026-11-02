@@ -1,5 +1,5 @@
 /**
- * Twilio expects E.164, but people type numbers as they know them ("735 929 442", "+420 735…",
+ * The SMS gateway wants an international number (E.164), but people type numbers as they know them ("735 929 442", "+420 735…",
  * "00420…", a Slovak "+421 …"). A bare 9-digit number is Czech; anything unrecognisable is null.
  * Shared by the SMS sender (collections/shared/notify) and every form that asks for a phone, so a
  * number the form accepts is always one an SMS can actually go to.

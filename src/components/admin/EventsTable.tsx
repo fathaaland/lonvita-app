@@ -208,6 +208,7 @@ export function EventsTable({
                             title={e.title}
                             dateTime={e.date_time}
                             municipalityId={e.municipality_id}
+                            capacity={e.capacity}
                             onCancelled={onDeleted ?? (() => {})}
                           />
                         )}

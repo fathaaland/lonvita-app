@@ -38,8 +38,8 @@ export type EmailJobResult = {
 
 /**
  * Brief §8 "Webová aplikace, tudíž oznámení o změně/zrušení musí jít přes SMS/mail" — sent via
- * Twilio (worker sms.processor). `requestId` makes the queue job id, so the same announcement
- * isn't enqueued twice for one person (Twilio itself has no idempotency key). Sent only when an event
+ * BulkGate (worker sms.processor). `requestId` makes the queue job id, so the same announcement
+ * isn't enqueued twice for one person. Sent only when an event of at most SMS_MAX_CAPACITY places
  * is cancelled (event-cancelled processor) — edits and organizers' messages go in-app and by e-mail.
  */
 export type SmsJobData = {
@@ -139,6 +139,9 @@ export type EventCancelledJobData = {
   title: string
   /** Whose SMS service texts the registrants. Optional: jobs queued before it existed carry none. */
   municipalityId?: number
+  /** The event's capacity — SMS go out only up to SMS_MAX_CAPACITY places (lib/capacity). Optional:
+   * jobs queued before it existed carry none (then the event row, if still there, says). */
+  capacity?: number
   /** Pending/approved registrants to tell (the organizer excluded). */
   userIds: (number | string)[]
   /** Every registration of the event, whose reminder jobs have to go. */
