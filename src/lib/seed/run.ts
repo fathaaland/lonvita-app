@@ -228,7 +228,7 @@ type DemoEvent = {
 
 const DEMO_EVENTS: DemoEvent[] = [
   {
-    title: 'Setkání u kávy a dortu',
+    title: 'Setkání u kávy a dortu a kafe',
     description:
       'Posedíme u kávy a domácího dortu a popovídáme si o tom, co se v obci chystá. Přijďte klidně i sami — rádi vás seznámíme s ostatními.',
     municipality: 'Nové Veselí',
