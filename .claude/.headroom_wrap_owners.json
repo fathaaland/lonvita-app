@@ -8,6 +8,13 @@
         "start_time": null,
         "port": 8787,
         "inherited": false
+      },
+      {
+        "pid": 14414,
+        "start_src": null,
+        "start_time": null,
+        "port": 8787,
+        "inherited": true
       }
     ]
   },
@@ -20,6 +27,13 @@
         "start_time": null,
         "port": null,
         "inherited": false
+      },
+      {
+        "pid": 14414,
+        "start_src": null,
+        "start_time": null,
+        "port": null,
+        "inherited": true
       }
     ]
   }
