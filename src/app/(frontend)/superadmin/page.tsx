@@ -708,6 +708,15 @@ function SuperAdminContent() {
             >
               <Wallet className="h-4 w-4" /> Balíčky a fakturace — ceník, přehled obcí, CSV
             </Link>
+            <Link
+              href="/superadmin/compliance"
+              className={buttonVariants({
+                variant: 'outline',
+                className: 'w-full h-11 justify-start gap-2',
+              })}
+            >
+              <Wallet className="h-4 w-4" /> Compliance — audit log, registr předpisů, lhůty uchování
+            </Link>
             <Card>
               <CardContent className="p-4 space-y-3">
                 <div className="eyebrow">

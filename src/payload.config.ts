@@ -12,6 +12,8 @@ import sharp from 'sharp'
 import { Users } from './collections/Users'
 import { ImportSettings } from './globals/ImportSettings'
 import { BillingSettings } from './globals/BillingSettings'
+import { RetentionSettings } from './globals/RetentionSettings'
+import { LegalRequirements } from './collections/LegalRequirements'
 import { ActiveUserSnapshots } from './collections/ActiveUserSnapshots'
 import { Media } from './collections/Media'
 import { Municipalities } from './collections/Municipalities'
@@ -173,10 +175,11 @@ export default buildConfig({
     UsageEvents,
     SmsMessages,
     ActiveUserSnapshots,
+    LegalRequirements,
     SystemLogs,
     SecurityEvents,
   ].map(withCrudLogging),
-  globals: [ImportSettings, BillingSettings],
+  globals: [ImportSettings, BillingSettings, RetentionSettings],
   hooks: {
     afterError: [
       ({ error, req, collection }) => {

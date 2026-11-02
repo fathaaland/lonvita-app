@@ -1,5 +1,6 @@
 import { logger } from '@/lib/logger'
-import { daysBefore, RETENTION } from '@/lib/retention/policy'
+import { daysBefore } from '@/lib/retention/policy'
+import { getRetention, type Retention } from '@/lib/retention/settings'
 
 import { BATCH_SIZE, inBatches } from '../runtime/batches'
 import { getWorkerPayload } from '../runtime/payload'
@@ -13,18 +14,19 @@ const daysAgo = (days: number): string => daysBefore(new Date(), days).toISOStri
 /** Age is measured from `createdAt`, not from when it was read — this is "throw away old
  * notifications", so a notification read the day it arrived and one read months later expire
  * together. */
-const expiredNotifications = (): Where => ({
+const expiredNotifications = (r: Retention): Where => ({
   or: [
     {
-      and: [{ readAt: { exists: true } }, { createdAt: { less_than: daysAgo(RETENTION.notificationReadDays) } }],
+      and: [{ readAt: { exists: true } }, { createdAt: { less_than: daysAgo(r.notificationReadDays) } }],
     },
-    { createdAt: { less_than: daysAgo(RETENTION.notificationDays) } },
+    { createdAt: { less_than: daysAgo(r.notificationDays) } },
   ],
 })
 
 export const processCleanupNotificationsJob = async (): Promise<CleanupNotificationsJobResult> => {
   const payload: Payload = await getWorkerPayload()
-  const where = expiredNotifications()
+  const retention = await getRetention(payload)
+  const where = expiredNotifications(retention)
 
   const deleted = await inBatches(async () => {
     const expired = await payload.find({
@@ -50,8 +52,8 @@ export const processCleanupNotificationsJob = async (): Promise<CleanupNotificat
   logger.info('Notification cleanup finished', {
     event: 'notifications.cleanup_finished',
     deleted,
-    readRetentionDays: RETENTION.notificationReadDays,
-    retentionDays: RETENTION.notificationDays,
+    readRetentionDays: retention.notificationReadDays,
+    retentionDays: retention.notificationDays,
   })
 
   return { deleted }

@@ -27,6 +27,9 @@ const DATA_RETENTION_CRON = '0 4 * * *'
 const SCAN_EVENT_SOURCES_CRON = '0 * * * *'
 /** Each obec's users (lib/billing/active-users) — the 1st of the month, early morning. */
 const SNAPSHOT_ACTIVE_USERS_CRON = '15 1 1 * *'
+/** The register of law (LegalRequirements) against e-Sbírka, and reviews come due — early morning,
+ * so the platform's admins find any change when they start the day. */
+const COMPLIANCE_CHECK_CRON = '30 5 * * *'
 /** Audit trail copy (export-audit-trail) — past midnight UTC in either Prague offset, so the day it
  * writes (UTC) is finished; before data retention, which may remove rows the copy should hold. */
 const EXPORT_AUDIT_TRAIL_CRON = '30 2 * * *'
@@ -118,6 +121,20 @@ await getQueue().upsertJobScheduler(
 logger.info('Active user snapshot schedule registered', {
   event: 'worker.snapshot_schedule_registered',
   pattern: SNAPSHOT_ACTIVE_USERS_CRON,
+  tz: APP_TIME_ZONE,
+})
+
+await getQueue().upsertJobScheduler(
+  JOB_NAMES.COMPLIANCE_CHECK,
+  { pattern: COMPLIANCE_CHECK_CRON, tz: APP_TIME_ZONE },
+  {
+    name: JOB_NAMES.COMPLIANCE_CHECK,
+    data: { jobType: JOB_NAMES.COMPLIANCE_CHECK, payload: {} },
+  },
+)
+logger.info('Compliance check schedule registered', {
+  event: 'worker.compliance_schedule_registered',
+  pattern: COMPLIANCE_CHECK_CRON,
   tz: APP_TIME_ZONE,
 })
 

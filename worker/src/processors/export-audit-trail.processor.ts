@@ -5,7 +5,8 @@ import { sql, type PostgresAdapter } from '@payloadcms/db-postgres'
 
 import { recordAuditLog } from '@/collections/shared/auditLog'
 import { logger, serializeError } from '@/lib/logger'
-import { monthsBefore, RETENTION } from '@/lib/retention/policy'
+import { monthsBefore } from '@/lib/retention/policy'
+import { getRetention } from '@/lib/retention/settings'
 import { getS3Client } from '@/lib/s3/client'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -54,7 +55,7 @@ const rowsOf = async (payload: Payload, table: 'audit_log' | 'security_events', 
  * being changed or removed by anybody — this app's credentials included — for 18 months. Its hash
  * goes into the audit log, so each night's file is vouched for by the next.
  */
-const exportDay = async (payload: Payload, bucket: string, day: string, now: Date) => {
+const exportDay = async (payload: Payload, bucket: string, day: string, now: Date, lockMonths: number) => {
   const auditLog = await rowsOf(payload, 'audit_log', day)
   const securityEvents = await rowsOf(payload, 'security_events', day)
   const lines = [
@@ -80,7 +81,7 @@ const exportDay = async (payload: Payload, bucket: string, day: string, now: Dat
       ContentType: 'application/x-ndjson',
       ChecksumAlgorithm: 'SHA256',
       ObjectLockMode: 'COMPLIANCE',
-      ObjectLockRetainUntilDate: monthsBefore(now, -RETENTION.auditExportMonths),
+      ObjectLockRetainUntilDate: monthsBefore(now, -lockMonths),
       Metadata: { sha256 },
     }),
   )
@@ -109,6 +110,8 @@ export const processExportAuditTrailJob = async (): Promise<ExportAuditTrailJobR
   }
 
   const payload = await getWorkerPayload()
+  // Never under the 18 months of vyhláška 409/2025 Sb. — the settings' floor (lib/retention/settings).
+  const lockMonths = (await getRetention(payload)).auditExportMonths
   const now = new Date()
   const result: ExportAuditTrailJobResult = { exported: [], failed: [] }
 
@@ -117,7 +120,7 @@ export const processExportAuditTrailJob = async (): Promise<ExportAuditTrailJobR
     const day = utcDay(now, daysAgo)
     try {
       if (await exists(bucket, keyFor(day))) continue
-      await exportDay(payload, bucket, day, now)
+      await exportDay(payload, bucket, day, now, lockMonths)
       result.exported.push(day)
     } catch (error) {
       result.failed.push(day)

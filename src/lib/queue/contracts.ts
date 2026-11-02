@@ -21,6 +21,7 @@ export const JOB_NAMES = {
   EXPORT_AUDIT_TRAIL: 'export-audit-trail',
   REMINDER_SMS: 'reminder-sms',
   SNAPSHOT_ACTIVE_USERS: 'snapshot-active-users',
+  COMPLIANCE_CHECK: 'compliance-check',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -66,6 +67,16 @@ export type SmsJobData = {
  */
 export type ReminderSmsJobData = { registrationId: number | string }
 export type ReminderSmsJobResult = { sent: number; skipped?: string }
+
+/** The nightly check of the register of law (LegalRequirements): reviews that came due, and new or
+ * upcoming versions of the watched regulations in e-Sbírka (lib/compliance/esbirka). */
+export type ComplianceCheckJobData = Record<string, never>
+export type ComplianceCheckJobResult = {
+  checked: number
+  changed: string[]
+  dueForReview: string[]
+  failed: string[]
+}
 
 /** The monthly snapshot of every obec's users (lib/billing/active-users) — on the worker's cron. */
 export type SnapshotActiveUsersJobData = Record<string, never>
@@ -318,3 +329,4 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.EXPORT_AUDIT_TRAIL; payload: ExportAuditTrailJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.REMINDER_SMS; payload: ReminderSmsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SNAPSHOT_ACTIVE_USERS; payload: SnapshotActiveUsersJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.COMPLIANCE_CHECK; payload: ComplianceCheckJobData } & Traced)

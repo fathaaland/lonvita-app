@@ -3,7 +3,8 @@ import { commitTransaction, createLocalReq, initTransaction, killTransaction } f
 
 import { recordAuditLog, type WriteAuditLogInput } from '@/collections/shared/auditLog'
 import { logger, serializeError } from '@/lib/logger'
-import { daysBefore, hoursBefore, monthsBefore, RETENTION, retentionMode, type RetentionMode } from '@/lib/retention/policy'
+import { daysBefore, hoursBefore, monthsBefore, retentionMode, type RetentionMode } from '@/lib/retention/policy'
+import { getRetention, type Retention } from '@/lib/retention/settings'
 
 import { BATCH_SIZE, MAX_BATCHES } from '../runtime/batches'
 import { getWorkerPayload } from '../runtime/payload'
@@ -17,17 +18,17 @@ import { relationNumber } from '@/lib/relations'
  * (Events notifyOrganizersOnObecDelete), and the deletion hooks know it isn't a person's doing. */
 const RETENTION_CONTEXT = { skipNotifications: true, dataRetention: true }
 
-const cutoffsFor = (now: Date) => ({
+const cutoffsFor = (now: Date, r: Retention) => ({
   now: now.toISOString(),
-  decidedRequest: daysBefore(now, RETENTION.decidedRequestDays).toISOString(),
-  importRun: daysBefore(now, RETENTION.importRunDays).toISOString(),
-  systemLog: daysBefore(now, RETENTION.systemLogDays).toISOString(),
-  securityEvent: monthsBefore(now, RETENTION.securityEventMonths).toISOString(),
-  organizerRequest: monthsBefore(now, RETENTION.organizerRequestMonths).toISOString(),
-  staleEventData: monthsBefore(now, RETENTION.staleEventDataMonths).toISOString(),
-  orphanMedia: hoursBefore(now, RETENTION.orphanMediaGraceHours).toISOString(),
+  decidedRequest: daysBefore(now, r.decidedRequestDays).toISOString(),
+  importRun: daysBefore(now, r.importRunDays).toISOString(),
+  systemLog: daysBefore(now, r.systemLogDays).toISOString(),
+  securityEvent: monthsBefore(now, r.securityEventMonths).toISOString(),
+  organizerRequest: monthsBefore(now, r.organizerRequestMonths).toISOString(),
+  staleEventData: monthsBefore(now, r.staleEventDataMonths).toISOString(),
+  orphanMedia: hoursBefore(now, r.orphanMediaGraceHours).toISOString(),
   // Never under the floor, whatever the policy says — the database would refuse it anyway.
-  auditLog: monthsBefore(now, Math.max(RETENTION.auditLogMonths, RETENTION.auditLogMinimumMonths)).toISOString(),
+  auditLog: monthsBefore(now, Math.max(r.auditLogMonths, r.auditLogMinimumMonths)).toISOString(),
 })
 
 type Cutoffs = ReturnType<typeof cutoffsFor>
@@ -127,13 +128,14 @@ const deleteEvents: Step['purge'] = async (payload, step, ids) => {
  * them touches what an overview counts (lib/retention/policy.ts); the statistics come out the same
  * before and after (tests/int/data-retention.int.spec.ts checks exactly that).
  */
-const STEPS: Step[] = [
+/** The rules, with the periods the platform set (lib/retention/settings). */
+const stepsFor = (r: Retention): Step[] => [
   {
     // Imported events found on a source (EventImportCandidates) — once the event itself is long
     // over, the candidate has nothing left to decide or to keep the source from offering again.
     name: 'past-import-candidates',
     collection: 'event-import-candidates',
-    rule: `event started ${RETENTION.decidedRequestDays}+ days ago`,
+    rule: `event started ${r.decidedRequestDays}+ days ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM event_import_candidates r
       WHERE r.starts_at < ${c.decidedRequest}::timestamptz
@@ -145,7 +147,7 @@ const STEPS: Step[] = [
     // The history of event import runs — the usage-events rows they point at stay, unlinked.
     name: 'old-import-runs',
     collection: 'import-runs',
-    rule: `run started ${RETENTION.importRunDays}+ days ago`,
+    rule: `run started ${r.importRunDays}+ days ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM import_runs r
       WHERE r.started_at < ${c.importRun}::timestamptz
@@ -156,7 +158,7 @@ const STEPS: Step[] = [
   {
     name: 'old-system-logs',
     collection: 'system-logs',
-    rule: `logged ${RETENTION.systemLogDays}+ days ago`,
+    rule: `logged ${r.systemLogDays}+ days ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM system_logs r
       WHERE r.created_at < ${c.systemLog}::timestamptz
@@ -168,7 +170,7 @@ const STEPS: Step[] = [
     // Already in the write-once audit bucket, which keeps them longer (export-audit-trail).
     name: 'old-security-events',
     collection: 'security-events',
-    rule: `logged ${RETENTION.securityEventMonths}+ months ago`,
+    rule: `logged ${r.securityEventMonths}+ months ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM security_events r
       WHERE r.created_at < ${c.securityEvent}::timestamptz
@@ -179,7 +181,7 @@ const STEPS: Step[] = [
   {
     name: 'decided-co-organizing-invitations',
     collection: 'co-organizing-requests',
-    rule: `decided or lapsed ${RETENTION.decidedRequestDays}+ days ago, event started`,
+    rule: `decided or lapsed ${r.decidedRequestDays}+ days ago, event started`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM co_organizing_requests r JOIN events e ON e.id = r.event_id
       WHERE r.status IN ('approved', 'rejected', 'expired')
@@ -193,7 +195,7 @@ const STEPS: Step[] = [
     // A refused one stays open to escalation until the event starts (…/escalate) — not before then.
     name: 'settled-deletion-requests',
     collection: 'event-deletion-requests',
-    rule: `settled ${RETENTION.decidedRequestDays}+ days ago, event started or gone`,
+    rule: `settled ${r.decidedRequestDays}+ days ago, event started or gone`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM event_deletion_requests r LEFT JOIN events e ON e.id = r.event_id
       WHERE r.status IN ('approved', 'rejected', 'expired', 'requester-removed', 'escalation-rejected')
@@ -207,7 +209,7 @@ const STEPS: Step[] = [
     // A rejected one never blocked asking again; an approved one lives on as the organizer role.
     name: 'decided-organizer-requests',
     collection: 'organizer-requests',
-    rule: `decided ${RETENTION.organizerRequestMonths}+ months ago`,
+    rule: `decided ${r.organizerRequestMonths}+ months ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM organizer_requests r
       WHERE r.status IN ('approved', 'rejected')
@@ -220,7 +222,7 @@ const STEPS: Step[] = [
     // Past the 30-day wait after a "no" (PoolInvitations) and the obec's "recent answers".
     name: 'answered-pool-invitations',
     collection: 'pool-invitations',
-    rule: `answered ${RETENTION.decidedRequestDays}+ days ago`,
+    rule: `answered ${r.decidedRequestDays}+ days ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM pool_invitations r
       WHERE r.status IN ('accepted', 'declined', 'withdrawn')
@@ -233,7 +235,7 @@ const STEPS: Step[] = [
     // Accepted ones stay — they're how the volunteer came to be on the event.
     name: 'declined-volunteer-invitations',
     collection: 'volunteer-invitations',
-    rule: `declined or withdrawn, event started ${RETENTION.decidedRequestDays}+ days ago`,
+    rule: `declined or withdrawn, event started ${r.decidedRequestDays}+ days ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM volunteer_invitations r JOIN events e ON e.id = r.event_id
       WHERE r.status IN ('declined', 'withdrawn')
@@ -246,7 +248,7 @@ const STEPS: Step[] = [
     // Rejected ones stay (the "Zamítnuto" chart); approved ones are the statistics themselves.
     name: 'stale-registrations',
     collection: 'registrations',
-    rule: `cancelled or never decided, event over ${RETENTION.staleEventDataMonths}+ months ago`,
+    rule: `cancelled or never decided, event over ${r.staleEventDataMonths}+ months ago`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM registrations r JOIN events e ON e.id = r.event_id
       WHERE r.status IN ('cancelled', 'pending')
@@ -261,7 +263,7 @@ const STEPS: Step[] = [
     // Invisible everywhere since it was called off (Events canReadEvent, analytics heldEvents).
     name: 'cancelled-events',
     collection: 'events',
-    rule: `cancelled, ${RETENTION.staleEventDataMonths}+ months past its date and its cancellation`,
+    rule: `cancelled, ${r.staleEventDataMonths}+ months past its date and its cancellation`,
     select: (c, afterId, limit) => sql`
       SELECT e.id FROM events e
       WHERE (e.deleted_at IS NOT NULL OR e.status = 'cancelled')
@@ -276,7 +278,7 @@ const STEPS: Step[] = [
     // upload is listed here — a new upload field has to join this list.
     name: 'orphaned-uploads',
     collection: 'media',
-    rule: `referenced by nothing, uploaded ${RETENTION.orphanMediaGraceHours}+ hours ago`,
+    rule: `referenced by nothing, uploaded ${r.orphanMediaGraceHours}+ hours ago`,
     select: (c, afterId, limit) => sql`
       SELECT m.id FROM media m
       WHERE m.created_at < ${c.orphanMedia}::timestamptz
@@ -290,7 +292,7 @@ const STEPS: Step[] = [
   {
     name: 'expired-audit-log',
     collection: 'audit-log',
-    rule: `older than ${RETENTION.auditLogMonths} months`,
+    rule: `older than ${r.auditLogMonths} months`,
     select: (c, afterId, limit) => sql`
       SELECT a.id FROM audit_log a
       WHERE a.created_at < ${c.auditLog}::timestamptz
@@ -320,12 +322,13 @@ export const processDataRetentionJob = async ({
   now = new Date(),
 }: { mode?: RetentionMode; now?: Date } = {}): Promise<DataRetentionJobResult> => {
   const payload = await getWorkerPayload()
-  const cutoffs = cutoffsFor(now)
+  const retention = await getRetention(payload)
+  const cutoffs = cutoffsFor(now, retention)
   const steps: DataRetentionJobResult['steps'] = {}
   const failed: string[] = []
 
   // Each rule on its own: one that fails (a constraint nobody foresaw) doesn't keep the rest from running.
-  for (const step of STEPS) {
+  for (const step of stepsFor(retention)) {
     try {
       steps[step.name] = await runStep(payload, step, cutoffs, mode)
     } catch (error) {

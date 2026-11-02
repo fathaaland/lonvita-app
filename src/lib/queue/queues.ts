@@ -100,6 +100,15 @@ export async function enqueueAttendanceReminder(data: AttendanceReminderJobData,
   return enqueueJob({ jobType: JOB_NAMES.ATTENDANCE_REMINDER, payload: data }, options)
 }
 
+/** "Zkontrolovat teď" in the superadmin's Compliance — the nightly check at once. One a minute at
+ * most: a second press while it runs rides along. */
+export async function enqueueComplianceCheck(options?: EnqueueOptions) {
+  return enqueueJob(
+    { jobType: JOB_NAMES.COMPLIANCE_CHECK, payload: {} },
+    { deduplication: { id: 'compliance-check-manual', ttl: 60_000 }, ...options },
+  )
+}
+
 export async function enqueueReminderSms(data: ReminderSmsJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.REMINDER_SMS, payload: data }, options)
 }

@@ -96,6 +96,7 @@ export interface Config {
     'usage-events': UsageEvent;
     'sms-messages': SmsMessage;
     'active-user-snapshots': ActiveUserSnapshot;
+    'legal-requirements': LegalRequirement;
     'system-logs': SystemLog;
     'security-events': SecurityEvent;
     'payload-kv': PayloadKv;
@@ -134,6 +135,7 @@ export interface Config {
     'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
     'sms-messages': SmsMessagesSelect<false> | SmsMessagesSelect<true>;
     'active-user-snapshots': ActiveUserSnapshotsSelect<false> | ActiveUserSnapshotsSelect<true>;
+    'legal-requirements': LegalRequirementsSelect<false> | LegalRequirementsSelect<true>;
     'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
     'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
@@ -148,10 +150,12 @@ export interface Config {
   globals: {
     'import-settings': ImportSetting;
     'billing-settings': BillingSetting;
+    'retention-settings': RetentionSetting;
   };
   globalsSelect: {
     'import-settings': ImportSettingsSelect<false> | ImportSettingsSelect<true>;
     'billing-settings': BillingSettingsSelect<false> | BillingSettingsSelect<true>;
+    'retention-settings': RetentionSettingsSelect<false> | RetentionSettingsSelect<true>;
   };
   locale: null;
   widgets: {
@@ -1179,6 +1183,34 @@ export interface ActiveUserSnapshot {
   createdAt: string;
 }
 /**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "legal-requirements".
+ */
+export interface LegalRequirement {
+  id: number;
+  code: string;
+  title: string;
+  kind: 'zakon' | 'vyhlaska' | 'eu' | 'other';
+  url?: string | null;
+  requirement?: string | null;
+  implementation?: string | null;
+  owner?: (number | null) | User;
+  status: 'ok' | 'review_needed' | 'changed' | 'gap';
+  reviewIntervalMonths?: number | null;
+  lastReviewedAt?: string | null;
+  lastReviewedBy?: (number | null) | User;
+  nextReviewAt?: string | null;
+  esbirkaWatch?: boolean | null;
+  esbirkaFingerprint?: string | null;
+  esbirkaCheckedAt?: string | null;
+  esbirkaChangedAt?: string | null;
+  esbirkaChangeSummary?: string | null;
+  esbirkaError?: string | null;
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * Warnings, errors and notable events of the app and the worker. Kept 90 days. The correlation id joins every line of one request or job.
  *
  * This interface was referenced by `Config`'s JSON-Schema
@@ -1383,6 +1415,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'active-user-snapshots';
         value: number | ActiveUserSnapshot;
+      } | null)
+    | ({
+        relationTo: 'legal-requirements';
+        value: number | LegalRequirement;
       } | null)
     | ({
         relationTo: 'system-logs';
@@ -2054,6 +2090,33 @@ export interface ActiveUserSnapshotsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "legal-requirements_select".
+ */
+export interface LegalRequirementsSelect<T extends boolean = true> {
+  code?: T;
+  title?: T;
+  kind?: T;
+  url?: T;
+  requirement?: T;
+  implementation?: T;
+  owner?: T;
+  status?: T;
+  reviewIntervalMonths?: T;
+  lastReviewedAt?: T;
+  lastReviewedBy?: T;
+  nextReviewAt?: T;
+  esbirkaWatch?: T;
+  esbirkaFingerprint?: T;
+  esbirkaCheckedAt?: T;
+  esbirkaChangedAt?: T;
+  esbirkaChangeSummary?: T;
+  esbirkaError?: T;
+  notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "system-logs_select".
  */
 export interface SystemLogsSelect<T extends boolean = true> {
@@ -2190,6 +2253,51 @@ export interface BillingSetting {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "retention-settings".
+ */
+export interface RetentionSetting {
+  id: number;
+  /**
+   * Min. 18 měsíců (vyhláška 409/2025 Sb. § 22 odst. 5 písm. c); 36 = obecná promlčecí lhůta (OZ § 629). Déle ne — GDPR čl. 5 odst. 1 písm. e. Výchozí: 36 měsíců.
+   */
+  auditLogMonths?: number | null;
+  /**
+   * Uzamčení noční kopie mimo aplikaci — min. 18 měsíců (vyhláška 409/2025 Sb. § 22 odst. 5 písm. c). Výchozí: 18 měsíců.
+   */
+  auditExportMonths?: number | null;
+  /**
+   * Rok ukáže vzorec přes sezóny; jejich kopie zůstává v neměnném úložišti. Výchozí: 12 měsíců.
+   */
+  securityEventMonths?: number | null;
+  /**
+   * Provozní potřeba. Výchozí: 90 dní.
+   */
+  systemLogDays?: number | null;
+  /**
+   * Provozní potřeba (podpora, kontrola zdrojů). Výchozí: 180 dní.
+   */
+  importRunDays?: number | null;
+  /**
+   * Minimalizace údajů (GDPR čl. 5 odst. 1 písm. c, e). Výchozí: 90 dní.
+   */
+  notificationDays?: number | null;
+  /**
+   * Minimalizace údajů (GDPR čl. 5 odst. 1 písm. c, e). Výchozí: 30 dní.
+   */
+  notificationReadDays?: number | null;
+  /**
+   * Po začátku akce už nejsou potřeba. Výchozí: 90 dní.
+   */
+  decidedRequestDays?: number | null;
+  /**
+   * Žadatel vidí výsledek v profilu. Výchozí: 12 měsíců.
+   */
+  organizerRequestMonths?: number | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "import-settings_select".
  */
 export interface ImportSettingsSelect<T extends boolean = true> {
@@ -2258,6 +2366,24 @@ export interface BillingSettingsSelect<T extends boolean = true> {
       };
   sourceSetupFeeCzk?: T;
   maxInputTokensPerRun?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "retention-settings_select".
+ */
+export interface RetentionSettingsSelect<T extends boolean = true> {
+  auditLogMonths?: T;
+  auditExportMonths?: T;
+  securityEventMonths?: T;
+  systemLogDays?: T;
+  importRunDays?: T;
+  notificationDays?: T;
+  notificationReadDays?: T;
+  decidedRequestDays?: T;
+  organizerRequestMonths?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;
