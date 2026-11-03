@@ -401,6 +401,21 @@ async function attendanceRights(req: PayloadRequest, eventId: number | string): 
 const isMarked = (status: unknown) => typeof status === 'string' && status !== 'not_marked'
 
 /**
+ * Every rule on moving a registration (guardStatusChange, guardOwnCancellation,
+ * lockAttendanceOnceMarked) reads the one registration being changed — so a bulk update by `where`
+ * (PATCH /api/registrations?where[...]) would slip past them all: a registrant could approve
+ * themselves past the organizer and the capacity, or lift a rejection. The app only ever changes
+ * one registration at a time, so outside a platform admin a bulk update is refused outright.
+ * Only when access control applies; trusted internal writes pass.
+ */
+const refuseBulkUpdate: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'update') return args
+  const { id, overrideAccess } = args as { id?: number | string; overrideAccess?: boolean }
+  if (overrideAccess !== false || id !== undefined || req.user?.role === 'admin') return args
+  throw new APIError('Přihlášky se mění jen po jedné.', 403)
+}
+
+/**
  * Attendance is written once and stays — the pořadatel confirms it before saving, and the feedback
  * prompt and the volunteer rating hang off it. A mistake on a participant the obec's admin sets right
  * (it counts against their reliability). Field access (canMarkAttendance) is what actually keeps
@@ -416,7 +431,7 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
     id?: number | string
     overrideAccess?: boolean
   }
-  // No id = a bulk update by `where`; field access still strips the field there.
+  // No id = a bulk update by `where` — refused before this runs (refuseBulkUpdate).
   if (overrideAccess !== false || data?.attendanceStatus === undefined || id === undefined) return args
   if (!req.user) return args
 
@@ -744,12 +759,18 @@ export const Registrations: CollectionConfig = {
       type: 'relationship',
       relationTo: 'events',
       required: true,
+      // Set on sign-up and fixed from then on — a registrant moving theirs onto another event would
+      // skip that event's approval, capacity and every sign-up check (beforeValidate).
+      access: { update: isPlatformAdminField },
     },
     {
       name: 'user',
       type: 'relationship',
       relationTo: 'users',
       required: true,
+      // Nobody hands their registration to someone else, who'd find themselves on an event they
+      // never chose (canCreateRegistration).
+      access: { update: isPlatformAdminField },
     },
     {
       name: 'status',
@@ -944,6 +965,7 @@ export const Registrations: CollectionConfig = {
       },
     ],
     beforeOperation: [
+      refuseBulkUpdate,
       guardRegistrationWindow,
       guardStatusChange,
       guardOwnCancellation,

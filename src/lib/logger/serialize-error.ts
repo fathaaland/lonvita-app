@@ -16,6 +16,10 @@ const MAX_CAUSE_DEPTH = 3
 const redactMessage = (message: string): string =>
   message.replace(/\nparams: [\s\S]*$/, '\nparams: [redacted]').slice(0, MAX_MESSAGE_LENGTH)
 
+/** A stack opens with the whole message again — values included — before its `at` frames. */
+const redactStack = (stack: string): string =>
+  stack.replace(/\nparams: [\s\S]*?(?=\n\s+at |$)/, '\nparams: [redacted]').slice(0, 8_000)
+
 /**
  * Prefixed keys, not `name`/`message`/`stack`: these objects are spread straight into a log
  * context, and the log envelope itself owns `message` — an error serialised into a bare
@@ -28,7 +32,7 @@ export const serializeError = (error: unknown, depth = 0): SerializedError => {
       errorMessage: redactMessage(error.message),
       // The logs live in our own database (system-logs), so the stack is kept — it is what tells
       // two failures with the same message apart.
-      errorStack: error.stack?.slice(0, 8_000),
+      errorStack: error.stack ? redactStack(error.stack) : undefined,
       // The wrapper often says the least: a failed query's cause is the database's own reason
       // (a violated constraint, a missing column), which the wrapper's message leaves out.
       ...(error.cause !== undefined && depth < MAX_CAUSE_DEPTH

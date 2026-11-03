@@ -251,6 +251,22 @@ describe('Signing in with Google', () => {
       expect(result.linked).toBe(true)
     })
 
+    it('drops a password nobody proved when Google links the address — it may be a squatter’s', async () => {
+      const email = `squatted-${STAMP}@test.local`
+      const squatted = await payload.create({
+        collection: 'users',
+        data: { email, password: 'attacker-pass', role: 'user' },
+        overrideAccess: true,
+      })
+      createdUserIds.push(squatted.id)
+
+      const result = await resolveGoogleUser(payload, googleProfile({ email }))
+      if (!result.ok) throw new Error(`expected success, got ${result.reason}`)
+      expect(result.user.id).toBe(squatted.id)
+
+      await expect(payload.login({ collection: 'users', data: { email, password: 'attacker-pass' } })).rejects.toThrow()
+    })
+
     it('refuses to reach an existing account on an unverified address', async () => {
       const email = `victim-${STAMP}@test.local`
       const victim = await payload.create({

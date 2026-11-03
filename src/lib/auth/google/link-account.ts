@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+
 import { upsertUser } from '@/lib/auth/users'
 
 import { importGoogleAvatar } from './avatar'
@@ -16,6 +18,8 @@ import type { User } from '@/payload-types'
  *    verified. Without that check, anyone who can set an arbitrary unverified address at any
  *    provider could walk into the matching Lonvita account.
  * 3. No verified address means no account at all — neither linked nor created.
+ * 4. Linking to a password account that was never proven drops that password — it may have
+ *    been set by whoever registered the address first.
  */
 
 export type GoogleSignInResult =
@@ -66,6 +70,26 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
     overrideAccess: true,
   })
   const linkedToExistingAccount = byEmail.docs.length > 0
+
+  // Signing up with a password proves nothing about the address (Users auth.verify is off), so
+  // anyone could have registered it first, waiting for its owner to arrive through Google. Once
+  // Google proves the owner, a password nobody ever proved goes: it's replaced with a random one,
+  // and the owner sets their own through "zapomenuté heslo" if they want one at all.
+  if (linkedToExistingAccount) {
+    const proven = await payload.count({
+      collection: 'auth-identities',
+      where: { user: { equals: byEmail.docs[0].id } },
+      overrideAccess: true,
+    })
+    if (proven.totalDocs === 0) {
+      await payload.update({
+        collection: 'users',
+        id: byEmail.docs[0].id,
+        data: { password: randomBytes(32).toString('base64url') },
+        overrideAccess: true,
+      })
+    }
+  }
 
   // Find-or-create by address, profile row included — the same path every other sign-up uses.
   const user = await upsertUser({ payload, email: profile.email, fullName: profile.fullName ?? undefined })

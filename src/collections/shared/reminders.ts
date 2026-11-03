@@ -5,6 +5,8 @@ import { isUnlimitedCapacity } from '@/lib/capacity'
 import { enqueueAttendanceReminder, enqueueEmail, enqueueFeedbackRequest, enqueueReminderSms, getQueue } from '@/lib/queue/queues'
 import { requiredRelationNumber } from '@/lib/relations'
 
+import { escapeHtml } from './notify'
+
 type RelId = number | { id: number }
 
 type EventForReminders = {
@@ -75,7 +77,7 @@ export async function scheduleParticipantReminder(
     {
       to: user.email,
       subject: `Připomínka: ${event.title} zítra`,
-      body: `<p>Připomínáme, že zítra vás čeká akce <strong>${event.title}</strong> — ${event.locationText ?? ''}.</p>`,
+      body: `<p>Připomínáme, že zítra vás čeká akce <strong>${escapeHtml(event.title)}</strong> — ${escapeHtml(event.locationText ?? '')}.</p>`,
     },
     { jobId: participantJobId(registrationId), delay },
   )

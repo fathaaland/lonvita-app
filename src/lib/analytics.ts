@@ -708,7 +708,10 @@ export function buildEventsCsv(
       e.status,
     ];
   });
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  // A cell starting with = + - @ (or a tab/CR) is a formula to Excel — an organizer's event title
+  // like `=HYPERLINK(…)` would run in the obec admin's spreadsheet. A leading apostrophe keeps it text.
+  const neutralize = (v: string) => (/^[=+\-@\t\r]/.test(v) ? `'${v}` : v);
+  const escape = (v: string) => `"${neutralize(v).replace(/"/g, '""')}"`;
   return [header, ...rows].map((r) => r.map(escape).join(",")).join("\n");
 }
 
