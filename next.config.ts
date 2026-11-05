@@ -1,4 +1,5 @@
 import { withPayload } from '@payloadcms/next/withPayload'
+import { withSentryConfig } from '@sentry/nextjs/config'
 import type { NextConfig } from 'next'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -39,4 +40,14 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default withPayload(nextConfig, { devBundleServerPackages: false })
+export default withSentryConfig(withPayload(nextConfig, { devBundleServerPackages: false }), {
+  org: 'dobrovolny',
+  project: 'lonvita-app',
+  sentryUrl: 'https://de.sentry.io',
+  // Source maps are uploaded only when the build has a token (Vercel); local builds skip it.
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  widenClientFileUpload: true,
+  // Browser events go through our own origin so ad blockers don't drop them.
+  tunnelRoute: '/monitoring',
+  silent: !process.env.CI,
+})

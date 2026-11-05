@@ -2,11 +2,13 @@ import 'dotenv/config'
 
 import { APP_TIME_ZONE } from '@/lib/date'
 import { logger } from '@/lib/logger'
-import { JOB_NAMES } from '@/lib/queue/contracts'
+import { EMAIL_QUEUE_NAME, JOB_NAMES, QUEUE_NAME, SMS_QUEUE_NAME } from '@/lib/queue/contracts'
+import { emailRatePerSecond, smsRatePerSecond } from '@/lib/queue/options'
 import { getQueue } from '@/lib/queue/queues'
 import { retentionMode } from '@/lib/retention/policy'
 
 import { warnIfArrayPrototypeIsPolluted } from './runtime/prototype-safety'
+import { startHealthReporting } from './runtime/health'
 import { registerShutdown } from './runtime/shutdown'
 import { spawnQueueWorker } from './runtime/spawn-worker'
 
@@ -153,6 +155,21 @@ logger.info('Audit trail export schedule registered', {
   bucket: process.env.AUDIT_EXPORT_BUCKET?.trim() || null,
 })
 
-const worker = spawnQueueWorker()
+const workers = [
+  spawnQueueWorker({ queueName: QUEUE_NAME }),
+  // Each provider at the rate it takes; a few in flight are enough to keep up with that.
+  spawnQueueWorker({
+    queueName: EMAIL_QUEUE_NAME,
+    concurrency: emailRatePerSecond() * 2,
+    limiter: { max: emailRatePerSecond(), duration: 1_000 },
+  }),
+  spawnQueueWorker({
+    queueName: SMS_QUEUE_NAME,
+    concurrency: smsRatePerSecond() * 2,
+    limiter: { max: smsRatePerSecond(), duration: 1_000 },
+  }),
+]
 
-registerShutdown('Worker', [worker])
+const stopHealthReporting = startHealthReporting(workers)
+
+registerShutdown('Worker', workers, { beforeClose: stopHealthReporting })

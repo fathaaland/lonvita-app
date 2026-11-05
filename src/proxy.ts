@@ -77,6 +77,6 @@ export const config = {
   matcher: [
     // The event share images stay out like the other images: the correlation cookie set here would
     // keep Vercel's CDN from caching them (it doesn't cache a response that sets a cookie).
-    '/((?!admin|trpc|_vercel|_next/static|_next/image|favicon.ico|api/events/[^/]+/share-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!admin|monitoring|trpc|_vercel|_next/static|_next/image|favicon.ico|api/events/[^/]+/share-image|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

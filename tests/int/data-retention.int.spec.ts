@@ -268,6 +268,13 @@ describe('Data retention', () => {
       )
     f.auditOld = await auditAt('40 months')
     f.auditMid = await auditAt('20 months')
+    // As old, but its day never reached the write-once bucket — kept (copiedToAuditBucket).
+    f.auditOldUncopied = await auditAt('41 months')
+    // The night's copy of auditOld's day, as export-audit-trail records it.
+    await db().execute(sql`
+      INSERT INTO audit_log (action, target_collection, target_id, created_at, updated_at)
+      SELECT 'audit-trail.exported', 'audit-log', to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD'), now(), now()
+      FROM audit_log WHERE id = ${f.auditOld}`)
 
     before = await statistics()
   })
@@ -292,7 +299,7 @@ describe('Data retention', () => {
         DELETE FROM audit_log
         WHERE action = ${`test.retention.${STAMP}`}
            OR (created_at >= ${TEST_START}::timestamptz
-               AND action IN ('data-retention.purge', 'data-retention.run', 'events.purge', 'events.cancel', 'audit-log.read'))
+               AND action IN ('data-retention.purge', 'data-retention.run', 'events.purge', 'events.cancel', 'audit-log.read', 'audit-trail.exported'))
            OR actor_id IN (SELECT id FROM users WHERE email LIKE ${`retention-%-${STAMP}@test.local`})`),
     )
     await quiet(payload.delete({ collection: 'profiles', where: { user: { in: userIds } }, overrideAccess: true }))
@@ -371,6 +378,7 @@ describe('Data retention', () => {
         ['volunteer-invitations', 'volunteerRecent'],
         ['volunteer-invitations', 'volunteerAccepted'],
         ['audit-log', 'auditMid'],
+        ['audit-log', 'auditOldUncopied'],
       ]
       for (const [collection, key] of kept) expect(await exists(collection, f[key]), `${key} should stay`).toBe(true)
     })

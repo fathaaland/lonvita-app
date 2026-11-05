@@ -53,7 +53,7 @@ export const processPasswordResetJob = async (
   const resetUrl = `${data.appUrl}/reset-password?token=${encodeURIComponent(token)}`
   const { messageId } = await processEmailJob(
     { to: data.email, subject: 'Obnovení hesla — Lonvita', body: buildResetPasswordEmailHtml(resetUrl) },
-    context,
+    { ...context, idempotent: false },
   )
 
   logger.info('Forgot password e-mail sent', {

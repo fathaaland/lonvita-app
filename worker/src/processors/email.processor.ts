@@ -2,14 +2,22 @@ import { Resend } from 'resend'
 
 import { logger } from '@/lib/logger'
 
+import { ProviderRateLimitedError, withTimeout } from '../runtime/provider-errors'
+
 import type { EmailJobData, EmailJobResult } from '@/lib/queue/contracts'
 
 type QueueJobContext = {
   jobId?: string
   attemptsMade?: number
+  /** Off for a send whose content changes between tries (a password reset mints a new token each
+   * time — the first e-mail's link no longer works). */
+  idempotent?: boolean
 }
 
 let resendClient: Resend | null = null
+
+/** One send, however slow Resend is — a hung request would otherwise hold a slot of the queue. */
+const SEND_TIMEOUT_MS = 20_000
 
 function getResendClient(): Resend {
   if (!resendClient) {
@@ -54,13 +62,27 @@ export const processEmailJob = async (
   })
 
   const resend = getResendClient()
-  const { data, error } = await resend.emails.send({
-    from: fromAddress,
-    to: recipients,
-    subject,
-    html: body,
-    ...(replyTo ? { reply_to: replyTo } : {}),
-  })
+  const { data, error } = await withTimeout(
+    resend.emails.send(
+      {
+        from: fromAddress,
+        to: recipients,
+        subject,
+        html: body,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      },
+      // Resend keeps the key a day: a retry after a timeout or a worker restart mid-send — the
+      // e-mail may have gone out already — is answered with the first send instead of a second one.
+      context?.jobId && context.idempotent !== false ? { idempotencyKey: `lonvita-${context.jobId}` } : undefined,
+    ),
+    SEND_TIMEOUT_MS,
+    'Resend',
+  )
+
+  if (error?.name === 'rate_limit_exceeded') {
+    logger.warn('E-mail send throttled by Resend', { event: 'email.rate_limited', jobId: context?.jobId })
+    throw new ProviderRateLimitedError(`Resend error: ${error.message}`, 2_000)
+  }
 
   if (error) {
     // Carries `from` because the rejections that actually happen are about the sender: an

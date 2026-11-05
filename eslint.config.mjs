@@ -1,18 +1,19 @@
-import { dirname } from 'path'
-import { fileURLToPath } from 'url'
-import { FlatCompat } from '@eslint/eslintrc'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-})
+// eslint-config-next 16 ships flat configs of its own — going through FlatCompat crashes ESLint
+// ("Converting circular structure to JSON") before it lints anything.
+import nextVitals from 'eslint-config-next/core-web-vitals'
+import nextTypescript from 'eslint-config-next/typescript'
 
 const eslintConfig = [
-  ...compat.extends('next/core-web-vitals', 'next/typescript'),
+  ...nextVitals,
+  ...nextTypescript,
   {
     rules: {
+      // React Compiler rules new in eslint-config-next 16 — never enforced before (the old config
+      // crashed ESLint), with ~50 existing hits. Warnings until those are worked off, then errors.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/static-components': 'warn',
+      'react-hooks/refs': 'warn',
       '@typescript-eslint/ban-ts-comment': 'warn',
       '@typescript-eslint/no-empty-object-type': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
@@ -31,7 +32,16 @@ const eslintConfig = [
     },
   },
   {
-    ignores: ['.next/', 'src/payload-types.ts', 'src/payload-generated-schema.ts'],
+    ignores: [
+      '.next/',
+      'src/payload-types.ts',
+      'src/payload-generated-schema.ts',
+      'worker/dist/',
+      // Agent tooling and audit outputs — not the app's code.
+      '.claude/',
+      '.agents/',
+      'security-audit-skill/',
+    ],
   },
 ]
 

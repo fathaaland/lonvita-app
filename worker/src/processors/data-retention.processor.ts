@@ -33,6 +33,18 @@ const cutoffsFor = (now: Date, r: Retention) => ({
 
 type Cutoffs = ReturnType<typeof cutoffsFor>
 
+/**
+ * The row's UTC day has its file in the write-once audit bucket — export-audit-trail writes an
+ * `audit-trail.exported` entry (target: the day) only once the bucket accepted it. Without that
+ * copy the audit log and the security events are never removed (vyhláška č. 409/2025 Sb. § 22
+ * odst. 5): better a table that grows than a record that's gone.
+ */
+const copiedToAuditBucket = (createdAt: SQL) => sql`EXISTS (
+  SELECT 1 FROM audit_log x
+  WHERE x.action = 'audit-trail.exported'
+    AND x.target_id = to_char(${createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+)`
+
 type Step = {
   name: string
   collection: CollectionSlug
@@ -167,13 +179,15 @@ const stepsFor = (r: Retention): Step[] => [
     purge: deleteRows,
   },
   {
-    // Already in the write-once audit bucket, which keeps them longer (export-audit-trail).
+    // Only what is already in the write-once audit bucket, which keeps it longer (export-audit-trail):
+    // a day the copy never got to (bucket not set, S3 down, the worker stopped) stays in the database.
     name: 'old-security-events',
     collection: 'security-events',
-    rule: `logged ${r.securityEventMonths}+ months ago`,
+    rule: `logged ${r.securityEventMonths}+ months ago, day copied to the audit bucket`,
     select: (c, afterId, limit) => sql`
       SELECT r.id FROM security_events r
       WHERE r.created_at < ${c.securityEvent}::timestamptz
+        AND ${copiedToAuditBucket(sql`r.created_at`)}
         AND r.id > ${afterId}
       ORDER BY r.id LIMIT ${limit}`,
     purge: deleteRows,
@@ -292,10 +306,11 @@ const stepsFor = (r: Retention): Step[] => [
   {
     name: 'expired-audit-log',
     collection: 'audit-log',
-    rule: `older than ${r.auditLogMonths} months`,
+    rule: `older than ${r.auditLogMonths} months, day copied to the audit bucket`,
     select: (c, afterId, limit) => sql`
       SELECT a.id FROM audit_log a
       WHERE a.created_at < ${c.auditLog}::timestamptz
+        AND ${copiedToAuditBucket(sql`a.created_at`)}
         AND a.id > ${afterId}
       ORDER BY a.id LIMIT ${limit}`,
     purge: deleteRows,

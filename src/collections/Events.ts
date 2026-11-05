@@ -1,3 +1,4 @@
+import { afterCommit } from '@/lib/after-commit'
 import type {
   Access,
   CollectionAfterChangeHook,
@@ -27,6 +28,7 @@ import {
   NOTIFIABLE_EDIT_FIELDS,
   changedNotifiableFields,
   comparable,
+  cancellationJobId,
   notifyEventCancelled,
   queueEventUpdatedNotification,
   snapshotNotifiableFields,
@@ -842,8 +844,6 @@ const validateEventLocationRadius: CollectionBeforeChangeHook = async ({ data, r
   return data
 }
 
-const CANCELLATION_NOTICE_DELAY_MS = 5_000
-
 /** Cancelling an event (soft-delete via `deletedAt`) doesn't hard-delete the row — the FK
  * from existing registrations would block that anyway — so instead we notify everyone who
  * was pending/approved. The event itself already vanishes from their views on its own: it
@@ -858,12 +858,18 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
   if (operation !== 'update') return doc
   if (previousDoc?.deletedAt || !doc.deletedAt) return doc
 
-  try {
-    // Still inside the cancel's transaction — the worker waits a moment and checks it committed.
-    await notifyEventCancelled(req.payload, doc, { delay: CANCELLATION_NOTICE_DELAY_MS })
-  } catch (error) {
-    req.payload.logger.error(`Failed to notify registrants of cancelled event ${doc.id}: ${error}`)
-  }
+  // Queued once the cancel has committed: from inside the transaction the worker could read the event
+  // before it — and find nothing cancelled — and Redis being slow would hold the transaction open. A
+  // queue that isn't there at all is caught up by the worker (sync-statuses, from the audit trail).
+  const cancelled = doc
+  const cancelledAt: string = doc.deletedAt
+  await afterCommit(req, async () => {
+    try {
+      await notifyEventCancelled(req.payload, cancelled, { jobId: cancellationJobId(cancelled.id, cancelledAt) })
+    } catch (error) {
+      req.payload.logger.error(`Failed to notify registrants of cancelled event ${cancelled.id}: ${error}`)
+    }
+  })
 
   // Volunteer invitations and offers still waiting on it can't be answered any more — withdrawn in
   // the same transaction, quietly (the cancellation job above tells those volunteers).
@@ -899,11 +905,14 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
   if (doc.deletedAt) return doc // the cancellation hook already covers this transition
   if (changedNotifiableFields(snapshotNotifiableFields(previousDoc), doc).length === 0) return doc
 
-  try {
-    await queueEventUpdatedNotification(doc.id, previousDoc)
-  } catch (error) {
-    req.payload.logger.error(`Failed to queue edit notification for event ${doc.id}: ${error}`)
-  }
+  // Once committed — see the cancellation hook above.
+  await afterCommit(req, async () => {
+    try {
+      await queueEventUpdatedNotification(doc.id, previousDoc)
+    } catch (error) {
+      req.payload.logger.error(`Failed to queue edit notification for event ${doc.id}: ${error}`)
+    }
+  })
 
   return doc
 }

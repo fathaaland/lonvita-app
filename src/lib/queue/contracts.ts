@@ -1,6 +1,10 @@
 import type { ImportInput } from '@/lib/import/contracts'
 
 export const QUEUE_NAME = 'lonvita' as const
+/** E-mails and SMS each go through a queue of their own: rate-limited to what the provider takes, and
+ * never stuck behind an import or an export rendering in the main queue. */
+export const EMAIL_QUEUE_NAME = 'lonvita-email' as const
+export const SMS_QUEUE_NAME = 'lonvita-sms' as const
 
 export const JOB_NAMES = {
   SEND_EMAIL: 'send-email',
@@ -217,6 +221,8 @@ export type SyncStatusesJobResult = {
   coOrganizingInvitationsExpired: number
   /** Pending volunteer invitations/offers whose event has started — nobody can accept them now. */
   volunteerInvitationsWithdrawn: number
+  /** Cancelled events whose announcement never reached the queue, queued again. */
+  cancellationNoticesCaughtUp: number
 }
 
 /**

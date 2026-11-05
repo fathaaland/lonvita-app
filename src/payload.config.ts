@@ -52,6 +52,7 @@ import { correlationIdFromHeaders } from './lib/logger/correlation'
 import { withCrudLogging } from './lib/logger/collection-logger'
 import { runSeed } from './lib/seed/run'
 import { validateEnv } from './lib/env'
+import { installAfterCommit } from './lib/after-commit'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -98,6 +99,9 @@ const auditRefusal = ({
 
 export default buildConfig({
   onInit: async (payload) => {
+    // First: hooks may hand work to afterCommit from the very first request on.
+    installAfterCommit(payload)
+
     // From here on, warnings, errors, notable events and sign-ins are kept in system-logs and
     // security-events — in every process that builds Payload (the app and the worker alike).
     setLogSink(createDatabaseLogSink(payload))
@@ -228,6 +232,13 @@ export default buildConfig({
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI || process.env.DATABASE_URI_DATABASE_URL || '',
+      // Every serverless instance holds its own pool, so the database sees max × instances
+      // connections — keep it small there (and point DATABASE_URI at Neon's pooled "-pooler" host).
+      // A request that can't get a connection fails after connectionTimeoutMillis instead of hanging
+      // until the function times out (pg's default is to wait forever).
+      max: Number(process.env.DATABASE_POOL_MAX) || (process.env.VERCEL ? 5 : 10),
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: process.env.VERCEL ? 10_000 : 30_000,
     },
     afterSchemaInit: [
       ({ schema, extendTable }) => {

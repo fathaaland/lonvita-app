@@ -2,11 +2,11 @@ import { Worker } from 'bullmq'
 
 import { logger, serializeError } from '@/lib/logger'
 import { runWithCorrelationId } from '@/lib/logger/correlation'
-import { QUEUE_NAME } from '@/lib/queue/contracts'
 import { workerOptions } from '@/lib/queue/options'
 import { queueConnectionOptions } from '@/lib/valkey/client'
 
 import { dispatchJobByType } from './job-dispatcher'
+import { ProviderRateLimitedError } from './provider-errors'
 
 import type { JobName, QueueJobEnvelope } from '@/lib/queue/contracts'
 
@@ -19,28 +19,44 @@ const getConcurrency = (): number => {
   return 5
 }
 
-export type QueueWorker = { name: string; close: () => Promise<void> }
+export type QueueWorker = { name: string; close: () => Promise<void>; isRunning: () => boolean }
 
-export const spawnQueueWorker = (): QueueWorker => {
-  const concurrency = getConcurrency()
+export type SpawnQueueWorkerOptions = {
+  queueName: string
+  /** Jobs in flight at once in this process; WORKER_QUEUE_CONCURRENCY (default 5) when unset. */
+  concurrency?: number
+  /** At most `max` jobs per `duration` ms across every replica — the provider's own rate limit. */
+  limiter?: { max: number; duration: number }
+}
 
-  const worker = new Worker<QueueJobEnvelope, unknown, JobName>(
-    QUEUE_NAME,
+export const spawnQueueWorker = ({ queueName, concurrency = getConcurrency(), limiter }: SpawnQueueWorkerOptions): QueueWorker => {
+  const worker: Worker<QueueJobEnvelope, unknown, JobName> = new Worker<QueueJobEnvelope, unknown, JobName>(
+    queueName,
     async (job) => {
       // Re-enter the trace the web request started: everything the processors log from here
       // on carries the same correlationId as the HTTP request that enqueued the job, so a
       // failed e-mail on Railway lines up with the click on Vercel that asked for it.
-      return runWithCorrelationId(job.data.correlationId ?? 'no-correlation-id', () =>
-        dispatchJobByType(job.data, {
-          jobId: job.id,
-          attemptsMade: job.attemptsMade,
-          attempts: job.opts.attempts,
-        }),
-      )
+      try {
+        return await runWithCorrelationId(job.data.correlationId ?? 'no-correlation-id', () =>
+          dispatchJobByType(job.data, {
+            jobId: job.id,
+            attemptsMade: job.attemptsMade,
+            attempts: job.opts.attempts,
+          }),
+        )
+      } catch (error) {
+        if (error instanceof ProviderRateLimitedError) {
+          // The whole queue waits, and this job goes back without using up a try.
+          await worker.rateLimit(error.retryAfterMs)
+          throw Worker.RateLimitError()
+        }
+        throw error
+      }
     },
     {
       connection: queueConnectionOptions,
       concurrency,
+      ...(limiter ? { limiter } : {}),
       ...workerOptions,
     },
   )
@@ -79,13 +95,15 @@ export const spawnQueueWorker = (): QueueWorker => {
 
   logger.info('Queue worker started', {
     event: 'queue.worker_started',
-    queue: QUEUE_NAME,
+    queue: queueName,
     concurrency,
+    limiter: limiter ?? null,
     ...workerOptions,
   })
 
   return {
     name: worker.name,
     close: () => worker.close(),
+    isRunning: () => worker.isRunning(),
   }
 }

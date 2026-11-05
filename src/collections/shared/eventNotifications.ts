@@ -95,11 +95,20 @@ export async function queueEventUpdatedNotification(
   await enqueueEventUpdated({ eventId, before: snapshotNotifiableFields(previousDoc) })
 }
 
+/** Written (audit log) once the registrants of a cancelled event have been told — what the worker's
+ * catch-up for lost cancellation jobs checks (sync-statuses). */
+export const CANCELLATION_ANNOUNCED_ACTION = 'events.cancel_notified'
+
+/** One cancellation, one job: the cancel hook (after commit) and the worker's catch-up for a cancel
+ * whose job never made it to the queue (sync-statuses) add the same id, so BullMQ keeps just one. */
+export const cancellationJobId = (eventId: number | string, cancelledAt: string | Date) =>
+  `event-cancelled-${eventId}-${new Date(cancelledAt).getTime()}`
+
 /**
  * Tells the registrants the event is off — in-app, e-mail and SMS — and drops its queued
  * reminders, in the worker. Shared by the cancel hook and the co-organizers' consented hard
  * delete (api/events/deletion-requests), which has to collect the registrants before deleting
- * them. `delay` gives an in-transaction caller's write time to commit before the worker checks.
+ * them. Call it once the cancel has committed (afterCommit): the worker reads the event.
  */
 export async function notifyEventCancelled(
   payload: Payload,
@@ -110,12 +119,10 @@ export async function notifyEventCancelled(
     organizer: number | { id: number }
     municipality: number | { id: number }
   },
-  options?: { delay?: number; registrants?: Awaited<ReturnType<typeof getEventRegistrants>> },
+  options?: { delay?: number; jobId?: string; registrants?: Awaited<ReturnType<typeof getEventRegistrants>> },
 ): Promise<void> {
   const organizerId = typeof event.organizer === 'object' ? event.organizer.id : event.organizer
   const registrants = options?.registrants ?? (await getEventRegistrants(payload, event.id, organizerId))
-  // No fixed job id: a cancel that rolled back leaves a job behind (it skips), and a fixed id
-  // would swallow the retried cancel's own.
   await enqueueEventCancelled(
     {
       eventId: event.id,
@@ -124,6 +131,6 @@ export async function notifyEventCancelled(
       municipalityId: requiredRelationNumber(event.municipality),
       ...registrants,
     },
-    { delay: options?.delay },
+    { delay: options?.delay, jobId: options?.jobId },
   )
 }

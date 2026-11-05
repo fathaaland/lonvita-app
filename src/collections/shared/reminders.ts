@@ -2,7 +2,14 @@ import type { Payload } from 'payload'
 
 import { isUnlimitedCapacity } from '@/lib/capacity'
 
-import { enqueueAttendanceReminder, enqueueEmail, enqueueFeedbackRequest, enqueueReminderSms, getQueue } from '@/lib/queue/queues'
+import {
+  enqueueAttendanceReminder,
+  enqueueEmail,
+  enqueueFeedbackRequest,
+  enqueueReminderSms,
+  getEmailQueue,
+  getQueue,
+} from '@/lib/queue/queues'
 import { requiredRelationNumber } from '@/lib/relations'
 
 import { escapeHtml } from './notify'
@@ -28,9 +35,16 @@ const feedbackJobId = (registrationId: number | string, endsAt: number) => `feed
 
 /** Delayed reminders are keyed by fixed job ids — BullMQ ignores an add whose id already exists,
  * so a rescheduled event must drop the old job first or it'd still fire at the old time. */
-async function removeJob(jobId: string): Promise<void> {
-  const job = await getQueue().getJob(jobId)
+async function removeJob(jobId: string, queue = getQueue()): Promise<void> {
+  const job = await queue.getJob(jobId)
   if (job) await job.remove()
+}
+
+/** The 24h e-mail reminder waits in the e-mail queue — and, queued before that queue existed, maybe
+ * still in the main one. */
+async function removeParticipantReminder(registrationId: number | string): Promise<void> {
+  await removeJob(participantJobId(registrationId), getEmailQueue())
+  await removeJob(participantJobId(registrationId))
 }
 
 /** Brief §4/§7 "Po skončení akce organizátorovi přijde upozornění, že má vyplnit docházku." —
@@ -85,7 +99,7 @@ export async function scheduleParticipantReminder(
 
 /** They're no longer coming (taken off the event, or cancelled themselves) — no reminder for it. */
 export async function cancelParticipantReminder(registrationId: number | string): Promise<void> {
-  await removeJob(participantJobId(registrationId))
+  await removeParticipantReminder(registrationId)
   await removeJob(participantSmsJobId(registrationId))
 }
 
@@ -118,7 +132,7 @@ export async function rescheduleEventReminders(payload: Payload, event: EventFor
     overrideAccess: true,
   })
   for (const reg of approved.docs) {
-    await removeJob(participantJobId(reg.id))
+    await removeParticipantReminder(reg.id)
     await removeJob(participantSmsJobId(reg.id))
     await scheduleParticipantReminder(payload, reg.id, requiredRelationNumber(reg.user), event)
     if (reg.attendanceStatus === 'attended' || isUnlimitedCapacity(event.capacity)) {
@@ -135,7 +149,7 @@ export async function cancelEventReminders(
 ): Promise<void> {
   await removeJob(attendanceJobId(eventId))
   for (const registrationId of registrationIds) {
-    await removeJob(participantJobId(registrationId))
+    await removeParticipantReminder(registrationId)
     await removeJob(participantSmsJobId(registrationId))
   }
 }

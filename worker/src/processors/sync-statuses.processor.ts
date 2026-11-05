@@ -1,3 +1,10 @@
+import { sql, type PostgresAdapter } from '@payloadcms/db-postgres'
+
+import {
+  CANCELLATION_ANNOUNCED_ACTION,
+  cancellationJobId,
+  notifyEventCancelled,
+} from '@/collections/shared/eventNotifications'
 import { escapeHtml, sendNotification } from '@/collections/shared/notify'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId } from '@/lib/relations'
@@ -146,6 +153,52 @@ async function tellRequestersOfLapse(
   }
 }
 
+/** A cancel's announcement waits on the queue for this long before it counts as lost. */
+const CANCELLATION_CATCH_UP_AFTER_MS = 15 * 60 * 1000
+/** And is looked for this far back — older ones are past helping (the event has long happened). */
+const CANCELLATION_CATCH_UP_WINDOW_MS = 48 * 60 * 60 * 1000
+
+/**
+ * A cancelled event nobody was told about: the cancel committed but its job never reached the
+ * queue (Redis down at that moment — the hook only logs it). Found by the missing
+ * `events.cancel_notified` entry the job writes once it has told everyone, and queued again under the
+ * job id the hook would have used — one still waiting (a slow queue) swallows it instead of doubling.
+ */
+async function catchUpCancellationNotices(payload: Payload, now: Date): Promise<number> {
+  const { rows } = await (payload.db as unknown as PostgresAdapter).drizzle.execute(sql`
+    SELECT e.id FROM events e
+    WHERE e.deleted_at IS NOT NULL
+      AND e.deleted_at > ${new Date(now.getTime() - CANCELLATION_CATCH_UP_WINDOW_MS).toISOString()}::timestamptz
+      AND e.deleted_at < ${new Date(now.getTime() - CANCELLATION_CATCH_UP_AFTER_MS).toISOString()}::timestamptz
+      AND NOT EXISTS (
+        SELECT 1 FROM audit_log a
+        WHERE a.action = ${CANCELLATION_ANNOUNCED_ACTION}
+          AND a.target_id = e.id::text
+          AND a.created_at >= e.deleted_at
+      )
+    ORDER BY e.deleted_at
+    LIMIT 50`)
+  let queued = 0
+  for (const { id } of rows as { id: number }[]) {
+    try {
+      const event = await payload.findByID({ collection: 'events', id, depth: 0, overrideAccess: true })
+      if (!event.deletedAt) continue
+      await notifyEventCancelled(payload, event, { jobId: cancellationJobId(event.id, event.deletedAt) })
+      queued++
+    } catch (error) {
+      logger.error('Lost cancellation notice not queued', {
+        event: 'statuses.cancellation_catch_up_failed',
+        eventId: id,
+        ...serializeError(error),
+      })
+    }
+  }
+  if (queued > 0) {
+    logger.warn('Cancellation notices caught up', { event: 'statuses.cancellation_caught_up', queued })
+  }
+  return queued
+}
+
 export const processSyncStatusesJob = async (): Promise<SyncStatusesJobResult> => {
   const payload = await getWorkerPayload()
   const now = new Date().toISOString()
@@ -167,16 +220,25 @@ export const processSyncStatusesJob = async (): Promise<SyncStatusesJobResult> =
   )
 
   const volunteerInvitationsWithdrawn = await withdrawLapsedVolunteerInvitations(payload, now)
+  const cancellationNoticesCaughtUp = await catchUpCancellationNotices(payload, new Date(now))
 
   // Runs every quarter of an hour — only worth an info line when it actually changed something.
-  const changed = eventsFinished + deletionRequestsExpired + coOrganizingInvitationsExpired + volunteerInvitationsWithdrawn
+  const changed =
+    eventsFinished + deletionRequestsExpired + coOrganizingInvitationsExpired + volunteerInvitationsWithdrawn + cancellationNoticesCaughtUp
   logger[changed > 0 ? 'info' : 'debug']('Status sync finished', {
     event: 'statuses.sync_finished',
     eventsFinished,
     deletionRequestsExpired,
     coOrganizingInvitationsExpired,
     volunteerInvitationsWithdrawn,
+    cancellationNoticesCaughtUp,
   })
 
-  return { eventsFinished, deletionRequestsExpired, coOrganizingInvitationsExpired, volunteerInvitationsWithdrawn }
+  return {
+    eventsFinished,
+    deletionRequestsExpired,
+    coOrganizingInvitationsExpired,
+    volunteerInvitationsWithdrawn,
+    cancellationNoticesCaughtUp,
+  }
 }

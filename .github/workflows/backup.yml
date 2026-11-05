@@ -1,0 +1,107 @@
+name: Database backup
+
+# A copy of the production database outside Neon (whose own point-in-time restore covers only its
+# plan's history window, and nothing if the project itself is lost): every night a pg_dump,
+# encrypted before it leaves the runner, into a bucket of its own. Every week the newest one is
+# restored into an empty Postgres and checked — a backup nobody has restored is a hope, not a backup.
+#
+# Repository secrets:
+#   BACKUP_DATABASE_URL     production DATABASE_URL_UNPOOLED (direct, not the -pooler host), read-only role if possible
+#   BACKUP_PASSPHRASE       long random passphrase; keep a copy outside GitHub — without it the dumps are unreadable
+#   BACKUP_S3_BUCKET        bucket for the dumps (versioning on, lifecycle rule e.g. 90 days, not the media bucket)
+#   BACKUP_S3_ACCESS_KEY_ID / BACKUP_S3_SECRET_ACCESS_KEY / BACKUP_S3_REGION, BACKUP_S3_ENDPOINT (non-AWS only)
+# Repository variable (optional):
+#   BACKUP_PG_MAJOR         pg_dump's major version — at least the server's (default 17)
+
+on:
+  schedule:
+    - cron: '15 1 * * *' # nightly, 01:15 UTC
+    - cron: '45 2 * * 0' # Sunday: restore test of the newest dump
+  workflow_dispatch:
+    inputs:
+      restore_test:
+        description: 'Run the restore test instead of a backup'
+        type: boolean
+        default: false
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+env:
+  PG_MAJOR: ${{ vars.BACKUP_PG_MAJOR || '17' }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
+  BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+  S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+
+jobs:
+  backup:
+    if: github.event.schedule != '45 2 * * 0' && !inputs.restore_test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Dump, encrypt, upload
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          key="postgres/$(date -u +%Y/%m)/lonvita-$(date -u +%Y%m%dT%H%M%SZ).dump.gpg"
+          endpoint=${S3_ENDPOINT:+--endpoint-url "$S3_ENDPOINT"}
+          # Custom format (pg_restore can pick tables out of it), no owners/grants — restorable into
+          # any database. Streamed: the plain dump never touches the runner's disk.
+          docker run --rm -e DATABASE_URL "postgres:${PG_MAJOR}-alpine" \
+              sh -c 'pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL"' \
+            | gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" \
+            | aws s3 cp - "s3://$BUCKET/$key" $endpoint --expected-size 10000000000
+          size=$(aws s3api head-object --bucket "$BUCKET" --key "$key" $endpoint --query ContentLength --output text)
+          echo "Uploaded s3://$BUCKET/$key ($size bytes)"
+          # An empty or tiny file means pg_dump failed half-way — fail loudly instead of "backed up".
+          if [ "$size" -lt 10000 ]; then echo "::error::Backup suspiciously small ($size bytes)"; exit 1; fi
+
+  restore-test:
+    if: github.event.schedule == '45 2 * * 0' || inputs.restore_test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: restore
+          POSTGRES_PASSWORD: restore
+          POSTGRES_DB: restore
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U restore -d restore"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - name: Download, decrypt and restore the newest dump
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          endpoint=${S3_ENDPOINT:+--endpoint-url "$S3_ENDPOINT"}
+          key=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix postgres/ $endpoint \
+            --query 'sort_by(Contents, &LastModified)[-1].Key' --output text)
+          if [ -z "$key" ] || [ "$key" = "None" ]; then echo "::error::No backup found"; exit 1; fi
+          echo "Restoring $key"
+          aws s3 cp "s3://$BUCKET/$key" - $endpoint \
+            | gpg --batch --decrypt --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" > restore.dump
+          docker run --rm --network host -v "$PWD:/work" -e PGPASSWORD=restore "postgres:${PG_MAJOR}-alpine" \
+            pg_restore --no-owner --no-acl --exit-on-error -h localhost -U restore -d restore /work/restore.dump
+      - name: The restored database holds what it should
+        env:
+          PGPASSWORD: restore
+        run: |
+          set -euo pipefail
+          q() { docker run --rm --network host -e PGPASSWORD "postgres:${PG_MAJOR}-alpine" psql -h localhost -U restore -d restore -tAc "$1"; }
+          echo "Tables: $(q "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")"
+          users=$(q "SELECT count(*) FROM users")
+          events=$(q "SELECT count(*) FROM events")
+          migrations=$(q "SELECT count(*) FROM payload_migrations")
+          echo "users=$users events=$events migrations=$migrations"
+          if [ "$users" -lt 1 ] || [ "$migrations" -lt 1 ]; then echo "::error::Restored database is empty"; exit 1; fi
+          newest=$(q "SELECT max(created_at) FROM audit_log")
+          echo "Newest audit-log entry in the dump: $newest"

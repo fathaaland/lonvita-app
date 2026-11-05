@@ -21,6 +21,10 @@ vi.mock('@/collections/shared/reminders', async (importOriginal) => ({
 
 import { enqueueEmail, enqueueEventCancelled, enqueueEventUpdated } from '@/lib/queue/queues'
 
+import { sql, type PostgresAdapter } from '@payloadcms/db-postgres'
+
+import { cancellationJobId } from '@/collections/shared/eventNotifications'
+
 import { processSyncStatusesJob } from '../../worker/src/processors/sync-statuses.processor'
 
 let payload: Payload
@@ -204,8 +208,37 @@ describe('Finished/expired status sync (worker cron)', () => {
     })
     expect(after?.updatedAt).toBe(before?.updatedAt)
     expect(enqueueEventUpdated).not.toHaveBeenCalled()
-    expect(enqueueEventCancelled).not.toHaveBeenCalled()
+    // Only these events: the catch-up for lost cancellation notices may find others in a shared DB.
+    const cancelledJobsForTheseEvents = vi
+      .mocked(enqueueEventCancelled)
+      .mock.calls.filter(([data]) => eventIds.includes(Number(data.eventId)))
+    expect(cancelledJobsForTheseEvents).toHaveLength(0)
     expect(enqueueEmail).not.toHaveBeenCalled()
+  })
+
+  it('queues the announcement of a cancel whose job never reached the queue — once', async () => {
+    const lost = await createEvent({ dateTime: ahead(DAY) }, 'cancelled')
+    const fresh = await createEvent({ dateTime: ahead(DAY) }, 'cancelled')
+    const announced = await createEvent({ dateTime: ahead(DAY) }, 'cancelled')
+    const db = (payload.db as unknown as PostgresAdapter).drizzle
+    // Cancelled half an hour ago (past the grace period), just now (its job may still be on the way),
+    // and half an hour ago but already announced.
+    await db.execute(sql`UPDATE events SET deleted_at = now() - interval '30 minutes' WHERE id IN (${lost.id}, ${announced.id})`)
+    await db.execute(sql`UPDATE events SET deleted_at = now() WHERE id = ${fresh.id}`)
+    await db.execute(sql`
+      INSERT INTO audit_log (action, target_collection, target_id, created_at, updated_at)
+      VALUES ('events.cancel_notified', 'events', ${String(announced.id)}, now(), now())`)
+    vi.mocked(enqueueEventCancelled).mockClear()
+
+    await processSyncStatusesJob()
+
+    const queuedFor = vi.mocked(enqueueEventCancelled).mock.calls.map(([data]) => Number(data.eventId))
+    expect(queuedFor).toContain(lost.id)
+    expect(queuedFor).not.toContain(fresh.id)
+    expect(queuedFor).not.toContain(announced.id)
+    const lostCall = vi.mocked(enqueueEventCancelled).mock.calls.find(([data]) => Number(data.eventId) === lost.id)
+    const lostRow = await payload.findByID({ collection: 'events', id: lost.id, depth: 0, overrideAccess: true })
+    expect(lostCall?.[1]?.jobId).toBe(cancellationJobId(lost.id, lostRow.deletedAt!))
   })
 
   it('expires pending deletion requests past their deadline and leaves the rest', async () => {

@@ -14,8 +14,9 @@ import { getWorkerPayload } from '../runtime/payload'
 import type { ExportAuditTrailJobResult } from '@/lib/queue/contracts'
 import type { Payload } from 'payload'
 
-/** How far back a run looks for a day not yet in the bucket — a week of missed nights is caught up. */
-const LOOKBACK_DAYS = 7
+/** How far back a run looks for a day not yet in the bucket — two months of missed nights are caught
+ * up (one HEAD request per day already there). Data retention removes only days that made it. */
+const LOOKBACK_DAYS = 60
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -103,7 +104,8 @@ const exportDay = async (payload: Payload, bucket: string, day: string, now: Dat
 export const processExportAuditTrailJob = async (): Promise<ExportAuditTrailJobResult> => {
   const bucket = process.env.AUDIT_EXPORT_BUCKET?.trim()
   if (!bucket) {
-    logger.warn('Audit trail not exported — no bucket configured', {
+    // Loud in production: without the copy, data retention keeps the audit log and security events.
+    logger[process.env.NODE_ENV === 'production' ? 'error' : 'warn']('Audit trail not exported — no bucket configured', {
       event: 'audit_export.not_configured',
     })
     return { exported: [], failed: [], skipped: 'not_configured' }

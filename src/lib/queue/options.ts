@@ -17,6 +17,28 @@ export const queueOptions = {
 }
 
 /**
+ * E-mails and SMS: a provider that is down or throttling for a while (Resend's 429, a BulkGate outage,
+ * a deploy) must not lose a cancellation notice — ten tries, 30 s doubling, spread over about eight
+ * hours. Kept a week once done, so a job id (the announcement and the recipient) still swallows a
+ * re-run of the same announcement for that long, however many thousand went out since.
+ */
+export const deliveryJobOptions = {
+  attempts: 10,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+  removeOnComplete: { age: 60 * 60 * 24 * 7 },
+  removeOnFail: { age: 60 * 60 * 24 * 14 },
+}
+
+/** Sends a second across all worker replicas (BullMQ's limiter is per queue, not per process).
+ * Resend allows 2 requests a second unless the account was raised — set EMAIL_RATE_PER_SECOND then. */
+const ratePerSecond = (envValue: string | undefined, fallback: number) => {
+  const parsed = Number(envValue)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+export const emailRatePerSecond = () => ratePerSecond(process.env.EMAIL_RATE_PER_SECOND, 2)
+export const smsRatePerSecond = () => ratePerSecond(process.env.SMS_RATE_PER_SECOND, 5)
+
+/**
  * Lock and stall settings for the one worker. BullMQ's defaults (30 s lock, a job failed after a
  * single stall) are tuned for jobs that never block the event loop; rendering an export PDF
  * does, and a long report would be declared stalled mid-render, run again, and then failed.

@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10'
+
+jobs:
+  quality:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # Blocks on critical advisories only — the high ones (48 when this was added) are being worked off;
+      # tighten to --audit-level high once they're gone.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level critical
+
+  migrations:
+    name: Migrations apply from scratch, schema has no drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: payload
+          POSTGRES_PASSWORD: payload
+          POSTGRES_DB: lonvita_migrate
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U payload -d lonvita_migrate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URI: postgresql://payload:payload@localhost:5432/lonvita_migrate
+      PAYLOAD_SECRET: ci-only-secret-not-used-anywhere-else
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      S3_BUCKET: lonvita-media
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: ci
+      S3_SECRET_ACCESS_KEY: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply every migration to an empty database
+        run: pnpm payload migrate
+      - run: pnpm payload migrate:status
+      - name: The collections match the last migration (no migration missing)
+        run: |
+          pnpm payload migrate:create ci_drift_check --skip-empty
+          if [ -n "$(git status --porcelain src/migrations)" ]; then
+            echo "::error::The Payload schema differs from the migrations — run 'pnpm migrate:create' and commit the result."
+            git status --porcelain src/migrations
+            exit 1
+          fi
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: payload
+          POSTGRES_PASSWORD: payload
+          POSTGRES_DB: lonvita
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U payload -d lonvita"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      valkey:
+        image: valkey/valkey:9.0-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URI: postgresql://payload:payload@localhost:5432/lonvita
+      PAYLOAD_SECRET: ci-only-secret-not-used-anywhere-else
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      REDIS_URL: redis://localhost:6379
+      RESEND_API_KEY: re_ci_not_a_real_key
+      RESEND_FROM_EMAIL: noreply@lonvita.test
+      S3_BUCKET: lonvita-media
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      # MinIO needs a command (`server /data`), which a service container can't be given.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            pgsty/minio:RELEASE.2026-08-04T00-00-00Z server /data
+          for i in $(seq 1 30); do curl -sf http://localhost:9000/minio/health/live && break; sleep 2; done
+          docker run --rm --network host --entrypoint sh pgsty/mc:RELEASE.2026-09-16T00-00-00Z -c \
+            "mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb --ignore-existing local/lonvita-media && mc anonymous set download local/lonvita-media"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:int

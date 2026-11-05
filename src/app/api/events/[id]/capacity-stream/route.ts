@@ -1,15 +1,15 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
 
-import { createCapacitySubscriber, capacityChannel } from '@/lib/realtime/eventCapacity'
+import { subscribeToCapacity } from '@/lib/realtime/eventCapacity'
 import { logger } from '@/lib/logger'
 import { consumeRateLimit, getClientIp } from '@/lib/security/rate-limit'
 import { PARTICIPANTS_ONLY } from '@/collections/Registrations'
 
-/** Every open stream holds a Redis connection of its own (a subscriber can't share one), so an
- * unmetered public endpoint would let one client exhaust the connections the queue and the rate
- * limiter run on. EventSource reconnects by itself, which is what a page legitimately adds up to:
- * a few tabs, each reconnecting after a dropped network or a platform timeout. */
+/** Every open stream holds a serverless invocation and a count query on connect, so an unmetered
+ * public endpoint would let one client tie up both. EventSource reconnects by itself, which is what
+ * a page legitimately adds up to: a few tabs, each reconnecting after a dropped network or a
+ * platform timeout. */
 const STREAM_RATE_LIMIT = { max: 30, windowSeconds: 60 }
 
 /**
@@ -46,9 +46,18 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const payload = await getPayload({ config })
 
   const encoder = new TextEncoder()
-  const subscriber = createCapacitySubscriber()
-  const channel = capacityChannel(id)
   let closed = false
+  let stopListening: (() => void) | undefined
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+
+  // Idempotent, and reachable from both the abort signal and the stream's cancel() — whichever
+  // comes first must stop the heartbeat and leave the shared subscriber, or both outlive the client.
+  const cleanup = () => {
+    if (closed) return
+    closed = true
+    if (heartbeat) clearInterval(heartbeat)
+    stopListening?.()
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -57,19 +66,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
         } catch {
-          // Controller already closed (client disconnected mid-write) — cleanup() below
-          // will have run or is about to; nothing more to do here.
+          cleanup()
         }
       }
 
-      const cleanup = () => {
-        if (closed) return
-        closed = true
-        clearInterval(heartbeat)
-        subscriber.removeAllListeners('message')
-        subscriber.unsubscribe(channel).catch(() => {})
-        subscriber.quit().catch(() => {})
-      }
+      // Listening first, so a change landing between the count and the subscription isn't missed.
+      stopListening = subscribeToCapacity(id, send)
 
       // Current count immediately on connect, so the client doesn't need a separate fetch
       // before it knows where things stand.
@@ -88,23 +90,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         })
       }
 
-      subscriber.on('message', (_channel: string, message: string) => {
-        try {
-          send(JSON.parse(message))
-        } catch {
-          // Malformed message — ignore, the next one will still come through.
-        }
-      })
-      subscriber.subscribe(channel).catch((error) => {
-        logger.error('Capacity stream subscribe failed', {
-          event: 'realtime.capacity_stream_subscribe_failed',
-          err: String(error),
-          eventId: id,
-        })
-      })
-
       // Most platforms (and browsers) will otherwise time out an idle streamed connection.
-      const heartbeat = setInterval(() => {
+      heartbeat = setInterval(() => {
         if (closed) return
         try {
           controller.enqueue(encoder.encode(': ping\n\n'))
@@ -121,10 +108,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
           // Already closed.
         }
       })
+      if (request.signal.aborted) cleanup()
     },
     cancel() {
-      closed = true
-      subscriber.quit().catch(() => {})
+      cleanup()
     },
   })
 

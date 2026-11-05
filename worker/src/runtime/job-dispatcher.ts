@@ -128,6 +128,9 @@ export const dispatchJobByType = async (
     case JOB_NAMES.COMPLIANCE_CHECK:
       return processComplianceCheckJob()
 
+    case JOB_NAMES.EXPORT_AUDIT_TRAIL:
+      return processExportAuditTrailJob()
+
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)
   }

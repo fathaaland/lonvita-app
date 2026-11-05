@@ -16,6 +16,7 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
   enqueueSms: vi.fn(async () => undefined),
   enqueueFeedbackRequest: vi.fn(async () => undefined),
   getQueue: vi.fn(() => ({ getJob: async () => undefined })),
+  getEmailQueue: vi.fn(() => ({ getJob: async () => undefined })),
 }))
 vi.mock('../../worker/src/processors/email.processor', () => ({
   processEmailJob: vi.fn(async () => ({ messageId: 'test-message' })),

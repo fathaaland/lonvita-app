@@ -1,5 +1,7 @@
 import { UnrecoverableError } from 'bullmq'
 
+import { ProviderRateLimitedError } from '../runtime/provider-errors'
+
 import { checkSmsUsageAlerts } from '@/lib/billing/sms-alerts'
 import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
 import { logger, serializeError } from '@/lib/logger'
@@ -51,6 +53,9 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
   })
 
   const res = await fetch(BULKGATE_API, {
+    // A hung request would hold a slot of the SMS queue; timed out, it's retried, and BulkGate's
+    // duplicates_check keeps the retry from texting the person twice.
+    signal: AbortSignal.timeout(15_000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
@@ -84,6 +89,7 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
       retryable,
     })
     const message = `BulkGate error ${res.status}${body.type ? ` (${body.type})` : ''}: ${body.error ?? 'no details'}`
+    if (res.status === 429) throw new ProviderRateLimitedError(message, 5_000)
     throw retryable ? new Error(message) : new UnrecoverableError(message)
   }
 

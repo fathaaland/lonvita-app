@@ -1,5 +1,5 @@
 {
   "framework": "nextjs",
-  "buildCommand": "pnpm payload migrate && pnpm run build",
-  "installCommand": "pnpm install"
+  "buildCommand": "sh scripts/vercel-build.sh",
+  "installCommand": "pnpm install --frozen-lockfile"
 }

@@ -24,6 +24,8 @@ import { eventCreatorUserIds, isEventCreator } from './Events'
 import { municipalityOrganizationIds } from './Organizations'
 import { deletedAtField } from './shared/softDelete'
 import { requiredRelationNumber } from '@/lib/relations'
+import { afterCommit, deferredUntilCommit } from '@/lib/after-commit'
+import { lockRow } from '@/lib/db-lock'
 
 /** Who takes up the event's places: participants. A volunteer helping run it (an accepted
  * VolunteerInvitation) never uses up a participant's spot. */
@@ -64,9 +66,12 @@ const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previou
       overrideAccess: true,
       req,
     })
-    publishCapacityChange(eventId, result.totalDocs)
+    // Once committed — an open detail page told earlier would show a place taken by a sign-up that
+    // may still roll back, and would wait on Redis inside the transaction.
+    const approvedCount = result.totalDocs
+    await afterCommit(req, () => publishCapacityChange(eventId, approvedCount))
 
-    const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true })
+    const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     if (event.status === 'active' || event.status === 'full') {
       const shouldBeFull = result.totalDocs >= event.capacity
       const nextStatus = shouldBeFull ? 'full' : 'active'
@@ -107,7 +112,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
   try {
     const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
     const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
-    const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true })
+    const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     const organizerId = typeof event.organizer === 'object' ? event.organizer.id : event.organizer
 
     // Brief §7 "Přihlášení na akci → účastník" — confirmation on create, whatever status it
@@ -524,6 +529,10 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
   // letting someone in that uses up a place, so that's where a full event says no. A volunteer
   // takes no participant's place.
   if (data.status === 'approved' && current.status !== 'approved' && !volunteer && event && !isUnlimitedCapacity(event.capacity)) {
+    // Two organizers' tabs approving the last place at once would each count the other's approval
+    // as not there yet. Holding the event row until this transaction ends makes the second wait and
+    // count again — the same lock as signing up (beforeValidate), so the two never interleave.
+    await lockRow(req, 'events', event.id)
     const approved = await req.payload.count({
       collection: 'registrations',
       where: { and: [{ event: { equals: event.id } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },
@@ -893,6 +902,9 @@ export const Registrations: CollectionConfig = {
             ],
           },
           limit: 1,
+          // On the request's own connection and transaction — a second one per sign-up is what
+          // runs the pool dry under a rush on one event.
+          req,
         })
 
         if (existing.docs[0]?.status === 'rejected') {
@@ -908,6 +920,7 @@ export const Registrations: CollectionConfig = {
             id: data.event,
             depth: 0,
             overrideAccess: true,
+            req,
           })
           const organizerIds = [event.organizer, ...(event.coOrganizers ?? [])].map((u) =>
             String(typeof u === 'object' ? u.id : u),
@@ -944,12 +957,19 @@ export const Registrations: CollectionConfig = {
             // read can be stale). What happens to a signup that arrives once it's already full
             // under "auto" (waitlist vs. hard reject) is still an open question (brief §8) —
             // for now it's a hard reject, the simplest safe behavior.
+            //
+            // A hundred people taking the last place in the same second would each count the
+            // others' rows as not there yet (uncommitted) and all get in. Holding the event row
+            // until this transaction ends makes them queue: each counts only once the one before it
+            // has committed, so the count is exact. Only events that can fill up pay for the wait.
+            if (!isUnlimitedCapacity(event.capacity)) await lockRow(req, 'events', event.id)
             const activeCount = await req.payload.count({
               collection: 'registrations',
               where: {
                 and: [{ event: { equals: data.event } }, { status: { in: ['pending', 'approved'] } }, PARTICIPANTS_ONLY],
               },
               overrideAccess: true,
+              req,
             })
             if (activeCount.totalDocs >= event.capacity) {
               throw new APIError('Akce je plná — všechna místa jsou obsazená.', 400)
@@ -973,13 +993,16 @@ export const Registrations: CollectionConfig = {
       guardVolunteerDelete,
     ],
     beforeChange: [stampAttendance, stampCancellation],
+    // Everything that only tells someone (notifications, e-mails, queued reminders) waits until the
+    // registration has committed: under a rush on one event the row lock on it (beforeValidate) is
+    // held only as long as the write itself, and a sign-up that rolls back never announces itself.
     afterChange: [
-      notifyOnRegistrationChange,
+      deferredUntilCommit(notifyOnRegistrationChange),
       broadcastCapacityChange,
-      dropReminderWhenNoLongerComing,
-      scheduleFeedbackOnAttendance,
-      scheduleFeedbackOnUnlimitedApproval,
-      notifyOnNoShow,
+      deferredUntilCommit(dropReminderWhenNoLongerComing),
+      deferredUntilCommit(scheduleFeedbackOnAttendance),
+      deferredUntilCommit(scheduleFeedbackOnUnlimitedApproval),
+      deferredUntilCommit(notifyOnNoShow),
     ],
   },
   timestamps: true,

@@ -3,7 +3,7 @@ import config from '@/payload.config'
 
 import { describe, it, beforeAll, afterAll, afterEach, expect } from 'vitest'
 
-import { getQueue } from '@/lib/queue/queues'
+import { getEmailQueue } from '@/lib/queue/queues'
 
 let payload: Payload
 
@@ -447,7 +447,7 @@ describe('Registrations & EventFeedback', () => {
 
     it('drops their 24h reminder', async () => {
       const reg = await approvedRegistration()
-      expect(await getQueue().getJob(`reminder-${reg.id}`)).toBeDefined()
+      expect(await getEmailQueue().getJob(`reminder-${reg.id}`)).toBeDefined()
 
       await payload.update({
         collection: 'registrations',
@@ -456,7 +456,7 @@ describe('Registrations & EventFeedback', () => {
         user: organizer,
         overrideAccess: false,
       })
-      expect(await getQueue().getJob(`reminder-${reg.id}`)).toBeUndefined()
+      expect(await getEmailQueue().getJob(`reminder-${reg.id}`)).toBeUndefined()
     })
 
     it('drops the reminder when the participant cancels themselves, too', async () => {
@@ -468,7 +468,7 @@ describe('Registrations & EventFeedback', () => {
         user: participant,
         overrideAccess: false,
       })
-      expect(await getQueue().getJob(`reminder-${reg.id}`)).toBeUndefined()
+      expect(await getEmailQueue().getJob(`reminder-${reg.id}`)).toBeUndefined()
     })
 
     it('not once their attendance is confirmed', async () => {

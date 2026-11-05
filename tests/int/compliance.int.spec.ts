@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { getPayload, Payload } from 'payload'
+import { getPayload, Payload, type RequiredDataFromCollectionSlug } from 'payload'
 import config from '@/payload.config'
 
 import { describe, it, beforeAll, afterAll, expect, vi } from 'vitest'
@@ -127,7 +127,8 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
     for (const data of DEFAULT_REQUIREMENTS) {
       const doc = await payload.create({
         collection: 'legal-requirements',
-        data: { ...data, code: `${data.code}-t${STAMP}`, esbirkaWatch: false },
+        // No status on purpose — the field's default is what's under test.
+        data: { ...data, code: `${data.code}-t${STAMP}`, esbirkaWatch: false } as RequiredDataFromCollectionSlug<'legal-requirements'>,
         overrideAccess: true,
       })
       created.push(doc.id)

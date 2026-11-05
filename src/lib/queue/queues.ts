@@ -2,10 +2,10 @@ import { Queue } from 'bullmq'
 
 import { getCorrelationId } from '@/lib/logger/correlation'
 
-import { JOB_NAMES, QUEUE_NAME } from './contracts'
-import { queueOptions } from './options'
+import { EMAIL_QUEUE_NAME, JOB_NAMES, QUEUE_NAME, SMS_QUEUE_NAME } from './contracts'
+import { deliveryJobOptions, queueOptions } from './options'
 
-import type { DeduplicationOptions } from 'bullmq'
+import type { DeduplicationOptions, DefaultJobOptions } from 'bullmq'
 import type {
   AttendanceReminderJobData,
   EmailJobData,
@@ -22,13 +22,40 @@ import type {
   SmsJobData,
 } from './contracts'
 
-let queueInstance: Queue<QueueJobEnvelope, unknown, JobName> | undefined
+type AppQueue = Queue<QueueJobEnvelope, unknown, JobName>
 
-export const getQueue = (): Queue<QueueJobEnvelope, unknown, JobName> => {
-  if (!queueInstance) {
-    queueInstance = new Queue<QueueJobEnvelope, unknown, JobName>(QUEUE_NAME, queueOptions)
+const queues = new Map<string, AppQueue>()
+
+const queueNamed = (name: string, defaultJobOptions: DefaultJobOptions = queueOptions.defaultJobOptions): AppQueue => {
+  let queue = queues.get(name)
+  if (!queue) {
+    queue = new Queue<QueueJobEnvelope, unknown, JobName>(name, { ...queueOptions, defaultJobOptions })
+    queues.set(name, queue)
   }
-  return queueInstance
+  return queue
+}
+
+/** The main queue — everything but the e-mails and SMS themselves. */
+export const getQueue = (): AppQueue => queueNamed(QUEUE_NAME)
+
+/** E-mails (incl. the delayed 24h reminders) and SMS — see EMAIL_QUEUE_NAME. */
+export const getEmailQueue = (): AppQueue => queueNamed(EMAIL_QUEUE_NAME, deliveryJobOptions)
+export const getSmsQueue = (): AppQueue => queueNamed(SMS_QUEUE_NAME, deliveryJobOptions)
+
+/**
+ * How long an add may take before the caller gives up on it. ioredis queues commands while Redis is
+ * unreachable and BullMQ never gives up on them itself, so without this a request (or a hook still
+ * holding its transaction) would wait for Redis to come back. The add may still go through once it
+ * does — at least once is what the job ids are for.
+ */
+const ENQUEUE_TIMEOUT_MS = 5_000
+
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Queue unavailable: no answer from Redis within ${ms} ms`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
 type EnqueueOptions = {
@@ -38,22 +65,25 @@ type EnqueueOptions = {
   deduplication?: DeduplicationOptions
 }
 
-const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions) => {
+const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions, queue: AppQueue = getQueue()) => {
   const traced = { ...job, correlationId: options?.correlationId ?? getCorrelationId() }
 
-  return getQueue().add(job.jobType, traced, {
-    ...(options?.jobId ? { jobId: options.jobId } : {}),
-    ...(options?.delay ? { delay: options.delay } : {}),
-    ...(options?.deduplication ? { deduplication: options.deduplication } : {}),
-  })
+  return withTimeout(
+    queue.add(job.jobType, traced, {
+      ...(options?.jobId ? { jobId: options.jobId } : {}),
+      ...(options?.delay ? { delay: options.delay } : {}),
+      ...(options?.deduplication ? { deduplication: options.deduplication } : {}),
+    }),
+    ENQUEUE_TIMEOUT_MS,
+  )
 }
 
 export async function enqueueEmail(data: EmailJobData, options?: EnqueueOptions) {
-  return enqueueJob({ jobType: JOB_NAMES.SEND_EMAIL, payload: data }, options)
+  return enqueueJob({ jobType: JOB_NAMES.SEND_EMAIL, payload: data }, options, getEmailQueue())
 }
 
 export async function enqueueSms(data: SmsJobData, options?: EnqueueOptions) {
-  return enqueueJob({ jobType: JOB_NAMES.SEND_SMS, payload: data }, options)
+  return enqueueJob({ jobType: JOB_NAMES.SEND_SMS, payload: data }, options, getSmsQueue())
 }
 
 export async function enqueueFeedbackRequest(data: FeedbackRequestJobData, options?: EnqueueOptions) {

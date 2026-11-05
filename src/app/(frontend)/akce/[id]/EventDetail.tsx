@@ -136,18 +136,47 @@ function EventDetailContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id]);
 
-  // Brief §8 live "Přihlásit se"/"Akce je plná" button — re-pull counts and the readable
-  // registrations whenever the server says the approved count changed. Deliberately doesn't
-  // touch `loading` — this is a quiet background refresh, not a page reload.
+  // Brief §8 live "Přihlásit se"/"Akce je plná" button. The message carries the new approved count,
+  // which is all the button needs — taken from it as is, not re-fetched: under a rush on one event
+  // every viewer re-pulling the registrations on every sign-up is what would take the API down.
+  // Only whoever runs the event sees the list of registrants change, so only they re-pull it, once
+  // the burst has settled. Only while there are places to take — a finished, cancelled or draft
+  // event opens no stream at all.
+  const canManageRef = useRef(false);
+  const liveCapacity =
+    !!event && !event.is_draft && (event.status === "active" || event.status === "full");
   useEffect(() => {
-    if (!id) return;
+    if (!id || !liveCapacity) return;
     const source = new EventSource(`/api/events/${id}/capacity-stream`);
-    source.onmessage = () => {
-      refreshRegistrations(id).catch(() => {});
+    let refetch: ReturnType<typeof setTimeout> | undefined;
+    let first = true;
+    source.onmessage = (message) => {
+      let approvedCount: unknown;
+      try {
+        approvedCount = (JSON.parse(message.data) as { approvedCount?: unknown }).approvedCount;
+      } catch {
+        return;
+      }
+      if (typeof approvedCount === "number") {
+        setCounts((prev) => (prev.approved === approvedCount ? prev : { ...prev, approved: approvedCount }));
+      }
+      // The first message is the count on connect — load() has just fetched everything else.
+      if (first) {
+        first = false;
+        return;
+      }
+      if (!canManageRef.current) return;
+      clearTimeout(refetch);
+      refetch = setTimeout(() => {
+        refreshRegistrations(id).catch(() => {});
+      }, 2000 + Math.random() * 1000);
     };
-    return () => source.close();
+    return () => {
+      clearTimeout(refetch);
+      source.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user?.id]);
+  }, [id, user?.id, liveCapacity]);
 
   const shareable =
     !!event &&
@@ -180,6 +209,9 @@ function EventDetailContent() {
     !!user && !!event && (event.organizer_id === String(user.id) || event.co_organizer_ids.includes(String(user.id)));
   const isAdminOfEventMunicipality = !!event?.municipality_id && administeredMunicipalityIds.includes(event.municipality_id);
   const canManage = isEventOrganizer || isAdminOfEventMunicipality;
+  useEffect(() => {
+    canManageRef.current = canManage;
+  }, [canManage]);
   // Everyone organizing it edits it, the obec on it or not. Once it has taken place, nobody edits it
   // any more (Events canUpdateEvent).
   const hasEnded = event?.status === "finished";

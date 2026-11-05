@@ -1,7 +1,9 @@
 import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
 import { cancelEventReminders } from '@/collections/shared/reminders'
 import { smsSentForCapacity } from '@/lib/capacity'
-import { logger } from '@/lib/logger'
+import { recordAuditLog } from '@/collections/shared/auditLog'
+import { CANCELLATION_ANNOUNCED_ACTION } from '@/collections/shared/eventNotifications'
+import { logger, serializeError } from '@/lib/logger'
 import { relationNumber } from '@/lib/relations'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -94,6 +96,21 @@ export const processEventCancelledJob = async (
       { jobIdPrefix: `${announcementId}-volunteers` },
     )
   }
+
+  // What the catch-up in sync-statuses looks for: without it, a cancel is announced again from there.
+  // Not worth failing the job over — a retry would tell everyone twice.
+  await recordAuditLog(payload, {
+    action: CANCELLATION_ANNOUNCED_ACTION,
+    targetCollection: 'events',
+    targetId: data.eventId,
+    metadata: { registrants: data.userIds.length, volunteers: volunteerUserIds.length, inApp: sent.inApp, emails: sent.emails, sms },
+  }).catch((error) =>
+    logger.error('Event cancellation announcement not recorded', {
+      event: 'event.cancel_record_failed',
+      eventId: data.eventId,
+      ...serializeError(error),
+    }),
+  )
 
   logger.info('Event cancellation announced', {
     event: 'event.cancel_notified',
