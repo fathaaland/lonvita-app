@@ -17,8 +17,9 @@ import { focusLabel, VolunteerSelfPanel } from "@/components/VolunteerCard";
 import { InviteVolunteerDialog } from "@/components/InviteVolunteerDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { APP_TIME_ZONE } from "@/lib/date";
 
-const formatDate = (iso: string) => new Date(iso).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" });
+const formatDate = (iso: string) => new Date(iso).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE, day: "numeric", month: "long", year: "numeric" });
 
 const ratingsLabel = (n: number) => (n === 1 ? "1 hodnocení" : `${n} hodnocení`);
 

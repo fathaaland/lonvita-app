@@ -2,8 +2,11 @@ import type { Payload, PayloadRequest } from 'payload'
 
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import { toE164 } from '@/lib/phone'
-import { enqueueEmail, enqueueSms } from '@/lib/queue/queues'
+import { enqueueOrPark } from '@/lib/outbox'
+import { JOB_NAMES } from '@/lib/queue/contracts'
+import { enqueueEmail } from '@/lib/queue/queues'
 import { smsAllowanceOf, smsPartsOf, toSmsText } from '@/lib/billing/sms'
+import { withSmsQuotaReservation } from '@/lib/billing/sms-reservations'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
@@ -195,6 +198,14 @@ export async function sendNotification(
   await sendNotificationToMany(payload, [userId], content)
 }
 
+/** Payload reports a unique field clash as a ValidationError on that field; the driver's own
+ * error (code 23505) can surface instead when the clash comes from a concurrent insert. */
+const isUniqueViolation = (error: unknown): boolean => {
+  const e = error as { name?: string; code?: string; cause?: { code?: string }; data?: { errors?: { path?: string }[] } }
+  if (e?.code === '23505' || e?.cause?.code === '23505') return true
+  return e?.name === 'ValidationError' && Boolean(e.data?.errors?.some((err) => err.path === 'dedupKey'))
+}
+
 /** In-app writes in flight at once — enough to be quick, few enough not to hog the DB pool. */
 const NOTIFICATION_WRITE_CONCURRENCY = 10
 
@@ -202,13 +213,14 @@ const NOTIFICATION_WRITE_CONCURRENCY = 10
  * `sendNotification` for a whole audience (e.g. an event's registrants) — the same message and
  * preferences, but two lookups for everyone instead of two per user. Never throws; a failure for
  * one user is logged and the rest still get theirs. `jobIdPrefix` makes the e-mail jobs
- * idempotent, for callers that may run twice (a worker job retried after a crash).
+ * idempotent, for callers that may run twice (a worker job retried after a crash). `inApp: false`
+ * sends the e-mail alone.
  */
 export async function sendNotificationToMany(
   payload: Payload,
   userIds: (number | string)[],
   content: NotificationContent,
-  options?: { jobIdPrefix?: string },
+  options?: { jobIdPrefix?: string; inApp?: boolean },
 ): Promise<{ inApp: number; emails: number }> {
   const sent = { inApp: 0, emails: 0 }
   const ids = [...new Set(userIds.map(String))]
@@ -238,12 +250,15 @@ export async function sendNotificationToMany(
 
     // No profile yet (mid-onboarding) — fall back to both channels' defaults (true) rather
     // than silently dropping the notification.
-    const inAppIds = ids.filter(
-      (id) => content.critical || (profileByUser.get(id)?.notifyInApp ?? true),
-    )
+    // `inApp: false` — the in-app copy already went out on its own (e.g. registration digests).
+    const inAppIds =
+      options?.inApp === false
+        ? []
+        : ids.filter((id) => content.critical || (profileByUser.get(id)?.notifyInApp ?? true))
     for (let i = 0; i < inAppIds.length; i += NOTIFICATION_WRITE_CONCURRENCY) {
       await Promise.all(
         inAppIds.slice(i, i + NOTIFICATION_WRITE_CONCURRENCY).map(async (id) => {
+          const dedupKey = options?.jobIdPrefix ? `${options.jobIdPrefix}-inapp-${id}` : undefined
           try {
             await payload.create({
               collection: 'notifications',
@@ -252,11 +267,14 @@ export async function sendNotificationToMany(
                 title: content.title,
                 message: content.message,
                 link: content.link,
+                dedupKey,
               },
               overrideAccess: true,
             })
             sent.inApp++
           } catch (error) {
+            // Written by the earlier run of the same broadcast — that's the point of the key.
+            if (dedupKey && isUniqueViolation(error)) return
             payload.logger.error({ err: error, user: id }, 'Failed to write notification')
           }
         }),
@@ -269,11 +287,14 @@ export async function sendNotificationToMany(
         ids.map(async (id) => {
           const to = emailByUser.get(id)
           if (!to || !(content.critical || (profileByUser.get(id)?.notifyEmail ?? true))) return
+          const jobId = options?.jobIdPrefix ? `${options.jobIdPrefix}-email-${id}` : undefined
           try {
-            await enqueueEmail(
-              { to, subject, body },
-              options?.jobIdPrefix ? { jobId: `${options.jobIdPrefix}-email-${id}` } : undefined,
-            )
+            // One that must not be missed waits in the outbox while the queue is down (lib/outbox).
+            if (content.critical) {
+              await enqueueOrPark(payload, { job: { jobType: JOB_NAMES.SEND_EMAIL, payload: { to, subject, body } }, jobId })
+            } else {
+              await enqueueEmail({ to, subject, body }, jobId ? { jobId } : undefined)
+            }
             sent.emails++
           } catch (error) {
             payload.logger.error({ err: error, user: id }, 'Failed to enqueue notification e-mail')
@@ -311,8 +332,6 @@ export async function sendSmsToMany(
   const ids = [...new Set(userIds.map(String))]
   if (ids.length === 0) return 0
   try {
-    const allowance = await smsAllowanceOf(payload, municipalityId, new Date())
-    if (allowance.remainingParts === 0 && !allowance.overageAllowed) return 0
     const profiles = await payload.find({
       collection: 'profiles',
       where: { and: [{ user: { in: ids } }, { notifySms: { equals: true } }] },
@@ -324,18 +343,24 @@ export async function sendSmsToMany(
       const to = p.phone ? toE164(p.phone) : null
       return to ? [{ to, userId: typeof p.user === 'object' ? p.user.id : p.user }] : []
     })
+    if (reachable.length === 0) return 0
     const text = toSmsText(message)
     const parts = smsPartsOf(text)
-    let left = allowance.remainingParts
-    const recipients: { to: string; userId: number; overage: boolean }[] = []
-    for (const r of reachable) {
-      if (left >= parts) {
-        left -= parts
-        recipients.push({ ...r, overage: false })
-      } else if (allowance.overageAllowed) {
-        recipients.push({ ...r, overage: true })
-      } else break
-    }
+    // Decided under the obec's quota lock, against what's sent plus what's queued (sms-reservations).
+    const recipients = await withSmsQuotaReservation(municipalityId, async (reservedParts) => {
+      const allowance = await smsAllowanceOf(payload, municipalityId, new Date())
+      let left = Math.max(0, allowance.remainingParts - reservedParts)
+      const chosen: { to: string; userId: number; overage: boolean }[] = []
+      for (const r of reachable) {
+        if (left >= parts) {
+          left -= parts
+          chosen.push({ ...r, overage: false })
+        } else if (allowance.overageAllowed) {
+          chosen.push({ ...r, overage: true })
+        } else break
+      }
+      return { result: chosen, reserve: chosen.filter((r) => !r.overage).length * parts }
+    })
     if (recipients.length < reachable.length) {
       payload.logger.warn(
         { municipalityId, skipped: reachable.length - recipients.length },
@@ -346,10 +371,15 @@ export async function sendSmsToMany(
       recipients.map(async ({ to, userId, overage }) => {
         const requestId = `${requestIdPrefix}-${userId}`
         try {
-          await enqueueSms(
-            { to, message: text, requestId, municipalityId, ...(overage ? { overage } : {}) },
-            { jobId: `sms-${requestId}` },
-          )
+          // Every SMS is an announcement that must not be missed — parked in the outbox while the
+          // queue is down (lib/outbox).
+          await enqueueOrPark(payload, {
+            job: {
+              jobType: JOB_NAMES.SEND_SMS,
+              payload: { to, message: text, requestId, municipalityId, ...(overage ? { overage } : {}) },
+            },
+            jobId: `sms-${requestId}`,
+          })
           return true
         } catch (error) {
           payload.logger.error({ err: error, requestId }, 'Failed to enqueue SMS')

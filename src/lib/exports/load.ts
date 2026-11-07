@@ -17,18 +17,32 @@ import { relationId } from '@/lib/relations'
  * re-apply the soft-delete filters the collections' own read access would.
  */
 
+/** Ids per query — Postgres takes at most 65 535 parameters in one statement, and an obec's history
+ * of registrations runs past that; a list that long in one `in` turned the dashboard into a 500. */
+const ID_CHUNK = 5_000
+
+async function inChunks<T>(ids: string[], load: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const out: T[] = []
+  for (let i = 0; i < ids.length; i += ID_CHUNK) out.push(...(await load(ids.slice(i, i + ID_CHUNK))))
+  return out
+}
+
 export async function loadRegistrations(payload: Payload, eventIds: string[]): Promise<RegistrationRow[]> {
   if (eventIds.length === 0) return []
-  const result = await payload.find({
-    collection: 'registrations',
-    where: { and: [{ event: { in: eventIds } }, notDeleted] },
-    // Only what the rows below are made of — an obec's whole history can be a lot of registrations.
-    select: { event: true, user: true, status: true, createdAt: true, attendanceStatus: true, role: true },
-    depth: 0,
-    pagination: false,
-    overrideAccess: true,
-  })
-  return result.docs.map((r) => ({
+  const docs = await inChunks(eventIds, async (chunk) =>
+    (
+      await payload.find({
+        collection: 'registrations',
+        where: { and: [{ event: { in: chunk } }, notDeleted] },
+        // Only what the rows below are made of — an obec's whole history can be a lot of registrations.
+        select: { event: true, user: true, status: true, createdAt: true, attendanceStatus: true, role: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      })
+    ).docs,
+  )
+  return docs.map((r) => ({
     id: String(r.id),
     event_id: relationId(r.event)!,
     user_id: relationId(r.user)!,
@@ -44,15 +58,19 @@ export async function loadRegistrations(payload: Payload, eventIds: string[]): P
  * EventFeedback's own read access leaves them out of the page. */
 export async function loadFeedback(payload: Payload, registrationIds: string[]): Promise<FeedbackRow[]> {
   if (registrationIds.length === 0) return []
-  const result = await payload.find({
-    collection: 'event-feedback',
-    where: { and: [{ registration: { in: registrationIds } }, notDeleted] },
-    select: { registration: true, satisfactionRating: true, feltWelcomeRating: true },
-    depth: 0,
-    pagination: false,
-    overrideAccess: true,
-  })
-  return result.docs.map((f) => ({
+  const docs = await inChunks(registrationIds, async (chunk) =>
+    (
+      await payload.find({
+        collection: 'event-feedback',
+        where: { and: [{ registration: { in: chunk } }, notDeleted] },
+        select: { registration: true, satisfactionRating: true, feltWelcomeRating: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      })
+    ).docs,
+  )
+  return docs.map((f) => ({
     id: String(f.id),
     registration_id: relationId(f.registration)!,
     satisfaction_rating: f.satisfactionRating,
@@ -85,6 +103,7 @@ export async function loadMunicipalityExportData(
       collection: 'events',
       // Someone's draft isn't the obec's yet (Events isDraft).
       where: { and: [{ municipality: { equals: municipalityId } }, notDeleted, { isDraft: { not_equals: true } }] },
+      select: { title: true, dateTime: true, endDateTime: true, capacity: true, status: true, categories: true, organizer: true, municipality: true, createdAt: true, isPaid: true, priceCents: true, isVolunteering: true, organization: true },
       depth: 0,
       pagination: false,
       overrideAccess: true,
@@ -92,6 +111,7 @@ export async function loadMunicipalityExportData(
     payload.find({
       collection: 'profiles',
       where: { and: [{ municipality: { equals: municipalityId } }, notDeleted] },
+      select: { user: true, fullName: true, createdAt: true, dateOfBirth: true, over50: true },
       depth: 0,
       pagination: false,
       overrideAccess: true,
@@ -143,6 +163,7 @@ export async function loadOrganizationExportData(payload: Payload, organizationI
         ],
       },
       sort: '-dateTime',
+      select: { title: true, dateTime: true, endDateTime: true, capacity: true, status: true, categories: true, organizer: true, municipality: true, createdAt: true, isPaid: true, priceCents: true, isVolunteering: true, organization: true },
       depth: 0,
       pagination: false,
       overrideAccess: true,

@@ -10,6 +10,7 @@ import { APIError } from 'payload'
 
 import {
   canCreateForAdministeredMunicipality,
+  forgetPublicFaces,
   getAdministeredMunicipalityIds,
   isPlatformOrMunicipalityAdmin,
 } from './access/shared'
@@ -322,6 +323,7 @@ export const UserRoles: CollectionConfig = {
       },
     ],
     afterChange: [
+      forgetPublicFaces,
       // Granting "municipality_admin" (e.g. via the superadmin panel's "Přidat roli") used to only
       // ever write this user-roles row — the admin's own profile.municipality (their dashboard's
       // home obec, see page.tsx's `viewing` default) never followed, so they'd land on "Všechny
@@ -445,6 +447,7 @@ export const UserRoles: CollectionConfig = {
     // audited on create above; this is the matching trail for revocation (a hard DELETE, see
     // revokeCommunityRole in superadmin-queries.ts), which previously left no audit record.
     afterDelete: [
+      forgetPublicFaces,
       // Someone else took the role away (the obec's admin, or the platform admin) — the holder hears
       // it, rather than finding out from a "Vytvořit" button that's no longer there.
       async ({ doc, req, context }) => {

@@ -381,8 +381,9 @@ const CSV_COLUMNS: [keyof BillingRow, string][] = [
 const csvCell = (value: unknown): string => {
   if (value === null || value === undefined) return ''
   if (typeof value === 'boolean') return value ? 'ano' : 'ne'
-  // A leading = + @ would run as a formula in Excel (an obec's name is typed by people).
-  const text = typeof value === 'string' && /^[=+@\t]/.test(value) ? `'${value}` : String(value)
+  // A leading = + - @ (or a tab / carriage return before one) would run as a formula in Excel — an
+  // obec's name is typed by people. Numbers are written as numbers, so a negative one stays one.
+  const text = typeof value === 'string' && /^[=+\-@\t\r]/.test(value) ? `'${value}` : String(value)
   return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 

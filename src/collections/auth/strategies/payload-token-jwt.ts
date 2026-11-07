@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto'
+import { hasLiveSession, jwtSecretKey } from '@/lib/auth/sessions'
 
 import type { AuthStrategyFunctionArgs } from 'payload'
 
-type AuthenticatedUser = { collection?: string; _strategy?: string }
+type AuthenticatedUser = { collection?: string; _strategy?: string; _sid?: string }
 
 const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFunctionArgs) => {
   const cookieHeader = headers.get('cookie')
@@ -11,7 +11,13 @@ const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFun
   const cookies = new Map<string, string>()
   cookieHeader.split(';').forEach((c) => {
     const [name, ...rest] = c.trim().split('=')
-    if (name) cookies.set(name, decodeURI(rest.join('=')))
+    if (!name) return
+    // A malformed escape (%E0%A4%A) in some unrelated cookie must not turn every request into a 500.
+    try {
+      cookies.set(name, decodeURI(rest.join('=')))
+    } catch {
+      // not ours to read — skipped
+    }
   })
 
   const tokenCookieName = `${payload.config.cookiePrefix}-token`
@@ -20,15 +26,7 @@ const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFun
 
   try {
     const { jwtVerify } = await import('jose')
-
-    // Payload hashes config.secret with SHA-256, truncated to 32 hex chars.
-    const hashedSecret = createHash('sha256')
-      .update(process.env.PAYLOAD_SECRET!)
-      .digest('hex')
-      .slice(0, 32)
-
-    const secretKey = new TextEncoder().encode(hashedSecret)
-    const { payload: decoded } = await jwtVerify(token, secretKey)
+    const { payload: decoded } = await jwtVerify(token, jwtSecretKey())
 
     const user = await payload.findByID({
       id: decoded.id as number,
@@ -38,10 +36,14 @@ const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFun
 
     // A deleted (anonymized) account — a token minted before still verifies, but nobody is behind it.
     if (!user || (user as { anonymizedAt?: string | null }).anonymizedAt) return null
+    // Signed out, the password reset, or the session ended otherwise: the token still verifies, but
+    // its session is gone (lib/auth/sessions) — the same check Payload's own JWT strategy makes.
+    if (!hasLiveSession(user as Parameters<typeof hasLiveSession>[0], decoded.sid)) return null
 
     const u = user as unknown as AuthenticatedUser
     u.collection = decoded.collection as string
     u._strategy = 'payload-token-jwt'
+    u._sid = decoded.sid as string
 
     return user
   } catch {

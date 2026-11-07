@@ -356,6 +356,43 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     await payload.delete({ collection: 'event-sources', id: source.id, overrideAccess: true })
   })
 
+  it('catches up a source whose slot went by unread (the worker was down that hour)', async () => {
+    await payload.update({
+      collection: 'municipalities',
+      id: obec.id,
+      data: { importAiEnabled: true, billingStatus: 'active', scrapingSlotDay: 1, scrapingSlotHour: 3 },
+      overrideAccess: true,
+    })
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: `https://catch-up-${STAMP}.cz/akce` },
+      overrideAccess: true,
+    })
+    // Tuesday 10. 11. 2026, 9:30 in Prague — not the slot; last read 8 days ago.
+    const tuesday = new Date('2026-11-10T08:30:00Z')
+    await payload.db.updateOne({
+      collection: 'event-sources',
+      id: source.id,
+      data: { lastRunAt: new Date(tuesday.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString() },
+    })
+    const queuedFor = () =>
+      vi.mocked(enqueueImportEvents).mock.calls.some(([data]) => 'sourceId' in data && data.sourceId === source.id)
+    vi.mocked(enqueueImportEvents).mockClear()
+    await processScanEventSourcesJob({}, tuesday)
+    expect(queuedFor()).toBe(true)
+
+    // Read two days ago: nothing missed, nothing to catch up.
+    await payload.db.updateOne({
+      collection: 'event-sources',
+      id: source.id,
+      data: { lastRunAt: new Date(tuesday.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString() },
+    })
+    vi.mocked(enqueueImportEvents).mockClear()
+    await processScanEventSourcesJob({}, tuesday)
+    expect(queuedFor()).toBe(false)
+    await payload.delete({ collection: 'event-sources', id: source.id, overrideAccess: true })
+  })
+
   it("puts every obec in the month's overview and its CSV — opened by Czech Excel, no formulas", async () => {
     const rows = await billingRowsFor(payload, '2026-11', new Date('2026-11-15T10:00:00Z'))
     const row = rows.find((r) => r.municipalityId === obec.id)

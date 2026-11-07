@@ -26,9 +26,10 @@ export function licencePeriodOf(
 ): LicencePeriod {
   if (municipality.licencePeriodStart) {
     const start = new Date(municipality.licencePeriodStart)
-    const end = municipality.licencePeriodEnd
-      ? new Date(municipality.licencePeriodEnd)
-      : addYear(start)
+    const setEnd = municipality.licencePeriodEnd ? new Date(municipality.licencePeriodEnd) : null
+    // An end on or before the start (set before the field checked it) would be an empty period — no
+    // SMS would ever count against the quota. A year from the start instead, as with no end at all.
+    const end = setEnd && setEnd.getTime() > start.getTime() ? setEnd : addYear(start)
     return { start, end, key: start.toISOString().slice(0, 10), custom: true }
   }
   const year = pragueToday(now).slice(0, 4)

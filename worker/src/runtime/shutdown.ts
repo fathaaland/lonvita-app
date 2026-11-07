@@ -1,5 +1,7 @@
 import { flushLogs, logger, serializeError } from '@/lib/logger'
 
+import { flushSentry } from './sentry'
+
 import type { QueueWorker } from './spawn-worker'
 
 /** What the running jobs get to finish before the process goes anyway — under the platform's own
@@ -22,7 +24,7 @@ export const registerShutdown = (
 
     const forced = setTimeout(() => {
       logger.error('Shutdown timed out — exiting with jobs still running', { event: 'worker.shutdown_timed_out', worker: label })
-      void flushLogs().finally(() => process.exit(exitCode || 1))
+      void Promise.all([flushLogs(), flushSentry()]).finally(() => process.exit(exitCode || 1))
     }, SHUTDOWN_TIMEOUT_MS)
     forced.unref()
 
@@ -35,8 +37,8 @@ export const registerShutdown = (
       exitCode ||= 1
     }
     // Shipping is fire-and-forget, so without this the last few lines — the ones explaining
-    // why the process is going down — die with the process.
-    await flushLogs()
+    // why the process is going down — die with the process. Sentry's events alike.
+    await Promise.all([flushLogs(), flushSentry()])
     process.exit(exitCode)
   }
 
@@ -44,7 +46,8 @@ export const registerShutdown = (
   process.on('SIGINT', () => void shutdown('SIGINT'))
 
   // A crash nobody caught leaves the process in a state nobody knows — logged, then restarted by the
-  // platform (restartPolicyType ALWAYS), rather than running on half-broken.
+  // platform (restartPolicyType ALWAYS), rather than running on half-broken. Sentry's own handlers
+  // (runtime/sentry) report it; the shutdown flushes them before the exit.
   process.on('uncaughtException', (error) => {
     logger.fatal('Worker crashed', { event: 'worker.uncaught_exception', ...serializeError(error) })
     void shutdown('uncaughtException', 1)

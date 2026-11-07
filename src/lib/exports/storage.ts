@@ -35,12 +35,29 @@ export async function presignExportDownload(key: string, fileName: string): Prom
   )
 }
 
+/** S3 answers a DeleteObjects with 200 even when some of the keys weren't deleted — each of those
+ * is listed under `Errors` instead. */
+export class ExportFilesNotDeletedError extends Error {
+  constructor(readonly keys: string[], detail: string) {
+    super(`${keys.length} export file(s) not deleted: ${detail}`)
+  }
+}
+
+/** Deletes the files; throws ExportFilesNotDeletedError naming the ones S3 kept — files with
+ * personal data, which must not be left behind with no row pointing at them. */
 export async function deleteExportFiles(keys: string[]): Promise<void> {
   if (keys.length === 0) return
-  await getClient().send(
+  const result = await getClient().send(
     new DeleteObjectsCommand({
       Bucket: bucket(),
       Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
     }),
   )
+  const failed = (result.Errors ?? []).filter((error) => error.Key)
+  if (failed.length > 0) {
+    throw new ExportFilesNotDeletedError(
+      failed.map((error) => error.Key!),
+      [...new Set(failed.map((error) => error.Code ?? 'unknown'))].join(', '),
+    )
+  }
 }

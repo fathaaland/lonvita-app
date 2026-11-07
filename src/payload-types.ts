@@ -99,6 +99,7 @@ export interface Config {
     'legal-requirements': LegalRequirement;
     'system-logs': SystemLog;
     'security-events': SecurityEvent;
+    outbox: Outbox;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -138,6 +139,7 @@ export interface Config {
     'legal-requirements': LegalRequirementsSelect<false> | LegalRequirementsSelect<true>;
     'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
     'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
+    outbox: OutboxSelect<false> | OutboxSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -238,6 +240,14 @@ export interface Media {
   focalX?: number | null;
   focalY?: number | null;
   sizes?: {
+    display?: {
+      url?: string | null;
+      width?: number | null;
+      height?: number | null;
+      mimeType?: string | null;
+      filesize?: number | null;
+      filename?: string | null;
+    };
     card?: {
       url?: string | null;
       width?: number | null;
@@ -709,6 +719,7 @@ export interface Notification {
    * In-app route opened when the notification is clicked, e.g. "/akce/12". Empty = not clickable.
    */
   link?: string | null;
+  dedupKey?: string | null;
   /**
    * Set when the recipient opens/dismisses the notification.
    */
@@ -1278,6 +1289,30 @@ export interface SecurityEvent {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "outbox".
+ */
+export interface Outbox {
+  id: number;
+  jobType: string;
+  jobId: string;
+  job:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  runAt?: string | null;
+  dispatchedAt?: string | null;
+  attempts?: number | null;
+  lastError?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -1427,6 +1462,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'security-events';
         value: number | SecurityEvent;
+      } | null)
+    | ({
+        relationTo: 'outbox';
+        value: number | Outbox;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1515,6 +1554,16 @@ export interface MediaSelect<T extends boolean = true> {
   sizes?:
     | T
     | {
+        display?:
+          | T
+          | {
+              url?: T;
+              width?: T;
+              height?: T;
+              mimeType?: T;
+              filesize?: T;
+              filename?: T;
+            };
         card?:
           | T
           | {
@@ -1753,6 +1802,7 @@ export interface NotificationsSelect<T extends boolean = true> {
   title?: T;
   message?: T;
   link?: T;
+  dedupKey?: T;
   readAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -2150,6 +2200,21 @@ export interface SecurityEventsSelect<T extends boolean = true> {
   service?: T;
   correlationId?: T;
   context?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "outbox_select".
+ */
+export interface OutboxSelect<T extends boolean = true> {
+  jobType?: T;
+  jobId?: T;
+  job?: T;
+  runAt?: T;
+  dispatchedAt?: T;
+  attempts?: T;
+  lastError?: T;
   updatedAt?: T;
   createdAt?: T;
 }

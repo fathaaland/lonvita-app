@@ -11,7 +11,6 @@ concurrency:
 
 env:
   NODE_VERSION: '22'
-  PNPM_VERSION: '10'
 
 jobs:
   quality:
@@ -20,9 +19,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # The version comes from package.json's packageManager — giving it here too fails the action.
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -60,9 +58,8 @@ jobs:
       S3_SECRET_ACCESS_KEY: ci
     steps:
       - uses: actions/checkout@v4
+      # The version comes from package.json's packageManager — giving it here too fails the action.
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -125,9 +122,8 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://localhost:9000/minio/health/live && break; sleep 2; done
           docker run --rm --network host --entrypoint sh pgsty/mc:RELEASE.2026-09-16T00-00-00Z -c \
             "mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb --ignore-existing local/lonvita-media && mc anonymous set download local/lonvita-media"
+      # The version comes from package.json's packageManager — giving it here too fails the action.
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}

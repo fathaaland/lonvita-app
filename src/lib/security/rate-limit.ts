@@ -61,11 +61,33 @@ export const PROXY_RATE_LIMITS: Record<string, RateLimitConfig & { message: stri
     windowSeconds: 60,
     message: 'Příliš mnoho požadavků. Zkuste to znovu za minutu.',
   },
+  // Uploads cost storage and image processing, and any signed-in account can make them.
+  '/api/media': {
+    max: 30,
+    windowSeconds: 15 * 60,
+    message: 'Příliš mnoho nahraných souborů. Zkuste to znovu za 15 minut.',
+  },
   '/api/seed': {
     max: 5,
     windowSeconds: 15 * 60,
     message: 'Příliš mnoho požadavků. Zkuste to znovu za 15 minut.',
   },
+}
+
+/**
+ * The key a path is metered under. The limits are looked up by exact path, so `/api/users/login/`,
+ * `//api/users/login` or `/api/users/%6Cogin` — which may still reach the same route — must not
+ * fall through to "no limit".
+ */
+export const normalizeRateLimitPath = (pathname: string): string => {
+  let path = pathname
+  try {
+    path = decodeURIComponent(pathname)
+  } catch {
+    // Malformed escapes: meter the raw path.
+  }
+  path = path.toLowerCase().replace(/\/+/g, '/')
+  return path.length > 1 ? path.replace(/\/$/, '') : path
 }
 
 const PASSWORD_RESET_ACTION_LIMIT: RateLimitConfig = {
@@ -112,8 +134,15 @@ return {count, ttl}
 `
 
 export const getClientIp = (requestHeaders: { get: (name: string) => string | null }): string => {
+  // Vercel sets x-vercel-forwarded-for itself and a client can't forge it. The first element of
+  // x-forwarded-for is only trustworthy while Vercel overwrites that header — any proxy put in
+  // front later would hand the client control over its own rate-limit key.
+  const vercel = requestHeaders.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()
   const forwardedFor = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return (forwardedFor || requestHeaders.get('x-real-ip')?.trim() || 'unknown').slice(0, MAX_CLIENT_IP_LENGTH)
+  return (vercel || forwardedFor || requestHeaders.get('x-real-ip')?.trim() || 'unknown').slice(
+    0,
+    MAX_CLIENT_IP_LENGTH,
+  )
 }
 
 export const consumeRateLimit = async ({

@@ -13,8 +13,11 @@ import { processExportReadyJob } from '../processors/export-ready.processor'
 import { processFeedbackRequestJob } from '../processors/feedback-request.processor'
 import { processGenerateExportJob } from '../processors/generate-export.processor'
 import { processImportEventsJob } from '../processors/import-events.processor'
+import { processOutboxRelayJob } from '../processors/outbox-relay.processor'
 import { processPasswordResetJob } from '../processors/password-reset.processor'
+import { processRegistrationDigestJob } from '../processors/registration-digest.processor'
 import { processReminderSmsJob } from '../processors/reminder-sms.processor'
+import { processRestoreRemindersJob } from '../processors/restore-reminders.processor'
 import { processScanEventSourcesJob } from '../processors/scan-event-sources.processor'
 import { processSmsJob } from '../processors/sms.processor'
 import { processSnapshotActiveUsersJob } from '../processors/snapshot-active-users.processor'
@@ -34,9 +37,12 @@ import type {
   FeedbackRequestJobResult,
   GenerateExportJobResult,
   ImportEventsJobResult,
+  OutboxRelayJobResult,
   PasswordResetJobResult,
   QueueJobEnvelope,
+  RegistrationDigestJobResult,
   ReminderSmsJobResult,
+  RestoreRemindersJobResult,
   ScanEventSourcesJobResult,
   SnapshotActiveUsersJobResult,
   SyncStatusesJobResult,
@@ -67,6 +73,9 @@ type JobResult =
   | ComplianceCheckJobResult
   | ImportEventsJobResult
   | ExportAuditTrailJobResult
+  | OutboxRelayJobResult
+  | RestoreRemindersJobResult
+  | RegistrationDigestJobResult
   | void
 
 export const dispatchJobByType = async (
@@ -130,6 +139,15 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.EXPORT_AUDIT_TRAIL:
       return processExportAuditTrailJob()
+
+    case JOB_NAMES.REGISTRATION_DIGEST:
+      return processRegistrationDigestJob(job.payload)
+
+    case JOB_NAMES.OUTBOX_RELAY:
+      return processOutboxRelayJob()
+
+    case JOB_NAMES.RESTORE_REMINDERS:
+      return processRestoreRemindersJob()
 
     default:
       throw new Error(`Unsupported job type: ${(job as QueueJobEnvelope).jobType}`)

@@ -1,11 +1,13 @@
-import { getPlatformDeciders, sendNotificationToMany } from '@/collections/shared/notify'
+import { getPlatformDeciders, sendNotificationToMany, escapeHtml } from '@/collections/shared/notify'
 import { recordAuditLog } from '@/collections/shared/auditLog'
 import {
   describeChange,
   esbirkaPortalUrl,
   EsbirkaError,
+  fetchRelations,
   fetchVersions,
   fingerprintOf,
+  isComparableFingerprint,
   staleUrlOf,
 } from '@/lib/compliance/esbirka'
 import { logger, serializeError } from '@/lib/logger'
@@ -27,7 +29,7 @@ const tellPlatform = async (payload: Payload, title: string, message: string) =>
     title,
     message,
     link: COMPLIANCE_LINK,
-    email: { subject: `Lonvita: ${title}`, body: `<p>${message}</p>` },
+    email: { subject: `Lonvita: ${title}`, body: `<p>${escapeHtml(message)}</p>` },
   })
 }
 
@@ -70,10 +72,13 @@ export const processComplianceCheckJob = async ({
     result.checked++
     try {
       const versions = await fetchVersions(req.code, fetchImpl)
-      const fingerprint = fingerprintOf(versions)
+      await sleep(paceMs)
+      const relations = await fetchRelations(req.code, fetchImpl)
+      const fingerprint = fingerprintOf(versions, relations)
       const previous = req.esbirkaFingerprint ?? ''
-      const changed = previous !== '' && fingerprint !== previous
-      const summary = changed ? describeChange(previous, versions) : null
+      // The first read — or one of a fingerprint from before novely were watched — only learns.
+      const changed = isComparableFingerprint(previous) && fingerprint !== previous
+      const summary = changed ? describeChange(previous, versions, relations) : null
       await payload.update({
         collection: 'legal-requirements',
         id: req.id,

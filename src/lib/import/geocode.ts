@@ -1,6 +1,5 @@
 import { haversineDistanceKm } from '@/lib/geo/distance'
 import { fetchNominatim } from '@/lib/geo/nominatim'
-import { consumeRateLimit } from '@/lib/security/rate-limit'
 
 import { normalizeText } from './normalize'
 
@@ -14,34 +13,22 @@ export type GeocodeFn = (query: string, area: MunicipalityArea) => Promise<Point
 export const isWithinArea = (point: Point, area: MunicipalityArea): boolean =>
   haversineDistanceKm(point.lat, point.lng, area.lat, area.lng) <= area.eventRadiusKm
 
-/** Nominatim allows one request a second for the whole application — shared through Redis, since
- * several import jobs may run at once. */
-async function waitForNominatimSlot(): Promise<void> {
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const slot = await consumeRateLimit({
-      namespace: 'nominatim-import',
-      identifier: 'all',
-      max: 1,
-      windowSeconds: 1,
-    })
-    if (slot.allowed) return
-    await new Promise((resolve) => setTimeout(resolve, 1_100))
-  }
-}
-
 /** The OpenStreetMap lookup, bounded to a box around the obec's area. */
 export const geocodeWithNominatim: GeocodeFn = async (query, area) => {
   const latDelta = area.eventRadiusKm / 111
   const lngDelta = area.eventRadiusKm / (111 * Math.cos((area.lat * Math.PI) / 180))
-  await waitForNominatimSlot()
-  const results = await fetchNominatim<{ lat: string; lon: string }[]>('search', {
-    q: query,
-    format: 'jsonv2',
-    limit: '1',
-    countrycodes: 'cz',
-    viewbox: `${area.lng - lngDelta},${area.lat + latDelta},${area.lng + lngDelta},${area.lat - latDelta}`,
-    bounded: '1',
-  })
+  const results = await fetchNominatim<{ lat: string; lon: string }[]>(
+    'search',
+    {
+      q: query,
+      format: 'jsonv2',
+      limit: '1',
+      countrycodes: 'cz',
+      viewbox: `${area.lng - lngDelta},${area.lat + latDelta},${area.lng + lngDelta},${area.lat - latDelta}`,
+      bounded: '1',
+    },
+    { waitForSlot: true },
+  )
   const first = results?.[0]
   if (!first) return null
   const point = { lat: Number(first.lat), lng: Number(first.lon) }

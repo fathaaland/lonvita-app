@@ -5,6 +5,10 @@ export const QUEUE_NAME = 'lonvita' as const
  * never stuck behind an import or an export rendering in the main queue. */
 export const EMAIL_QUEUE_NAME = 'lonvita-email' as const
 export const SMS_QUEUE_NAME = 'lonvita-sms' as const
+/** Imports (AI extraction, minutes per source) and export rendering — slow and bursty (a nightly
+ * scan queues a job per source), so they get their own queue and slots. Otherwise a batch of them
+ * holds every slot of the main queue while a password reset or a cancellation fan-out waits. */
+export const HEAVY_QUEUE_NAME = 'lonvita-heavy' as const
 
 export const JOB_NAMES = {
   SEND_EMAIL: 'send-email',
@@ -26,6 +30,9 @@ export const JOB_NAMES = {
   REMINDER_SMS: 'reminder-sms',
   SNAPSHOT_ACTIVE_USERS: 'snapshot-active-users',
   COMPLIANCE_CHECK: 'compliance-check',
+  OUTBOX_RELAY: 'outbox-relay',
+  RESTORE_REMINDERS: 'restore-reminders',
+  REGISTRATION_DIGEST: 'registration-digest',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -306,6 +313,39 @@ export type ExportAuditTrailJobResult = {
 }
 
 /**
+ * Every minute: hands the outbox's jobs (lib/outbox) that still aren't in the queue a minute after
+ * they were written to it again, under their own job ids; drops what was dispatched a week ago; and
+ * says (log, Sentry) when announcements are stuck or e-mails pile up. Enqueued only by the worker's
+ * own scheduler.
+ */
+export type OutboxRelayJobData = Record<string, never>
+
+export type OutboxRelayJobResult = {
+  relayed: number
+  failed: number
+  /** Rows dispatched long ago (or given up on) deleted this run. */
+  purged: number
+  /** Not in the queue OUTBOX_STUCK_AFTER_MS after they were written — the alert. */
+  stuck: number
+  emailsWaiting: number | null
+}
+
+/**
+ * Every hour: puts back the reminders of the coming days that Redis lost (collections/shared/reminders
+ * restoreMissingReminders) — only those still ahead. Enqueued only by the worker's own scheduler.
+ */
+export type RestoreRemindersJobData = Record<string, never>
+export type RestoreRemindersJobResult = { events: number; restored: number; failed: number }
+
+/**
+ * The e-mail to an event's team about the registrations of one window (lib/notifications/
+ * registration-digest) — one per recipient instead of one per registration. Queued by the
+ * registrations' hook, delayed until the window has closed.
+ */
+export type RegistrationDigestJobData = { eventId: number | string; windowStart: number }
+export type RegistrationDigestJobResult = { recipients: number; registrations: number; emails: number }
+
+/**
  * Carried on every job so a failure in the worker can be traced back to the web request that
  * produced it — the same id the proxy put on the original request. Without it the two halves
  * of a send ("user asked for a password reset" on Vercel, "Resend rejected it" on Railway) are
@@ -336,3 +376,6 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.REMINDER_SMS; payload: ReminderSmsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SNAPSHOT_ACTIVE_USERS; payload: SnapshotActiveUsersJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.COMPLIANCE_CHECK; payload: ComplianceCheckJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.OUTBOX_RELAY; payload: OutboxRelayJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.RESTORE_REMINDERS; payload: RestoreRemindersJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.REGISTRATION_DIGEST; payload: RegistrationDigestJobData } & Traced)

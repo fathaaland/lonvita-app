@@ -4,6 +4,8 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
+import { getClientIp } from '@/lib/security/rate-limit'
+import { TURNSTILE_REQUIRED_MESSAGE, verifyTurnstile } from '@/lib/security/turnstile'
 import { isValidEmail, isValidPassword } from '@/lib/validation'
 
 const CONSENT_VERSION = '1.0'
@@ -18,6 +20,7 @@ type RegisterBody = {
   noMunicipality?: boolean
   consentAccepted?: boolean
   marketingConsent?: boolean
+  turnstileToken?: string
 }
 
 const validate = (body: RegisterBody): string | null => {
@@ -25,7 +28,7 @@ const validate = (body: RegisterBody): string | null => {
     return 'Please provide a valid email address.'
   }
   if (!isValidPassword(body.password)) {
-    return 'Password must be at least 8 characters.'
+    return 'Password must be 8 to 128 characters long.'
   }
   if (body.password !== body.passwordConfirm) {
     return 'Passwords do not match.'
@@ -43,7 +46,7 @@ const validate = (body: RegisterBody): string | null => {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as RegisterBody
+  const body = (await request.json().catch(() => ({}))) as RegisterBody
   const validationError = validate(body)
   if (validationError) {
     logger.info('Registration rejected', {
@@ -52,6 +55,10 @@ export async function POST(request: Request) {
       correlationId: correlationIdFromHeaders(request.headers),
     })
     return NextResponse.json({ error: validationError }, { status: 400 })
+  }
+
+  if ((await verifyTurnstile(body.turnstileToken, getClientIp(request.headers), 'register')) === 'failed') {
+    return NextResponse.json({ error: TURNSTILE_REQUIRED_MESSAGE }, { status: 428 })
   }
 
   const email = body.email!.toLowerCase()
@@ -65,27 +72,34 @@ export async function POST(request: Request) {
   let createdPayloadUserId: number | null = null
 
   try {
-    let payloadUser
-    try {
-      payloadUser = await payload.create({
-        collection: 'users',
-        // Payload is the only place a password lives, so this is the hash the user will log
-        // in against.
-        data: { email, password, role: 'user' },
-        overrideAccess: true,
+    const existing = await payload.find({
+      collection: 'users',
+      where: { email: { equals: email } },
+      limit: 1,
+      depth: 0,
+      overrideAccess: true,
+    })
+    if (existing.docs[0]) {
+      // Never touch an existing account from here: attaching a profile and consents to it would
+      // let a stranger plant their own profile under somebody's (e.g. Google-only) account. The
+      // answer is the same as for a fresh registration, so it doesn't reveal the address exists.
+      logger.info('Registration rejected', {
+        event: 'auth.registration_rejected',
+        reason: 'email_taken',
+        userId: existing.docs[0].id,
+        correlationId: correlationIdFromHeaders(request.headers),
       })
-      createdPayloadUserId = payloadUser.id
-    } catch {
-      // Duplicate-email race: reuse the existing user instead of failing.
-      const existing = await payload.find({
-        collection: 'users',
-        where: { email: { equals: email } },
-        limit: 1,
-        overrideAccess: true,
-      })
-      if (!existing.docs[0]) throw new Error('Failed to create or find Payload user.')
-      payloadUser = existing.docs[0]
+      return NextResponse.json({ redirectTo: '/auth?registered=true' }, { status: 201 })
     }
+
+    // A concurrent registration of the same address loses on the unique index and fails here.
+    const payloadUser = await payload.create({
+      collection: 'users',
+      // Payload is the only place a password lives, so this is the hash the user will log in against.
+      data: { email, password, role: 'user' },
+      overrideAccess: true,
+    })
+    createdPayloadUserId = payloadUser.id
 
     await payload.create({
       collection: 'profiles',

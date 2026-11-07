@@ -40,6 +40,55 @@ export function isObecSlot(m: SlotFields, now: Date): boolean {
   return m.scrapingFrequency === 'twice_weekly' && day === ((slotDay + 2) % 7) + 1
 }
 
+/** Past its slot by this much with no read, a source's slot counts as missed (the worker was down). */
+const SLOT_GRACE_MS = 3 * 60 * 60 * 1000
+/** How many missed sources one hourly run catches up — a week-long outage drains over a few hours. */
+const CATCH_UP_PER_RUN = 20
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Sources whose slot went by unread — the worker asleep or down that hour, so the slot is gone until
+ * next week. One read longer ago than its interval (a week; with twice a week, the longer of the two
+ * gaps, four days) plus a few hours is queued now, the longest-waiting first. Any read counts — a
+ * failed one or "zkontrolovat teď" too —, and one already queued or running is left alone.
+ */
+async function overdueSources(
+  payload: Awaited<ReturnType<typeof getWorkerPayload>>,
+  municipalities: ({ id: number } & SlotFields)[],
+  now: Date,
+): Promise<number[]> {
+  const out: number[] = []
+  for (const interval of [7 * DAY_MS, 4 * DAY_MS]) {
+    const obce = municipalities
+      .filter((m) => (interval === 4 * DAY_MS) === (m.scrapingFrequency === 'twice_weekly'))
+      .map((m) => m.id)
+    if (obce.length === 0) continue
+    const before = new Date(now.getTime() - interval - SLOT_GRACE_MS).toISOString()
+    const stale = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString()
+    const overdue = await payload.find({
+      collection: 'event-sources',
+      where: {
+        and: [
+          { enabled: { equals: true } },
+          { municipality: { in: obce } },
+          { or: [{ lastRunAt: { less_than: before } }, { and: [{ lastRunAt: { exists: false } }, { createdAt: { less_than: before } }] }] },
+          // Queued or running — unless that mark is hours old (a worker that crashed mid-read).
+          { or: [{ queuedAt: { exists: false } }, { queuedAt: { less_than: stale } }] },
+          { or: [{ runningSince: { exists: false } }, { runningSince: { less_than: stale } }] },
+        ],
+      },
+      select: {},
+      sort: 'lastRunAt',
+      limit: CATCH_UP_PER_RUN - out.length,
+      depth: 0,
+      overrideAccess: true,
+    })
+    out.push(...overdue.docs.map((d) => d.id))
+    if (out.length >= CATCH_UP_PER_RUN) break
+  }
+  return out
+}
+
 /**
  * Every hour: the sources of each obec whose weekly slot this is (Balíčky služeb: "jednou týdně ve
  * slotu domluveném s obcí") — a full pass each. Only an obec that has scraping and isn't suspended;
@@ -62,9 +111,13 @@ export const processScanEventSourcesJob = async (
     overrideAccess: true,
   })
   const due = municipalities.docs.filter((m) => isObecSlot(m, now)).map((m) => m.id)
-  if (due.length === 0) return { queued: 0 }
+  const caughtUp = await overdueSources(payload, municipalities.docs, now)
+  if (due.length === 0 && caughtUp.length === 0) return { queued: 0 }
 
-  const sources = await payload.find({
+  const inSlot =
+    due.length === 0
+      ? { docs: [] as { id: number }[] }
+      : await payload.find({
     collection: 'event-sources',
     where: { and: [{ enabled: { equals: true } }, { municipality: { in: due } }] },
     select: {},
@@ -72,6 +125,10 @@ export const processScanEventSourcesJob = async (
     pagination: false,
     overrideAccess: true,
   })
+  const sources = { docs: [...inSlot.docs, ...caughtUp.filter((id) => !inSlot.docs.some((d) => d.id === id)).map((id) => ({ id }))] }
+  if (caughtUp.length > 0) {
+    logger.warn('Event sources caught up after a missed slot', { event: 'import.sources_caught_up', count: caughtUp.length })
+  }
   const day = pragueToday(now)
   for (const [index, source] of sources.docs.entries()) {
     await enqueueImportEvents(

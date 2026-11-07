@@ -90,7 +90,7 @@ export const setLogSink = (next: LogSink | null): void => {
  * holds the changes that matter), the audit log's own copy, and lines whose numbers live elsewhere
  * (AI calls on the usage-events ledger). */
 const UNSTORED_EVENT =
-  /^(crud\.|payload\.(?!unhandled_error)|audit\.entry$|logger\.|import\.ai_call$)/
+  /^(crud\.|payload\.(?!unhandled_error|request_error)|audit\.entry$|logger\.|import\.ai_call$)/
 
 /**
  * What goes into a table, and which one. Sign-ins and everything else under `auth.`/`security.`
@@ -151,6 +151,26 @@ const store = (entry: StoredLogEntry) => {
   keepAliveUntilSettled(write)
 }
 
+/**
+ * Lines that may page the platform team (lib/alerts/ops decides which). Loaded on first use, so a
+ * process that never logs one never opens the alert module's Redis connection.
+ */
+const ALERT_CANDIDATE = /^(worker\.|payload\.unhandled_error$|outbox\.|queue\.(job_failed|email_backlog)$|retention\.|audit_export\.|users\.anonymize_failed$|security\.|auth\.(login_failed|superadmin_locked|registration_rejected)$|ops\.test$)/
+let opsAlerts: Promise<typeof import('@/lib/alerts/ops')> | undefined
+
+const maybeAlert = (line: Parameters<typeof import('@/lib/alerts/ops').raiseOpsAlertFor>[0]) => {
+  if (line.fields.severity !== 'fatal' && !(line.event && ALERT_CANDIDATE.test(line.event))) return
+  if (!process.env.OPS_DISCORD_WEBHOOK_URL && !process.env.OPS_ALERT_EMAILS) return
+  opsAlerts ??= import('@/lib/alerts/ops')
+  keepAliveUntilSettled(
+    opsAlerts
+      .then((module) => module.raiseOpsAlertFor(line))
+      .catch((error: unknown) =>
+        console.error(JSON.stringify({ level: 'error', message: 'logger.ops_alert_failed', error: String(error) })),
+      ),
+  )
+}
+
 const log = (level: LogLevel, message: string, context?: LogContext, audit = false) => {
   // The audit trail isn't diagnostics — LOG_LEVEL never thins it out.
   if (!audit && LEVEL_WEIGHT[level] < minLevelWeight) return
@@ -166,6 +186,7 @@ const log = (level: LogLevel, message: string, context?: LogContext, audit = fal
   )
 
   const event = typeof fields.event === 'string' ? fields.event : null
+  maybeAlert({ level, message, event, service, environment, fields })
   // An audit entry the database refused is the one copy left of it — kept, unlike the usual echo.
   const kind =
     event === 'audit.entry' && fields.stored === false ? 'system' : classify(level, event, audit)

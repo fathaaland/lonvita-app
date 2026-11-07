@@ -1,4 +1,3 @@
-import { afterCommit } from '@/lib/after-commit'
 import type {
   Access,
   CollectionAfterChangeHook,
@@ -15,6 +14,7 @@ import type {
 import { APIError } from 'payload'
 
 import {
+  forgetPublicFaces,
   getAdministeredMunicipalityIds,
   getOrganizerMunicipalityIds,
 } from './access/shared'
@@ -451,6 +451,42 @@ const isCreatorOrPlatformAdmin = ({ req, doc }: { req: PayloadRequest; doc?: { o
   req.user?.role === 'admin' || (Boolean(req.user) && relationId(doc?.organizer) === String(req.user!.id))
 
 /**
+ * A place given can't be taken back by shrinking the event: capacity below the approved participants
+ * is refused (reject some first). Whatever the capacity becomes, `full`/`active` follows it — the
+ * registrations' own hook (Registrations broadcastCapacityChange) only recounts when a registration
+ * moves. A write without a user (the worker syncing an imported event with its calendar) isn't
+ * refused, only recounted.
+ */
+const syncCapacityStatus: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
+  if (operation !== 'update' || !originalDoc) return data
+  const capacity = data.capacity ?? originalDoc.capacity
+  if (data.capacity === undefined || data.capacity === originalDoc.capacity) return data
+  const status = data.status ?? originalDoc.status
+  const approved = (
+    await req.payload.count({
+      collection: 'registrations',
+      where: {
+        and: [
+          { event: { equals: originalDoc.id } },
+          { status: { equals: 'approved' } },
+          { role: { not_equals: 'volunteer' } },
+        ],
+      },
+      overrideAccess: true,
+      req,
+    })
+  ).totalDocs
+  if (req.user && capacity < approved) {
+    throw new APIError(
+      `Kapacitu nejde snížit pod počet schválených účastníků (${approved}). Nejdřív některé přihlášky zamítněte.`,
+      400,
+    )
+  }
+  if (status === 'active' || status === 'full') data.status = approved >= capacity ? 'full' : 'active'
+  return data
+}
+
+/**
  * Back to a draft only while nobody is on the event yet — no participant, no volunteer (signed up or
  * invited), no spolupořadatel: once anyone is, it stays published (cancelling stays). */
 const guardBackToDraft: CollectionBeforeChangeHook = async ({ data, req, operation, originalDoc }) => {
@@ -535,6 +571,18 @@ const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, orig
     throw new APIError('Na akci se už přihlásil dobrovolník — označení dobrovolnické akce už odebrat nejde.', 400)
   }
 
+  return data
+}
+
+/**
+ * The organizer of a new event is whoever creates it. Only a platform superadmin (the superadmin
+ * panel files events under an obec's pořadatel) and trusted internal writes without a user (seeds,
+ * scripts) may name someone else — otherwise any pořadatel could put a colleague's name on an
+ * event they never agreed to run.
+ */
+const forceOrganizerToCreator: CollectionBeforeChangeHook = ({ data, req, operation }) => {
+  if (operation !== 'create' || !data || !req.user || req.user.role === 'admin') return data
+  data.organizer = req.user.id
   return data
 }
 
@@ -858,18 +906,12 @@ const notifyRegistrantsOnCancellation: CollectionAfterChangeHook = async ({
   if (operation !== 'update') return doc
   if (previousDoc?.deletedAt || !doc.deletedAt) return doc
 
-  // Queued once the cancel has committed: from inside the transaction the worker could read the event
-  // before it — and find nothing cancelled — and Redis being slow would hold the transaction open. A
-  // queue that isn't there at all is caught up by the worker (sync-statuses, from the audit trail).
-  const cancelled = doc
-  const cancelledAt: string = doc.deletedAt
-  await afterCommit(req, async () => {
-    try {
-      await notifyEventCancelled(req.payload, cancelled, { jobId: cancellationJobId(cancelled.id, cancelledAt) })
-    } catch (error) {
-      req.payload.logger.error(`Failed to notify registrants of cancelled event ${cancelled.id}: ${error}`)
-    }
-  })
+  // Written to the outbox in the cancel's own transaction (lib/outbox) and queued once it has
+  // committed: from inside the transaction the worker could read the event before it — and find
+  // nothing cancelled — and Redis being slow would hold the transaction open. A queue that isn't
+  // there at that moment is the outbox relay's to catch up. The registrants are collected here, before
+  // the volunteer invitations below are withdrawn — the job tells those volunteers too.
+  await notifyEventCancelled(req.payload, doc, { jobId: cancellationJobId(doc.id, doc.deletedAt), req })
 
   // Volunteer invitations and offers still waiting on it can't be answered any more — withdrawn in
   // the same transaction, quietly (the cancellation job above tells those volunteers).
@@ -905,14 +947,8 @@ const notifyRegistrantsOnEdit: CollectionAfterChangeHook = async ({ doc, previou
   if (doc.deletedAt) return doc // the cancellation hook already covers this transition
   if (changedNotifiableFields(snapshotNotifiableFields(previousDoc), doc).length === 0) return doc
 
-  // Once committed — see the cancellation hook above.
-  await afterCommit(req, async () => {
-    try {
-      await queueEventUpdatedNotification(doc.id, previousDoc)
-    } catch (error) {
-      req.payload.logger.error(`Failed to queue edit notification for event ${doc.id}: ${error}`)
-    }
-  })
+  // Through the outbox, queued once committed — see the cancellation hook above.
+  await queueEventUpdatedNotification(req, doc.id, previousDoc)
 
   return doc
 }
@@ -1602,13 +1638,16 @@ export const Events: CollectionConfig = {
       guardCancellationWindow,
       validateEventDates,
       validateEventLocationRadius,
+      forceOrganizerToCreator,
       requireOrganizerRole,
       resolveOrganizations,
       guardCoOrganizedChanges,
       guardIsVolunteering,
       guardBackToDraft,
+      syncCapacityStatus,
     ],
     afterChange: [
+      forgetPublicFaces,
       notifyRegistrantsOnCancellation,
       auditCancellation,
       notifyRegistrantsOnEdit,
@@ -1617,7 +1656,7 @@ export const Events: CollectionConfig = {
       releaseOrganizersPlaces,
     ],
     beforeDelete: [cleanupEventRelations],
-    afterDelete: [auditDelete, notifyOrganizersOnObecDelete, removeEventFiles],
+    afterDelete: [forgetPublicFaces, auditDelete, notifyOrganizersOnObecDelete, removeEventFiles],
     afterRead: [deriveFinishedStatus],
   },
   timestamps: true,

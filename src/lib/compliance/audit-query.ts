@@ -179,7 +179,7 @@ const cell = (value: unknown): string => {
   if (value === null || value === undefined) return ''
   const raw = typeof value === 'string' ? value : JSON.stringify(value)
   // A leading = + - @ would run as a formula in Excel.
-  const text = /^[=+\-@\t]/.test(raw) ? `'${raw}` : raw
+  const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw
   return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 

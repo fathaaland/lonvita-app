@@ -190,6 +190,7 @@ function IndexContent() {
           location_text: e.location_text,
           capacity: e.capacity,
           image_url: e.image_url,
+          image_srcset: e.image_srcset,
           image_position: e.image_position,
           is_paid: e.is_paid,
           price_cents: e.price_cents,

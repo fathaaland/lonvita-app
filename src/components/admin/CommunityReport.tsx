@@ -2,7 +2,6 @@
 
 import { useMemo, useRef, useState } from "react";
 import { saveAs } from "file-saver";
-import html2canvas from "html2canvas";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,6 +76,8 @@ ${methodologyParagraph(metrics)}
   const downloadJpeg = async () => {
     if (!reportCardRef.current) return;
     try {
+      // Loaded on the click — a sizeable library nobody needs until they ask for the image.
+      const { default: html2canvas } = await import("html2canvas");
       const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: "#ffffff" });
       canvas.toBlob((blob) => {
         if (!blob) {

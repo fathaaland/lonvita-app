@@ -32,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 const volunteersLabel = (n: number) => (n === 1 ? "1 dobrovolník" : n < 5 ? `${n} dobrovolníci` : `${n} dobrovolníků`);
 
@@ -183,7 +184,7 @@ export function VolunteersTable({
                               </span>
                             )}
                             {r.location ? `Pomáhá v obci ${r.location.name}` : "Zatím bez obce"}
-                            {r.volunteer_since && ` · od ${new Date(r.volunteer_since).toLocaleDateString("cs-CZ")}`}
+                            {r.volunteer_since && ` · od ${new Date(r.volunteer_since).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}`}
                           </p>
                         </div>
                         <RatingBadge rating={r.rating} />

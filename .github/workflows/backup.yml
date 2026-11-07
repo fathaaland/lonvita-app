@@ -11,7 +11,7 @@ name: Database backup
 #   BACKUP_S3_BUCKET        bucket for the dumps (versioning on, lifecycle rule e.g. 90 days, not the media bucket)
 #   BACKUP_S3_ACCESS_KEY_ID / BACKUP_S3_SECRET_ACCESS_KEY / BACKUP_S3_REGION, BACKUP_S3_ENDPOINT (non-AWS only)
 # Repository variable (optional):
-#   BACKUP_PG_MAJOR         pg_dump's major version — at least the server's (default 17)
+#   BACKUP_PG_MAJOR         pg_dump's major version — at least the server's (default 18 — Neon runs 18)
 
 on:
   schedule:
@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PG_MAJOR: ${{ vars.BACKUP_PG_MAJOR || '17' }}
+  PG_MAJOR: ${{ vars.BACKUP_PG_MAJOR || '18' }}
   AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
@@ -67,7 +67,7 @@ jobs:
     timeout-minutes: 60
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: restore
           POSTGRES_PASSWORD: restore
@@ -105,3 +105,25 @@ jobs:
           if [ "$users" -lt 1 ] || [ "$migrations" -lt 1 ]; then echo "::error::Restored database is empty"; exit 1; fi
           newest=$(q "SELECT max(created_at) FROM audit_log")
           echo "Newest audit-log entry in the dump: $newest"
+
+  # Data loss is the incident nobody notices until it's too late — a failed backup or restore drill
+  # goes straight to the platform team's Discord (the same webhook as lib/alerts/ops).
+  alert-on-failure:
+    needs: [backup, restore-test]
+    if: always() && (needs.backup.result == 'failure' || needs.restore-test.result == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discord
+        env:
+          WEBHOOK: ${{ secrets.OPS_DISCORD_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WHICH: ${{ needs.backup.result == 'failure' && 'Záloha databáze' || 'Test obnovy zálohy' }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "::warning::OPS_DISCORD_WEBHOOK_URL secret not set"; exit 0; fi
+          jq -n --arg which "$WHICH" --arg url "$RUN_URL" '{
+            username: "Lonvita alerts",
+            allowed_mentions: { parse: [] },
+            content: "🚨 **Kritický alert**",
+            embeds: [{ title: ($which + " selhala"), url: $url, color: 14427686,
+                       description: "Hrozí ztráta dat — zkontrolovat běh workflow." }]
+          }' | curl -fsS -X POST -H 'Content-Type: application/json' --data @- "$WEBHOOK"

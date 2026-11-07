@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { CURRENT_PATH_HEADER } from '@/lib/auth/redirect'
 import { acceptCorrelationId } from '@/lib/logger/correlation'
-import { consumeRateLimit, getClientIp, PROXY_RATE_LIMITS } from '@/lib/security/rate-limit'
+import { consumeRateLimit, getClientIp, normalizeRateLimitPath, PROXY_RATE_LIMITS } from '@/lib/security/rate-limit'
 
 import type { NextRequest } from 'next/server'
 
@@ -26,7 +26,7 @@ const applySecurityHeaders = (response: NextResponse) => {
 const rateLimited = async (request: NextRequest, correlationId: string): Promise<NextResponse | null> => {
   if (request.method !== 'POST') return null
 
-  const { pathname } = request.nextUrl
+  const pathname = normalizeRateLimitPath(request.nextUrl.pathname)
   const limit = PROXY_RATE_LIMITS[pathname]
   if (!limit) return null
 

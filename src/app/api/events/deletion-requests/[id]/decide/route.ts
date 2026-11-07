@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { APIError, commitTransaction, createLocalReq, getPayload, initTransaction, killTransaction } from 'payload'
+import type { PayloadRequest } from 'payload'
 
 import config from '@payload-config'
 import { eventOrganizerIds, isEventCreator, neighbourObceOf, obecRole } from '@/collections/Events'
@@ -25,6 +26,23 @@ import { relationId } from '@/lib/relations'
 
 const DECISIONS = ['approve', 'reject', 'remove-requester'] as const
 type Decision = (typeof DECISIONS)[number]
+
+/** Somebody decided the request between this one reading it and locking it. */
+class AlreadyDecided extends Error {}
+
+const alreadyDecided = () => NextResponse.json({ error: 'O žádosti už bylo rozhodnuto.' }, { status: 409 })
+
+/**
+ * Locks the request for the rest of `req`'s transaction and checks it is still waiting. Every way of
+ * settling it (reject, remove the requester, the last consent deleting the event) goes through here,
+ * so a reject landing while the event is being deleted either waits and finds it decided, or wins and
+ * the deletion finds it rejected — never both.
+ */
+async function lockStillPending(req: PayloadRequest, id: number | string): Promise<void> {
+  await lockRow(req, 'event_deletion_requests', id)
+  const current = await req.payload.findByID({ collection: 'event-deletion-requests', id, depth: 0, overrideAccess: true, req })
+  if (current.status !== 'pending') throw new AlreadyDecided()
+}
 
 /**
  * A spolupořadatel answers a request to delete the event they run together
@@ -161,6 +179,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const shouldCommit = await initTransaction(req)
     let updated
     try {
+      await lockStillPending(req, deletionRequest.id)
       updated = requesterObec
         ? await removeObecFromEvent(req, event, requesterObec)
         : obecTakesOver
@@ -181,6 +200,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (shouldCommit) await commitTransaction(req)
     } catch (error) {
       if (shouldCommit) await killTransaction(req)
+      if (error instanceof AlreadyDecided) return alreadyDecided()
       // E.g. the successor no longer organizes in the obec (Events requireOrganizerRole).
       if (error instanceof APIError && error.status < 500) {
         return NextResponse.json({ error: error.message }, { status: 409 })
@@ -212,18 +232,29 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   if (decision === 'reject') {
-    await payload.update({
-      collection: 'event-deletion-requests',
-      id: deletionRequest.id,
-      // A neighbouring obec refuses as a spolupořadatel does — the requester may then turn to the obec.
-      data: {
-        status: 'rejected',
-        decidedBy: user.id,
-        decidedAt,
-        rejectedBy: asApprover || forNeighbour ? user.id : null,
-      },
-      overrideAccess: true,
-    })
+    const rejectReq = await createLocalReq({ user }, payload)
+    const rejectCommit = await initTransaction(rejectReq)
+    try {
+      await lockStillPending(rejectReq, deletionRequest.id)
+      await payload.update({
+        collection: 'event-deletion-requests',
+        id: deletionRequest.id,
+        // A neighbouring obec refuses as a spolupořadatel does — the requester may then turn to the obec.
+        data: {
+          status: 'rejected',
+          decidedBy: user.id,
+          decidedAt,
+          rejectedBy: asApprover || forNeighbour ? user.id : null,
+        },
+        overrideAccess: true,
+        req: rejectReq,
+      })
+      if (rejectCommit) await commitTransaction(rejectReq)
+    } catch (error) {
+      if (rejectCommit) await killTransaction(rejectReq)
+      if (error instanceof AlreadyDecided) return alreadyDecided()
+      throw error
+    }
     writeAuditLog(payload, {
       source: request,
       action: 'event-deletion-requests.reject',
@@ -400,6 +431,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const req = await createLocalReq({ user }, payload)
   const shouldCommit = await initTransaction(req)
   try {
+    // The lock above was released — a reject may have landed since.
+    await lockStillPending(req, deletionRequest.id)
     // Registrations, photos, invitations… go with the event (Events cleanupEventRelations).
     await payload.update({
       collection: 'event-deletion-requests',
@@ -417,9 +450,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     })
     // The organizers asked for this themselves — Events' "obec deleted your event" stays quiet.
     await payload.delete({ collection: 'events', id: event.id, overrideAccess: true, req, context: { coOrganizerConsent: true } })
+    // The registrants are told it's off — through the outbox, in this same transaction (lib/outbox):
+    // the announcement commits with the deletion, and reaches the queue even if Redis is down now.
+    await notifyEventCancelled(payload, event, { registrants, req })
     if (shouldCommit) await commitTransaction(req)
   } catch (error) {
     if (shouldCommit) await killTransaction(req)
+    if (error instanceof AlreadyDecided) return alreadyDecided()
     logger.error('Consented event deletion failed', {
       event: 'events.consented_deletion_failed',
       eventId: event.id,
@@ -429,11 +466,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Akci se nepodařilo smazat.' }, { status: 500 })
   }
 
-  try {
-    await notifyEventCancelled(payload, event, { registrants })
-  } catch (error) {
-    payload.logger.error(`Failed to notify registrants of deleted event ${event.id}: ${error}`)
-  }
   sendNotificationToMany(payload, team, {
     title: 'Akce smazána',
     message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillTakesPart ? ' i obce' : ''} smazána.`,

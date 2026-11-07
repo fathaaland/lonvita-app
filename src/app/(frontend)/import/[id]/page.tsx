@@ -19,11 +19,11 @@ import { EmptyState } from '@/components/EmptyState'
 import { EventForm, type EventFormPrefill, type EventFormValues } from '@/components/EventForm'
 import { IMPORT_WARNINGS } from '@/lib/import/contracts'
 import { UNLIMITED_CAPACITY } from '@/lib/capacity'
-import { toDateInputValue } from '@/lib/date'
+import { toDateInputValue, toTimeInputValue } from '@/lib/date'
 import { sendFollowUpRequests } from '@/lib/eventFollowUpRequests'
 
 const toLocalTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
+  toTimeInputValue(iso)
 
 /** The imported event as the form's starting values — an end on the same day goes into the
  * description, since the form keeps an end only for an event over several days. */

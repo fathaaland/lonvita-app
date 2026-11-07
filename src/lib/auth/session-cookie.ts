@@ -1,6 +1,8 @@
 import { SignJWT } from 'jose'
 
-import type { Payload } from 'payload'
+import { openSession } from '@/lib/auth/sessions'
+
+import type { Payload, TypedUser } from 'payload'
 
 /**
  * Mints the same `payload-token` cookie Payload's own login issues, for sign-ins where there is
@@ -15,10 +17,14 @@ export async function buildPayloadTokenCookie(payload: Payload, user: { id: numb
   const collectionConfig = payload.collections['users']?.config
   const tokenExpiration = collectionConfig?.auth?.tokenExpiration ?? 7200
 
+  // A session of its own, as a password login opens — the token is good only while it lasts
+  // (lib/auth/sessions), so signing out ends it.
+  const sid = await openSession(payload, user as unknown as TypedUser)
+
   const issuedAt = Math.floor(Date.now() / 1000)
   // `payload.secret` is already the sha256-derived key Payload verifies with — not the raw
   // PAYLOAD_SECRET env value.
-  const token = await new SignJWT({ id: user.id, collection: 'users', email: user.email })
+  const token = await new SignJWT({ id: user.id, collection: 'users', email: user.email, ...(sid ? { sid } : {}) })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuedAt(issuedAt)
     .setExpirationTime(issuedAt + tokenExpiration)

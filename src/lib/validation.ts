@@ -4,9 +4,12 @@ export const isValidEmail = (value: string | null | undefined): value is string 
   Boolean(value && EMAIL_RE.test(value))
 
 export const MIN_PASSWORD_LENGTH = 8
+/** Every sign-in hashes what it's given (PBKDF2) — a megabyte "password" would be a cheap way to keep
+ * the server busy. Far above any passphrase anybody types. */
+export const MAX_PASSWORD_LENGTH = 128
 
 export const isValidPassword = (value: string | null | undefined): value is string =>
-  Boolean(value && value.length >= MIN_PASSWORD_LENGTH)
+  Boolean(value && value.length >= MIN_PASSWORD_LENGTH && value.length <= MAX_PASSWORD_LENGTH)
 
 /** Bounds for the "why do you want to organize here" text of an organizer-role request. */
 export const ORGANIZER_REASON_MIN_LENGTH = 20

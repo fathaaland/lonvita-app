@@ -5,6 +5,7 @@
 
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { relationId } from "@/lib/relations";
+import { APP_TIME_ZONE, pragueStartOfDay, pragueWeekday, pragueYmd } from "@/lib/date";
 
 export type Period = "7" | "30" | "90" | "all";
 
@@ -110,20 +111,19 @@ export function isAged50Plus(profile: Pick<ProfileRow, "date_of_birth" | "over_5
 
 /** Age on a given date from an ISO date-of-birth string — shared by the Datavita calc and the report. */
 export function ageOn(dobIso: string, on: Date): number {
+  // A date of birth is a calendar date (stored at midnight UTC) — read as such; "on" is the day in Prague.
   const dob = new Date(dobIso);
-  let age = on.getFullYear() - dob.getFullYear();
-  const m = on.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && on.getDate() < dob.getDate())) age--;
+  const today = pragueYmd(on);
+  let age = today.year - dob.getUTCFullYear();
+  const m = today.month - 1 - dob.getUTCMonth();
+  if (m < 0 || (m === 0 && today.day < dob.getUTCDate())) age--;
   return age;
 }
 
 export function periodStart(period: Period): Date | null {
   if (period === "all") return null;
   const days = parseInt(period, 10);
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return pragueStartOfDay(new Date(), -days);
 }
 
 export function periodLabel(period: Period): string {
@@ -253,17 +253,15 @@ export function computeKpis(
 
 /* ===== Časové řady (po týdnech) ===== */
 
+/** Monday 00:00 in Prague of the week `d` falls in. */
 function startOfWeek(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  const day = x.getDay(); // 0 ne ... 6 so
-  const diff = day === 0 ? -6 : 1 - day; // pondělí
-  x.setDate(x.getDate() + diff);
-  return x;
+  const day = pragueWeekday(d.toISOString()); // 0 ne ... 6 so
+  return pragueStartOfDay(d, day === 0 ? -6 : 1 - day);
 }
 
 function fmtWeek(d: Date): string {
-  return `${d.getDate()}.${d.getMonth() + 1}.`;
+  const { month, day } = pragueYmd(d);
+  return `${day}.${month}.`;
 }
 
 export interface WeekPoint {
@@ -277,10 +275,9 @@ export function weeklySeries(events: EventRow[], regs: RegistrationRow[], weeks 
   const today = startOfWeek(new Date());
   const out: WeekPoint[] = [];
   for (let i = weeks - 1; i >= 0; i--) {
-    const wStart = new Date(today);
-    wStart.setDate(wStart.getDate() - i * 7);
-    const wEnd = new Date(wStart);
-    wEnd.setDate(wEnd.getDate() + 7);
+    // Calendar weeks in Prague — a week across a DST switch is an hour shorter or longer.
+    const wStart = pragueStartOfDay(today, -i * 7);
+    const wEnd = pragueStartOfDay(today, -i * 7 + 7);
     const evs = events.filter((e) => {
       const t = new Date(e.date_time).getTime();
       return t >= wStart.getTime() && t < wEnd.getTime();
@@ -319,7 +316,6 @@ export function weeklySeries(events: EventRow[], regs: RegistrationRow[], weeks 
 export const DATAVITA_MIN_PARTICIPANTS = 30;
 export const DATAVITA_MIN_EVENTS = 5;
 
-const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function activeParticipantIds(events: EventRow[], regs: RegistrationRow[], ws: number, we: number): Set<string> {
   const eventIds = new Set(events.filter((e) => {
@@ -456,10 +452,9 @@ export function datavitaSeries(
   let prevParticipants = new Set<string>();
 
   for (let i = weeks - 1; i >= 0; i--) {
-    const wStart = new Date(today);
-    wStart.setDate(wStart.getDate() - i * 7);
+    const wStart = pragueStartOfDay(today, -i * 7);
     const ws = wStart.getTime();
-    const we = ws + ONE_WEEK_MS;
+    const we = pragueStartOfDay(today, -i * 7 + 7).getTime();
 
     const result = computeDatavitaWindow(events, regs, profiles50Plus, ws, we, prevParticipants);
 
@@ -553,7 +548,7 @@ const DAY_LABELS = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 export function byDayOfWeek(events: EventRow[]): { day: string; events: number }[] {
   const counts = [0, 0, 0, 0, 0, 0, 0];
   for (const e of heldEvents(events)) {
-    const d = new Date(e.date_time).getDay(); // 0 ne ... 6 so
+    const d = pragueWeekday(e.date_time); // 0 ne ... 6 so
     const idx = d === 0 ? 6 : d - 1;
     counts[idx]++;
   }
@@ -698,7 +693,7 @@ export function buildEventsCsv(
     const fill = hasFillRate(e) ? Math.round((a / e.capacity) * 100) : 0;
     return [
       e.title,
-      new Date(e.date_time).toLocaleString("cs-CZ"),
+      new Date(e.date_time).toLocaleString("cs-CZ", { timeZone: APP_TIME_ZONE }),
       e.category_ids.map((id) => cats.get(id)).filter(Boolean).join(", "),
       profs.get(e.organizer_id) ?? "",
       isUnlimitedCapacity(e.capacity) ? "neomezená" : String(e.capacity),

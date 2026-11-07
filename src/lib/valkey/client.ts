@@ -1,6 +1,14 @@
 import { Redis } from 'ioredis'
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
+// Local development and tests only. A deployment without REDIS_URL would otherwise quietly aim every
+// queue at a localhost nobody runs there — e-mails "sent" into nowhere; validateEnv reports it too.
+const redisUrl =
+  process.env.REDIS_URL ||
+  (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build'
+    ? (() => {
+        throw new Error('REDIS_URL is not set — the job queue, rate limits and live capacity need it.')
+      })()
+    : 'redis://localhost:6379')
 const parsedRedisUrl = new URL(redisUrl)
 
 const useTls = parsedRedisUrl.protocol === 'rediss:'

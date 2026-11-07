@@ -14,6 +14,9 @@ import { consumeRateLimit } from '@/lib/security/rate-limit'
 const MAX_PENDING_PER_USER = 3
 const RATE_LIMIT = { max: 20, windowSeconds: 60 * 60 }
 
+/** Queued or processing for longer than this, an export is taken as lost — rendering takes minutes. */
+const STALE_EXPORT_MS = 30 * 60 * 1000
+
 /**
  * Asks the worker for a report file. Answers immediately with the `exports` row id; the client
  * polls GET /api/exports/:id and downloads through /api/exports/:id/download once it's done.
@@ -32,6 +35,22 @@ export async function POST(request: Request) {
   const access = await canRequestExport(payload, user, exportRequest)
   if (access === 'missing') return NextResponse.json({ error: 'Záznam neexistuje.' }, { status: 404 })
   if (access === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  // One the worker never finished (it was restarted mid-render, or the job got lost) would otherwise
+  // count as pending until it expires in a week — failed now, so it no longer blocks a new one. Should
+  // its job still run, it renders it all the same (generate-export skips only a done one).
+  await payload.update({
+    collection: 'exports',
+    where: {
+      and: [
+        { owner: { equals: user.id } },
+        { status: { in: ['queued', 'processing'] } },
+        { updatedAt: { less_than: new Date(Date.now() - STALE_EXPORT_MS).toISOString() } },
+      ],
+    },
+    data: { status: 'failed', error: 'Export se nepodařilo dokončit — zkuste to prosím znovu.' },
+    overrideAccess: true,
+  })
 
   const pending = await payload.count({
     collection: 'exports',

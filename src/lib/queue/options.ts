@@ -51,3 +51,8 @@ export const workerOptions = {
   stalledInterval: 30_000,
   maxStalledCount: 2,
 }
+
+/** E-mails waiting in the queue past which /api/health turns 503 and the worker reports to Sentry —
+ * at the default 2 a second, a thousand is a backlog of about eight minutes (a cancellation of a
+ * full event is a few hundred). EMAIL_BACKLOG_ALERT sets another. */
+export const emailBacklogAlertThreshold = () => ratePerSecond(process.env.EMAIL_BACKLOG_ALERT, 1_000)

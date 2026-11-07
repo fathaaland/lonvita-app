@@ -115,7 +115,7 @@ import type { CategoryRow } from '@/lib/analytics'
 import { LocationPicker } from '@/components/map/LocationPickerClient'
 import type { PickedLocation } from '@/components/map/LocationPicker'
 import { MunicipalitiesMap } from '@/components/map/MunicipalitiesMapClient'
-import { formatEventDateTime, toDateInputValue } from '@/lib/date'
+import { formatEventDateTime, toDateInputValue, APP_TIME_ZONE } from '@/lib/date'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { INVALID_PHONE_MESSAGE, isValidPhone } from '@/lib/phone'
@@ -1579,7 +1579,7 @@ function SuperAdminContent() {
                               <p className="font-semibold text-sm truncate">{r.full_name}</p>
                               <p className="text-xs text-muted-foreground">
                                 {r.municipality_name} ·{' '}
-                                {new Date(r.created_at).toLocaleDateString('cs-CZ')}
+                                {new Date(r.created_at).toLocaleDateString('cs-CZ', { timeZone: APP_TIME_ZONE })}
                               </p>
                             </div>
                             <ConfirmActionButton

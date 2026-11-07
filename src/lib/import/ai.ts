@@ -39,6 +39,27 @@ export class ImportAiError extends Error {
   }
 }
 
+/**
+ * The AI provider, not the source: rate-limited (429), overloaded or down (5xx), or unreachable. The
+ * queue tries again later, and it never counts as the source failing — seven of those in a row would
+ * otherwise switch a perfectly good source off (import-events.processor).
+ */
+export class ImportAiUnavailableError extends Error {
+  readonly code = 'ai_unavailable'
+  constructor(readonly status: number | null) {
+    super('AI je teď přetížená nebo nedostupná — načtení se zopakuje později.')
+    this.name = 'ImportAiUnavailableError'
+  }
+}
+
+const isTransientAiError = (error: InstanceType<typeof Anthropic.APIError>) =>
+  error instanceof Anthropic.APIConnectionError ||
+  error.status === undefined ||
+  error.status === 408 ||
+  error.status === 409 ||
+  error.status === 429 ||
+  error.status >= 500
+
 export const isAiConfigured = (): boolean => Boolean(process.env.ANTHROPIC_API_KEY?.trim())
 
 let client: Anthropic | undefined
@@ -48,7 +69,9 @@ const getClient = (): Anthropic => {
       'AI extrakce není nastavená (chybí ANTHROPIC_API_KEY).',
       'not_configured',
     )
-  client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  // The SDK's default is a 10-minute timeout with 2 retries of its own — one hung call would hold
+  // an import slot for half an hour. The import job has its own retries (and the token cap).
+  client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 120_000, maxRetries: 1 })
   return client
 }
 
@@ -255,6 +278,7 @@ async function callModel<T extends z.ZodType>(
         status: error.status,
         message: error.message,
       })
+      if (isTransientAiError(error)) throw new ImportAiUnavailableError(error.status ?? null)
       throw new ImportAiError('AI extrakce selhala — zkuste to později.', 'failed')
     }
     throw error

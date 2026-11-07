@@ -1,6 +1,7 @@
-import type { Payload } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
-import { enqueueEventCancelled, enqueueEventUpdated } from '@/lib/queue/queues'
+import { enqueueOrPark, enqueueThroughOutbox } from '@/lib/outbox'
+import { JOB_NAMES } from '@/lib/queue/contracts'
 import { requiredRelationNumber } from '@/lib/relations'
 
 /** Brief §7 "Úprava existující akce → všichni přihlášení účastníci" — every field a participant
@@ -48,6 +49,7 @@ export async function getEventRegistrants(
   payload: Payload,
   eventId: number | string,
   organizerId: number | string,
+  req?: PayloadRequest,
 ): Promise<{
   userIds: (number | string)[]
   registrationIds: (number | string)[]
@@ -56,6 +58,7 @@ export async function getEventRegistrants(
   const regs = await payload.find({
     collection: 'registrations',
     where: { event: { equals: eventId } },
+    req,
     depth: 0,
     pagination: false,
     overrideAccess: true,
@@ -68,6 +71,7 @@ export async function getEventRegistrants(
     collection: 'volunteer-invitations',
     where: { and: [{ event: { equals: eventId } }, { status: { equals: 'pending' } }] },
     select: { volunteer: true },
+    req,
     depth: 0,
     pagination: false,
     overrideAccess: true,
@@ -87,12 +91,16 @@ export async function getEventRegistrants(
  * Hands the "akce upravena" announcement to the worker — the registrants can be hundreds, and
  * each one is a notification row and an e-mail. Only the pre-edit snapshot travels: the
  * worker reads the event once the edit has committed (and any quick follow-up edits with it).
+ * Through the outbox, in the edit's own transaction: committed together, or not at all.
  */
 export async function queueEventUpdatedNotification(
+  req: PayloadRequest,
   eventId: number | string,
   previousDoc: Record<string, unknown>,
 ): Promise<void> {
-  await enqueueEventUpdated({ eventId, before: snapshotNotifiableFields(previousDoc) })
+  await enqueueThroughOutbox(req, {
+    job: { jobType: JOB_NAMES.EVENT_UPDATED, payload: { eventId, before: snapshotNotifiableFields(previousDoc) } },
+  })
 }
 
 /** Written (audit log) once the registrants of a cancelled event have been told — what the worker's
@@ -106,9 +114,11 @@ export const cancellationJobId = (eventId: number | string, cancelledAt: string 
 
 /**
  * Tells the registrants the event is off — in-app, e-mail and SMS — and drops its queued
- * reminders, in the worker. Shared by the cancel hook and the co-organizers' consented hard
- * delete (api/events/deletion-requests), which has to collect the registrants before deleting
- * them. Call it once the cancel has committed (afterCommit): the worker reads the event.
+ * reminders, in the worker. Shared by the cancel hook, the co-organizers' consented hard delete
+ * (api/events/deletion-requests), which has to collect the registrants before deleting them, and
+ * the worker's catch-up (sync-statuses). With `req`: through the outbox, in the cancel's own
+ * transaction — the announcement commits with the cancel or not at all, and reaches the queue even if
+ * Redis is down right then. Without (the worker): straight to the queue, parked in the outbox if it's down.
  */
 export async function notifyEventCancelled(
   payload: Payload,
@@ -119,18 +129,29 @@ export async function notifyEventCancelled(
     organizer: number | { id: number }
     municipality: number | { id: number }
   },
-  options?: { delay?: number; jobId?: string; registrants?: Awaited<ReturnType<typeof getEventRegistrants>> },
+  options?: {
+    delay?: number
+    jobId?: string
+    registrants?: Awaited<ReturnType<typeof getEventRegistrants>>
+    req?: PayloadRequest
+  },
 ): Promise<void> {
   const organizerId = typeof event.organizer === 'object' ? event.organizer.id : event.organizer
-  const registrants = options?.registrants ?? (await getEventRegistrants(payload, event.id, organizerId))
-  await enqueueEventCancelled(
-    {
-      eventId: event.id,
-      title: event.title,
-      capacity: event.capacity,
-      municipalityId: requiredRelationNumber(event.municipality),
-      ...registrants,
+  const registrants = options?.registrants ?? (await getEventRegistrants(payload, event.id, organizerId, options?.req))
+  const job = {
+    job: {
+      jobType: JOB_NAMES.EVENT_CANCELLED,
+      payload: {
+        eventId: event.id,
+        title: event.title,
+        capacity: event.capacity,
+        municipalityId: requiredRelationNumber(event.municipality),
+        ...registrants,
+      },
     },
-    { delay: options?.delay, jobId: options?.jobId },
-  )
+    jobId: options?.jobId ?? cancellationJobId(event.id, new Date()),
+    delay: options?.delay,
+  } as const
+  if (options?.req) await enqueueThroughOutbox(options.req, job)
+  else await enqueueOrPark(payload, job)
 }

@@ -973,12 +973,22 @@ describe("Obec admin's events are off-limits to organizers (Events canUpdateEven
     expect(result.docs.map((d) => d.id).sort()).toEqual([adminEvent.id, pubEvent.id].sort())
   })
 
-  it("that organizer still helps run the admin's event — approving a registration works", async () => {
+  it("that organizer co-organizes the admin's event but doesn't decide its registrations — the obec, its creator, does", async () => {
+    await expect(
+      payload.update({
+        collection: 'registrations',
+        id: registration.id,
+        data: { status: 'approved' },
+        user: pub,
+        overrideAccess: false,
+      }),
+    ).rejects.toThrow(/jen pořadatel, který akci založil/)
+
     const updated = await payload.update({
       collection: 'registrations',
       id: registration.id,
       data: { status: 'approved' },
-      user: pub,
+      user: admin,
       overrideAccess: false,
     })
     expect(updated.status).toBe('approved')

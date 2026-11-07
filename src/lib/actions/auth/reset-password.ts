@@ -3,6 +3,8 @@
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
+import { endAllSessions } from '@/lib/auth/sessions'
+
 import type { Payload } from 'payload'
 
 import { resetPasswordInputSchema } from '@/lib/auth/password-reset-schema'
@@ -94,6 +96,9 @@ export async function resetPasswordAction({ token, password, requestHeaders }: R
     const user = result.user as { id?: number | string; email?: string }
     if (user.id !== undefined) {
       await invalidateResetToken(payload, user.id)
+      // Whoever was signed in with the old password — the one who stole it, say — is out now. The
+      // session Payload's reset opened goes too: the page sends the user to sign in afresh.
+      await endAllSessions(payload, user.id)
     }
 
     logger.audit('Password reset succeeded', {

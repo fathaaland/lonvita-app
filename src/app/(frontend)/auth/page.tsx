@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   redirectToGoogle,
@@ -28,6 +28,7 @@ import { GoogleIcon } from '@/components/GoogleIcon'
 import { z } from 'zod'
 import { Mail, Lock, User as UserIcon } from 'lucide-react'
 import { LonvitaLogo } from '@/components/LonvitaLogo'
+import { Turnstile, type TurnstileHandle } from '@/components/Turnstile'
 
 /** The Google callback can only report failures as a query param, so it sends a code and the
  * wording lives here. Never the provider's own message — it echoes request details. */
@@ -75,6 +76,10 @@ function AuthPageContent() {
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [marketingConsent, setMarketingConsent] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const turnstile = useRef<TurnstileHandle>(null)
+  const captchaMessage = (error: unknown) =>
+    error instanceof PayloadApiError && error.status === 428 ? error.message : null
   // Where the visitor was headed when RequireAuth or an expired session sent them here. Never
   // back to /auth itself — that would just land them on this form again after signing in.
   const requestedRedirect = getSafeRedirectPath(searchParams.get('redirect'), '')
@@ -132,12 +137,15 @@ function AuthPageContent() {
           noMunicipality: parsed.data.no_municipality,
           consentAccepted: parsed.data.consent_accepted,
           marketingConsent,
+          turnstileToken,
         })
         toast.success('Účet vytvořen. Můžete se přihlásit.')
         setMode('signin')
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Registrace se nezdařila.')
       } finally {
+        // A token is good for one submit.
+        turnstile.current?.reset()
         setLoading(false)
       }
     } else {
@@ -148,7 +156,7 @@ function AuthPageContent() {
       }
       setLoading(true)
       try {
-        const loggedInUser = await loginWithPassword(parsed.data.email, parsed.data.password)
+        const loggedInUser = await loginWithPassword(parsed.data.email, parsed.data.password, turnstileToken)
         const userId = String(loggedInUser.id)
         // The profile decides this as much as the roles do: someone who hasn't been through
         // onboarding belongs on /onboarding, and sending them to "/" first meant the app
@@ -167,10 +175,12 @@ function AuthPageContent() {
         // Rate limiting (src/proxy.ts) says when to try again; anything else stays deliberately
         // vague, so the form can't be used to find out which e-mails have an account.
         toast.error(
-          error instanceof PayloadApiError && error.status === 429
-            ? error.message
-            : 'Nesprávný e-mail nebo heslo.',
+          captchaMessage(error) ??
+            (error instanceof PayloadApiError && error.status === 429
+              ? error.message
+              : 'Nesprávný e-mail nebo heslo.'),
         )
+        turnstile.current?.reset()
         setLoading(false)
       }
     }
@@ -186,10 +196,12 @@ function AuthPageContent() {
       return
     }
     try {
-      await requestPasswordReset(email)
+      await requestPasswordReset(email, turnstileToken)
       toast.success('Odkaz pro obnovení hesla jsme vám poslali e-mailem.')
-    } catch {
-      toast.error('Nepodařilo se odeslat odkaz pro obnovení hesla.')
+    } catch (error) {
+      toast.error(captchaMessage(error) ?? 'Nepodařilo se odeslat odkaz pro obnovení hesla.')
+    } finally {
+      turnstile.current?.reset()
     }
   }
 
@@ -315,6 +327,14 @@ function AuthPageContent() {
               </label>
             </div>
           )}
+
+          {/* Keyed by mode: a fresh widget (and token) for the other form's action. */}
+          <Turnstile
+            key={mode}
+            ref={turnstile}
+            action={mode === 'signup' ? 'register' : 'login'}
+            onToken={setTurnstileToken}
+          />
 
           <Button
             type="submit"

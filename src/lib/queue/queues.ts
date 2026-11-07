@@ -2,7 +2,7 @@ import { Queue } from 'bullmq'
 
 import { getCorrelationId } from '@/lib/logger/correlation'
 
-import { EMAIL_QUEUE_NAME, JOB_NAMES, QUEUE_NAME, SMS_QUEUE_NAME } from './contracts'
+import { EMAIL_QUEUE_NAME, HEAVY_QUEUE_NAME, JOB_NAMES, QUEUE_NAME, SMS_QUEUE_NAME } from './contracts'
 import { deliveryJobOptions, queueOptions } from './options'
 
 import type { DeduplicationOptions, DefaultJobOptions } from 'bullmq'
@@ -18,6 +18,7 @@ import type {
   JobName,
   PasswordResetJobData,
   QueueJobEnvelope,
+  RegistrationDigestJobData,
   ReminderSmsJobData,
   SmsJobData,
 } from './contracts'
@@ -41,6 +42,8 @@ export const getQueue = (): AppQueue => queueNamed(QUEUE_NAME)
 /** E-mails (incl. the delayed 24h reminders) and SMS — see EMAIL_QUEUE_NAME. */
 export const getEmailQueue = (): AppQueue => queueNamed(EMAIL_QUEUE_NAME, deliveryJobOptions)
 export const getSmsQueue = (): AppQueue => queueNamed(SMS_QUEUE_NAME, deliveryJobOptions)
+/** Imports and export rendering — see HEAVY_QUEUE_NAME. */
+export const getHeavyQueue = (): AppQueue => queueNamed(HEAVY_QUEUE_NAME)
 
 /**
  * How long an add may take before the caller gives up on it. ioredis queues commands while Redis is
@@ -58,7 +61,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
-type EnqueueOptions = {
+export type EnqueueOptions = {
   jobId?: string
   delay?: number
   correlationId?: string
@@ -91,7 +94,7 @@ export async function enqueueFeedbackRequest(data: FeedbackRequestJobData, optio
 }
 
 export async function enqueueGenerateExport(data: GenerateExportJobData, options?: EnqueueOptions) {
-  return enqueueJob({ jobType: JOB_NAMES.GENERATE_EXPORT, payload: data }, options)
+  return enqueueJob({ jobType: JOB_NAMES.GENERATE_EXPORT, payload: data }, options, getHeavyQueue())
 }
 
 export async function enqueueExportReady(data: ExportReadyJobData, options?: EnqueueOptions) {
@@ -143,6 +146,10 @@ export async function enqueueReminderSms(data: ReminderSmsJobData, options?: Enq
   return enqueueJob({ jobType: JOB_NAMES.REMINDER_SMS, payload: data }, options)
 }
 
+export async function enqueueRegistrationDigest(data: RegistrationDigestJobData, options?: EnqueueOptions) {
+  return enqueueJob({ jobType: JOB_NAMES.REGISTRATION_DIGEST, payload: data }, options)
+}
+
 export async function enqueueImportEvents(data: ImportEventsJobData, options?: EnqueueOptions) {
-  return enqueueJob({ jobType: JOB_NAMES.IMPORT_EVENTS, payload: data }, options)
+  return enqueueJob({ jobType: JOB_NAMES.IMPORT_EVENTS, payload: data }, options, getHeavyQueue())
 }

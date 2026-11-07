@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = (await request.json()) as Body
+  const body = (await request.json().catch(() => ({}))) as Body
   const userId = body.userId ? Number(body.userId) : null
   if (!userId) {
     return NextResponse.json({ error: 'Chybí uživatel.' }, { status: 400 })

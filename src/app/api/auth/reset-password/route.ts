@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { token, password } = (await request.json()) as { token?: string; password?: string }
+  const { token, password } = (await request.json().catch(() => ({}))) as { token?: string; password?: string }
 
   if (!token || !password) {
     return NextResponse.json({ error: 'Token and password are required.' }, { status: 400 })

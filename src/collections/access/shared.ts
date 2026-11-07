@@ -125,8 +125,9 @@ const profileOwnerId = (doc: Record<string, unknown>): string | null => {
   return owner == null ? null : String(typeof owner === 'object' ? owner.id : owner)
 }
 
-/** Looked up once per request — a profile list asks for every document's fields. */
-const perRequest = <T>(req: PayloadRequest, key: string, load: () => Promise<T>): Promise<T> => {
+/** Looked up once per request — a profile list asks for every document's fields, and Payload asks a
+ * collection's read access again for every relationship it populates. */
+export const perRequest = <T>(req: PayloadRequest, key: string, load: () => Promise<T>): Promise<T> => {
   const context = (req.context ??= {}) as Record<string, unknown>
   return (context[key] ??= load()) as Promise<T>
 }
@@ -178,38 +179,73 @@ const registrantsManagedBy = (req: PayloadRequest, userId: number) =>
  * Phone, date of birth and the volunteer fields keep their own, narrower field access.
  */
 export const canReadProfile: Access = async ({ req }) => {
-  const { user, payload } = req
+  const { user } = req
   if (!user) return false
   if (user.role === 'admin') return true
+  return perRequest(req, `profileAccess:read:${user.id}`, () => profileReadWhere(req, user.id))
+}
 
-  const [organizers, organizerRoles, registrants, eventIds, administeredIds] = await Promise.all([
-    payload.find({
-      collection: 'events',
-      where: { deletedAt: { exists: false } },
-      select: { organizer: true, coOrganizers: true },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
-    payload.find({
-      collection: 'user-roles',
-      where: { role: { equals: 'organizer' } },
-      select: { user: true },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
-    registrantsManagedBy(req, user.id),
-    eventsManagedBy(req, user.id),
-    administeredIdsOf(req, user.id),
+/**
+ * Organizers, co-organizers and holders of the organizer role — the same for every reader, so held
+ * for a minute per server instance instead of two full scans for every profile query anyone makes.
+ * A new organizer shows up within that minute.
+ */
+const PUBLIC_FACES_TTL_MS = 60_000
+let publicFaces: { at: number; ids: Promise<Set<string>> } | undefined
+const publicFacesOf = (payload: import('payload').Payload): Promise<Set<string>> => {
+  if (publicFaces && Date.now() - publicFaces.at < PUBLIC_FACES_TTL_MS) return publicFaces.ids
+  const ids = (async () => {
+    const [organizers, organizerRoles] = await Promise.all([
+      payload.find({
+        collection: 'events',
+        where: { deletedAt: { exists: false } },
+        select: { organizer: true, coOrganizers: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      }),
+      payload.find({
+        collection: 'user-roles',
+        where: { role: { equals: 'organizer' } },
+        select: { user: true },
+        depth: 0,
+        pagination: false,
+        overrideAccess: true,
+      }),
+    ])
+    const faces = new Set<string>()
+    for (const e of organizers.docs) {
+      faces.add(relationKey(e.organizer))
+      for (const co of e.coOrganizers ?? []) faces.add(relationKey(co))
+    }
+    for (const r of organizerRoles.docs) faces.add(relationKey(r.user))
+    return faces
+  })()
+  publicFaces = { at: Date.now(), ids }
+  // A failed load isn't kept — the next query tries again.
+  ids.catch(() => {
+    if (publicFaces?.ids === ids) publicFaces = undefined
+  })
+  return ids
+}
+
+/** This instance forgets the cached set at once when an event or an organizer role changes (other
+ * instances within the minute). */
+export const forgetPublicFaces = <T extends { doc?: unknown }>({ doc }: T) => {
+  publicFaces = undefined
+  return doc
+}
+
+const profileReadWhere = async (req: PayloadRequest, userId: number): Promise<Where> => {
+  const { payload } = req
+  const [faces, registrants, eventIds, administeredIds] = await Promise.all([
+    publicFacesOf(payload),
+    registrantsManagedBy(req, userId),
+    eventsManagedBy(req, userId),
+    administeredIdsOf(req, userId),
   ])
 
-  const visible = new Set<string>(registrants)
-  for (const e of organizers.docs) {
-    visible.add(relationKey(e.organizer))
-    for (const co of e.coOrganizers ?? []) visible.add(relationKey(co))
-  }
-  for (const r of organizerRoles.docs) visible.add(relationKey(r.user))
+  const visible = new Set<string>([...faces, ...registrants])
 
   if (eventIds.length > 0) {
     const invitations = await payload.find({
@@ -223,7 +259,7 @@ export const canReadProfile: Access = async ({ req }) => {
     for (const i of invitations.docs) visible.add(relationKey(i.volunteer))
   }
 
-  const or: Where[] = [{ user: { equals: user.id } }]
+  const or: Where[] = [{ user: { equals: userId } }]
   if (administeredIds.length > 0) {
     or.push({ municipality: { in: administeredIds } })
     const [roles, requests] = await Promise.all([

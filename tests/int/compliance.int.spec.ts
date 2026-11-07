@@ -12,6 +12,7 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
 import {
   describeChange,
   fingerprintOf,
+  isComparableFingerprint,
   staleUrlOf,
   type EsbirkaVersion,
 } from '@/lib/compliance/esbirka'
@@ -35,6 +36,21 @@ const history = (
       novely: (v.novely ?? []).map((kodDokumentuSbirky) => ({ kodDokumentuSbirky })),
     })),
   })
+
+/** "e-Sbírka" answering both reads of a regulation — its versions and its links (souvislosti). */
+const esbirka = (historyBody: string, relations: { amendedBy?: string[]; repealedBy?: string[] } = {}) =>
+  vi.fn(async (url: string | URL) => {
+    const body = String(url).endsWith('/souvislosti')
+      ? JSON.stringify({
+          souvislosti: [
+            { typ: 'JE_MENEN', dokumentySbirky: (relations.amendedBy ?? []).map((kodDokumentuSbirky) => ({ kodDokumentuSbirky })) },
+            { typ: 'JE_RUSEN', dokumentySbirky: (relations.repealedBy ?? []).map((kodDokumentuSbirky) => ({ kodDokumentuSbirky })) },
+            { typ: 'ODKAZUJE', dokumentySbirky: [{ kodDokumentuSbirky: '1/1999 Sb.' }] },
+          ],
+        })
+      : historyBody
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }) as unknown as typeof fetch
 
 const answering = (body: string, status = 200) =>
   vi.fn(
@@ -109,6 +125,21 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
     expect(describeChange('/sb/2012/89/2026-01-01', versions)).toBe(
       'Vyhlášena změna účinná od 1. 1. 2027 (novely: 159/2026 Sb.).',
     )
+
+    // With the links: a novela not yet worked into a version, and a repeal, are changes too; one
+    // already in a version is told there (with its date), not twice.
+    const relations = { amendedBy: ['159/2026 Sb.', '201/2026 Sb.'], repealedBy: ['300/2026 Sb.'] }
+    const fingerprint = fingerprintOf(versions, relations)
+    expect(fingerprint).toBe(
+      'v2|/sb/2012/89/2026-01-01|/sb/2012/89/2027-01-01|novela:159/2026 Sb.|novela:201/2026 Sb.|zrusen:300/2026 Sb.',
+    )
+    expect(isComparableFingerprint(fingerprint)).toBe(true)
+    expect(isComparableFingerprint('/sb/2012/89/2026-01-01')).toBe(false)
+    expect(describeChange('v2|/sb/2012/89/2026-01-01', versions, relations)).toBe(
+      'Předpis byl zrušen předpisem 300/2026 Sb. ' +
+        'Vyhlášena novela 201/2026 Sb. (do znění zatím nezapracovaná — účinnost viz e-Sbírka). ' +
+        'Vyhlášena změna účinná od 1. 1. 2027 (novely: 159/2026 Sb.).',
+    )
   })
 
   it('never keeps the audit log under its legal floor, whatever is stored', () => {
@@ -151,25 +182,38 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
     created.push(req.id)
 
     const now = new Date('2026-11-03T05:30:00Z')
-    const first = await processComplianceCheckJob({
-      now,
-      paceMs: 0,
-      fetchImpl: answering(
-        history([{ staleUrl: '/sb/2031/99/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' }]),
-      ),
-    })
+    const v1 = history([{ staleUrl: '/sb/2031/99/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' }])
+    const first = await processComplianceCheckJob({ now, paceMs: 0, fetchImpl: esbirka(v1) })
     expect(first.changed).toEqual([])
     const learned = await payload.findByID({
       collection: 'legal-requirements',
       id: req.id,
       overrideAccess: true,
     })
-    expect(learned).toMatchObject({ status: 'ok', esbirkaFingerprint: '/sb/2031/99/2031-01-01' })
+    expect(learned).toMatchObject({ status: 'ok', esbirkaFingerprint: 'v2|/sb/2031/99/2031-01-01' })
+
+    // A novela published, not yet in any version — flagged the night it appears.
+    const novela = await processComplianceCheckJob({
+      now,
+      paceMs: 0,
+      fetchImpl: esbirka(v1, { amendedBy: ['12/2032 Sb.'] }),
+    })
+    expect(novela.changed).toEqual(['99/2031 Sb.'])
+    const flaggedNovela = await payload.findByID({ collection: 'legal-requirements', id: req.id, overrideAccess: true })
+    expect(flaggedNovela.esbirkaChangeSummary).toBe(
+      'Vyhlášena novela 12/2032 Sb. (do znění zatím nezapracovaná — účinnost viz e-Sbírka).',
+    )
+    await payload.update({
+      collection: 'legal-requirements',
+      id: req.id,
+      data: { status: 'ok' },
+      overrideAccess: true,
+    })
 
     const second = await processComplianceCheckJob({
       now,
       paceMs: 0,
-      fetchImpl: answering(
+      fetchImpl: esbirka(
         history([
           { staleUrl: '/sb/2031/99/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' },
           {
@@ -179,6 +223,7 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
             novely: ['12/2032 Sb.'],
           },
         ]),
+        { amendedBy: ['12/2032 Sb.'] },
       ),
     })
     expect(second.changed).toEqual(['99/2031 Sb.'])
@@ -208,7 +253,8 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
       },
       overrideAccess: true,
     })
-    expect(entry.totalDocs).toBe(1)
+    // The novela the night it appeared, and the version it brought now.
+    expect(entry.totalDocs).toBe(2)
 
     // Reviewed: back to fine, the next review a year on, the change cleared.
     await payload.update({
@@ -254,6 +300,31 @@ describe('Compliance — e-Sbírka watch, the register, retention and the audit 
       data: { esbirkaWatch: false },
       overrideAccess: true,
     })
+  })
+
+  it("re-learns a fingerprint of the older, versions-only format instead of reporting a change", async () => {
+    const req = await payload.create({
+      collection: 'legal-requirements',
+      data: { code: '98/2031 Sb.', title: `Test starý otisk ${STAMP}`, kind: 'zakon', status: 'ok', esbirkaWatch: true },
+      overrideAccess: true,
+    })
+    created.push(req.id)
+    await payload.db.updateOne({
+      collection: 'legal-requirements',
+      id: req.id,
+      data: { esbirkaFingerprint: '/sb/2031/98/2031-01-01' },
+    })
+    const run = await processComplianceCheckJob({
+      now: new Date('2026-11-03T05:30:00Z'),
+      paceMs: 0,
+      fetchImpl: esbirka(history([{ staleUrl: '/sb/2031/98/2031-01-01', typZneni: 'AKTUALNI', od: '2031-01-01' }]), {
+        amendedBy: ['5/2030 Sb.'],
+      }),
+    })
+    expect(run.changed).not.toContain('98/2031 Sb.')
+    const after = await payload.findByID({ collection: 'legal-requirements', id: req.id, overrideAccess: true })
+    expect(after).toMatchObject({ status: 'ok', esbirkaFingerprint: 'v2|/sb/2031/98/2031-01-01|novela:5/2030 Sb.' })
+    await payload.update({ collection: 'legal-requirements', id: req.id, data: { esbirkaWatch: false }, overrideAccess: true })
   })
 
   it('flags a review that came due', async () => {

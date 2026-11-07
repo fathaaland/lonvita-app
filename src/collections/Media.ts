@@ -1,11 +1,28 @@
-import type { CollectionConfig } from 'payload'
+import type { Access, CollectionConfig } from 'payload'
 
 import { isLoggedIn } from './access/shared'
+
+/**
+ * The files themselves stay public (event covers on the anonymous homepage, populated through
+ * events/organizations/profiles with depth). What's closed is enumerating the collection: a plain
+ * GET /api/media used to list every upload with its alt — for avatars that's the person's name.
+ * A direct REST read on media now has to name the rows it wants (findByID, or `where[id]`, which
+ * is how the app looks up avatars), and anonymous visitors get no direct REST access at all.
+ */
+const readMedia: Access = ({ req, isReadingStaticFile }) => {
+  if (isReadingStaticFile || req.user?.role === 'admin') return true
+  const direct = req.routeParams?.collection === 'media'
+  if (!direct) return true
+  if (!req.user) return false
+  if (req.routeParams?.id) return true
+  const where = (req.query as { where?: Record<string, unknown> } | undefined)?.where
+  return Boolean(where && typeof where === 'object' && 'id' in where)
+}
 
 export const Media: CollectionConfig = {
   slug: 'media',
   access: {
-    read: () => true,
+    read: readMedia,
     // Event covers, avatars and organization logos are uploaded straight from the browser.
     create: isLoggedIn,
     // Spelled out because Payload's default for a missing operation is "any signed-in user" —
@@ -30,6 +47,15 @@ export const Media: CollectionConfig = {
     // a fixed 16:10 crop (matches EventCard's aspect-[16/10]) so the overview grid never has
     // ragged/empty space. `crop`/`focalPoint` default to true, giving the uploader a cropper.
     imageSizes: [
+      // The event photo as the cards and the detail show it — downscaled, not cropped, so the
+      // organizer's framing (Events imagePositionX/Y, object-position) still applies. A card is at
+      // most ~480 CSS px wide, so 960 covers a 2× screen; the original (up to 2560 px) is left for
+      // the detail on a big screen (srcSet).
+      {
+        name: 'display',
+        width: 960,
+        withoutEnlargement: true,
+      },
       {
         name: 'card',
         width: 800,

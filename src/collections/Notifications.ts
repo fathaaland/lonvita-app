@@ -54,6 +54,15 @@ export const Notifications: CollectionConfig = {
       },
     },
     {
+      // A broadcast that may run twice (a worker job retried after a crash) names each recipient's
+      // copy, so the rerun skips those already written instead of doubling them.
+      name: 'dedupKey',
+      type: 'text',
+      unique: true,
+      access: { read: () => false, create: () => false, update: () => false },
+      admin: { hidden: true },
+    },
+    {
       name: 'readAt',
       type: 'date',
       index: true,

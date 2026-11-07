@@ -38,12 +38,50 @@ export function setSignedIn(value: boolean) {
 }
 
 /**
- * A session lasts two hours (Users.auth.tokenExpiration) and nothing renews it, so a page left
- * open past that keeps showing a signed-in app whose every request now fails — Payload answers
+ * A session lasts two hours (Users.auth.tokenExpiration), renewed only while someone is active
+ * (noteActivity), so a page left open past that keeps showing a signed-in app whose every request now fails — Payload answers
  * 403 "not allowed", our own routes 401 — and the user only sees one error toast after another.
  * Either status can also be a genuine refusal, so /users/me decides: only a session that is
  * really gone sends the user to sign in again, with the page to come back to.
  */
+// --- Keeping the session alive --------------------------------------------------------
+
+/** Renewed at most this often while someone is active — well inside the two hours a token lasts. */
+const REFRESH_EVERY_MS = 20 * 60 * 1000;
+let lastRefreshAt = Date.now();
+let refreshing = false;
+
+/**
+ * Someone is using the page — a request went through, or they typed or clicked. While signed in, the
+ * session is renewed now and then (POST /users/refresh-token pushes its end two hours out and sets a
+ * fresh cookie), so a form being filled in for a long while doesn't lose its author on "Uložit". A page
+ * left alone still runs out — nobody is there to keep it.
+ */
+export function noteActivity() {
+  if (!signedIn || refreshing || sessionExpiryHandled || typeof window === "undefined") return;
+  if (Date.now() - lastRefreshAt < REFRESH_EVERY_MS) return;
+  refreshing = true;
+  void fetch(`${API_BASE}/users/refresh-token`, { method: "POST", credentials: "include" })
+    .then((res) => {
+      if (res.ok) lastRefreshAt = Date.now();
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      refreshing = false;
+    });
+}
+
+let keepAliveInstalled = false;
+
+/** Typing and clicking count as activity (noteActivity) — filling in a form makes no requests. */
+export function installSessionKeepAlive() {
+  if (keepAliveInstalled || typeof window === "undefined") return;
+  keepAliveInstalled = true;
+  for (const type of ["keydown", "pointerdown"] as const) {
+    window.addEventListener(type, noteActivity, { passive: true, capture: true });
+  }
+}
+
 async function handleSessionExpiry(status: number): Promise<void> {
   if (status !== 401 && status !== 403) return;
   if (!signedIn || sessionExpiryHandled || typeof window === "undefined") return;
@@ -60,22 +98,66 @@ async function handleSessionExpiry(status: number): Promise<void> {
   window.location.assign(`/api/auth/logout?reason=expired&redirect=${encodeURIComponent(here)}`);
 }
 
+// --- Network failures ------------------------------------------------------------
+
+/** A request gets this long — past it the user is told, rather than left with a spinner for good. */
+const REQUEST_TIMEOUT_MS = 30_000;
+/** An upload carries a photo over a phone connection — longer. */
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+/** Status of a request that never got an answer — offline, timed out, cut off. */
+export const NETWORK_ERROR_STATUS = 0;
+
+const OFFLINE_MESSAGE = "Nejste připojeni k internetu. Zkontrolujte připojení a zkuste to znovu.";
+const TIMEOUT_MESSAGE = "Server neodpovídá. Zkuste to prosím za chvíli znovu.";
+const NETWORK_MESSAGE = "Spojení se serverem se nepodařilo. Zkuste to prosím znovu.";
+
+/** fetch with a time limit, and a Czech message instead of the browser's "Failed to fetch". */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+  try {
+    return await fetch(url, { ...init, signal });
+  } catch (error) {
+    // The caller cancelled it themselves — theirs to handle, not a network failure.
+    if (init.signal?.aborted) throw error;
+    if (timeout.aborted) throw new PayloadApiError(TIMEOUT_MESSAGE, NETWORK_ERROR_STATUS);
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new PayloadApiError(OFFLINE_MESSAGE, NETWORK_ERROR_STATUS);
+    }
+    throw new PayloadApiError(NETWORK_MESSAGE, NETWORK_ERROR_STATUS);
+  }
+}
+
+/** The error a failed answer turns into — the server's own message, or a Czech one by status. */
+async function errorOf(res: Response, fallback: string): Promise<PayloadApiError> {
+  const body = await res.json().catch(() => null);
+  const message =
+    body?.errors?.[0]?.message ??
+    body?.error ??
+    (res.status >= 500 ? "Na serveru se něco pokazilo. Zkuste to prosím znovu." : res.status === 429 ? "Příliš mnoho požadavků. Zkuste to prosím za chvíli." : fallback);
+  return new PayloadApiError(message, res.status);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
+  const res = await fetchWithTimeout(
+    `${API_BASE}${path}`,
+    {
+      credentials: "include",
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
     },
-    ...init,
-  });
+    REQUEST_TIMEOUT_MS,
+  );
 
   if (!res.ok) {
     await handleSessionExpiry(res.status);
-    const body = await res.json().catch(() => null);
-    const message = body?.errors?.[0]?.message ?? body?.error ?? `Request failed with status ${res.status}`;
-    throw new PayloadApiError(message, res.status);
+    throw await errorOf(res, `Požadavek se nezdařil (${res.status}).`);
   }
+  noteActivity();
 
   return unwrapDoc<T>(await res.json());
 }
@@ -108,17 +190,16 @@ export async function uploadFile<T>(collection: string, file: File, fields?: Rec
     form.append("_payload", JSON.stringify(fields));
   }
 
-  const res = await fetch(`${API_BASE}/${collection}`, {
-    method: "POST",
-    credentials: "include",
-    body: form,
-  });
+  const res = await fetchWithTimeout(
+    `${API_BASE}/${collection}`,
+    { method: "POST", credentials: "include", body: form },
+    UPLOAD_TIMEOUT_MS,
+  );
   if (!res.ok) {
     await handleSessionExpiry(res.status);
-    const body = await res.json().catch(() => null);
-    const message = body?.errors?.[0]?.message ?? `Upload failed with status ${res.status}`;
-    throw new PayloadApiError(message, res.status);
+    throw await errorOf(res, `Nahrání se nezdařilo (${res.status}).`);
   }
+  noteActivity();
   return unwrapDoc<T>(await res.json());
 }
 
@@ -197,14 +278,16 @@ type RegisterInput = {
   noMunicipality: boolean;
   consentAccepted: boolean;
   marketingConsent: boolean;
+  /** Cloudflare Turnstile (components/Turnstile) — omitted where it isn't configured. */
+  turnstileToken?: string | null;
 };
 
 export async function registerAccount(input: RegisterInput): Promise<{ redirectTo: string }> {
   return post<{ redirectTo: string }>("/auth/register", { ...input, passwordConfirm: input.password });
 }
 
-export async function requestPasswordReset(email: string): Promise<void> {
-  await post("/auth/forgot-password", { email });
+export async function requestPasswordReset(email: string, turnstileToken?: string | null): Promise<void> {
+  await post("/auth/forgot-password", { email, ...(turnstileToken ? { turnstileToken } : {}) });
 }
 
 /** GET /api/auth/reset-password — whether the emailed link is still unused and unexpired. */
@@ -232,7 +315,15 @@ export async function getAuthMode(): Promise<{ google: boolean }> {
  * Sets the payload-token cookie our custom auth strategy verifies — the same cookie the Google
  * callback mints, so both sign-in paths end in exactly the same session.
  */
-export async function loginWithPassword(email: string, password: string): Promise<PayloadUser> {
-  const result = await post<{ user: PayloadUser }>("/users/login", { email, password });
+export async function loginWithPassword(
+  email: string,
+  password: string,
+  turnstileToken?: string | null,
+): Promise<PayloadUser> {
+  const result = await post<{ user: PayloadUser }>("/users/login", {
+    email,
+    password,
+    ...(turnstileToken ? { turnstileToken } : {}),
+  });
   return result.user;
 }

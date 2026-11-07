@@ -205,7 +205,8 @@ describe('Requesting a reset link', () => {
     expect(vi.mocked(processEmailJob)).toHaveBeenCalledTimes(1)
     const [email, context] = vi.mocked(processEmailJob).mock.calls[0]
     expect(email.to).toBe(requester.email)
-    expect(context).toEqual({ jobId: '9' })
+    // No Resend idempotency key: a retried reset must send a fresh token, not replay the old e-mail.
+    expect(context).toEqual({ jobId: '9', idempotent: false })
     const token = decodeURIComponent(email.body.match(/reset-password\?token=([^"<\s]+)/)?.[1] ?? '')
     expect(email.body).toContain(`${APP_URL}/reset-password?token=`)
 

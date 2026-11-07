@@ -23,9 +23,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 const formatWhen = (iso: string) =>
-  new Date(iso).toLocaleString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleString("cs-CZ", { timeZone: APP_TIME_ZONE, weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /** Asks one volunteer from the pool to help on one of the viewer's upcoming events — the ones they
  * founded themselves: volunteers are the event creator's to invite, not a spolupořadatel's or the

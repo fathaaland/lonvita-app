@@ -1,6 +1,6 @@
 import { EXPORT_FILES_DELETED } from '@/collections/Exports'
-import { deleteExportFiles } from '@/lib/exports/storage'
-import { logger } from '@/lib/logger'
+import { deleteExportFiles, ExportFilesNotDeletedError } from '@/lib/exports/storage'
+import { logger, serializeError } from '@/lib/logger'
 
 import { BATCH_SIZE, inBatches } from '../runtime/batches'
 import { getWorkerPayload } from '../runtime/payload'
@@ -27,14 +27,26 @@ export const processCleanupExportsJob = async (): Promise<CleanupExportsJobResul
     })
     if (expired.docs.length === 0) return 0
 
-    await deleteExportFiles(expired.docs.map((doc) => doc.fileKey).filter((key): key is string => Boolean(key)))
+    // A file S3 kept keeps its row too — it's tried again the next night instead of being left in the
+    // bucket with nothing pointing at it.
+    let kept = new Set<string>()
+    try {
+      await deleteExportFiles(expired.docs.map((doc) => doc.fileKey).filter((key): key is string => Boolean(key)))
+    } catch (error) {
+      if (!(error instanceof ExportFilesNotDeletedError)) throw error
+      kept = new Set(error.keys)
+      logger.error('Expired export files not deleted', { event: 'export.cleanup_files_kept', kept: kept.size, ...serializeError(error) })
+    }
+    const gone = expired.docs.filter((doc) => !doc.fileKey || !kept.has(doc.fileKey))
+    if (gone.length === 0) return 0
     await payload.delete({
       collection: 'exports',
-      where: { id: { in: expired.docs.map((doc) => doc.id) } },
+      where: { id: { in: gone.map((doc) => doc.id) } },
       overrideAccess: true,
       context: { [EXPORT_FILES_DELETED]: true },
     })
-    return expired.docs.length
+    // Rows kept stay first in line — stop here rather than read them again batch after batch.
+    return kept.size > 0 ? 0 : expired.docs.length
   })
 
   logger.info('Export cleanup finished', { event: 'export.cleanup_finished', deleted })

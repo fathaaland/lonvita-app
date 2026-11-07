@@ -5,8 +5,12 @@ import { runWithCorrelationId } from '@/lib/logger/correlation'
 import { workerOptions } from '@/lib/queue/options'
 import { queueConnectionOptions } from '@/lib/valkey/client'
 
+import { APP_TIME_ZONE } from '@/lib/date'
+
 import { dispatchJobByType } from './job-dispatcher'
 import { ProviderRateLimitedError } from './provider-errors'
+import { scheduleOf } from './schedules'
+import { Sentry } from './sentry'
 
 import type { JobName, QueueJobEnvelope } from '@/lib/queue/contracts'
 
@@ -36,14 +40,25 @@ export const spawnQueueWorker = ({ queueName, concurrency = getConcurrency(), li
       // Re-enter the trace the web request started: everything the processors log from here
       // on carries the same correlationId as the HTTP request that enqueued the job, so a
       // failed e-mail on Railway lines up with the click on Vercel that asked for it.
-      try {
-        return await runWithCorrelationId(job.data.correlationId ?? 'no-correlation-id', () =>
+      const run = () =>
+        runWithCorrelationId(job.data.correlationId ?? 'no-correlation-id', () =>
           dispatchJobByType(job.data, {
             jobId: job.id,
             attemptsMade: job.attemptsMade,
             attempts: job.opts.attempts,
           }),
         )
+      // A run of a schedule checks in with its Sentry cron monitor — a missed or failed run alerts.
+      const schedule = job.repeatJobKey ? scheduleOf(job.data.jobType) : undefined
+      try {
+        return schedule
+          ? await Sentry.withMonitor(`lonvita-worker-${schedule.jobType}`, run, {
+              schedule: { type: 'crontab', value: schedule.pattern },
+              timezone: APP_TIME_ZONE,
+              checkinMargin: schedule.checkinMarginMinutes ?? 30,
+              maxRuntime: schedule.maxRuntimeMinutes ?? 60,
+            })
+          : await run()
       } catch (error) {
         if (error instanceof ProviderRateLimitedError) {
           // The whole queue waits, and this job goes back without using up a try.
@@ -72,6 +87,16 @@ export const spawnQueueWorker = ({ queueName, concurrency = getConcurrency(), li
   })
 
   worker.on('failed', (job, err) => {
+    const exhausted = job ? job.attemptsMade >= (job.opts?.attempts ?? 1) : undefined
+    // Sentry hears of a job only once it's lost for good (a retry may still make it); no job data —
+    // it carries addresses and texts.
+    if (exhausted !== false) {
+      Sentry.captureException(err, {
+        tags: { queue: queueName, jobType: job?.data.jobType ?? 'unknown' },
+        extra: { jobId: job?.id, attemptsMade: job?.attemptsMade, correlationId: job?.data.correlationId },
+        fingerprint: ['queue-job-exhausted', queueName, job?.data.jobType ?? 'unknown'],
+      })
+    }
     logger.error('Queue job failed', {
       event: 'queue.job_failed',
       jobId: job?.id,
@@ -79,7 +104,7 @@ export const spawnQueueWorker = ({ queueName, concurrency = getConcurrency(), li
       attemptsMade: job?.attemptsMade,
       // A job that has used up its attempts is gone for good unless somebody replays it — the
       // distinction decides whether this line needs acting on.
-      exhausted: job ? job.attemptsMade >= (job.opts?.attempts ?? 1) : undefined,
+      exhausted,
       correlationId: job?.data.correlationId,
       ...serializeError(err),
     })
@@ -90,6 +115,7 @@ export const spawnQueueWorker = ({ queueName, concurrency = getConcurrency(), li
   })
 
   worker.on('error', (err) => {
+    Sentry.captureException(err, { tags: { queue: queueName }, fingerprint: ['queue-worker-error', queueName] })
     logger.error('Queue worker error', { event: 'queue.worker_error', ...serializeError(err) })
   })
 

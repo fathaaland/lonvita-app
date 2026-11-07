@@ -70,22 +70,24 @@ export async function scheduleParticipantReminder(
   registrationId: number | string,
   userId: number | string,
   event: EventForReminders,
-): Promise<void> {
+): Promise<number> {
+  let queued = 0
   const [profiles, user] = await Promise.all([
     payload.find({ collection: 'profiles', where: { user: { equals: userId } }, limit: 1, depth: 0, overrideAccess: true }),
     payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }),
   ])
   const delay = new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000 - Date.now()
-  if (delay <= 0) return
+  if (delay <= 0) return queued
 
   // By SMS too for whoever chose it — the worker checks the obec's package, its quota and the
   // event's size when it fires (reminder-sms.processor).
   const profile = profiles.docs[0]
   if (profile?.notifySms && profile.phone) {
     await enqueueReminderSms({ registrationId }, { jobId: participantSmsJobId(registrationId), delay })
+    queued++
   }
 
-  if (!user?.email || !(profile?.notifyEmail ?? true)) return
+  if (!user?.email || !(profile?.notifyEmail ?? true)) return queued
 
   await enqueueEmail(
     {
@@ -95,6 +97,7 @@ export async function scheduleParticipantReminder(
     },
     { jobId: participantJobId(registrationId), delay },
   )
+  return queued + 1
 }
 
 /** They're no longer coming (taken off the event, or cancelled themselves) — no reminder for it. */
@@ -152,4 +155,41 @@ export async function cancelEventReminders(
     await removeParticipantReminder(registrationId)
     await removeJob(participantSmsJobId(registrationId))
   }
+}
+
+/** Whether a job is still waiting in Redis under its id. */
+async function hasJob(jobId: string, queue = getQueue()): Promise<boolean> {
+  return Boolean(await queue.getJob(jobId))
+}
+
+/**
+ * The delayed reminders live only in Redis — lost with it (a restart without persistence, a flush),
+ * they'd never go out. For an approved participant whose reminder time is still ahead, and an event
+ * whose attendance nudge is: put back what's missing, under the same job id. Only what's still ahead:
+ * a reminder whose time hasn't come can't have been sent, so putting it back never sends one twice.
+ * Returns how many were put back.
+ */
+export async function restoreMissingReminders(
+  payload: Payload,
+  event: EventForReminders,
+  approved: { id: number | string; user: RelId }[],
+): Promise<number> {
+  let restored = 0
+  const remindAt = new Date(event.endDateTime ?? event.dateTime).getTime() + 3 * 60 * 60 * 1000
+  if (remindAt > Date.now() && !(await hasJob(attendanceJobId(event.id)))) {
+    await scheduleAttendanceReminder(event)
+    restored++
+  }
+  if (new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000 <= Date.now()) return restored
+  for (const reg of approved) {
+    const present =
+      (await hasJob(participantJobId(reg.id), getEmailQueue())) ||
+      (await hasJob(participantJobId(reg.id))) ||
+      (await hasJob(participantSmsJobId(reg.id)))
+    if (present) continue
+    // Adds under fixed ids — whichever of the two is still there stays as it is. Someone who wants
+    // neither (no e-mail, no SMS) gets nothing, as when it was first planned.
+    if ((await scheduleParticipantReminder(payload, reg.id, requiredRelationNumber(reg.user), event)) > 0) restored++
+  }
+  return restored
 }

@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 
-import { getMunicipalityAdminUserIds, sendNotificationToMany } from '@/collections/shared/notify'
+import { getMunicipalityAdminUserIds, sendNotificationToMany, escapeHtml } from '@/collections/shared/notify'
 
 import { findSmsFields, smsUsageOf } from './sms'
 
@@ -48,7 +48,7 @@ export async function checkSmsUsageAlerts(
       link: '/admin-obce?tab=settings',
       email: {
         subject: level === 100 ? 'Lonvita: kvóta SMS je vyčerpaná' : 'Lonvita: 80 % kvóty SMS',
-        body: `<p>${message}</p>`,
+        body: `<p>${escapeHtml(message)}</p>`,
       },
     })
   } catch (error) {

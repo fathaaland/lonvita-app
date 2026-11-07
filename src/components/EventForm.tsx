@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
 import { ImageUploadError, prepareImageForUpload } from "@/lib/image";
-import { MULTI_DAY_END_MESSAGE, nextDateInputValue, toDateInputValue } from "@/lib/date";
+import { MULTI_DAY_END_MESSAGE, nextDateInputValue, pragueWallTimeToDate, toDateInputValue, toTimeInputValue } from "@/lib/date";
 import { SMS_LARGE_EVENT_CAPACITY, UNLIMITED_CAPACITY, isUnlimitedCapacity, smsSentForCapacity } from "@/lib/capacity";
 import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 import { MUNICIPALITY_ORGANIZATION_TYPE } from "@/lib/organizations";
@@ -82,7 +82,8 @@ export type EventFormPrefill = {
   priceCzk: number | null;
 };
 
-const toLocalTime = (iso: string) => new Date(iso).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+// The time as the obec reads it (Prague), whichever time zone this browser is set to.
+const toLocalTime = toTimeInputValue;
 
 const chipClass = (active: boolean) =>
   cn(
@@ -240,14 +241,14 @@ export function EventForm({
       return;
     }
 
-    const startsAt = new Date(`${parsed.data.date}T${parsed.data.time}`);
+    const startsAt = pragueWallTimeToDate(parsed.data.date, parsed.data.time);
     // Editing an event that already started is fine as long as its start isn't moved.
-    const startChanged = !initial || startsAt.getTime() !== new Date(toDateInputValue(initial.date_time) + "T" + toLocalTime(initial.date_time)).getTime();
+    const startChanged = !initial || startsAt.getTime() !== pragueWallTimeToDate(toDateInputValue(initial.date_time), toLocalTime(initial.date_time)).getTime();
     if (startChanged && startsAt.getTime() < Date.now()) {
       toast.error("Akce nemůže začínat v minulosti.");
       return;
     }
-    const endsAt = isMultiDay ? new Date(`${parsed.data.endDate}T${parsed.data.endTime}`) : null;
+    const endsAt = isMultiDay ? pragueWallTimeToDate(parsed.data.endDate!, parsed.data.endTime!) : null;
     // Both "YYYY-MM-DD" — they compare as strings.
     if (isMultiDay && parsed.data.endDate! <= parsed.data.date) {
       toast.error(MULTI_DAY_END_MESSAGE);

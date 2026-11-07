@@ -10,6 +10,12 @@ import type { Field } from 'payload'
 export const deletedAtField: Field = {
   name: 'deletedAt',
   type: 'date',
+  // Server code sets it with overrideAccess. A client writing it would wipe its own no-show
+  // (dodging NO_SHOW_LIMIT) or bring back a review the superadmin took down.
+  access: {
+    create: ({ req: { user } }) => user?.role === 'admin',
+    update: ({ req: { user } }) => user?.role === 'admin',
+  },
   admin: {
     description: 'Soft-delete marker — preserves history for reporting. Set by admin action, not user-facing delete.',
     position: 'sidebar',

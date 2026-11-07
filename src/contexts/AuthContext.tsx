@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { getCurrentPayloadUser, PayloadUser, setSignedIn, signOutRedirect } from "@/integrations/payload/client";
+import { getCurrentPayloadUser, installSessionKeepAlive, PayloadUser, setSignedIn, signOutRedirect } from "@/integrations/payload/client";
 import {
   getMyProfile,
   getMyRoles,
@@ -78,6 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser(currentUser);
       setSignedIn(Boolean(currentUser));
+      // Activity renews the session while signed in (client noteActivity).
+      if (currentUser) installSessionKeepAlive();
 
       if (currentUser) {
         await loadProfileAndRoles(String(currentUser.id));

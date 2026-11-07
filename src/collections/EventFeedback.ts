@@ -55,6 +55,8 @@ export const EventFeedback: CollectionConfig = {
       relationTo: 'registrations',
       required: true,
       unique: true,
+      // Moving a review onto someone else's registration would put words in their mouth.
+      access: { update: () => false },
       admin: {
         description: 'One feedback entry per attended registration.',
       },

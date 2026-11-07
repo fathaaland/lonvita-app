@@ -44,9 +44,11 @@ import { UsageEvents } from './collections/UsageEvents'
 import { SmsMessages } from './collections/SmsMessages'
 import { SystemLogs } from './collections/SystemLogs'
 import { SecurityEvents } from './collections/SecurityEvents'
+import { Outbox } from './collections/Outbox'
 import { writeAuditLog } from './collections/shared/auditLog'
 import { s3ClientConfig } from './lib/s3/client'
 import { logger, serializeError, setLogSink } from './lib/logger'
+import { logLoginFailure } from '@/lib/logger/auth-logger'
 import { createDatabaseLogSink } from './lib/logger/db-sink'
 import { correlationIdFromHeaders } from './lib/logger/correlation'
 import { withCrudLogging } from './lib/logger/collection-logger'
@@ -182,7 +184,11 @@ export default buildConfig({
     LegalRequirements,
     SystemLogs,
     SecurityEvents,
-  ].map(withCrudLogging),
+  ]
+    .map(withCrudLogging)
+    // Not logged CRUD by CRUD: a row per announcement, written and marked by the app itself — the
+    // outbox's own log lines (outbox.*) say what matters.
+    .concat(Outbox),
   globals: [ImportSettings, BillingSettings, RetentionSettings],
   hooks: {
     afterError: [
@@ -191,12 +197,20 @@ export default buildConfig({
           { id?: number | string; email?: string; role?: string } | undefined
         const correlationId = correlationIdFromHeaders(req?.headers)
 
-        // The last net: anything Payload throws and nobody caught — a failed login, a rejected
-        // access rule, a database column that does not exist — lands here instead of only in
-        // the platform's own request log.
-        logger.fatal('Payload unhandled error', {
-          event: 'payload.unhandled_error',
+        // The last net: anything Payload throws and nobody caught lands here instead of only in the
+        // platform's own request log. Only a server error (5xx — a column that doesn't exist, a
+        // dropped connection) is "the app is broken" and pages the platform team (lib/alerts/ops);
+        // a 4xx is the request's fault (a wrong password, a refused access rule, a validation error).
+        const status = (error as { status?: number }).status ?? 500
+        let pathname = ''
+        try {
+          pathname = new URL(req?.url ?? '', 'http://localhost').pathname
+        } catch {
+          // Local API call — no URL
+        }
+        const context = {
           ...serializeError(error),
+          status,
           collection: collection?.slug ?? null,
           pathname: req?.url,
           method: req?.method,
@@ -204,7 +218,14 @@ export default buildConfig({
           userEmail: user?.email,
           userRole: user?.role,
           correlationId,
-        })
+        }
+        if (status >= 500) {
+          logger.fatal('Payload unhandled error', { event: 'payload.unhandled_error', ...context })
+        } else if (collection?.slug === 'users' && pathname.endsWith('/login') && (status === 401 || status === 423)) {
+          void logLoginFailure(req, status === 423)
+        } else {
+          logger.warn('Payload request error', { event: 'payload.request_error', ...context })
+        }
 
         auditRefusal({ error, req, collection: collection?.slug })
 
@@ -214,6 +235,9 @@ export default buildConfig({
       },
     ],
   },
+  // Nothing in the app speaks GraphQL (the frontend and the admin use REST and the Local API) — off,
+  // rather than a second, unlimited query surface (no depth or complexity bound) over every collection.
+  graphQL: { disable: true },
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   // Frontend and backend are the same Next.js app now, so this is a safety net for
@@ -299,6 +323,47 @@ export default buildConfig({
           extraConfig: (table) => ({
             // The unread badge — someone's notifications not read yet.
             unreadOfUser: index('notifications_user_read_at_idx').on(table.user, table.readAt),
+          }),
+        })
+        // What the hooks check with a find-then-create (UserRoles, Organizations ensureOrganization /
+        // ensureMunicipalityOrganization, Profiles ensureUniquePhone, lib/billing/active-users) — two
+        // requests at once could both pass the check. The database turns the second one away.
+        extendTable({
+          table: schema.tables.user_roles,
+          extraConfig: (table) => ({
+            oneRolePerUserAndObec: uniqueIndex('user_roles_user_role_municipality_idx').on(
+              table.user,
+              table.role,
+              table.municipality,
+            ),
+          }),
+        })
+        extendTable({
+          table: schema.tables.organizations,
+          extraConfig: (table) => ({
+            // A soft-deleted one is revived, never made again — so the deleted count too.
+            oneOrganizationPerOwnerAndObec: uniqueIndex('organizations_owner_municipality_idx')
+              .on(table.owner, table.municipality)
+              .where(sql`${table.owner} IS NOT NULL`),
+            oneOwnOrganizationPerObec: uniqueIndex('organizations_obec_own_idx')
+              .on(table.municipality)
+              .where(sql`${table.type} = 'municipality'`),
+          }),
+        })
+        extendTable({
+          table: schema.tables.profiles,
+          extraConfig: (table) => ({
+            onePhonePerProfile: uniqueIndex('profiles_phone_idx').on(table.phone).where(sql`${table.phone} IS NOT NULL`),
+          }),
+        })
+        extendTable({
+          table: schema.tables.active_user_snapshots,
+          extraConfig: (table) => ({
+            // One per obec and month — a second would count twice in the licence band's average.
+            onePerObecAndMonth: uniqueIndex('active_user_snapshots_municipality_month_idx').on(
+              table.municipality,
+              table.month,
+            ),
           }),
         })
         return schema

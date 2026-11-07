@@ -121,7 +121,15 @@ export function meterAi<D extends MeteredAi>(
     refusal,
     totals,
     maxInputTokens = Infinity,
-  }: { refusal: AiRefusal | null; totals: UsageTotals; maxInputTokens?: number },
+    spentBefore = 0,
+  }: {
+    refusal: AiRefusal | null
+    totals: UsageTotals
+    maxInputTokens?: number
+    /** Input tokens the earlier attempts of the same job already used — a retry doesn't start the
+     * run's cap afresh. */
+    spentBefore?: number
+  },
 ): D {
   const meter: AiMeter = async (call) => {
     const usage = {
@@ -151,7 +159,7 @@ export function meterAi<D extends MeteredAi>(
   }
   const check = () => {
     if (refusal) throw new ImportAiError(REFUSALS[refusal], refusal)
-    if (totals.inputTokens >= maxInputTokens) throw new ImportAiError(REFUSALS.token_cap, 'token_cap')
+    if (spentBefore + totals.inputTokens >= maxInputTokens) throw new ImportAiError(REFUSALS.token_cap, 'token_cap')
   }
   return {
     ...deps,

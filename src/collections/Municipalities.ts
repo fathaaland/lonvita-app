@@ -203,7 +203,20 @@ const billingFields: Field[] = [
   { name: 'billingNote', type: 'textarea', access: platformOnlyField, admin: { position: 'sidebar' } },
   // The licence year — the SMS quota counts within it. Empty: the calendar year.
   { name: 'licencePeriodStart', type: 'date', access: platformOnlyField, admin: { position: 'sidebar' } },
-  { name: 'licencePeriodEnd', type: 'date', access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    name: 'licencePeriodEnd',
+    type: 'date',
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+    // An end on or before the start is a period nothing falls in — the obec's SMS would never count.
+    validate: (value: unknown, { siblingData }: { siblingData: { licencePeriodStart?: unknown } }) => {
+      const start = siblingData?.licencePeriodStart
+      if (!value || !start) return true
+      return new Date(value as string).getTime() > new Date(start as string).getTime()
+        ? true
+        : 'Konec licenčního období musí být po jeho začátku.'
+    },
+  },
   {
     // The band set by hand (Žďár, exceptions, or fixed at the yearly invoice). Empty: computed from
     // the average of the last three monthly snapshots of its users.

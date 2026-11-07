@@ -32,7 +32,9 @@ export async function loadReliability(
         { deletedAt: { exists: false } },
         {
           or: [
-            { attendanceStatus: { in: ['attended', 'excused', 'no_show'] } },
+            // Attendance counts only on a registration that was approved — one marked before the
+            // rule (Registrations lockAttendanceOnceMarked) on a pending or cancelled one doesn't.
+            { and: [{ status: { equals: 'approved' } }, { attendanceStatus: { in: ['attended', 'excused', 'no_show'] } }] },
             { selfCancelled: { equals: true } },
           ],
         },
@@ -52,6 +54,9 @@ export async function loadReliability(
       and: [
         { id: { in: [...new Set(registrations.docs.map((r) => relationKey(r.event)))] } },
         { dateTime: { greater_than_equal: reliabilityWindowStart(now).toISOString() } },
+        // A cancelled event didn't happen — nobody missed it.
+        { deletedAt: { exists: false } },
+        { status: { not_equals: 'cancelled' } },
       ],
     },
     select: { dateTime: true },

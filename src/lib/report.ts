@@ -9,7 +9,7 @@ import type {
   ProfileRow,
 } from "./analytics";
 import { approvedParticipants, computeDatavitaWindow, hasFillRate, heldEvents, isAged50Plus } from "./analytics";
-import { APP_TIME_ZONE } from "./date";
+import { APP_TIME_ZONE, formatPragueDate, pragueStartOfDay, pragueYmd } from "./date";
 
 export interface ProfileWithDob extends ProfileRow {
   date_of_birth?: string | null;
@@ -44,9 +44,7 @@ export interface ReportMetrics {
   };
 }
 
-function fmtDate(d: Date): string {
-  return `${d.getDate()}. ${d.getMonth() + 1}. ${d.getFullYear()}`;
-}
+const fmtDate = formatPragueDate;
 
 function windowMetrics(
   events: EventRow[],
@@ -145,10 +143,11 @@ export function computeReportMetrics(
   const now = new Date();
   // A cancelled event never took place — the same rule as the dashboard (analytics heldEvents).
   events = heldEvents(events);
-  const currentEnd = new Date(now); currentEnd.setHours(0, 0, 0, 0);
-  const currentStart = new Date(currentEnd); currentStart.setDate(currentStart.getDate() - 90);
-  const previousEnd = new Date(currentStart);
-  const previousStart = new Date(previousEnd); previousStart.setDate(previousStart.getDate() - 90);
+  // 90-day windows of calendar days in Prague, ending at today's midnight there.
+  const currentEnd = pragueStartOfDay(now);
+  const currentStart = pragueStartOfDay(now, -90);
+  const previousEnd = currentStart;
+  const previousStart = pragueStartOfDay(now, -180);
 
   const profiles50Plus = new Set(
     profiles
@@ -164,7 +163,7 @@ export function computeReportMetrics(
   );
   // Pro minulé období: retenci počítáme z okna [-180,-90] vs. přechozí okno [-270,-180]
   const prevPrevEnd = new Date(previousStart);
-  const prevPrevStart = new Date(prevPrevEnd); prevPrevStart.setDate(prevPrevStart.getDate() - 90);
+  const prevPrevStart = pragueStartOfDay(now, -270);
   const previous = windowMetrics(
     events, regs, events, profiles50Plus,
     previousStart, previousEnd,
@@ -173,7 +172,7 @@ export function computeReportMetrics(
 
   // Datavita — stejné jádro (D1/D2, §6) jako sparkline na dashboardu, jen na 90denních oknech.
   const prevPrevEnd90 = new Date(previousStart);
-  const prevPrevStart90 = new Date(prevPrevEnd90); prevPrevStart90.setDate(prevPrevStart90.getDate() - 90);
+  const prevPrevStart90 = pragueStartOfDay(now, -270);
   const prevParticipantsForCurrent = new Set(
     regs
       .filter((r) => {
@@ -208,8 +207,9 @@ export function computeReportMetrics(
   const trend: "roste" | "klesá" | "stabilní" | "nedostatek dat" =
     dvCurrent.score === null ? "nedostatek dat" : delta >= 3 ? "roste" : delta <= -3 ? "klesá" : "stabilní";
 
-  const quarter = Math.floor(now.getMonth() / 3) + 1;
-  const periodLabel = `${quarter}. čtvrtletí ${now.getFullYear()}`;
+  const today = pragueYmd(now);
+  const quarter = Math.floor((today.month - 1) / 3) + 1;
+  const periodLabel = `${quarter}. čtvrtletí ${today.year}`;
 
   return {
     periodLabel,

@@ -4,6 +4,7 @@ import { ProviderRateLimitedError } from '../runtime/provider-errors'
 
 import { checkSmsUsageAlerts } from '@/lib/billing/sms-alerts'
 import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
+import { releaseSmsReservation } from '@/lib/billing/sms-reservations'
 import { logger, serializeError } from '@/lib/logger'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -126,6 +127,10 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
         municipalityId: payload.municipalityId,
         ...serializeError(error),
       })
+    }
+    // Counted as sent now — the part reservation made when it was queued is given back.
+    if (payload.overage !== true) {
+      await releaseSmsReservation(payload.municipalityId, smsPartsOf(toSmsText(payload.message)))
     }
     // 80 % / 100 % of the quota — its admins hear it once a licence year.
     await checkSmsUsageAlerts(await getWorkerPayload(), payload.municipalityId, new Date())

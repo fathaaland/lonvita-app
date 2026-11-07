@@ -22,6 +22,7 @@ import { ORGANIZATION_TYPES, organizationTypeLabel } from "@/lib/organizations";
 import { formatPercent } from "@/lib/organization-stats";
 import { cn } from "@/lib/utils";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
+import { APP_TIME_ZONE, pragueYmd } from "@/lib/date";
 
 const ALL = "all";
 
@@ -31,7 +32,7 @@ const organizersLabel = (n: number) =>
 const eventsLabel = (n: number) => (n === 1 ? "akce" : n >= 2 && n <= 4 ? "akce" : "akcí");
 
 const sinceLabel = (iso: string) =>
-  `na Lonvitě od ${new Date(iso).toLocaleDateString("cs-CZ", { month: "long", year: "numeric" })}`;
+  `na Lonvitě od ${new Date(iso).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE, month: "long", year: "numeric" })}`;
 
 /** One of the three numbers on a profile — the same ones its Organizace page leads with. */
 function Figure({ value, label }: { value: string; label: string }) {
@@ -60,9 +61,9 @@ function NextEvent({ event }: { event: OrganizerProfileRow["next_event"] }) {
     >
       <span className="w-11 shrink-0 overflow-hidden rounded-lg bg-card text-center shadow-sm ring-1 ring-border" aria-hidden>
         <span className="block bg-primary py-px text-3xs font-semibold text-primary-foreground">
-          {date.toLocaleDateString("cs-CZ", { month: "short" }).replace(".", "")}
+          {date.toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE, month: "short" }).replace(".", "")}
         </span>
-        <span className="block py-0.5 text-lg font-extrabold leading-tight tabular-nums">{date.getDate()}</span>
+        <span className="block py-0.5 text-lg font-extrabold leading-tight tabular-nums">{pragueYmd(date).day}</span>
       </span>
       <span className="min-w-0">
         <span className="block text-xs text-muted-foreground">Nejbližší akce</span>

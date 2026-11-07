@@ -90,6 +90,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         })
       }
 
+      // The client may have gone during the count above — cleanup() has run already then, and an
+      // interval started now would tick (and hold the subscription's closure) for good.
+      if (closed || request.signal.aborted) {
+        cleanup()
+        return
+      }
+
       // Most platforms (and browsers) will otherwise time out an idle streamed connection.
       heartbeat = setInterval(() => {
         if (closed) return

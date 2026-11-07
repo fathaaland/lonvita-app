@@ -59,6 +59,7 @@ import { enqueueEventUpdated, enqueueImportEvents } from '@/lib/queue/queues'
 import type { User } from '@/payload-types'
 
 import { processImportEventsJob } from '../../worker/src/processors/import-events.processor'
+import { ImportAiUnavailableError } from '@/lib/import/ai'
 
 const STAMP = Date.now()
 const today = pragueToday()
@@ -1676,6 +1677,72 @@ describe('Import — candidates, approval and access', () => {
     }
   })
 
+  it('an AI that is overloaded or down is retried and never counted against the source', async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec.test/program-pretizeni' },
+      overrideAccess: true,
+    })
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async () => {
+      throw new ImportAiUnavailableError(529)
+    })
+    const fakeDeps = deps({
+      fetchUrl: async (url) => ({ url, contentType: 'text/html', body: Buffer.from('<main><p>Koncert</p></main>') }),
+      extractWithAi: ai,
+    })
+    const job = { kind: 'source' as const, sourceId: source.id, trigger: 'manual' as const }
+
+    // Attempts left: the queue retries it.
+    await expect(processImportEventsJob(job, { jobId: `ai-down-${source.id}`, attemptsMade: 0, attempts: 3 }, fakeDeps)).rejects.toThrow(
+      ImportAiUnavailableError,
+    )
+    // The last one: skipped, not a failure of the web.
+    const last = await processImportEventsJob(job, { jobId: `ai-down-${source.id}`, attemptsMade: 2, attempts: 3 }, fakeDeps)
+    expect(last.skipped).toBe('ai_unavailable')
+    const after = await payload.findByID({ collection: 'event-sources', id: source.id, depth: 0, overrideAccess: true })
+    expect(after.consecutiveFailures ?? 0).toBe(0)
+    expect(after.enabled).toBe(true)
+    expect(after.lastErrorCode).toBe('ai_unavailable')
+  })
+
+  it("a retried run goes on with what is left of its token cap, not a fresh one", async () => {
+    const source = await payload.create({
+      collection: 'event-sources',
+      data: { municipality: obec.id, url: 'https://obec.test/program-retry' },
+      overrideAccess: true,
+    })
+    let calls = 0
+    const ai = vi.fn<ImportDeps['extractWithAi']>(async (_input, context) => {
+      calls++
+      await context.meter?.({
+        purpose: 'events',
+        model: 'claude-haiku-5-5',
+        requestId: `req_retry_${calls}`,
+        status: 'success',
+        inputTokens: 20_000,
+        outputTokens: 1_000,
+        cachedInputTokens: 0,
+      })
+      throw new Error('worker crashed mid-run')
+    })
+    const fakeDeps = deps({
+      fetchUrl: async (url) => ({ url, contentType: 'text/html', body: Buffer.from('<main><p>Koncert</p></main>') }),
+      extractWithAi: ai,
+    })
+    await payload.update({ collection: 'municipalities', id: obec.id, data: { scrapingMaxInputTokensOverride: 20_000 }, overrideAccess: true })
+    try {
+      const job = { kind: 'source' as const, sourceId: source.id, trigger: 'manual' as const }
+      const jobId = `retry-cap-${source.id}`
+      await expect(processImportEventsJob(job, { jobId, attemptsMade: 0, attempts: 3 }, fakeDeps)).rejects.toThrow('worker crashed')
+      // The first attempt used the whole cap — the retry makes no further AI call.
+      const retried = await processImportEventsJob(job, { jobId, attemptsMade: 1, attempts: 3 }, fakeDeps)
+      expect(retried.skipped).toBe('token_cap')
+      expect(ai).toHaveBeenCalledTimes(1)
+    } finally {
+      await payload.update({ collection: 'municipalities', id: obec.id, data: { scrapingMaxInputTokensOverride: null }, overrideAccess: true })
+    }
+  })
+
   it('keeps a taken-over event in step with its calendar — never over what was changed in Lonvita', async () => {
     const source = await payload.create({
       collection: 'event-sources',
@@ -1762,6 +1829,7 @@ describe('Import — candidates, approval and access', () => {
     expect((await eventOf(plesEvent)).dateTime).toBe(pragueWallTimeToIso(inDays(33), '19:00'))
     expect(vi.mocked(enqueueEventUpdated)).toHaveBeenCalledWith(
       expect.objectContaining({ eventId: plesEvent }),
+      expect.anything(),
     )
     // The market keeps what the obec set; the besídka isn't cancelled by the import.
     expect((await eventOf(trhEvent)).dateTime).toBe(pragueWallTimeToIso(inDays(31), '09:00'))

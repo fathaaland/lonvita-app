@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 
 const STATUS_LABELS: Record<PoolInvitationAdminRow["status"], string> = {
@@ -147,7 +148,7 @@ export function PoolInvitationsCard({ municipalityId }: { municipalityId: string
                   <div className="min-w-0">
                     <p className="font-medium truncate">{row.full_name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(row.created_at).toLocaleDateString("cs-CZ")}
+                      {new Date(row.created_at).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">

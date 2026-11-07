@@ -7,10 +7,11 @@ import { getOrganizationReviews, OrganizationReviewRow } from "@/integrations/pa
 import { RatingStars } from "@/components/RatingStars";
 import { ReportReviewAction } from "@/components/ReportReviewAction";
 import { Button } from "@/components/ui/button";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 const SHOWN_AT_FIRST = 5;
 
-const formatDate = (iso: string) => new Date(iso).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" });
+const formatDate = (iso: string) => new Date(iso).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE, day: "numeric", month: "long", year: "numeric" });
 
 /** What participants wrote about the organization's events, one by one and without their names —
  * newest first, each reportable to the obec when it's unfair. */

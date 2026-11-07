@@ -1,7 +1,7 @@
 import type { Payload } from 'payload'
 
 import { getMunicipalityAdminUserIds, getPlatformDeciders, sendNotificationToMany } from '@/collections/shared/notify'
-import { ImportAiError } from '@/lib/import/ai'
+import { ImportAiError, ImportAiUnavailableError } from '@/lib/import/ai'
 import { IMPORT_LIMITS, isFullPass, isImportFileType, type SourceTrigger } from '@/lib/import/contracts'
 import { ImportFetchError } from '@/lib/import/fetch'
 import { defaultImportDeps, ImportReadError, loadImportContext, readUrl, storeCandidates, waiveRobotsFor, type ImportDeps } from '@/lib/import/pipeline'
@@ -28,7 +28,8 @@ const IMPORT_LINK = '/admin-obce?tab=import'
 const isExpected = (error: unknown) =>
   error instanceof ImportFetchError || error instanceof ImportAiError || error instanceof ImportReadError
 
-const messageOf = (error: unknown) => (isExpected(error) ? (error as Error).message : 'Zpracování se nepodařilo.')
+const messageOf = (error: unknown) =>
+  isExpected(error) || error instanceof ImportAiUnavailableError ? (error as Error).message : 'Zpracování se nepodařilo.'
 
 const codeOf = (error: unknown) =>
   (error as { code?: string }).code ?? (error instanceof Error ? error.name : 'unknown')
@@ -82,6 +83,40 @@ async function finishRun(payload: Payload, runId: number | null, end: RunEnd, to
     .catch((error) =>
       logger.error('Import run not finished', { event: 'import.run_unfinished', runId, ...serializeError(error) }),
     )
+}
+
+/**
+ * Input tokens the earlier attempts of this job used — from the AI calls on the ledger (usage-events),
+ * which are written as they're made, so an attempt that crashed midway counts too. A retry goes on
+ * with what's left of the run's cap instead of a fresh one.
+ */
+async function tokensSpentByEarlierAttempts(payload: Payload, jobId: string | undefined, runId: number | null): Promise<number> {
+  if (!jobId) return 0
+  const earlier = await payload.find({
+    collection: 'import-runs',
+    where: {
+      and: [
+        { jobId: { equals: jobId } },
+        ...(runId ? [{ id: { not_equals: runId } }] : []),
+        // Job ids can come round again after a long while — only this job's attempts.
+        { startedAt: { greater_than: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() } },
+      ],
+    },
+    select: {},
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  if (earlier.docs.length === 0) return 0
+  const calls = await payload.find({
+    collection: 'usage-events',
+    where: { importRun: { in: earlier.docs.map((run) => run.id) } },
+    select: { inputTokens: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  return calls.docs.reduce((sum, call) => sum + (call.inputTokens ?? 0), 0)
 }
 
 /** Who looks after what a source brings: the obec's admins. */
@@ -171,7 +206,12 @@ async function processSource(
     source.ignoreRobots ? waiveRobotsFor(deps, source.url) : deps,
     payload,
     { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
-    { refusal: await aiRefusalFor(payload, importContext), totals, maxInputTokens: importContext.maxInputTokensPerRun },
+    {
+      refusal: await aiRefusalFor(payload, importContext),
+      totals,
+      maxInputTokens: importContext.maxInputTokensPerRun,
+      spentBefore: (context.attemptsMade ?? 0) > 0 ? await tokensSpentByEarlierAttempts(payload, context.jobId, runId) : 0,
+    },
   )
   // The panel shows it being read (ImportPanel) until one of the updates below clears it.
   await payload
@@ -287,6 +327,22 @@ async function processSource(
       await reportTokenCap(payload, source, municipalityId, totals, importContext.maxInputTokensPerRun)
       return { found: 0, created: 0, updated: 0, skipped: 'token_cap' }
     }
+    if (error instanceof ImportAiUnavailableError) {
+      // The AI provider, not the web — tried again by the queue, and never counted against the source.
+      // Out of attempts, the run is skipped; the next scheduled pass reads it.
+      await finishRun(payload, runId, { status: isLastAttempt ? 'skipped' : 'failed', error: error.message, errorCode: error.code }, totals, deps.now())
+      if (!isLastAttempt) throw error
+      await payload
+        .update({
+          collection: 'event-sources',
+          id: source.id,
+          data: { lastRunAt: runAt, lastError: error.message, lastErrorCode: error.code, runningSince: null },
+          overrideAccess: true,
+        })
+        .catch(() => {})
+      logger.warn('Event source not read — AI unavailable', { event: 'import.source_ai_unavailable', sourceId: source.id, status: error.status })
+      return { found: 0, created: 0, updated: 0, skipped: 'ai_unavailable' }
+    }
     if (isAiHeldBack(error)) {
       // The obec's package, the platform's switch — not the web's fault: no failure counted, nobody
       // told the web is broken, and the page's fingerprint is left as it was, so the next pass the AI
@@ -357,7 +413,12 @@ async function processManual(
     deps,
     payload,
     { municipality: municipalityId, user: requestedBy, importRun: runId },
-    { refusal: await aiRefusalFor(payload, importContext), totals, maxInputTokens: importContext.maxInputTokensPerRun },
+    {
+      refusal: await aiRefusalFor(payload, importContext),
+      totals,
+      maxInputTokens: importContext.maxInputTokensPerRun,
+      spentBefore: (context.attemptsMade ?? 0) > 0 ? await tokensSpentByEarlierAttempts(payload, context.jobId, runId) : 0,
+    },
   )
 
   let succeeded = false

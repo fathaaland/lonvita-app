@@ -19,8 +19,9 @@ import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNo
 import { reliabilityOf } from './shared/reliability'
 import { cancelParticipantReminder, scheduleFeedbackRequest, scheduleParticipantReminder } from './shared/reminders'
 
-import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin } from './access/shared'
+import { getAdministeredMunicipalityIds, isPlatformOrMunicipalityAdmin, perRequest } from './access/shared'
 import { eventCreatorUserIds, isEventCreator } from './Events'
+import { addToRegistrationDigest, digestEmail } from '@/lib/notifications/registration-digest'
 import { municipalityOrganizationIds } from './Organizations'
 import { deletedAtField } from './shared/softDelete'
 import { requiredRelationNumber } from '@/lib/relations'
@@ -156,15 +157,26 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
         const recipients = pending
           ? (await eventCreatorUserIds(req, event)).filter((id) => id !== String(userId))
           : await getEventTeamUserIds(req.payload, event, { exclude: [userId] })
+        // In-app at once; the e-mail in the window's digest (lib/notifications/registration-digest)
+        // — one every ten minutes during a rush, not one per sign-up. Without Redis, at once as before.
         await sendNotificationToMany(req.payload, recipients, {
           title: 'Nová přihláška na akci',
           message: `${who} se přihlásil(a) na vaši akci „${event.title}“.${awaiting}`,
           link: `/spravovat/${eventId}`,
-          email: {
-            subject: `Nová přihláška: ${event.title}`,
-            body: `<p>${escapeHtml(who)} se přihlásil(a) na vaši akci <strong>${escapeHtml(event.title)}</strong>.${awaiting}</p>`,
-          },
         })
+        const digested = await addToRegistrationDigest(eventId, recipients, {
+          registrationId: doc.id,
+          who,
+          ...(awaiting ? { awaiting } : {}),
+        })
+        if (!digested) {
+          await sendNotificationToMany(
+            req.payload,
+            recipients,
+            { title: 'Nová přihláška na akci', message: '', email: digestEmail(event.title, [{ registrationId: doc.id, who, awaiting }]) },
+            { inApp: false },
+          )
+        }
       }
       return doc
     }
@@ -448,6 +460,16 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
   if (event && isUnlimitedCapacity(event.capacity)) {
     throw new APIError('U akce s neomezenou kapacitou se docházka nevyplňuje — dobrovolníky ohodnotíte rovnou.', 400)
   }
+  // What happened at the event can be written down only once it's on — and only for someone who was
+  // on it: a no-show on a pending or cancelled registration would count against them (lib/reliability).
+  if (isMarked(data.attendanceStatus)) {
+    if (event && new Date(event.dateTime).getTime() > Date.now()) {
+      throw new APIError('Docházku jde zapsat až po začátku akce.', 400)
+    }
+    if (current.status !== 'approved') {
+      throw new APIError('Docházka se zapisuje jen schváleným účastníkům.', 400)
+    }
+  }
   if (req.user.role === 'admin') return args
   const marked = isMarked(current.attendanceStatus)
   if (marked && current.role !== 'volunteer' && (await attendanceRights(req, requiredRelationNumber(current.event))).correct) {
@@ -723,6 +745,10 @@ const ownOrManagedRegistrationsWhere = async (req: Parameters<Access>[0]['req'])
   return { or }
 }
 
+/** Once per request: a registrations list with depth asks again for every populated relation. */
+const ownOrManagedRegistrationsCached = (req: Parameters<Access>[0]['req']): Promise<Where> =>
+  perRequest(req, `registrationAccess:${req.user!.id}`, () => ownOrManagedRegistrationsWhere(req))
+
 /** "Kdo dále jde" is only for the event's organizer and the obec's admin — a registration is
  * readable by the registrant themself, the event's organizer/co-organizers, an admin of the event's
  * municipality and a platform admin. Everyone else gets participant counts only, via the public
@@ -731,7 +757,7 @@ const canReadRegistration: Access = async ({ req }) => {
   if (!req.user) return false
   const visible: Where = { deletedAt: { exists: false } }
   if (req.user.role === 'admin') return visible
-  return { and: [visible, await ownOrManagedRegistrationsWhere(req)] }
+  return { and: [visible, await ownOrManagedRegistrationsCached(req)] }
 }
 
 /** Approving/rejecting/marking attendance is limited the same way as reading (event's
@@ -741,7 +767,7 @@ const canReadRegistration: Access = async ({ req }) => {
 const canUpdateRegistration: Access = async ({ req }) => {
   if (!req.user) return false
   if (req.user.role === 'admin') return true
-  return ownOrManagedRegistrationsWhere(req)
+  return ownOrManagedRegistrationsCached(req)
 }
 
 export const Registrations: CollectionConfig = {

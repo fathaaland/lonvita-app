@@ -14,9 +14,10 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Bell, BellOff, CheckCheck, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString("cs-CZ", { timeZone: APP_TIME_ZONE, day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function NotificationsContent() {

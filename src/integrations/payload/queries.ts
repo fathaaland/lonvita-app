@@ -30,6 +30,15 @@ import { fullNamesByUserIds } from './profile-names'
 
 // --- Municipalities ---------------------------------------------------------------------
 
+/** "display.webp 960w, original.jpg 2560w" — the browser picks the smallest that fills the slot.
+ * A photo uploaded before the downscaled copy existed has the original alone. */
+function imageSrcSet(media: { url?: string | null; width?: number | null; sizes?: { display?: { url?: string | null; width?: number | null } | null } | null }): string | null {
+  const candidates = [media.sizes?.display, media]
+    .filter((c): c is { url: string; width: number } => Boolean(c?.url && c?.width))
+    .map((c) => `${c.url} ${c.width}w`)
+  return candidates.length > 0 ? [...new Set(candidates)].join(', ') : null
+}
+
 export type RulesForCreation = 'municipality_only' | 'approved_organizers'
 
 export type MunicipalityRow = {
@@ -150,6 +159,8 @@ export type EventRow = {
   capacity: number
   registration_approval_mode: 'auto' | 'manual'
   image_url: string | null
+  /** The downscaled copy and the original, for <img srcSet> — null when there's no photo. */
+  image_srcset: string | null
   /** Framing of the photo in the 16:10 crop, as object-position percentages. */
   image_position: { x: number; y: number }
   category_ids: string[]
@@ -183,7 +194,8 @@ export type EventRow = {
 type PayloadMedia = {
   id: number
   url?: string | null
-  sizes?: { avatar?: { url?: string | null } }
+  width?: number | null
+  sizes?: { avatar?: { url?: string | null }; display?: { url?: string | null; width?: number | null } | null }
 }
 type PayloadOrganization = {
   id: number
@@ -256,6 +268,7 @@ const mapEvent = (e: PayloadEvent): EventRow => ({
   capacity: e.capacity,
   registration_approval_mode: e.registrationApprovalMode ?? 'manual',
   image_url: typeof e.image === 'object' && e.image ? (e.image.url ?? null) : null,
+  image_srcset: typeof e.image === 'object' && e.image ? imageSrcSet(e.image) : null,
   image_position: { x: e.imagePositionX ?? 50, y: e.imagePositionY ?? 50 },
   category_ids: (e.categories ?? []).map(relationId).filter((v): v is string => Boolean(v)),
   organizer_id: relationId(e.organizer) ?? undefined,

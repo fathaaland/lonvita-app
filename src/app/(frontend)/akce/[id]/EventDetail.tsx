@@ -408,6 +408,8 @@ function EventDetailContent() {
         <div className="aspect-[16/10] overflow-hidden bg-muted sm:mx-auto sm:mt-4 sm:w-[calc(100%_-_2rem)] sm:max-w-3xl sm:rounded-2xl">
           <img
             src={event.image_url}
+            srcSet={event.image_srcset ?? undefined}
+            sizes="(min-width: 640px) 768px, 100vw"
             alt={event.title}
             className="w-full h-full object-cover"
             style={{ objectPosition: `${event.image_position.x}% ${event.image_position.y}%` }}

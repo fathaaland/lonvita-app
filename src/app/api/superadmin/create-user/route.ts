@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const body = (await request.json()) as CreateUserBody
+  const body = (await request.json().catch(() => ({}))) as CreateUserBody
   const email = body.email?.trim().toLowerCase()
   const fullName = body.fullName?.trim()
   const rawPhone = body.phone?.trim() || null
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Zadejte platný e-mail.' }, { status: 400 })
   }
   if (!isValidPassword(body.password)) {
-    return NextResponse.json({ error: 'Heslo musí mít alespoň 8 znaků.' }, { status: 400 })
+    return NextResponse.json({ error: 'Heslo musí mít 8 až 128 znaků.' }, { status: 400 })
   }
   if (!fullName || fullName.length < 2) {
     return NextResponse.json({ error: 'Zadejte celé jméno.' }, { status: 400 })

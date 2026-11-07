@@ -11,6 +11,14 @@ import type {
 import { APIError } from 'payload'
 
 import { logForgotPasswordIssued, logLoginSuccess, logLogout } from '@/lib/logger/auth-logger'
+import { getClientIp } from '@/lib/security/rate-limit'
+import {
+  isTurnstileEnabled,
+  LOGIN_FAILURES_BEFORE_CAPTCHA,
+  loginFailuresOf,
+  TURNSTILE_REQUIRED_MESSAGE,
+  verifyTurnstile,
+} from '@/lib/security/turnstile'
 
 import { payloadTokenJwtStrategy } from './auth/strategies/payload-token-jwt'
 
@@ -43,6 +51,24 @@ const setGeneratedPasswordIfMissing: CollectionBeforeValidateHook = ({ data, ope
  * is being applied at all (`overrideAccess: false`, i.e. every request through the REST API).
  * Seeds and scripts on the Local API stay the one way to grant the role.
  */
+/**
+ * Turnstile on the sign-in (lib/security/turnstile): the app's login form always sends a token, and
+ * it's checked whenever one comes. Without one — the Payload admin's own login form can't show the
+ * widget — the login goes ahead only until the address has a few failed attempts behind it; from
+ * then on credential stuffing has to get past Cloudflare for every guess. Local API logins (the
+ * server's own) aren't gated.
+ */
+const requireLoginCaptcha: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'login' || req.payloadAPI !== 'REST' || !isTurnstileEnabled()) return args
+  const ip = getClientIp(req.headers)
+  const token = (req.data as { turnstileToken?: unknown } | undefined)?.turnstileToken
+  if (token === undefined && (await loginFailuresOf(ip)) < LOGIN_FAILURES_BEFORE_CAPTCHA) return args
+  if ((await verifyTurnstile(token, ip, 'login')) === 'failed') {
+    throw new APIError(TURNSTILE_REQUIRED_MESSAGE, 428)
+  }
+  return args
+}
+
 const lockPlatformRole: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'update') return args
 
@@ -172,6 +198,9 @@ export const Users: CollectionConfig = {
     // organizers' overviews. A hard delete would take them along, so it's left to scripts on the
     // Local API (overrideAccess), where cleanupUserRelations still makes room for it.
     delete: () => false,
+    // Payload's /api/users/unlock would otherwise let any signed-in user lift the lockout of
+    // any account (the superadmin's included) and keep guessing its password.
+    unlock: ({ req: { user } }) => user?.role === 'admin',
   },
   auth: {
     tokenExpiration: 7200, // 2 hours
@@ -221,7 +250,7 @@ export const Users: CollectionConfig = {
   ],
   hooks: {
     beforeLogin: [refuseAnonymizedLogin],
-    beforeOperation: [lockPlatformRole],
+    beforeOperation: [requireLoginCaptcha, lockPlatformRole],
     beforeValidate: [setGeneratedPasswordIfMissing],
     beforeDelete: [cleanupUserRelations],
     afterLogin: [logLoginSuccess],

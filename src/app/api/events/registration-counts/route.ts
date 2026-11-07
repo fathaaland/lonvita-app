@@ -1,8 +1,8 @@
+import { sql } from '@payloadcms/db-postgres'
 import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
-import { PARTICIPANTS_ONLY } from '@/collections/Registrations'
 
 export type RegistrationCounts = Record<string, { approved: number; pending: number }>
 
@@ -24,28 +24,33 @@ export async function GET(request: Request) {
   if (eventIds.length === 0) return NextResponse.json({ counts: {} })
 
   const payload = await getPayload({ config })
-  const result = await payload.find({
-    collection: 'registrations',
-    where: {
-      and: [
-        { event: { in: eventIds } },
-        { status: { in: ['pending', 'approved'] } },
-        { deletedAt: { exists: false } },
-        PARTICIPANTS_ONLY,
-      ],
-    },
-    select: { event: true, status: true },
-    depth: 0,
-    pagination: false,
-    overrideAccess: true,
-  })
+  // Counted in the database (the rows themselves used to be fetched and summed here) — a popular
+  // event has hundreds of registrations and this runs for every visitor of the listing.
+  // `role IS DISTINCT FROM 'volunteer'` is PARTICIPANTS_ONLY (Registrations.ts).
+  const { rows } = await payload.db.drizzle.execute<{ event_id: number; status: string; n: string }>(sql`
+    SELECT event_id, status, COUNT(*) AS n
+    FROM registrations
+    WHERE event_id IN (${sql.join(
+      eventIds.map((id) => sql`${id}`),
+      sql`, `,
+    )})
+      AND status IN ('pending', 'approved')
+      AND deleted_at IS NULL
+      AND role IS DISTINCT FROM 'volunteer'
+    GROUP BY event_id, status
+  `)
 
   const counts: RegistrationCounts = {}
-  for (const reg of result.docs) {
-    const eventId = String(typeof reg.event === 'object' ? reg.event.id : reg.event)
+  for (const row of rows) {
+    const eventId = String(row.event_id)
     counts[eventId] ??= { approved: 0, pending: 0 }
-    if (reg.status === 'approved' || reg.status === 'pending') counts[eventId][reg.status] += 1
+    if (row.status === 'approved' || row.status === 'pending') counts[eventId][row.status] = Number(row.n)
   }
 
-  return NextResponse.json({ counts })
+  // A few seconds on the CDN take a burst of visitors off the database; the event detail gets its
+  // live numbers from the capacity stream (api/events/[id]/capacity-stream) anyway.
+  return NextResponse.json(
+    { counts },
+    { headers: { 'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=30' } },
+  )
 }

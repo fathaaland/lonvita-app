@@ -1,5 +1,1 @@
-{
-  "framework": "nextjs",
-  "buildCommand": "sh scripts/vercel-build.sh",
-  "installCommand": "pnpm install --frozen-lockfile"
-}
+{"framework":"nextjs","regions":["fra1"],"buildCommand":"sh scripts/vercel-build.sh","installCommand":"pnpm install --frozen-lockfile"}

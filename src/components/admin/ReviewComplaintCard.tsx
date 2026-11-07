@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 const NOTE_MAX_LENGTH = 500;
 
@@ -88,7 +89,7 @@ export function ReviewComplaintCard({
               <p className="text-xs italic text-muted-foreground">Bez komentáře.</p>
             )}
             <p className="text-xs text-muted-foreground">
-              Napsal(a) {review.author_name}, {new Date(review.created_at).toLocaleDateString("cs-CZ")}
+              Napsal(a) {review.author_name}, {new Date(review.created_at).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}
             </p>
           </div>
         ) : (
@@ -97,7 +98,7 @@ export function ReviewComplaintCard({
 
         <div className="space-y-1">
           <p className="text-xs font-semibold">
-            Nahlásil(a) {complaint.complainant_name}, {new Date(complaint.created_at).toLocaleDateString("cs-CZ")}
+            Nahlásil(a) {complaint.complainant_name}, {new Date(complaint.created_at).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}
           </p>
           <p className="text-sm whitespace-pre-line break-words">{complaint.reason}</p>
         </div>

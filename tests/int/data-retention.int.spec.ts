@@ -172,7 +172,18 @@ describe('Data retention', () => {
     admin = await makeUser('admin', null, 'admin')
     people = await Promise.all(['p1', 'p2', 'p3', 'p4', 'p5'].map((name) => makeUser(name)))
     const [p1, p2, p3, p4, p5] = people
-    organization = { id: await make('organizations', { name: `Retention spolek ${STAMP}`, type: 'association', municipality: muni.id, owner: organizer.id }) }
+    // The organizer role brought its organization with it (Organizations ensureOrganization) — one per
+    // owner and obec, so that one, named for the test.
+    const own = await payload.find({
+      collection: 'organizations',
+      where: { and: [{ owner: { equals: organizer.id } }, { municipality: { equals: muni.id } }] },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+    })
+    organization = own.docs[0]
+      ? (await payload.db.updateOne({ collection: 'organizations', id: own.docs[0].id, data: { name: `Retention spolek ${STAMP}`, type: 'association' } })) as { id: number }
+      : { id: await make('organizations', { name: `Retention spolek ${STAMP}`, type: 'association', municipality: muni.id, owner: organizer.id }) }
 
     f.orphanOld = await makeMedia('orphan-old', daysAgo(3))
     f.orphanNew = await makeMedia('orphan-new', new Date().toISOString())

@@ -1,3 +1,4 @@
+import { sql } from '@payloadcms/db-postgres'
 import type { Payload } from 'payload'
 
 import type { Municipality } from '@/payload-types'
@@ -71,28 +72,24 @@ export async function countSmsParts(
   from: Date,
   to: Date,
 ): Promise<{ parts: number; overageParts: number; messages: number }> {
-  const result = await payload.find({
-    collection: 'sms-messages',
-    where: {
-      and: [
-        { municipality: { equals: municipalityId } },
-        { createdAt: { greater_than_equal: from.toISOString() } },
-        { createdAt: { less_than: to.toISOString() } },
-      ],
-    },
-    select: { parts: true, overage: true },
-    depth: 0,
-    pagination: false,
-    overrideAccess: true,
-  })
-  let parts = 0
-  let overageParts = 0
-  for (const m of result.docs) {
-    const n = m.parts ?? 1
-    parts += n
-    if (m.overage) overageParts += n
+  // Summed in the database: an obec's year of SMS is thousands of rows, and this runs for every SMS
+  // sent (the quota alerts) and every announcement deciding who gets one.
+  const { rows } = await payload.db.drizzle.execute<{ parts: string | null; overage_parts: string | null; messages: string }>(sql`
+    SELECT
+      COALESCE(SUM(COALESCE(parts, 1)), 0) AS parts,
+      COALESCE(SUM(COALESCE(parts, 1)) FILTER (WHERE overage), 0) AS overage_parts,
+      COUNT(*) AS messages
+    FROM sms_messages
+    WHERE municipality_id = ${municipalityId}
+      AND created_at >= ${from.toISOString()}
+      AND created_at < ${to.toISOString()}
+  `)
+  const row = rows[0]
+  return {
+    parts: Number(row?.parts ?? 0),
+    overageParts: Number(row?.overage_parts ?? 0),
+    messages: Number(row?.messages ?? 0),
   }
-  return { parts, overageParts, messages: result.docs.length }
 }
 
 export type SmsUsage = {

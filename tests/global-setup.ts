@@ -2,14 +2,14 @@ import 'dotenv/config'
 
 import { Queue } from 'bullmq'
 
-import { EMAIL_QUEUE_NAME, QUEUE_NAME, SMS_QUEUE_NAME } from '@/lib/queue/contracts'
+import { EMAIL_QUEUE_NAME, HEAVY_QUEUE_NAME, QUEUE_NAME, SMS_QUEUE_NAME } from '@/lib/queue/contracts'
 
 import { TEST_REDIS_URL } from './redis'
 
 /** Nothing ever processes the jobs tests enqueue, so drop them once the run is over. */
 export async function teardown() {
   const url = new URL(TEST_REDIS_URL)
-  for (const name of [QUEUE_NAME, EMAIL_QUEUE_NAME, SMS_QUEUE_NAME]) {
+  for (const name of [QUEUE_NAME, EMAIL_QUEUE_NAME, SMS_QUEUE_NAME, HEAVY_QUEUE_NAME]) {
     const queue = new Queue(name, {
       connection: {
         host: url.hostname,

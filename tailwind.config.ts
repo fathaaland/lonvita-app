@@ -13,9 +13,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
-        serif: ["'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: ["var(--font-dm-sans)", "'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        serif: ["var(--font-dm-sans)", "'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-dm-sans)", "'DM Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       // Small labels below text-xs — 10px / 11px at the default 17px root, in rem so they
       // follow the font-size setting (US-H-07) like everything else.

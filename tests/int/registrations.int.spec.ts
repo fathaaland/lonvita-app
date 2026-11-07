@@ -228,6 +228,7 @@ describe('Registrations & EventFeedback', () => {
     let secondParticipant: { id: number }
     let notAttendedReg: { id: number }
     let attendedReg: { id: number }
+    let originalStart: string | undefined
 
     beforeAll(async () => {
       // Two different participants — one registration per (event, user) at a time is
@@ -250,6 +251,7 @@ describe('Registrations & EventFeedback', () => {
     })
 
     afterAll(async () => {
+      if (originalStart) await payload.db.updateOne({ collection: 'events', id: event.id, data: { dateTime: originalStart } })
       await payload.delete({ collection: 'event-feedback', where: { registration: { in: [notAttendedReg.id, attendedReg.id] } }, overrideAccess: true }).catch(() => {})
       await payload.delete({ collection: 'registrations', id: notAttendedReg.id, overrideAccess: true }).catch(() => {})
       await payload.delete({ collection: 'registrations', id: attendedReg.id, overrideAccess: true }).catch(() => {})
@@ -299,7 +301,26 @@ describe('Registrations & EventFeedback', () => {
       expect(reg.attendanceStatus).toBe('not_marked')
     })
 
+    it("nobody marks attendance before the event starts", async () => {
+      await expect(
+        payload.update({
+          collection: 'registrations',
+          id: notAttendedReg.id,
+          data: { attendanceStatus: 'attended' },
+          user: organizer,
+          overrideAccess: false,
+        }),
+      ).rejects.toThrow(/až po začátku akce/)
+    })
+
     it("the event's organizer can mark attendance", async () => {
+      // The clock passing the start — straight in the database, no hooks; put back after this block.
+      originalStart = (await payload.findByID({ collection: 'events', id: event.id, depth: 0, overrideAccess: true })).dateTime
+      await payload.db.updateOne({
+        collection: 'events',
+        id: event.id,
+        data: { dateTime: new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+      })
       const reg = await payload.update({
         collection: 'registrations',
         id: notAttendedReg.id,

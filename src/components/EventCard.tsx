@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Clock, HandHeart, Landmark, MapPin } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
-import { relativeDay, formatEventTime } from "@/lib/date";
+import { relativeDay, formatEventTime, APP_TIME_ZONE, pragueStartOfDay, pragueYmd } from "@/lib/date";
 import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isMunicipalityOrganization } from "@/lib/organizations";
@@ -18,6 +18,8 @@ export interface EventCardData {
   location_text: string;
   capacity: number;
   image_url: string | null;
+  /** Downscaled copy + original (queries imageSrcSet) — a card loads the small one. */
+  image_srcset?: string | null;
   /** The organizer's chosen framing of the photo in the 16:10 crop (percent); centred when absent. */
   image_position?: { x: number; y: number };
   registrations_count?: number;
@@ -40,11 +42,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** "Zítra, 18:00" while it's close; the weekday once the date stub alone says which day. */
 function whenLabel(iso: string): string {
   const date = new Date(iso);
-  const days = Math.round((new Date(iso).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / DAY_MS);
+  // Calendar days in Prague, as relativeDay counts them.
+  const days = Math.round((pragueStartOfDay(date).getTime() - pragueStartOfDay(new Date()).getTime()) / DAY_MS);
   const day =
     days >= 0 && days <= 6
       ? relativeDay(iso)
-      : date.toLocaleDateString("cs-CZ", { weekday: "long" }).replace(/^./, (c) => c.toUpperCase());
+      : date.toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE, weekday: "long" }).replace(/^./, (c) => c.toUpperCase());
   return `${day}, ${formatEventTime(iso)}`;
 }
 
@@ -152,8 +155,11 @@ export function EventCard({ event, className, ended }: { event: EventCardData; c
         {event.image_url ? (
           <img
             src={event.image_url}
+            srcSet={event.image_srcset ?? undefined}
+            sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
             alt=""
             loading="lazy"
+            decoding="async"
             width={512}
             height={320}
             className="w-full h-full object-cover motion-safe:transition-transform motion-safe:duration-500 group-hover:scale-[1.03]"
@@ -167,9 +173,9 @@ export function EventCard({ event, className, ended }: { event: EventCardData; c
         {/* A tear-off calendar leaf — the date is what people scan a list of events by. */}
         <div className="absolute bottom-3 left-3 w-14 rounded-xl bg-card text-center shadow-sm overflow-hidden">
           <div className="bg-primary text-primary-foreground text-2xs font-semibold py-0.5">
-            {date.toLocaleDateString("cs-CZ", { month: "short" }).replace(".", "")}
+            {date.toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE, month: "short" }).replace(".", "")}
           </div>
-          <div className="text-2xl font-extrabold leading-none tabular-nums py-1.5">{date.getDate()}</div>
+          <div className="text-2xl font-extrabold leading-none tabular-nums py-1.5">{pragueYmd(date).day}</div>
         </div>
       </div>
 

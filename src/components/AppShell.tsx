@@ -28,6 +28,13 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
 
   return (
     <div className="[container-type:inline-size] min-h-screen bg-background">
+      {/* First thing a keyboard reaches — past the navigation straight to the page (WCAG 2.4.1). */}
+      <a
+        href="#obsah"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:shadow-lg"
+      >
+        Přeskočit na obsah
+      </a>
       {isWide && !!user && <TopNav />}
       {isWide && !user && <GuestTopBar />}
       {/* The sign-in screens have no top bar — someone arriving from an e-mail link still needs
@@ -59,25 +66,29 @@ export function AppShell({ children, noBottomPadding }: AppShellProps) {
               panel. The column itself stays a reading width: a form stretched across half a
               desktop screen is unreadable however much room there is. */}
           <div className="[container-type:inline-size] lg:flex lg:min-h-screen lg:flex-col lg:justify-center">
-            <div
-              className={`mx-auto w-full max-w-[480px] lg:max-w-[440px] lg:px-8 lg:py-8 ${
+            <main
+              id="obsah"
+              tabIndex={-1}
+              className={`mx-auto w-full max-w-[480px] lg:max-w-[440px] lg:px-8 lg:py-8 focus:outline-none ${
                 noBottomPadding ? '' : 'safe-bottom'
               }`}
             >
               {children}
-            </div>
+            </main>
           </div>
         </div>
       ) : (
-        <div
-          className={`mx-auto ${
+        <main
+          id="obsah"
+          tabIndex={-1}
+          className={`mx-auto focus:outline-none ${
             isWide
               ? 'max-w-[480px] sm:max-w-none sm:w-full sm:px-6 lg:px-10 xl:px-16 2xl:max-w-[1600px]'
               : 'max-w-[480px]'
           } ${noBottomPadding ? '' : 'safe-bottom'}`}
         >
           {children}
-        </div>
+        </main>
       )}
       {!isNarrow && (
         <div className={isWide ? 'sm:hidden' : ''}>

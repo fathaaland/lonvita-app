@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BarChart3, CalendarRange, HandHeart, ClipboardList, Download, Settings } from "lucide-react";
-import { AnalyticsOverview } from "@/components/admin/AnalyticsOverview";
+import dynamic from "next/dynamic";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { CommunityReport } from "@/components/admin/CommunityReport";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
@@ -30,6 +30,13 @@ import { countPendingImportCandidates } from "@/integrations/payload/import-quer
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
 import { UnreadBadge } from "@/components/UnreadBadge";
+
+// The charts (recharts) are the heaviest part of the obec's page — loaded on their own, once the
+// dashboard's data is there, not with the page's first JavaScript.
+const AnalyticsOverview = dynamic(
+  () => import("@/components/admin/AnalyticsOverview").then((m) => m.AnalyticsOverview),
+  { ssr: false, loading: () => <Loading /> },
+);
 
 function AdminContent() {
   const router = useRouter();

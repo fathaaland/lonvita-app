@@ -37,7 +37,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { formatEventDateTime } from "@/lib/date";
+import { formatEventDateTime, APP_TIME_ZONE } from "@/lib/date";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { organizationTypeLabel } from "@/lib/organizations";
@@ -167,7 +167,7 @@ export function RequestsTable({
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate">{r.full_name}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("cs-CZ")}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}</p>
                   </div>
                   <ConfirmActionButton
                     size="sm"

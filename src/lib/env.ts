@@ -33,7 +33,40 @@ const ENV_VARS: EnvVar[] = [
   { key: 'S3_REGION', description: 'S3 region', required: true },
   { key: 'S3_ACCESS_KEY_ID', description: 'S3 access key ID', required: true },
   { key: 'S3_SECRET_ACCESS_KEY', description: 'S3 secret access key', required: true },
+  {
+    key: 'S3_ENDPOINT',
+    description: 'S3-compatible endpoint (Cloudflare R2, MinIO) — unset means AWS S3 itself',
+    required: false,
+  },
   { key: 'RESEND_API_KEY', description: 'Resend — every e-mail the app sends', required: true },
+  {
+    key: 'RESEND_FROM_EMAIL',
+    description: 'Sender address of every e-mail — the worker refuses to send without it',
+    required: true,
+  },
+  { key: 'RESEND_FROM_NAME', description: 'Sender name shown with the address', required: false },
+  {
+    key: 'BULKGATE_APPLICATION_ID',
+    description: 'BulkGate — SMS (cancellations, changes, reminders); none go out without it',
+    required: false,
+  },
+  {
+    key: 'BULKGATE_APPLICATION_TOKEN',
+    description: 'BulkGate — SMS (cancellations, changes, reminders); none go out without it',
+    required: false,
+  },
+  {
+    key: 'ESBIRKA_API_KEY',
+    description: 'e-Sbírka API — the nightly legal compliance check (Compliance in the superadmin panel)',
+    required: false,
+  },
+  { key: 'SENTRY_DSN', description: 'Sentry — errors of the server and the worker', required: false },
+  {
+    key: 'OPS_DISCORD_WEBHOOK_URL',
+    description: 'Discord webhook of the platform team — crashes, attacks, data-loss risks (lib/alerts/ops)',
+    required: false,
+  },
+  { key: 'OPS_ALERT_EMAILS', description: 'E-mail addresses of the platform team for the same alerts', required: false },
   { key: 'SEED_SECRET', description: 'Bearer secret of POST /api/seed', required: false },
   {
     key: 'GOOGLE_CLIENT_ID',

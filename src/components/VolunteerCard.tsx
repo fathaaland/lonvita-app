@@ -40,6 +40,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { APP_TIME_ZONE } from "@/lib/date";
 
 export const VOLUNTEER_FOCUS_OPTIONS: { value: string; label: string }[] = [
   { value: "doprava", label: "Pomoc s dopravou" },
@@ -440,7 +441,7 @@ export function VolunteerSelfPanel({ onSaved }: { onSaved: () => void }) {
 
 const formatWhen = (iso: string | null) =>
   iso
-    ? new Date(iso).toLocaleString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })
+    ? new Date(iso).toLocaleString("cs-CZ", { timeZone: APP_TIME_ZONE, weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })
     : "";
 
 /** Invitations from organizers still waiting for the volunteer's yes or no. */

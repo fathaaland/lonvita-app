@@ -45,6 +45,7 @@ import * as migration_20261026_170350_municipality_services from './20261026_170
 import * as migration_20261102_155104_billing_packages from './20261102_155104_billing_packages';
 import * as migration_20261102_162118_drop_monthly_service_prices from './20261102_162118_drop_monthly_service_prices';
 import * as migration_20261102_200114_compliance_register from './20261102_200114_compliance_register';
+import * as migration_20261107_105007_production_hardening from './20261107_105007_production_hardening';
 
 export const migrations = [
   {
@@ -280,6 +281,11 @@ export const migrations = [
   {
     up: migration_20261102_200114_compliance_register.up,
     down: migration_20261102_200114_compliance_register.down,
-    name: '20261102_200114_compliance_register'
+    name: '20261102_200114_compliance_register',
+  },
+  {
+    up: migration_20261107_105007_production_hardening.up,
+    down: migration_20261107_105007_production_hardening.down,
+    name: '20261107_105007_production_hardening'
   },
 ];
