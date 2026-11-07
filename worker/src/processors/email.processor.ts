@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { Resend } from 'resend'
 
 import { logger } from '@/lib/logger'
@@ -13,6 +15,16 @@ type QueueJobContext = {
    * time — the first e-mail's link no longer works). */
   idempotent?: boolean
 }
+
+/**
+ * Resend keeps an idempotency key a day and rejects it for a request whose body differs. A queue's
+ * job ids restart whenever Redis loses its counter, so `lonvita-<jobId>` alone could meet an older,
+ * different e-mail and fail every try. The key carries a fingerprint of what is sent: a retry of
+ * the same job is the same request and stays protected against a double send; other content never
+ * collides.
+ */
+export const idempotencyKeyFor = (jobId: string, parts: (string | null | undefined)[]): string =>
+  `lonvita-${jobId}-${createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24)}`
 
 let resendClient: Resend | null = null
 
@@ -73,14 +85,27 @@ export const processEmailJob = async (
       },
       // Resend keeps the key a day: a retry after a timeout or a worker restart mid-send — the
       // e-mail may have gone out already — is answered with the first send instead of a second one.
-      context?.jobId && context.idempotent !== false ? { idempotencyKey: `lonvita-${context.jobId}` } : undefined,
+      context?.jobId && context.idempotent !== false
+        ? {
+            idempotencyKey: idempotencyKeyFor(context.jobId, [
+              fromAddress,
+              recipients.join(','),
+              subject,
+              body,
+              replyTo,
+            ]),
+          }
+        : undefined,
     ),
     SEND_TIMEOUT_MS,
     'Resend',
   )
 
   if (error?.name === 'rate_limit_exceeded') {
-    logger.warn('E-mail send throttled by Resend', { event: 'email.rate_limited', jobId: context?.jobId })
+    logger.warn('E-mail send throttled by Resend', {
+      event: 'email.rate_limited',
+      jobId: context?.jobId,
+    })
     throw new ProviderRateLimitedError(`Resend error: ${error.message}`, 2_000)
   }
 
