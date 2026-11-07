@@ -387,7 +387,7 @@ export const Municipalities: CollectionConfig = {
       defaultValue: 15,
       admin: {
         description:
-          'Maximální vzdálenost (km) mezi středem obce (lat/lng výše) a místem konání akce. Akce mimo tento okruh nejde založit ani upravit — brání přiřazení akce z jiného města k této obci.',
+          'Smluvní okruh (km) kolem středu obce (lat/lng výše), ve kterém má obec a její pořadatelé pořádat akce. Aplikace ho nevynucuje — akci lze založit kdekoli; zveřejněná akce mimo okruh se ukáže na mapě obce v superadminu a pošle alert platformě. Import akcí z webu podle něj hledá místa konání.',
       },
     },
     {

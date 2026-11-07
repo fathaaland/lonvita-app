@@ -35,7 +35,8 @@ import {
 } from './shared/eventNotifications'
 import { MULTI_DAY_END_MESSAGE, pragueDateKey } from '@/lib/date'
 import { hasEventEnded } from '@/lib/eventEnded'
-import { haversineDistanceKm } from '@/lib/geo/distance'
+import { deferredUntilCommit } from '@/lib/after-commit'
+import { alertIfOutsideArea, needsAreaCheck } from '@/lib/events/area'
 import { inSameRegion, regionMunicipalityIds } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
@@ -843,54 +844,17 @@ const validateEventDates: CollectionBeforeChangeHook = ({ data, originalDoc, ope
 }
 
 /**
- * The location an event is created/edited at must actually be near the obec it's filed
- * under — otherwise an admin obce (or organizer) could plant an event anywhere and have it
- * show up on a completely unrelated municipality's page. Bounded by that municipality's own
- * configurable `eventRadiusKm` (Municipalities.ts) rather than a fixed constant, since a
- * small village and a big city need very different radii. Applies to every creator alike
- * (admin or organizer) — this is a data-integrity check, not a role check.
+ * An event may take place anywhere (decided 7. 11. 2026) — the obec's contractual radius
+ * (Municipalities.eventRadiusKm) is the obec's undertaking, not a rule the app enforces. A published,
+ * coming event that lands outside it is reported to the platform team instead (lib/events/area), and
+ * the superadmin's map of the obec shows it. After the commit, so a rolled-back save reports nothing.
  */
-const validateEventLocationRadius: CollectionBeforeChangeHook = async ({ data, req, originalDoc, operation }) => {
-  if (!data) return data
-  // Only when the place or the obec changes — an event that predates a smaller radius (or a moved
-  // obec centre) stays editable, and so cancellable, where it is.
-  const moved =
-    operation === 'create' ||
-    (data.lat !== undefined && data.lat !== originalDoc?.lat) ||
-    (data.lng !== undefined && data.lng !== originalDoc?.lng) ||
-    (data.municipality !== undefined && relationId(data.municipality) !== relationId(originalDoc?.municipality))
-  if (!moved) return data
-
-  const lat = data.lat ?? originalDoc?.lat
-  const lng = data.lng ?? originalDoc?.lng
-  const municipalityRaw = data.municipality ?? originalDoc?.municipality
-  if (typeof lat !== 'number' || typeof lng !== 'number' || !municipalityRaw) return data
-
-  const municipalityId = typeof municipalityRaw === 'object' ? municipalityRaw.id : municipalityRaw
-
-  const municipality = await req.payload.findByID({
-    collection: 'municipalities',
-    id: municipalityId,
-    depth: 0,
-    overrideAccess: true,
-  })
-  if (!municipality) return data
-
-  const radiusKm = municipality.eventRadiusKm ?? 15
-  const distanceKm = haversineDistanceKm(lat, lng, municipality.lat, municipality.lng)
-
-  if (distanceKm > radiusKm) {
-    // status 400 (not the default 500) makes Payload treat this as a *public* error — a plain
-    // `throw new Error()` here would otherwise get masked to a generic "Something went wrong"
-    // over REST (see isErrorPublic.js), which would make this check impossible to act on from the UI.
-    throw new APIError(
-      `Místo konání je ${distanceKm.toFixed(1)} km od obce „${municipality.name}“, což přesahuje povolený okruh ${radiusKm} km. Vyberte místo blíž obci.`,
-      400,
-    )
-  }
-
-  return data
-}
+const watchEventLocationRadius = deferredUntilCommit<Parameters<CollectionAfterChangeHook>[0], Event>(
+  async ({ doc, previousDoc, operation, req }) => {
+    if (!needsAreaCheck(doc, previousDoc, operation as 'create' | 'update')) return
+    await alertIfOutsideArea(req.payload, doc)
+  },
+)
 
 /** Cancelling an event (soft-delete via `deletedAt`) doesn't hard-delete the row — the FK
  * from existing registrations would block that anyway — so instead we notify everyone who
@@ -1637,7 +1601,6 @@ export const Events: CollectionConfig = {
       sealCancellation,
       guardCancellationWindow,
       validateEventDates,
-      validateEventLocationRadius,
       forceOrganizerToCreator,
       requireOrganizerRole,
       resolveOrganizations,
@@ -1648,6 +1611,7 @@ export const Events: CollectionConfig = {
     ],
     afterChange: [
       forgetPublicFaces,
+      watchEventLocationRadius,
       notifyRegistrantsOnCancellation,
       auditCancellation,
       notifyRegistrantsOnEdit,

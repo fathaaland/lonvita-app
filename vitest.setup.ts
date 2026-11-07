@@ -24,3 +24,9 @@ if (!['localhost', '127.0.0.1', '::1', 'postgres'].includes(testDatabaseHost) &&
 // Hooks under test enqueue real jobs (e-mails, reminders). On the shared Redis DB the local
 // worker would pick them up and try to mail the @test.local users — keep them on their own DB.
 process.env.REDIS_URL = TEST_REDIS_URL
+
+// The platform team's real alert channels (lib/alerts/ops) — a test creating an event outside an
+// obec's radius, or logging a crash on purpose, would otherwise page Discord and the team's inbox.
+// Tests of the alerts stub their own.
+delete process.env.OPS_DISCORD_WEBHOOK_URL
+delete process.env.OPS_ALERT_EMAILS

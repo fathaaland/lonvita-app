@@ -285,16 +285,15 @@ describe('Business flow guards — roles, requests, cancelled events, handovers'
   })
 
   describe("the obec's radius", () => {
-    it('shrinking it leaves events already placed editable and cancellable', async () => {
+    it('is contractual, not enforced — an event may be placed and moved outside it', async () => {
       const event = await createEvent(pub, { lat: 49.6461, lng: 15.9403 }) // ~9 km north
       await payload.update({ collection: 'municipalities', id: muni.id, data: { eventRadiusKm: 5 }, overrideAccess: true })
       try {
         const edited = await payload.update({ collection: 'events', id: event.id, data: { title: 'Přejmenováno' }, user: pub, overrideAccess: false })
         expect(edited.title).toBe('Přejmenováno')
-        // Moving it is checked against the new radius.
-        await expect(
-          payload.update({ collection: 'events', id: event.id, data: { lat: 49.7, lng: 15.9403 }, user: pub, overrideAccess: false }),
-        ).rejects.toThrow(/okruh/)
+        // Moved far outside the radius (Praha) — allowed; the superadmin's map and alert watch it.
+        const moved = await payload.update({ collection: 'events', id: event.id, data: { lat: 50.08, lng: 14.42 }, user: pub, overrideAccess: false })
+        expect(moved.lat).toBe(50.08)
         const cancelled = await payload.update({
           collection: 'events',
           id: event.id,

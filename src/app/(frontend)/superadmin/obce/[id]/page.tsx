@@ -7,6 +7,7 @@ import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { RequireAuth, RequireRole } from '@/components/RequireAuth'
 import { PageHeader } from '@/components/PageHeader'
+import { EventAreaCard } from '@/components/admin/EventAreaCard'
 import { Loading } from '@/components/Loading'
 import { ServicesCostCard, WEEKDAY_NAMES } from '@/components/admin/ServicesCostCard'
 import { Badge } from '@/components/ui/badge'
@@ -805,6 +806,10 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
               </div>
             )}
           </Section>
+        </div>
+
+        <div className="md:col-span-2">
+          <EventAreaCard municipalityId={municipalityId} />
         </div>
 
         <div className="md:col-span-2">

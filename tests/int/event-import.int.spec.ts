@@ -1017,9 +1017,6 @@ describe('Import — candidates, approval and access', () => {
       isPaid: false,
       priceCents: null,
     }
-    await expect(
-      approveCandidate(payload, admin, beseda.id, { ...edits, lat: 50.08, lng: 14.42 }),
-    ).rejects.toThrow('okruh')
     const { eventId } = await approveCandidate(payload, admin, beseda.id, edits)
     const created = await payload.findByID({
       collection: 'events',
