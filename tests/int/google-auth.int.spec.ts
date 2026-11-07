@@ -155,7 +155,12 @@ describe('Signing in with Google', () => {
       createdUserIds.push(result.user.id)
 
       expect(fetchMock).toHaveBeenCalledWith('https://lh3.googleusercontent.com/a/test-photo=s640-c', expect.anything())
-      expect((await profileOf(result.user.id))?.avatar).toBeTruthy()
+      const avatarId = (await profileOf(result.user.id))?.avatar
+      expect(avatarId).toBeTruthy()
+      // Media rows are listable by id and the files are public: no name, no user id on them.
+      const media = await payload.findByID({ collection: 'media', id: avatarId as number, depth: 0, overrideAccess: true })
+      expect(media.alt).toBe('Profilová fotka')
+      expect(media.filename).toMatch(/^avatar-[0-9a-f]{24}(-\d+)?\.jpeg$/)
     })
 
     it('stays removed once the person removes it', async () => {
@@ -259,12 +264,21 @@ describe('Signing in with Google', () => {
         overrideAccess: true,
       })
       createdUserIds.push(squatted.id)
+      // The squatter is signed in when the owner arrives.
+      await payload.login({ collection: 'users', data: { email, password: 'attacker-pass' } })
+      const sessionsOf = async () =>
+        ((await payload.findByID({ collection: 'users', id: squatted.id, depth: 0, overrideAccess: true })) as {
+          sessions?: unknown[] | null
+        }).sessions ?? []
+      expect((await sessionsOf()).length).toBeGreaterThan(0)
 
       const result = await resolveGoogleUser(payload, googleProfile({ email }))
       if (!result.ok) throw new Error(`expected success, got ${result.reason}`)
       expect(result.user.id).toBe(squatted.id)
 
       await expect(payload.login({ collection: 'users', data: { email, password: 'attacker-pass' } })).rejects.toThrow()
+      // …and the squatter's session went with the password — their token no longer gets in.
+      expect(await sessionsOf()).toEqual([])
     })
 
     it('refuses to reach an existing account on an unverified address', async () => {

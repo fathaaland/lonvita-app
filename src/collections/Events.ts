@@ -20,6 +20,7 @@ import {
 } from './access/shared'
 import { ensureMunicipalityOrganization, findOrganizationId, municipalityOrganizationIds } from './Organizations'
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
+import { isMediaReferenced } from './shared/mediaReferences'
 import { notDeleted } from './shared/softDelete'
 import { escapeHtml, getEventTeamUserIds, getMunicipalityAdminUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleAttendanceReminder } from './shared/reminders'
@@ -1123,13 +1124,13 @@ const cleanupEventRelations: CollectionBeforeDeleteHook = async ({ id, req }) =>
   })
 }
 
-/** The event's cover — unless another event still shows the same upload. */
+/** The event's cover — unless another event, a profile or an organization still shows the same upload
+ * (`image` takes any media id, so it may be somebody's avatar). */
 const removeEventFiles: CollectionAfterDeleteHook = async ({ req }) => {
   const mediaIds = (req.context.eventFiles as string[] | undefined) ?? []
   for (const mediaId of new Set(mediaIds)) {
     try {
-      const stillUsed = await req.payload.count({ collection: 'events', where: { image: { equals: mediaId } }, overrideAccess: true, req })
-      if (stillUsed.totalDocs > 0) continue
+      if (await isMediaReferenced(req.payload, mediaId, req)) continue
       await req.payload.delete({ collection: 'media', id: mediaId, overrideAccess: true, req })
     } catch (error) {
       req.payload.logger.error(`Failed to remove media ${mediaId} of a deleted event: ${error}`)

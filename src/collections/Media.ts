@@ -6,17 +6,46 @@ import { isLoggedIn } from './access/shared'
  * The files themselves stay public (event covers on the anonymous homepage, populated through
  * events/organizations/profiles with depth). What's closed is enumerating the collection: a plain
  * GET /api/media used to list every upload with its alt — for avatars that's the person's name.
- * A direct REST read on media now has to name the rows it wants (findByID, or `where[id]`, which
- * is how the app looks up avatars), and anonymous visitors get no direct REST access at all.
+ * A direct REST read on media now has to name the rows it wants: findByID, or a where that is only
+ * `id equals` / `id in [...]` (how the app looks up avatars in a batch). Any other operator or
+ * field (`where[id][exists]`, `where[id][greater_than]`, a second key such as `alt`) used to pass
+ * the "has an id key" check and list everything. Anonymous visitors get no direct REST access.
+ * Avatars carry no name in `alt` either (see the uploads), since ids are sequential.
  */
+const MAX_MEDIA_IDS = 500
+
+export const namesRowsOnly = (where: unknown): boolean => {
+  if (!where || typeof where !== 'object' || Array.isArray(where)) return false
+  const keys = Object.keys(where)
+  if (keys.length !== 1 || keys[0] !== 'id') return false
+  const condition = (where as { id: unknown }).id
+  if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return false
+  const operators = Object.entries(condition as Record<string, unknown>)
+  if (operators.length !== 1) return false
+  const [operator, value] = operators[0]
+  if (operator === 'equals') return typeof value === 'string' || typeof value === 'number'
+  if (operator === 'in') {
+    // qs parses `in[]=1&in[]=2` into an array (an index-keyed object past its arrayLimit),
+    // `in=1,2` into a string.
+    const ids = Array.isArray(value)
+      ? value
+      : typeof value === 'string'
+        ? value.split(',')
+        : value && typeof value === 'object' && Object.keys(value).every((k) => /^\d+$/.test(k))
+          ? Object.values(value)
+          : null
+    return ids !== null && ids.length > 0 && ids.length <= MAX_MEDIA_IDS
+  }
+  return false
+}
+
 const readMedia: Access = ({ req, isReadingStaticFile }) => {
   if (isReadingStaticFile || req.user?.role === 'admin') return true
   const direct = req.routeParams?.collection === 'media'
   if (!direct) return true
   if (!req.user) return false
   if (req.routeParams?.id) return true
-  const where = (req.query as { where?: Record<string, unknown> } | undefined)?.where
-  return Boolean(where && typeof where === 'object' && 'id' in where)
+  return namesRowsOnly((req.query as { where?: unknown } | undefined)?.where)
 }
 
 export const Media: CollectionConfig = {

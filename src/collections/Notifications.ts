@@ -1,4 +1,15 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, FieldAccess } from 'payload'
+
+/** What a notification says and whom it is for is written by server hooks (overrideAccess). Over
+ * REST the recipient may only mark it read: the row filter in `update` is checked against the
+ * stored row, not the incoming data, so without this a user could hand their own notification to
+ * someone else with any text and link. */
+const adminOnly: FieldAccess = ({ req: { user } }) => user?.role === 'admin'
+
+/** An in-app path ("/akce/12", "/api/exports/3/download"), never another site: the page opens it
+ * with the router, which would follow "https://…" or "//host" off the app. */
+export const isInAppLink = (link: string): boolean =>
+  link.startsWith('/') && !link.startsWith('//') && !link.startsWith('/\\')
 
 export const Notifications: CollectionConfig = {
   slug: 'notifications',
@@ -32,6 +43,7 @@ export const Notifications: CollectionConfig = {
       type: 'relationship',
       relationTo: 'users',
       required: true,
+      access: { update: adminOnly },
       admin: {
         description: 'Recipient of this notification.',
       },
@@ -40,15 +52,20 @@ export const Notifications: CollectionConfig = {
       name: 'title',
       type: 'text',
       required: true,
+      access: { update: adminOnly },
     },
     {
       name: 'message',
       type: 'textarea',
       required: true,
+      access: { update: adminOnly },
     },
     {
       name: 'link',
       type: 'text',
+      access: { update: adminOnly },
+      validate: (value: string | null | undefined) =>
+        !value || isInAppLink(value) || 'Odkaz musí být cesta v aplikaci (začínat „/“).',
       admin: {
         description: 'In-app route opened when the notification is clicked, e.g. "/akce/12". Empty = not clickable.',
       },

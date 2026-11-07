@@ -273,6 +273,27 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
     expect(await eventExists(event.id)).toBe(false)
   })
 
+  it('a spolupořadatel who joins after the request is asked too — the original approver alone cannot delete it', async () => {
+    const event = await createEvent(pub, [club])
+    const request = await requestDeletion(event.id, club)
+    // bakery joins while the request is pending — it isn't among the snapshotted approvers.
+    await payload.update({
+      collection: 'events',
+      id: event.id,
+      data: { coOrganizations: [orgOf(club), orgOf(bakery)] },
+      overrideAccess: true,
+    })
+
+    expect(await (await decideAs(pub, request.id, 'approve')).json()).toEqual({ status: 'pending' })
+    expect(await eventExists(event.id)).toBe(true)
+    const widened = await payload.findByID({ collection: 'event-deletion-requests', id: request.id, depth: 0, overrideAccess: true })
+    expect((widened.approvers ?? []).map(relId)).toContain(bakery.id)
+    expect((widened.approvedBy ?? []).map(relId)).toContain(pub.id)
+
+    expect(await (await decideAs(bakery, request.id, 'approve')).json()).toEqual({ status: 'approved' })
+    expect(await eventExists(event.id)).toBe(false)
+  })
+
   it('an unanswered request lapses after its 24 hours and the event stays', async () => {
     const event = await createEvent(pub, [club])
     const request = await requestDeletion(event.id, club)

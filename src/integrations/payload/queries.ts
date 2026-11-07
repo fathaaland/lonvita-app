@@ -119,6 +119,8 @@ export async function getEventCategories(): Promise<CategoryRow[]> {
   }))
 }
 
+export const PROFILE_PHOTO_ALT = 'Profilová fotka'
+
 // --- Media (event cover image) -------------------------------------------------------------
 
 /** Uploads the event cover image (brief §4 — crop to a fixed aspect ratio happens server-side
@@ -1457,9 +1459,10 @@ export async function updateProfile(
   return mapProfile(doc)
 }
 
-/** Uploads a new profile photo and puts it on the profile. */
-export async function setProfileAvatar(profileId: string, file: File, alt: string): Promise<void> {
-  const uploaded = await uploadFile<{ id: number }>('media', file, { alt })
+/** Uploads a new profile photo and puts it on the profile. The alt carries no name: media rows are
+ * listable by id (Media readMedia), and a profile's name is not public. */
+export async function setProfileAvatar(profileId: string, file: File): Promise<void> {
+  const uploaded = await uploadFile<{ id: number }>('media', file, { alt: PROFILE_PHOTO_ALT })
   await patch(`/profiles/${profileId}`, { avatar: uploaded.id })
 }
 

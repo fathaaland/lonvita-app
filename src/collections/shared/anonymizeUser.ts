@@ -5,6 +5,7 @@ import { APIError, commitTransaction, createLocalReq, initTransaction, killTrans
 
 import { notYetEnded } from '../Events'
 import { writeAuditLog } from './auditLog'
+import { isMediaReferenced } from './mediaReferences'
 import { notDeleted } from './softDelete'
 import type { AccountDeletionBlockingEvent, AccountDeletionSoleAdminObec } from '@/lib/accountDeletion'
 import { ageOn } from '@/lib/analytics'
@@ -334,6 +335,9 @@ export async function removeAnonymizedFiles(payload: Payload, userId: number, fi
   ]
   for (const { collection, id } of removals) {
     try {
+      // An avatar field takes any media id, so the account's "own" photo may be somebody else's
+      // upload, still on their profile or organization. Only an upload nobody shows goes.
+      if (collection === 'media' && (await isMediaReferenced(payload, id))) continue
       await payload.delete({ collection, id, overrideAccess: true })
     } catch (error) {
       logger.error('Anonymized account file not removed', {

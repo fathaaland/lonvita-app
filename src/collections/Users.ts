@@ -7,6 +7,7 @@ import type {
   CollectionBeforeValidateHook,
   CollectionConfig,
   CollectionSlug,
+  FieldAccess,
 } from 'payload'
 import { APIError } from 'payload'
 
@@ -175,6 +176,18 @@ const cleanupUserRelations: CollectionBeforeDeleteHook = async ({ id, req }) => 
   }
 }
 
+/**
+ * Field read gate for `email` and `role`. Collection read access alone does not cover them:
+ * Payload checks only *field* read access when a query walks a relationship into users, so
+ * `GET /api/events?where[organizer.email][like]=a` worked as an oracle for any signed-in user.
+ * In a where-check Payload calls this with no `doc`, so it returns false and the path is refused.
+ * When a document is read, its owner and the superadmin still see both fields.
+ */
+const readOwnOrAdmin: FieldAccess = ({ req: { user }, doc }) => {
+  if (user?.role === 'admin') return true
+  return Boolean(user && doc && String((doc as { id?: unknown }).id) === String(user.id))
+}
+
 export const Users: CollectionConfig = {
   slug: 'users',
   admin: {
@@ -212,7 +225,12 @@ export const Users: CollectionConfig = {
     strategies: [payloadTokenJwtStrategy],
   },
   fields: [
-    // email is added automatically by Payload auth
+    // Payload's auth adds the rest of `email` (merged by name); only the read gate is ours.
+    {
+      name: 'email',
+      type: 'email',
+      access: { read: readOwnOrAdmin },
+    },
     {
       name: 'role',
       type: 'select',
@@ -228,7 +246,7 @@ export const Users: CollectionConfig = {
       // app can do — the superadmin panel has no control for it, and this makes sure no REST
       // call can either. Seeding the first superadmin runs with `overrideAccess: true`, which
       // skips field access, so bootstrapping is unaffected.
-      access: { update: () => false },
+      access: { read: readOwnOrAdmin, update: () => false },
       admin: {
         position: 'sidebar',
         description:

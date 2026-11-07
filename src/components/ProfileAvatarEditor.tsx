@@ -35,7 +35,7 @@ export function ProfileAvatarEditor() {
       title="Profilová fotka"
       description="Uvidí ji pořadatelé a ostatní účastníci akcí, na které jdete."
       editLabel="Změnit profilovou fotku"
-      onSave={(file) => setProfileAvatar(profile.id, file, name)}
+      onSave={(file) => setProfileAvatar(profile.id, file)}
       onRemove={() => removeProfileAvatar(profile.id)}
       onChanged={refreshProfile}
     />

@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+
 import type { Payload } from 'payload'
 
 import { logger, serializeError } from '@/lib/logger'
@@ -59,11 +61,13 @@ export async function importGoogleAvatar(
 
       const media = await payload.create({
         collection: 'media',
-        data: { alt: target.fullName },
+        // No name in alt and no user id in the file name: media rows are listable by id and the
+        // files are public, so either would tie a face to a person or an account.
+        data: { alt: 'Profilová fotka' },
         file: {
           data,
           mimetype: contentType,
-          name: `avatar-google-${userId}.${contentType.split('/')[1]}`,
+          name: `avatar-${randomBytes(12).toString('hex')}.${contentType.split('/')[1]}`,
           size: data.byteLength,
         },
         overrideAccess: true,

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
+import { endAllSessions } from '@/lib/auth/sessions'
 import { upsertUser } from '@/lib/auth/users'
 
 import { importGoogleAvatar } from './avatar'
@@ -88,6 +89,9 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
         data: { password: randomBytes(32).toString('base64url') },
         overrideAccess: true,
       })
+      // Whoever signed in with that password may still be signed in — the token stays valid while
+      // its session lives (and refresh keeps it alive), so those sessions go with the password.
+      await endAllSessions(payload, byEmail.docs[0].id)
     }
   }
 

@@ -309,6 +309,12 @@ export async function fetchPublic(
 
 type RobotsRule = { allow: boolean; pattern: string }
 
+/** Past these a robots.txt is not evaluated rule by rule but read as "keep out" (see parseRobots).
+ * Nothing real comes close; the caps keep the matcher's worst case (rules × path × pattern) small. */
+const MAX_ROBOTS_RULES = 500
+const MAX_ROBOTS_PATTERN = 256
+const MAX_ROBOTS_PATH = 2048
+
 /** The rules that apply to us: the group naming our token, else the "*" group. */
 export function parseRobots(text: string, token = IMPORT_ROBOTS_TOKEN): RobotsRule[] {
   const groups: { agents: string[]; rules: RobotsRule[] }[] = []
@@ -337,23 +343,52 @@ export function parseRobots(text: string, token = IMPORT_ROBOTS_TOKEN): RobotsRu
   // A group names us by our product token — "LonvitaBot", "lonvitabot/1.0" — not by any part of it.
   const ours = groups.filter((g) => g.agents.some((a) => a.split('/')[0].trim() === token))
   const chosen = ours.length > 0 ? ours : groups.filter((g) => g.agents.includes('*'))
-  return chosen.flatMap((g) => g.rules)
+  const rules = chosen.flatMap((g) => g.rules)
+  // Too much to evaluate safely: the site gets the cautious reading, not a partial one.
+  if (rules.length > MAX_ROBOTS_RULES || rules.some((r) => r.pattern.length > MAX_ROBOTS_PATTERN)) {
+    return [{ allow: false, pattern: '/' }]
+  }
+  return rules
 }
 
-const patternToRegex = (pattern: string): RegExp => {
+/**
+ * RFC 9309 matching: `*` is any run of characters, a trailing `$` anchors the end, otherwise the
+ * pattern is a prefix. A two-pointer walk that only ever backtracks to the last `*` — O(path ×
+ * pattern) at worst. It replaces a `*` → `.*` regex, which backtracked exponentially on a rule
+ * like `/a*a*a*a*b`, and the site whose robots.txt it is decides the rule: one hostile web on an
+ * obec's source list froze the worker's only thread.
+ */
+export function matchesRobotsPattern(pattern: string, path: string): boolean {
   const anchored = pattern.endsWith('$')
-  const body = (anchored ? pattern.slice(0, -1) : pattern)
-    .split('*')
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-    .join('.*')
-  return new RegExp(`^${body}${anchored ? '$' : ''}`)
+  const p = anchored ? pattern.slice(0, -1) : `${pattern}*`
+  let i = 0
+  let j = 0
+  let star = -1
+  let mark = 0
+  while (i < path.length) {
+    if (j < p.length && p[j] === '*') {
+      star = j++
+      mark = i
+    } else if (j < p.length && p[j] === path[i]) {
+      i++
+      j++
+    } else if (star !== -1) {
+      j = star + 1
+      i = ++mark
+    } else {
+      return false
+    }
+  }
+  while (j < p.length && p[j] === '*') j++
+  return j === p.length
 }
 
 /** Whether `pathWithQuery` may be fetched: the longest matching rule wins, Allow on a tie. */
 export function isAllowedByRobots(rules: RobotsRule[], pathWithQuery: string): boolean {
+  const path = pathWithQuery.slice(0, MAX_ROBOTS_PATH)
   let best: RobotsRule | null = null
   for (const rule of rules) {
-    if (!patternToRegex(rule.pattern).test(pathWithQuery)) continue
+    if (!matchesRobotsPattern(rule.pattern, path)) continue
     if (
       !best ||
       rule.pattern.length > best.pattern.length ||

@@ -46,8 +46,10 @@ function NotificationsContent() {
     }
     // e.g. "Nová přihláška na akci" -> that event's detail. An API link (a finished export's
     // download) isn't a page the client router can render — it needs a real navigation.
-    if (n.link?.startsWith("/api/")) window.location.assign(n.link);
-    else if (n.link) router.push(n.link);
+    // Only a path inside the app — the collection validates the same, this keeps an old row honest.
+    const link = n.link && n.link.startsWith("/") && !n.link.startsWith("//") && !n.link.startsWith("/\\") ? n.link : null;
+    if (link?.startsWith("/api/")) window.location.assign(link);
+    else if (link) router.push(link);
   };
 
   const handleMarkAll = () => {

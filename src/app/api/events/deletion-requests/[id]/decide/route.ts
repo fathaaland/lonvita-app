@@ -382,6 +382,71 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
   }
 
+  // `approvers` and `neighbourMunicipalities` are who organized the event when the request was made.
+  // A spolupořadatel (or neighbouring obec) that has joined since is asked now, and the event isn't
+  // deleted without them — otherwise the last of the original approvers would decide for them.
+  if (!fresh.creatorOnly) {
+    const asked = new Set(
+      ((fresh.approvers ?? []).map(relationId) as (string | null)[]).filter((a): a is string => a !== null),
+    )
+    const obecAdmins = new Set(
+      municipalityId && (obec.runs || obec.coOrganizes)
+        ? (await getMunicipalityAdminUserIds(payload, municipalityId)).map(String)
+        : [],
+    )
+    const newApprovers = [...onEvent].filter((id) => id !== requesterId && !asked.has(id) && !obecAdmins.has(id))
+    const askedObce = new Set(
+      ((fresh.neighbourMunicipalities ?? []).map(relationId) as (string | null)[]).filter(
+        (m): m is string => m !== null,
+      ),
+    )
+    const newNeighbours = await obceWithAdmins(
+      payload,
+      [...neighboursOnEvent].filter((m) => m !== requesterObec && !askedObce.has(m)),
+    )
+    if (newApprovers.length > 0 || newNeighbours.length > 0) {
+      let widened
+      try {
+        widened = await payload.update({
+          collection: 'event-deletion-requests',
+          id: deletionRequest.id,
+          data: {
+            approvers: [...asked, ...newApprovers].map(Number),
+            approvedBy: approvedBy.map(Number),
+            neighbourMunicipalities: [...askedObce, ...newNeighbours].map(Number),
+            neighbourApproved: neighboursApproved.map(Number),
+            municipalityApprovedBy: municipalityApprovedBy ? Number(municipalityApprovedBy) : null,
+          },
+          overrideAccess: true,
+          req: lockReq,
+        })
+        await release()
+      } catch (error) {
+        if (lockCommit) await killTransaction(lockReq)
+        throw error
+      }
+      const asker = await payload.find({
+        collection: 'profiles',
+        where: { user: { equals: requesterId } },
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+      })
+      // Only the newcomers — everyone else was asked when the request was made.
+      await askForDeletionConsent(
+        payload,
+        {
+          ...widened,
+          approvers: newApprovers.map(Number),
+          neighbourMunicipalities: newNeighbours.map(Number),
+          municipalityConsent: false,
+        },
+        asker.docs[0]?.fullName || 'Spolupořadatel',
+      )
+      return NextResponse.json({ status: 'pending' })
+    }
+  }
+
   const stillWaiting = ((fresh.approvers ?? []).map(relationId) as (string | null)[]).filter(
     (a): a is string => a !== null && onEvent.has(a) && !approvedBy.includes(a),
   )

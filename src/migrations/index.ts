@@ -46,6 +46,7 @@ import * as migration_20261102_155104_billing_packages from './20261102_155104_b
 import * as migration_20261102_162118_drop_monthly_service_prices from './20261102_162118_drop_monthly_service_prices';
 import * as migration_20261102_200114_compliance_register from './20261102_200114_compliance_register';
 import * as migration_20261107_105007_production_hardening from './20261107_105007_production_hardening';
+import * as migration_20261107_180000_profile_photo_alt_without_name from './20261107_180000_profile_photo_alt_without_name';
 
 export const migrations = [
   {
@@ -287,5 +288,10 @@ export const migrations = [
     up: migration_20261107_105007_production_hardening.up,
     down: migration_20261107_105007_production_hardening.down,
     name: '20261107_105007_production_hardening'
+  },
+  {
+    up: migration_20261107_180000_profile_photo_alt_without_name.up,
+    down: migration_20261107_180000_profile_photo_alt_without_name.down,
+    name: '20261107_180000_profile_photo_alt_without_name',
   },
 ];
