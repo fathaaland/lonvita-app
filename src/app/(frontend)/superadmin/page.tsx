@@ -108,6 +108,7 @@ import {
   Download,
   Map as MapIcon,
   Wallet,
+  MapPinned,
 } from 'lucide-react'
 import { pct } from '@/lib/report'
 import { toast } from 'sonner'
@@ -918,6 +919,18 @@ function SuperAdminContent() {
                           title="Služby a ceny"
                         >
                           <Wallet className="h-4 w-4" />
+                        </Link>
+                        <Link
+                          href={`/superadmin/obce/${m.id}#mapa-akci`}
+                          className={buttonVariants({
+                            variant: 'ghost',
+                            size: 'icon',
+                            className: 'h-8 w-8 shrink-0',
+                          })}
+                          aria-label="Mapa akcí"
+                          title="Mapa akcí"
+                        >
+                          <MapPinned className="h-4 w-4" />
                         </Link>
                         <Button
                           variant="ghost"

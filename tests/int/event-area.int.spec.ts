@@ -3,7 +3,7 @@ import config from '@/payload.config'
 
 import { describe, it, beforeAll, afterAll, afterEach, expect, vi } from 'vitest'
 
-import { eventAreaMapOf } from '@/lib/events/area'
+import { eventAreaMapOf, eventAreaMapOfRegion } from '@/lib/events/area'
 
 let payload: Payload
 const STAMP = Date.now()
@@ -13,9 +13,13 @@ const DAY = 24 * 60 * 60 * 1000
 const CENTRE = { lat: 49.5661, lng: 15.9403 }
 const INSIDE = { lat: 49.6461, lng: 15.9403 }
 const BLANSKO = { lat: 49.3631, lng: 16.6445 }
+const PRAHA = { lat: 50.0755, lng: 14.4378 }
 
 describe("An obec's contractual radius — watched by the platform, not enforced", () => {
   let municipality: { id: number }
+  let partner: { id: number }
+  let partnerOrganizationId: number
+  let microregionId: number
   let category: { id: number }
   let organizer: { id: number; email: string }
   let obecAdmin: { id: number; email: string }
@@ -52,6 +56,26 @@ describe("An obec's contractual radius — watched by the platform, not enforced
       data: { name: `Area Obec ${STAMP}`, rulesForCreation: 'approved_organizers', ...CENTRE, eventRadiusKm: 15 },
       overrideAccess: true,
     })
+    partner = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Area Partner ${STAMP}`, rulesForCreation: 'approved_organizers', ...BLANSKO, eventRadiusKm: 15 },
+      overrideAccess: true,
+    })
+    const partnerOrganization = await payload.find({
+      collection: 'organizations',
+      where: { and: [{ municipality: { equals: partner.id } }, { type: { equals: 'municipality' } }] },
+      limit: 1,
+      depth: 0,
+      overrideAccess: true,
+    })
+    partnerOrganizationId = partnerOrganization.docs[0].id
+    // Co-organizing across obce needs a shared mikroregion.
+    const region = await payload.create({
+      collection: 'microregions',
+      data: { name: `Area Region ${STAMP}`, municipalities: [municipality.id, partner.id], mainMunicipality: municipality.id },
+      overrideAccess: true,
+    })
+    microregionId = region.id
     category = await payload.create({ collection: 'event-categories', data: { name: `Area Category ${STAMP}` }, overrideAccess: true })
     const createUser = async (name: string) => {
       const user = await payload.create({
@@ -81,6 +105,7 @@ describe("An obec's contractual radius — watched by the platform, not enforced
   })
 
   afterAll(async () => {
+    await payload.delete({ collection: 'microregions', id: microregionId, overrideAccess: true }).catch(() => {})
     for (const id of eventIds) await payload.delete({ collection: 'events', id, overrideAccess: true }).catch(() => {})
   })
 
@@ -121,10 +146,10 @@ describe("An obec's contractual radius — watched by the platform, not enforced
     eventIds.push(past.id as number)
 
     const map = await eventAreaMapOf(payload, municipality.id)
-    expect(map.municipality).toMatchObject({ id: municipality.id, radiusKm: 15 })
+    expect(map.areas).toMatchObject([{ id: municipality.id, radiusKm: 15, inScope: true }])
     const byId = new Map(map.events.map((e) => [e.id, e]))
 
-    expect(byId.get(inside.id)).toMatchObject({ outside: false, runBy: 'organizer' })
+    expect(byId.get(inside.id)).toMatchObject({ outside: false, runBy: 'organizer', kind: 'standalone' })
     expect(byId.get(inside.id)!.distanceKm).toBeCloseTo(8.9, 0)
     expect(byId.get(outside.id)).toMatchObject({ outside: true, runBy: 'organizer' })
     expect(byId.get(outside.id)!.distanceKm).toBeGreaterThan(50)
@@ -155,11 +180,58 @@ describe("An obec's contractual radius — watched by the platform, not enforced
     expect(sent).toHaveLength(1)
     expect(sent[0].embeds[0].title).toBe(`Akce mimo smluvní okruh obce Area Obec ${STAMP}`)
     const fields = Object.fromEntries(sent[0].embeds[0].fields.map((f) => [f.name, f.value]))
-    expect(fields.vzdálenost).toMatch(/km \(okruh 15 km\)$/)
+    expect(fields.vzdálenost).toMatch(/km od obce Area Obec \d+ \(okruh 15 km\)$/)
+    expect(fields.druh).toBe('samostatná')
     expect(fields.obec).toContain(String(municipality.id))
 
     // Only renamed — not reported again.
     await payload.update({ collection: 'events', id: draft.id, data: { title: 'Přejmenováno' }, overrideAccess: true, context: { skipNotifications: true } })
     expect(alerts()).toHaveLength(1)
+  })
+  it('lets a mikroregionální event stand in the radius of any obec taking part — and judges a standalone one by its own obec alone', async () => {
+    const regionalIn = await createEvent(organizer, BLANSKO, { coOrganizations: [partnerOrganizationId] })
+    const regionalOut = await createEvent(organizer, PRAHA, { coOrganizations: [partnerOrganizationId] })
+    const standalone = await createEvent(organizer, BLANSKO)
+
+    const map = await eventAreaMapOf(payload, municipality.id)
+    // The partner's circle is drawn too, apart from the obec's own.
+    expect(map.areas.map((a) => [a.id, a.inScope])).toEqual(expect.arrayContaining([[municipality.id, true], [partner.id, false]]))
+    const byId = new Map(map.events.map((e) => [e.id, e]))
+    expect(byId.get(regionalIn.id)).toMatchObject({ kind: 'regional', outside: false, nearestObec: `Area Partner ${STAMP}`, partners: [`Area Partner ${STAMP}`] })
+    expect(byId.get(regionalOut.id)).toMatchObject({ kind: 'regional', outside: true })
+    expect(byId.get(standalone.id)).toMatchObject({ kind: 'standalone', outside: true, nearestObec: `Area Obec ${STAMP}` })
+  })
+
+  it("shows the partner obec the events it co-organizes under another obec, and maps a whole mikroregion", async () => {
+    const regional = await createEvent(organizer, BLANSKO, { coOrganizations: [partnerOrganizationId] })
+
+    const partnerMap = await eventAreaMapOf(payload, partner.id)
+    expect(partnerMap.events.find((e) => e.id === regional.id)).toMatchObject({ kind: 'regional', outside: false, homeObec: `Area Obec ${STAMP}` })
+
+    const regionMap = await eventAreaMapOfRegion(payload, microregionId)
+    expect(regionMap.title).toBe(`Area Region ${STAMP}`)
+    expect(regionMap.areas.filter((a) => a.inScope).map((a) => a.id).sort()).toEqual([municipality.id, partner.id].sort())
+    expect(regionMap.events.filter((e) => e.id === regional.id)).toHaveLength(1)
+  })
+
+  it('alerts a mikroregionální event outside every taking obec, naming them — none when it lies in one', async () => {
+    vi.stubEnv('OPS_DISCORD_WEBHOOK_URL', 'https://discord.test/webhook')
+    vi.stubEnv('OPS_ALERT_EMAILS', '')
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const alerts = () =>
+      (fetchMock.mock.calls as unknown as [string, RequestInit][])
+        .filter(([url]) => url === 'https://discord.test/webhook')
+        .map(([, init]) => JSON.parse(String(init.body)) as { embeds: { title: string; fields: { name: string; value: string }[] }[] })
+
+    await createEvent(organizer, BLANSKO, { coOrganizations: [partnerOrganizationId] })
+    expect(alerts()).toHaveLength(0)
+
+    await createEvent(organizer, PRAHA, { coOrganizations: [partnerOrganizationId] })
+    const sent = alerts()
+    expect(sent).toHaveLength(1)
+    expect(sent[0].embeds[0].title).toContain('Mikroregionální akce mimo okruh obcí')
+    const fields = Object.fromEntries(sent[0].embeds[0].fields.map((f) => [f.name, f.value]))
+    expect(fields.druh).toContain(`Area Partner ${STAMP}`)
   })
 })

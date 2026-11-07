@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Map as MapIcon, Pencil, Plus, Star } from 'lucide-react'
+import { AlertTriangle, Map as MapIcon, MapPinned, Pencil, Plus, Star } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ConfirmDeleteButton } from '@/components/ConfirmDeleteButton'
+import { EventAreaCard } from '@/components/admin/EventAreaCard'
 import {
   Dialog,
   DialogContent,
@@ -52,6 +53,7 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
   const [regions, setRegions] = useState<MicroregionRow[] | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
+  const [mapOpen, setMapOpen] = useState<Set<string>>(new Set())
   /** Joint events the change would touch — shown before it's saved. Null while not asking. */
   const [impact, setImpact] = useState<{ id: string; title: string }[] | null>(null)
 
@@ -144,6 +146,22 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
             <div className="flex items-center gap-2">
               <p className="font-bold flex-1">{r.name}</p>
               <Button
+                variant={mapOpen.has(r.id) ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                aria-label={`Mapa akcí mikroregionu ${r.name}`}
+                title="Mapa akcí"
+                onClick={() =>
+                  setMapOpen((open) => {
+                    const next = new Set(open)
+                    if (!next.delete(r.id)) next.add(r.id)
+                    return next
+                  })
+                }
+              >
+                <MapPinned className="h-4 w-4" />
+              </Button>
+              <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
@@ -180,6 +198,7 @@ export function MicroregionsTab({ municipalities }: { municipalities: Municipali
                 </Badge>
               ))}
             </div>
+            {mapOpen.has(r.id) && <EventAreaCard microregionId={r.id} />}
           </CardContent>
         </Card>
       ))}

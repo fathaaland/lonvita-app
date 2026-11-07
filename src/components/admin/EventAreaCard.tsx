@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Loading } from "@/components/Loading";
 import { EVENT_AREA_COLOURS } from "@/components/map/eventAreaColours";
 import { EventAreaMap } from "@/components/map/EventAreaMapClient";
-import { getEventAreaMap, type EventAreaMap as EventAreaMapData } from "@/integrations/payload/billing-queries";
+import { getEventAreaMap, getRegionEventAreaMap, type EventAreaMap as EventAreaMapData } from "@/integrations/payload/billing-queries";
 
 const when = (iso: string) =>
   new Date(iso).toLocaleDateString("cs-CZ", { timeZone: "Europe/Prague", day: "numeric", month: "numeric", year: "numeric" });
@@ -18,28 +18,30 @@ function Dot({ colour }: { colour: string }) {
 }
 
 /**
- * Superadmin: where the obec's published, coming events take place against its contractual radius
- * (lib/events/area). Nothing is blocked — the obec and its pořadatelé undertake in the contract to
+ * Superadmin: where the published, coming events of an obec — or of all obce of a mikroregion —
+ * take place against the contractual radii (lib/events/area). Nothing is blocked — the obec and its pořadatelé undertake in the contract to
  * keep their events around the obec; this is how the platform checks it.
  */
-export function EventAreaCard({ municipalityId }: { municipalityId: string }) {
+export function EventAreaCard(props: { municipalityId: string } | { microregionId: string }) {
+  const municipalityId = "municipalityId" in props ? props.municipalityId : null;
+  const microregionId = "microregionId" in props ? props.microregionId : null;
   const [data, setData] = useState<EventAreaMapData | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
-    getEventAreaMap(municipalityId)
+    (municipalityId ? getEventAreaMap(municipalityId) : getRegionEventAreaMap(microregionId!))
       .then((d) => active && setData(d))
       .catch(() => active && setFailed(true));
     return () => {
       active = false;
     };
-  }, [municipalityId]);
+  }, [municipalityId, microregionId]);
 
   const outside = data?.events.filter((e) => e.outside) ?? [];
 
   return (
-    <Card>
+    <Card id="mapa-akci">
       <CardContent className="p-4 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -60,15 +62,19 @@ export function EventAreaCard({ municipalityId }: { municipalityId: string }) {
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Zveřejněné akce obce {data.municipality.name}, které ještě neskončily ({data.events.length}). Přerušovaný kruh je smluvní
-              okruh {data.municipality.radiusKm} km — aplikace akce mimo něj nezakazuje, obec se ve smlouvě zavazuje pořádat je v okolí.
-              Okruh se mění v nastavení obce (pole eventRadiusKm).
+              Zveřejněné akce {microregionId ? "mikroregionu" : "obce"} {data.title}, které ještě neskončily ({data.events.length}).
+              Přerušované kruhy jsou smluvní okruhy obcí ({data.areas.map((a) => `${a.name} ${a.radiusKm} km`).join(", ")}) — aplikace akce
+              mimo ně nezakazuje, obec se ve smlouvě zavazuje pořádat je v okolí. Samostatná akce se měří od své obce, mikroregionální
+              (spolupořádaná jinou obcí) od kterékoli zúčastněné obce; členství v mikroregionu samo o sobě právo pořádat jinde nedává.
             </p>
             <EventAreaMap data={data} />
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5"><Dot colour={EVENT_AREA_COLOURS.obec} /> akce obce</span>
               <span className="flex items-center gap-1.5"><Dot colour={EVENT_AREA_COLOURS.organizer} /> akce pořadatelů</span>
               <span className="flex items-center gap-1.5"><Dot colour={EVENT_AREA_COLOURS.outside} /> mimo okruh</span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-3 w-3 rounded-full border-[3px] border-muted-foreground" aria-hidden /> kroužek = mikroregionální akce
+              </span>
             </div>
 
             {outside.length > 0 && (
@@ -79,8 +85,9 @@ export function EventAreaCard({ municipalityId }: { municipalityId: string }) {
                       <th className="py-1.5 pr-3 font-medium">Akce</th>
                       <th className="py-1.5 pr-3 font-medium">Kdy</th>
                       <th className="py-1.5 pr-3 font-medium">Pořádá</th>
+                      <th className="py-1.5 pr-3 font-medium">Druh</th>
                       <th className="py-1.5 pr-3 font-medium">Místo</th>
-                      <th className="py-1.5 font-medium text-right">Od středu</th>
+                      <th className="py-1.5 font-medium text-right">Od obce</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -96,9 +103,13 @@ export function EventAreaCard({ municipalityId }: { municipalityId: string }) {
                           </td>
                           <td className="py-2 pr-3 whitespace-nowrap">{when(e.dateTime)}</td>
                           <td className="py-2 pr-3">{e.runBy === "obec" ? "Obec" : (e.organizationName ?? "Pořadatel")}</td>
+                          <td className="py-2 pr-3">
+                            {e.kind === "regional" ? `Mikroregionální (${[e.homeObec, ...e.partners].join(", ")})` : `Samostatná (${e.homeObec})`}
+                          </td>
                           <td className="py-2 pr-3 max-w-[16rem]">{e.locationText ?? "—"}</td>
                           <td className="py-2 text-right tabular-nums whitespace-nowrap text-destructive">
                             {e.distanceKm.toLocaleString("cs-CZ")} km
+                            <span className="block text-xs text-muted-foreground">{e.nearestObec}</span>
                           </td>
                         </tr>
                       ))}

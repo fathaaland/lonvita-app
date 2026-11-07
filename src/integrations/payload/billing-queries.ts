@@ -68,9 +68,14 @@ export async function reviewImportRun(
   await patch(`/superadmin/import-runs/${runId}`, { reviewStatus, reviewNote })
 }
 
-export type { EventAreaMap, EventAreaPoint } from '@/lib/events/area'
+export type { EventAreaMap, EventAreaPoint, EventArea } from '@/lib/events/area'
 
 /** The obec's published, coming events against its contractual radius (superadmin map). */
 export async function getEventAreaMap(municipalityId: string): Promise<import('@/lib/events/area').EventAreaMap> {
   return get(`/superadmin/municipalities/${municipalityId}/event-map`)
+}
+
+/** The same for all obce of a mikroregion. */
+export async function getRegionEventAreaMap(microregionId: string): Promise<import('@/lib/events/area').EventAreaMap> {
+  return get(`/superadmin/microregions/${microregionId}/event-map`)
 }
