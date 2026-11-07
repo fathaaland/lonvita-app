@@ -39,6 +39,18 @@ const exists = async (bucket: string, key: string): Promise<boolean> => {
   }
 }
 
+/**
+ * How the file is kept write-once. AWS S3 and MinIO take a compliance-mode lock on each object. R2
+ * can't (its S3 API rejects the object-lock headers): there a bucket lock rule on the audit bucket
+ * keeps every object for the retention period instead, and the upload must not carry the headers.
+ * AUDIT_EXPORT_LOCK=bucket|object overrides the guess from S3_ENDPOINT.
+ */
+export const auditExportLockMode = (env: NodeJS.ProcessEnv = process.env): 'object' | 'bucket' => {
+  const explicit = env.AUDIT_EXPORT_LOCK?.trim().toLowerCase()
+  if (explicit === 'bucket' || explicit === 'object') return explicit
+  return /\.r2\.cloudflarestorage\.com/i.test(env.S3_ENDPOINT ?? '') ? 'bucket' : 'object'
+}
+
 /** Every row of `table` created on `day`, whole, as the database holds it. */
 const rowsOf = async (payload: Payload, table: 'audit_log' | 'security_events', day: string) => {
   const from = `${day}T00:00:00.000Z`
@@ -52,11 +64,18 @@ const rowsOf = async (payload: Payload, table: 'audit_log' | 'security_events', 
 
 /**
  * One finished UTC day of the audit log and the security events, written once to the write-once
- * bucket: a manifest line first, then a line per row. Compliance-mode Object Lock keeps it from
- * being changed or removed by anybody — this app's credentials included — for 18 months. Its hash
+ * bucket: a manifest line first, then a line per row. Compliance-mode Object Lock (or, on R2, the
+ * bucket's lock rule — auditExportLockMode) keeps it from being changed or removed by anybody — this
+ * app's credentials included — for 18 months. Its hash
  * goes into the audit log, so each night's file is vouched for by the next.
  */
-const exportDay = async (payload: Payload, bucket: string, day: string, now: Date, lockMonths: number) => {
+const exportDay = async (
+  payload: Payload,
+  bucket: string,
+  day: string,
+  now: Date,
+  lockMonths: number,
+) => {
   const auditLog = await rowsOf(payload, 'audit_log', day)
   const securityEvents = await rowsOf(payload, 'security_events', day)
   const lines = [
@@ -81,8 +100,12 @@ const exportDay = async (payload: Payload, bucket: string, day: string, now: Dat
       Body: body,
       ContentType: 'application/x-ndjson',
       ChecksumAlgorithm: 'SHA256',
-      ObjectLockMode: 'COMPLIANCE',
-      ObjectLockRetainUntilDate: monthsBefore(now, -lockMonths),
+      ...(auditExportLockMode() === 'object'
+        ? {
+            ObjectLockMode: 'COMPLIANCE' as const,
+            ObjectLockRetainUntilDate: monthsBefore(now, -lockMonths),
+          }
+        : {}),
       Metadata: { sha256 },
     }),
   )
@@ -95,6 +118,7 @@ const exportDay = async (payload: Payload, bucket: string, day: string, now: Dat
       bucket,
       key,
       sha256,
+      lock: auditExportLockMode(),
       auditLogCount: auditLog.length,
       securityEventCount: securityEvents.length,
     },
@@ -105,9 +129,12 @@ export const processExportAuditTrailJob = async (): Promise<ExportAuditTrailJobR
   const bucket = process.env.AUDIT_EXPORT_BUCKET?.trim()
   if (!bucket) {
     // Loud in production: without the copy, data retention keeps the audit log and security events.
-    logger[process.env.NODE_ENV === 'production' ? 'error' : 'warn']('Audit trail not exported — no bucket configured', {
-      event: 'audit_export.not_configured',
-    })
+    logger[process.env.NODE_ENV === 'production' ? 'error' : 'warn'](
+      'Audit trail not exported — no bucket configured',
+      {
+        event: 'audit_export.not_configured',
+      },
+    )
     return { exported: [], failed: [], skipped: 'not_configured' }
   }
 
