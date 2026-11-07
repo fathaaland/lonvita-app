@@ -55,3 +55,11 @@ node_modules/
 
 # worker build output (the worker runs from source via tsx)
 /worker/dist/
+
+# Local tooling state — not part of the app
+/security-audit-skill
+/.agents/
+/skills-lock.json
+/.claude/.headroom_*
+/.claude/worktrees/
+:memory:*
