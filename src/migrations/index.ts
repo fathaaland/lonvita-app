@@ -46,6 +46,7 @@ import * as migration_20261102_155104_billing_packages from './20261102_155104_b
 import * as migration_20261102_162118_drop_monthly_service_prices from './20261102_162118_drop_monthly_service_prices';
 import * as migration_20261102_200114_compliance_register from './20261102_200114_compliance_register';
 import * as migration_20261107_105007_production_hardening from './20261107_105007_production_hardening';
+import * as migration_20261108_140730_payload_3_93 from './20261108_140730_payload_3_93';
 
 export const migrations = [
   {
@@ -286,6 +287,11 @@ export const migrations = [
   {
     up: migration_20261107_105007_production_hardening.up,
     down: migration_20261107_105007_production_hardening.down,
-    name: '20261107_105007_production_hardening'
+    name: '20261107_105007_production_hardening',
+  },
+  {
+    up: migration_20261108_140730_payload_3_93.up,
+    down: migration_20261108_140730_payload_3_93.down,
+    name: '20261108_140730_payload_3_93'
   },
 ];
