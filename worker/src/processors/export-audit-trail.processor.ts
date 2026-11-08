@@ -28,6 +28,17 @@ const utcDay = (now: Date, daysAgo: number): string =>
 
 const keyFor = (day: string) => `audit-trail/${day.slice(0, 4)}/${day.slice(5, 7)}/${day}.jsonl`
 
+/** Marks which S3 call failed — the SDK's own error is a bare `UnknownError` when R2 sends no XML body. */
+const failedAt = (operation: 'HEAD' | 'PUT', error: unknown): Error => {
+  const meta = error as { $metadata?: { httpStatusCode?: number }; Code?: string; name?: string }
+  return Object.assign(
+    new Error(
+      `S3 ${operation} failed: HTTP ${meta.$metadata?.httpStatusCode ?? '?'} ${meta.Code ?? meta.name ?? ''}`.trim(),
+    ),
+    { cause: error },
+  )
+}
+
 const exists = async (bucket: string, key: string): Promise<boolean> => {
   try {
     await getS3Client().send(new HeadObjectCommand({ Bucket: bucket, Key: key }))
@@ -35,7 +46,7 @@ const exists = async (bucket: string, key: string): Promise<boolean> => {
   } catch (error) {
     const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode
     if (status === 404) return false
-    throw error
+    throw failedAt('HEAD', error)
   }
 }
 
@@ -93,22 +104,26 @@ const exportDay = async (
   const sha256 = createHash('sha256').update(body).digest('hex')
   const key = keyFor(day)
 
-  await getS3Client().send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: body,
-      ContentType: 'application/x-ndjson',
-      ChecksumAlgorithm: 'SHA256',
-      ...(auditExportLockMode() === 'object'
-        ? {
-            ObjectLockMode: 'COMPLIANCE' as const,
-            ObjectLockRetainUntilDate: monthsBefore(now, -lockMonths),
-          }
-        : {}),
-      Metadata: { sha256 },
-    }),
-  )
+  await getS3Client()
+    .send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: 'application/x-ndjson',
+        ChecksumAlgorithm: 'SHA256',
+        ...(auditExportLockMode() === 'object'
+          ? {
+              ObjectLockMode: 'COMPLIANCE' as const,
+              ObjectLockRetainUntilDate: monthsBefore(now, -lockMonths),
+            }
+          : {}),
+        Metadata: { sha256 },
+      }),
+    )
+    .catch((error) => {
+      throw failedAt('PUT', error)
+    })
 
   await recordAuditLog(payload, {
     action: 'audit-trail.exported',
