@@ -11,14 +11,24 @@ import { retentionMode } from '@/lib/retention/policy'
 
 import type { QueueJobEnvelope } from '@/lib/queue/contracts'
 
+import { awaitMigrations } from './runtime/await-migrations'
 import { warnIfArrayPrototypeIsPolluted } from './runtime/prototype-safety'
 import { startHealthReporting } from './runtime/health'
 import { WORKER_SCHEDULES } from './runtime/schedules'
 import { registerShutdown } from './runtime/shutdown'
-import { spawnQueueWorker } from './runtime/spawn-worker'
+import { spawnQueueWorker, type QueueWorker } from './runtime/spawn-worker'
 
 logger.info('Worker starting', { event: 'worker.starting' })
 warnIfArrayPrototypeIsPolluted('lonvita-worker')
+
+// Filled once the database is migrated. The health endpoint and the shutdown handler come first, so
+// a deploy passes Railway's healthcheck (an empty list counts as running) while the worker waits,
+// and a SIGTERM then exits cleanly.
+const workers: QueueWorker[] = []
+const stopHealthReporting = startHealthReporting(workers)
+registerShutdown('Worker', workers, { beforeClose: stopHealthReporting })
+
+await awaitMigrations()
 
 for (const schedule of WORKER_SCHEDULES) {
   await getQueue().upsertJobScheduler(
@@ -41,7 +51,7 @@ for (const schedule of WORKER_SCHEDULES) {
   })
 }
 
-const workers = [
+workers.push(
   spawnQueueWorker({ queueName: QUEUE_NAME }),
   // Few at once: an import holds an AI call for up to minutes and an export renders a PDF on the
   // event loop. WORKER_HEAVY_CONCURRENCY sets another.
@@ -57,8 +67,4 @@ const workers = [
     concurrency: smsRatePerSecond() * 2,
     limiter: { max: smsRatePerSecond(), duration: 1_000 },
   }),
-]
-
-const stopHealthReporting = startHealthReporting(workers)
-
-registerShutdown('Worker', workers, { beforeClose: stopHealthReporting })
+)

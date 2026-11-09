@@ -85,6 +85,19 @@ services:
       # Rendered exports are uploaded straight to the bucket (the app then presigns downloads
       # against the host's localhost:9000, which is fine — it only signs, never connects).
       - S3_ENDPOINT=http://minio:9000
+      # The image sets NODE_ENV=production, and the host .env may carry the real Sentry DSN and the
+      # platform team's Discord/e-mail alerts. A local worker must not report as "production": its
+      # cron check-ins would keep the production monitors green while the Railway worker is down,
+      # and its alerts would page the team. Empty here = off (worker/src/runtime/sentry, lib/alerts/ops).
+      - SENTRY_ENVIRONMENT=local
+      - SENTRY_DSN=
+      - NEXT_PUBLIC_SENTRY_DSN=
+      - OPS_DISCORD_WEBHOOK_URL=
+      - OPS_ALERT_EMAILS=
+      - VERCEL_ENV=local
+      # The local database is built by `pnpm dev`'s schema push — no migration rows to wait for
+      # (worker/src/runtime/await-migrations).
+      - WORKER_AWAIT_MIGRATIONS=false
     depends_on:
       valkey:
         condition: service_healthy

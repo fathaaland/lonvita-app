@@ -6,6 +6,6 @@
   "scripts": {
     "build": "pnpm --dir .. exec tsc -p tsconfig.worker.json",
     "start": "LOG_SERVICE=worker PAYLOAD_MIGRATING=true pnpm --dir .. exec tsx worker/src/run.ts",
-    "dev": "LOG_SERVICE=worker PAYLOAD_MIGRATING=true pnpm --dir .. exec tsx watch worker/src/run.ts"
+    "dev": "LOG_SERVICE=worker PAYLOAD_MIGRATING=true WORKER_AWAIT_MIGRATIONS=false pnpm --dir .. exec tsx watch worker/src/run.ts"
   }
 }
