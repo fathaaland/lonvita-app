@@ -1,5 +1,7 @@
 import * as Sentry from '@sentry/node'
 
+import { scrubBreadcrumb, scrubSentryEvent } from '@/lib/scrub-pii'
+
 /**
  * Sentry for the worker — what fails here (an e-mail that used up its tries, a crashed process, a
  * scheduled job that stopped running) never reaches the app's Sentry otherwise. The same project as
@@ -19,6 +21,10 @@ Sentry.init({
   release: process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
   serverName: 'lonvita-worker',
   initialScope: { tags: { service: 'worker' } },
+  // A failed query's values, addresses and phone numbers in an error message stay here (lib/scrub-pii).
+  beforeSend: scrubSentryEvent,
+  beforeSendTransaction: scrubSentryEvent,
+  beforeBreadcrumb: scrubBreadcrumb,
 })
 
 /** What is still on its way to Sentry — before the process exits (runtime/shutdown). */

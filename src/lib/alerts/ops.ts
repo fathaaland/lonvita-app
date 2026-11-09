@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis'
 
+import { scrubPii } from '@/lib/scrub-pii'
 import { queueConnectionOptions } from '@/lib/valkey/client'
 
 /**
@@ -69,8 +70,14 @@ const BURSTS: Record<string, { threshold: number; windowSeconds: number; title: 
   'auth.registration_rejected': { threshold: 50, windowSeconds: 10 * 60, title: 'Možný útok: mnoho odmítnutých registrací' },
 }
 
+/** Free text (an error message, the line's own message) can quote an address or a query's values —
+ * scrubbed (lib/scrub-pii) before it leaves for Discord or a mailbox. */
 const pick = (value: unknown, max = 300): string | undefined =>
-  typeof value === 'string' && value.trim() ? value.slice(0, max) : typeof value === 'number' ? String(value) : undefined
+  typeof value === 'string' && value.trim()
+    ? scrubPii(value).slice(0, max)
+    : typeof value === 'number'
+      ? String(value)
+      : undefined
 
 /** What a log line raises, if anything. Pure — the logger calls it for every line it writes. */
 export function opsAlertFor(line: LogLine): OpsAlert | { burst: string } | null {
@@ -86,7 +93,7 @@ export function opsAlertFor(line: LogLine): OpsAlert | { burst: string } | null 
     return {
       key: `fatal:${event ?? line.message.slice(0, 80)}`,
       severity: 'critical',
-      title: `FATAL: ${line.message.replace(/^\[FATAL\]\s*/, '').slice(0, 200)}`,
+      title: `FATAL: ${scrubPii(line.message.replace(/^\[FATAL\]\s*/, '')).slice(0, 200)}`,
       details: { ...common, error: pick(fields.errorMessage) },
     }
   }
@@ -112,7 +119,7 @@ export function opsAlertFor(line: LogLine): OpsAlert | { burst: string } | null 
       title: immediate.title,
       details: {
         ...common,
-        message: line.message.slice(0, 300),
+        message: scrubPii(line.message).slice(0, 300),
         error: pick(fields.errorMessage),
         municipalityId: pick(fields.municipalityId, 20),
       },
