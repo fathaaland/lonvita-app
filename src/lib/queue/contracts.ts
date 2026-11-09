@@ -309,7 +309,10 @@ export type ExportAuditTrailJobResult = {
   exported: string[]
   /** Days that failed — tried again the next night. */
   failed: string[]
-  skipped?: 'not_configured'
+  /** not_configured: no bucket. lock_not_enforced: the bucket let the run delete (or didn't lock) its
+   * probe file; probe_failed: the bucket couldn't be checked (S3 down) — nothing exported either way,
+   * so data retention keeps the rows too. */
+  skipped?: 'not_configured' | 'lock_not_enforced' | 'probe_failed'
 }
 
 /**
