@@ -1922,6 +1922,25 @@ export async function getMarketingConsent(userId: string): Promise<boolean> {
   return Boolean(latest && !latest.revokedAt)
 }
 
+/** Whether the user has accepted the platform terms — the e-mail sign-up records it on registration
+ * (/api/auth/register); a Google sign-up skips that form, so onboarding asks for it. */
+export async function hasPlatformTermsConsent(userId: string): Promise<boolean> {
+  const where = buildWhereParams({ user: { equals: userId }, type: { equals: 'platform_terms' } })
+  const query = buildQuery({ sort: '-createdAt', limit: 1, depth: 0 })
+  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`)
+  const latest = result.docs[0]
+  return Boolean(latest && !latest.revokedAt)
+}
+
+/** Records the user's acceptance of the platform terms (and, if they asked, marketing). */
+export async function acceptPlatformTerms(userId: string, { marketing = false } = {}): Promise<void> {
+  const grantedAt = new Date().toISOString()
+  await post('/consents', { user: Number(userId), type: 'platform_terms', version: CONSENT_VERSION, grantedAt })
+  if (marketing) {
+    await post('/consents', { user: Number(userId), type: 'marketing', version: CONSENT_VERSION, grantedAt })
+  }
+}
+
 /** Grants a fresh marketing consent, or revokes the current active one. */
 export async function setMarketingConsent(userId: string, enabled: boolean): Promise<void> {
   if (enabled) {

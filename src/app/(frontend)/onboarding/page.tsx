@@ -3,7 +3,9 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  acceptPlatformTerms,
   getEventCategories,
+  hasPlatformTermsConsent,
   listMunicipalities,
   MunicipalityRow,
   needsOnboardingMunicipality,
@@ -16,6 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { toast } from "sonner";
 import { Loading } from "@/components/Loading";
@@ -56,6 +59,11 @@ function OnboardingContent() {
   const homeFeatures = useMunicipalityFeatures(municipality || null);
   const [noMunicipality, setNoMunicipality] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A Google sign-up never saw the registration form's terms checkbox — asked on the last step.
+  // null until known; true = no platform_terms consent on record yet.
+  const [needsTerms, setNeedsTerms] = useState<boolean | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
 
   useEffect(() => {
     getEventCategories().then(setCats);
@@ -69,6 +77,14 @@ function OnboardingContent() {
         setNeedsMunicipality(needed);
         if (needed) listMunicipalities().then(setMunicipalities);
       });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
+    hasPlatformTermsConsent(String(user.id))
+      .then((has) => setNeedsTerms(!has))
+      // Can't tell — ask; a second consent row is harmless, a missing one isn't.
+      .catch(() => setNeedsTerms(true));
   }, [user?.id]);
 
   // Prefill from the profile — an account created by a superadmin may already carry some of this.
@@ -97,6 +113,10 @@ function OnboardingContent() {
     if (!user || !profile) return;
     setSaving(true);
     try {
+      if (needsTerms) {
+        await acceptPlatformTerms(String(user.id), { marketing: marketingConsent });
+        setNeedsTerms(false);
+      }
       if (needsMunicipality && municipality && !noMunicipality) {
         await setOnboardingMunicipality(municipality);
       }
@@ -118,7 +138,7 @@ function OnboardingContent() {
     }
   };
 
-  if (authLoading || needsMunicipality === null) return <Loading />;
+  if (authLoading || needsMunicipality === null || needsTerms === null) return <Loading />;
 
   const current: StepKey = steps[step];
   const canNext =
@@ -299,6 +319,26 @@ function OnboardingContent() {
                     <p className="text-xs text-destructive">{INVALID_PHONE_MESSAGE}</p>
                   )}
                 </div>
+                {needsTerms && (
+                  <div className="space-y-2.5 pt-2">
+                    <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={termsAccepted}
+                        onCheckedChange={(v) => setTermsAccepted(v === true)}
+                        className="mt-0.5"
+                      />
+                      <span>Souhlasím s podmínkami používání Lonvity.</span>
+                    </label>
+                    <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={marketingConsent}
+                        onCheckedChange={(v) => setMarketingConsent(v === true)}
+                        className="mt-0.5"
+                      />
+                      <span>Chci dostávat novinky a tipy na akce e-mailem (nepovinné).</span>
+                    </label>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
@@ -319,7 +359,7 @@ function OnboardingContent() {
             Pokračovat <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button className="h-12" onClick={finish} disabled={!canNext || saving}>
+          <Button className="h-12" onClick={finish} disabled={!canNext || saving || (needsTerms === true && !termsAccepted)}>
             {saving ? "Ukládám…" : "Dokončit"} <Check className="h-4 w-4" />
           </Button>
         )}
