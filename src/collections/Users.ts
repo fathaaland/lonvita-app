@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 
 import type {
+  CollectionAfterChangeHook,
+  CollectionAfterOperationHook,
   CollectionBeforeDeleteHook,
   CollectionBeforeLoginHook,
   CollectionBeforeOperationHook,
@@ -9,6 +11,8 @@ import type {
   CollectionSlug,
 } from 'payload'
 import { APIError } from 'payload'
+
+import { writeAuditLog } from './shared/auditLog'
 
 import { logForgotPasswordIssued, logLoginSuccess, logLogout } from '@/lib/logger/auth-logger'
 import { getClientIp } from '@/lib/security/rate-limit'
@@ -62,7 +66,8 @@ const requireLoginCaptcha: CollectionBeforeOperationHook = async ({ args, operat
   if (operation !== 'login' || req.payloadAPI !== 'REST' || !isTurnstileEnabled()) return args
   const ip = getClientIp(req.headers)
   const token = (req.data as { turnstileToken?: unknown } | undefined)?.turnstileToken
-  if (token === undefined && (await loginFailuresOf(ip)) < LOGIN_FAILURES_BEFORE_CAPTCHA) return args
+  if (token === undefined && (await loginFailuresOf(ip)) < LOGIN_FAILURES_BEFORE_CAPTCHA)
+    return args
   if ((await verifyTurnstile(token, ip, 'login')) === 'failed') {
     throw new APIError(TURNSTILE_REQUIRED_MESSAGE, 428)
   }
@@ -175,6 +180,97 @@ const cleanupUserRelations: CollectionBeforeDeleteHook = async ({ id, req }) => 
   }
 }
 
+/** Bookkeeping Payload changes on its own (sign-ins, lockouts, reset tokens) — not an admin's edit. */
+const UNAUDITED_USER_FIELDS = new Set([
+  'updatedAt',
+  'createdAt',
+  'sessions',
+  'loginAttempts',
+  'lockUntil',
+  'resetPasswordToken',
+  'resetPasswordExpiration',
+  'resetPasswordRequestedAt',
+  'salt',
+  'hash',
+])
+
+/**
+ * An account edited through the API — in practice the superadmin in the Payload admin (Users access
+ * allows update to platform admins only): which fields changed, never their values, and whether the
+ * password was set. Account management is on the audit record (vyhláška č. 409/2025 Sb. § 22 odst. 3);
+ * the app's own Local API changes (anonymization, Google linking) carry entries of their own.
+ */
+/** Whether the update sets a password — read before the operation, while `data.password` is still
+ * the plain field (Payload hashes and drops it on the way in). */
+const notePasswordSet: CollectionBeforeOperationHook = ({ args, operation, context }) => {
+  if (
+    operation === 'update' &&
+    typeof (args as { data?: { password?: unknown } }).data?.password === 'string'
+  ) {
+    context.auditPasswordSet = true
+  }
+  return args
+}
+
+const auditAccountChange: CollectionAfterChangeHook = ({
+  doc,
+  previousDoc,
+  operation,
+  req,
+  context,
+}) => {
+  if (operation !== 'update' || !req.user || req.payloadAPI !== 'REST') return doc
+  const current = doc as Record<string, unknown>
+  const previous = (previousDoc ?? {}) as Record<string, unknown>
+  const changedFields = Object.keys(current).filter(
+    (key) =>
+      !UNAUDITED_USER_FIELDS.has(key) &&
+      JSON.stringify(current[key]) !== JSON.stringify(previous[key]),
+  )
+  const passwordSet = context.auditPasswordSet === true
+  if (changedFields.length === 0 && !passwordSet) return doc
+  writeAuditLog(req.payload, {
+    action: passwordSet ? 'users.password-set-by-admin' : 'users.update',
+    actor: Number(req.user.id),
+    targetCollection: 'users',
+    targetId: (doc as { id: number }).id,
+    metadata: {
+      changedFields,
+      passwordSet,
+      self: String(req.user.id) === String((doc as { id: number }).id),
+    },
+    source: req,
+  })
+  return doc
+}
+
+/** Unlocking an account locked after failed sign-ins — a security decision, on the record. */
+const auditUnlock: CollectionAfterOperationHook = async ({ operation, args, req, result }) => {
+  if (operation !== 'unlock' || !req.user) return result
+  const email = (args as { data?: { email?: unknown } }).data?.email
+  let targetId: number | string = '-'
+  if (typeof email === 'string') {
+    const found = await req.payload
+      .find({
+        collection: 'users',
+        where: { email: { equals: email.trim().toLowerCase() } },
+        limit: 1,
+        depth: 0,
+        overrideAccess: true,
+      })
+      .catch(() => null)
+    if (found?.docs[0]) targetId = found.docs[0].id
+  }
+  writeAuditLog(req.payload, {
+    action: 'users.unlock',
+    actor: Number(req.user.id),
+    targetCollection: 'users',
+    targetId,
+    source: req,
+  })
+  return result
+}
+
 export const Users: CollectionConfig = {
   slug: 'users',
   admin: {
@@ -250,12 +346,14 @@ export const Users: CollectionConfig = {
   ],
   hooks: {
     beforeLogin: [refuseAnonymizedLogin],
-    beforeOperation: [requireLoginCaptcha, lockPlatformRole],
+    beforeOperation: [requireLoginCaptcha, lockPlatformRole, notePasswordSet],
     beforeValidate: [setGeneratedPasswordIfMissing],
     beforeDelete: [cleanupUserRelations],
     afterLogin: [logLoginSuccess],
     afterLogout: [logLogout],
     afterForgotPassword: [logForgotPasswordIssued],
+    afterChange: [auditAccountChange],
+    afterOperation: [auditUnlock],
   },
   timestamps: true,
 }

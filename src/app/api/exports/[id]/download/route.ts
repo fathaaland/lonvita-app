@@ -4,6 +4,7 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { findViewableExport } from '@/lib/exports/access'
 import { presignExportDownload } from '@/lib/exports/storage'
+import { writeAuditLog } from '@/collections/shared/auditLog'
 import { logger } from '@/lib/logger'
 
 /**
@@ -45,7 +46,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   }
 
   // Only the owner's download counts — it's what tells the export-ready job to stay quiet.
-  if (!record.downloadedAt && String(user.id) === String(typeof record.owner === 'object' ? record.owner.id : record.owner)) {
+  if (
+    !record.downloadedAt &&
+    String(user.id) === String(typeof record.owner === 'object' ? record.owner.id : record.owner)
+  ) {
     await payload.update({
       collection: 'exports',
       id: record.id,
@@ -54,6 +58,19 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     })
   }
 
-  logger.info('Export downloaded', { event: 'export.downloaded', exportId: record.id, userId: user.id })
+  // A report can list residents with their contacts — who took a copy of it, and from where, is on the record.
+  writeAuditLog(payload, {
+    action: 'exports.download',
+    actor: Number(user.id),
+    targetCollection: 'exports',
+    targetId: record.id,
+    metadata: { kind: record.kind, fileName: record.fileName },
+    source: request,
+  })
+  logger.info('Export downloaded', {
+    event: 'export.downloaded',
+    exportId: record.id,
+    userId: user.id,
+  })
   return NextResponse.redirect(await presignExportDownload(record.fileKey, record.fileName), 302)
 }

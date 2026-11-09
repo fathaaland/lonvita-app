@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { writeAuditLog } from '@/collections/shared/auditLog'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
@@ -92,6 +93,16 @@ export async function POST(request: Request) {
 
     // An account created by staff on somebody else's behalf is exactly the kind of privileged
     // action an audit trail exists for.
+    // Account management by a privileged user (vyhláška č. 409/2025 Sb. § 22 odst. 3) — in the audit
+    // log and so in its write-once copy; the log line below is diagnostics only.
+    writeAuditLog(payload, {
+      action: 'users.create-by-admin',
+      actor: Number(actor.id),
+      targetCollection: 'users',
+      targetId: newUser.id,
+      metadata: { municipality: body.municipality ?? null },
+      source: request,
+    })
     logger.info('Superadmin created a user', {
       event: 'admin.user_created',
       userId: newUser.id,
