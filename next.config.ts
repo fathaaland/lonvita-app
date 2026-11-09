@@ -20,6 +20,17 @@ const tileOrigin = (() => {
     return 'https://*.tile.openstreetmap.org https://tile.openstreetmap.org'
   }
 })()
+/** Violation reports go to Sentry's security endpoint (derived from the public DSN) — without a
+ * report-uri the Report-Only policy reports to nobody, and there'd be nothing to tighten it against.
+ * Unset DSN = no reporting. */
+const cspReportUri = (() => {
+  const match = /^https:\/\/([^@]+)@([^/]+)\/(\d+)$/.exec(process.env.NEXT_PUBLIC_SENTRY_DSN?.trim() ?? '')
+  if (!match) return null
+  const [, key, host, project] = match
+  const environment = process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'development'
+  return `https://${host}/api/${project}/security/?sentry_key=${key}&sentry_environment=${environment}`
+})()
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
@@ -32,6 +43,7 @@ const contentSecurityPolicy = [
   "base-uri 'self'",
   "form-action 'self' https://accounts.google.com",
   "object-src 'none'",
+  ...(cspReportUri ? [`report-uri ${cspReportUri}`] : []),
 ].join('; ')
 
 const securityHeaders = [
