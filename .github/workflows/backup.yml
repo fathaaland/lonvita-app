@@ -5,6 +5,10 @@ name: Database backup
 # encrypted before it leaves the runner, into a bucket of its own. Every week the newest one is
 # restored into an empty Postgres and checked — a backup nobody has restored is a hope, not a backup.
 #
+# After restoring production from one of these dumps, the accounts deleted since the dump are back —
+# delete them again (GDPR čl. 17) from the write-once audit copy:
+#   DATABASE_URI=<restored db> pnpm tsx scripts/replay-anonymizations.ts --since <dump's UTC day> [--apply]
+#
 # Repository secrets:
 #   BACKUP_DATABASE_URL     production DATABASE_URL_UNPOOLED (direct, not the -pooler host), read-only role if possible
 #   BACKUP_PASSPHRASE       long random passphrase; keep a copy outside GitHub — without it the dumps are unreadable
