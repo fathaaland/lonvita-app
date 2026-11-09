@@ -1,4 +1,4 @@
-import { scrubBreadcrumb, scrubSentryEvent } from './src/lib/scrub-pii'
+import { scrubBreadcrumb, scrubSentryEvent, scrubSpan } from './src/lib/scrub-pii'
 
 /** Shared between the three Sentry runtimes (browser, Node, edge). The DSN is a public key — it is
  * inlined into the client bundle on purpose. Without it Sentry stays off (tests, forks). */
@@ -15,6 +15,6 @@ export const sentryTracesSampleRate = process.env.NODE_ENV === 'development' ? 1
  * values, e-mail addresses, phone numbers and URL tokens stay here. */
 export const sentryScrubbing = {
   beforeSend: scrubSentryEvent,
-  beforeSendTransaction: scrubSentryEvent,
+  beforeSendSpan: scrubSpan,
   beforeBreadcrumb: scrubBreadcrumb,
 }

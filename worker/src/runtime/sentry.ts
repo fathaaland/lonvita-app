@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 
-import { scrubBreadcrumb, scrubSentryEvent } from '@/lib/scrub-pii'
+import { scrubBreadcrumb, scrubSentryEvent, scrubSpan } from '@/lib/scrub-pii'
 
 /**
  * Sentry for the worker — what fails here (an e-mail that used up its tries, a crashed process, a
@@ -23,7 +23,7 @@ Sentry.init({
   initialScope: { tags: { service: 'worker' } },
   // A failed query's values, addresses and phone numbers in an error message stay here (lib/scrub-pii).
   beforeSend: scrubSentryEvent,
-  beforeSendTransaction: scrubSentryEvent,
+  beforeSendSpan: scrubSpan,
   beforeBreadcrumb: scrubBreadcrumb,
 })
 

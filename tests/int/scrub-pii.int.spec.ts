@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { opsAlertFor } from '@/lib/alerts/ops'
-import { scrubPii, scrubSentryEvent } from '@/lib/scrub-pii'
+import { scrubPii, scrubSentryEvent, scrubSpan } from '@/lib/scrub-pii'
 
 // What leaves for Sentry and the ops channels carries no personal data — the stored logs redact by
 // key, but an error's message and a URL can't be redacted that way.
@@ -63,5 +63,22 @@ describe('ops alerts', () => {
     const text = JSON.stringify(alert)
     expect(text).not.toContain('a@b.cz')
     expect(text).not.toContain('777123456')
+  })
+})
+
+describe('scrubSpan', () => {
+  it('cleans the span name and its string attributes', () => {
+    const span = scrubSpan({
+      name: 'GET /reset-password?token=abc',
+      attributes: {
+        'url.full': 'https://x/?token=abc',
+        'user.email': { type: 'string', value: 'a@b.cz' },
+        n: 3,
+      },
+    })
+    expect(span.name).toBe('GET /reset-password?token=[redacted]')
+    expect(span.attributes['url.full']).toBe('https://x/?token=[redacted]')
+    expect((span.attributes['user.email'] as { value: string }).value).toBe('[email]')
+    expect(span.attributes.n).toBe(3)
   })
 })

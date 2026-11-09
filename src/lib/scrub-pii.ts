@@ -53,6 +53,29 @@ export function scrubSentryEvent<E extends ScrubbableEvent>(event: E): E {
   return event
 }
 
+/**
+ * A span (Sentry's streamed format, the default since SDK 11) — its name and string attributes
+ * (`http.url`, `url.full`, `db.query.text`…). `beforeSendTransaction` no longer sees spans.
+ */
+export function scrubSpan<S extends { name: string; attributes?: Record<string, unknown> }>(
+  span: S,
+): S {
+  span.name = scrubPii(span.name)
+  if (span.attributes) {
+    for (const [key, value] of Object.entries(span.attributes)) {
+      if (typeof value === 'string') span.attributes[key] = scrubPii(value)
+      else if (
+        value &&
+        typeof value === 'object' &&
+        typeof (value as { value?: unknown }).value === 'string'
+      ) {
+        ;(value as { value: string }).value = scrubPii((value as { value: string }).value)
+      }
+    }
+  }
+  return span
+}
+
 export function scrubBreadcrumb<B extends { message?: string; data?: Record<string, unknown> }>(
   crumb: B,
 ): B {
