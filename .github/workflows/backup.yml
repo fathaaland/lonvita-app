@@ -10,6 +10,9 @@ name: Database backup
 #   BACKUP_PASSPHRASE       long random passphrase; keep a copy outside GitHub — without it the dumps are unreadable
 #   BACKUP_S3_BUCKET        bucket for the dumps (versioning on, lifecycle rule e.g. 90 days, not the media bucket)
 #   BACKUP_S3_ACCESS_KEY_ID / BACKUP_S3_SECRET_ACCESS_KEY / BACKUP_S3_REGION, BACKUP_S3_ENDPOINT (non-AWS only)
+#   SENTRY_DSN              the app's Sentry DSN — each run checks in with a Sentry cron monitor, so a backup that
+#                           never ran (GitHub disables schedules in a public repo after 60 days without a push,
+#                           or just drops a run) alerts too, not only one that failed. Unset = no check-in.
 # Repository variable (optional):
 #   BACKUP_PG_MAJOR         pg_dump's major version — at least the server's (default 18 — Neon runs 18)
 
@@ -27,6 +30,9 @@ on:
 concurrency:
   group: database-backup
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   PG_MAJOR: ${{ vars.BACKUP_PG_MAJOR || '18' }}
@@ -61,6 +67,23 @@ jobs:
           # An empty or tiny file means pg_dump failed half-way — fail loudly instead of "backed up".
           if [ "$size" -lt 10000 ]; then echo "::error::Backup suspiciously small ($size bytes)"; exit 1; fi
 
+      # GitHub starts scheduled runs hours late, so the margin is wide; a night with no run at all still alerts.
+      - name: Sentry cron check-in
+        if: always()
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          STATUS: ${{ job.status == 'success' && 'ok' || 'error' }}
+        run: |
+          [ -n "$SENTRY_DSN" ] || { echo "::warning::SENTRY_DSN secret not set — no cron check-in"; exit 0; }
+          key=$(echo "$SENTRY_DSN" | sed -E 's#^https://([^@]+)@.*#\1#')
+          host=$(echo "$SENTRY_DSN" | sed -E 's#^https://[^@]+@([^/]+)/.*#\1#')
+          project=$(echo "$SENTRY_DSN" | sed -E 's#.*/([0-9]+)$#\1#')
+          jq -n --arg status "$STATUS" '{status: $status, environment: "production", monitor_config: {
+                schedule: {type: "crontab", value: "15 1 * * *"}, timezone: "UTC",
+                checkin_margin: 720, max_runtime: 60, failure_issue_threshold: 1, recovery_threshold: 1 }}' \
+            | curl -fsS -X POST -H 'Content-Type: application/json' --data @- \
+                "https://$host/api/$project/cron/lonvita-database-backup/$key/" || echo "::warning::Sentry check-in failed"
+
   restore-test:
     if: github.event.schedule == '45 2 * * 0' || inputs.restore_test
     runs-on: ubuntu-latest
@@ -83,10 +106,14 @@ jobs:
         run: |
           set -euo pipefail
           endpoint=${S3_ENDPOINT:+--endpoint-url "$S3_ENDPOINT"}
-          key=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix postgres/ $endpoint \
-            --query 'sort_by(Contents, &LastModified)[-1].Key' --output text)
+          read -r key modified < <(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix postgres/ $endpoint \
+            --query 'sort_by(Contents, &LastModified)[-1].[Key, LastModified]' --output text)
           if [ -z "$key" ] || [ "$key" = "None" ]; then echo "::error::No backup found"; exit 1; fi
-          echo "Restoring $key"
+          # A restore that works on a weeks-old dump proves nothing about last night — the nightly job
+          # may have stopped (schedule disabled, secret expired) without a single failed run.
+          age_hours=$(( ( $(date -u +%s) - $(date -u -d "$modified" +%s) ) / 3600 ))
+          echo "Restoring $key (uploaded $modified, ${age_hours} h ago)"
+          if [ "$age_hours" -gt 48 ]; then echo "::error::Newest backup is ${age_hours} h old — the nightly backup isn't running"; exit 1; fi
           aws s3 cp "s3://$BUCKET/$key" - $endpoint \
             | gpg --batch --decrypt --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" > restore.dump
           docker run --rm --network host -v "$PWD:/work" -e PGPASSWORD=restore "postgres:${PG_MAJOR}-alpine" \
@@ -103,8 +130,12 @@ jobs:
           migrations=$(q "SELECT count(*) FROM payload_migrations")
           echo "users=$users events=$events migrations=$migrations"
           if [ "$users" -lt 1 ] || [ "$migrations" -lt 1 ]; then echo "::error::Restored database is empty"; exit 1; fi
+          # The app writes audit entries every night (data retention, the audit export) — a dump whose
+          # newest one is days old was taken from a stale or wrong database.
           newest=$(q "SELECT max(created_at) FROM audit_log")
-          echo "Newest audit-log entry in the dump: $newest"
+          lag=$(q "SELECT coalesce(floor(extract(epoch FROM now() - max(created_at)) / 3600), 99999)::int FROM audit_log")
+          echo "Newest audit-log entry in the dump: $newest (${lag} h ago)"
+          if [ "$lag" -gt 72 ]; then echo "::error::Newest audit-log entry in the dump is ${lag} h old"; exit 1; fi
 
   # Data loss is the incident nobody notices until it's too late — a failed backup or restore drill
   # goes straight to the platform team's Discord (the same webhook as lib/alerts/ops).
