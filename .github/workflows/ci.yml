@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Read the code, nothing else — a compromised action or dependency gets no write token.
+# Actions are pinned to a commit (the tag in the comment): a moved tag can't swap in other code.
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '22'
 
@@ -18,10 +23,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The version comes from package.json's packageManager — giving it here too fails the action.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -57,10 +62,10 @@ jobs:
       S3_ACCESS_KEY_ID: ci
       S3_SECRET_ACCESS_KEY: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # The version comes from package.json's packageManager — giving it here too fails the action.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -112,7 +117,7 @@ jobs:
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # MinIO needs a command (`server /data`), which a service container can't be given.
       - name: Start MinIO
         run: |
@@ -123,8 +128,8 @@ jobs:
           docker run --rm --network host --entrypoint sh pgsty/mc:RELEASE.2026-09-16T00-00-00Z -c \
             "mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb --ignore-existing local/lonvita-media && mc anonymous set download local/lonvita-media"
       # The version comes from package.json's packageManager — giving it here too fails the action.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
