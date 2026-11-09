@@ -315,7 +315,12 @@ function AuthPageContent() {
                   onCheckedChange={(v) => setConsentAccepted(v === true)}
                   className="mt-0.5"
                 />
-                <span>Souhlasím s podmínkami používání Lonvity.</span>
+                <span>
+                  Souhlasím s{" "}
+                  <a href="/podminky" target="_blank" rel="noopener" className="underline underline-offset-2">podmínkami používání</a>{" "}
+                  Lonvity a beru na vědomí{" "}
+                  <a href="/zasady-ochrany-osobnich-udaju" target="_blank" rel="noopener" className="underline underline-offset-2">zásady ochrany osobních údajů</a>.
+                </span>
               </label>
               <label className="flex items-start gap-2.5 text-sm cursor-pointer">
                 <Checkbox
