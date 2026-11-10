@@ -368,8 +368,13 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
       data: { municipality: obec.id, url: `https://catch-up-${STAMP}.cz/akce` },
       overrideAccess: true,
     })
-    // Tuesday 10. 11. 2026, 9:30 in Prague — not the slot; last read 8 days ago.
-    const tuesday = new Date('2026-11-10T08:30:00Z')
+    // A Tuesday morning (not the slot, which is 3:00) at least two days from now — a new source is
+    // marked as queued with the real clock, and a fixed date in the past would count that mark as
+    // fresh (younger than six hours before "now"), so the source would never look overdue. Last read
+    // 8 days before it.
+    const tuesday = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+    tuesday.setUTCHours(8, 30, 0, 0)
+    while (tuesday.getUTCDay() !== 2) tuesday.setUTCDate(tuesday.getUTCDate() + 1)
     await payload.db.updateOne({
       collection: 'event-sources',
       id: source.id,
