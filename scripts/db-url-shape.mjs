@@ -8,7 +8,7 @@ for (const name of ['DATABASE_URI_MIGRATE', 'DATABASE_URI']) {
   }
   const shape = {
     length: value.length,
-    startsWith: value.slice(0, 13),
+    startsWithScheme: /^postgres(ql)?:\/\//.test(value),
     hasOuterWhitespace: value !== value.trim(),
     hasNewline: /[\r\n]/.test(value),
     hasQuoteOrBracket: /["'<>]/.test(value),
