@@ -28,7 +28,9 @@ export default defineRailway(() => {
       // Seconds between SIGTERM and SIGKILL on a redeploy — the worker's own shutdown waits up to 25 s
       // for running jobs (worker/src/runtime/shutdown.ts). Railway's default is 0.
       drainingSeconds: 30,
-      sleepApplication: true,
+      // Never asleep: nothing else sends e-mails, SMS or runs the nightly jobs, and a sleeping
+      // worker (Railway's serverless mode) only wakes on inbound traffic — not on a queue.
+      sleepApplication: false,
     },
     // Values stay on Railway; listed so the apply keeps them.
     env: {
