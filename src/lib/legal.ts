@@ -29,6 +29,8 @@ export const PROCESSORS: { name: string; purpose: string; where: string }[] = [
   { name: 'Functional Software, Inc. (Sentry)', purpose: 'hlášení chyb aplikace — bez osobních údajů, ty se před odesláním odstraňují', where: 'EU (Německo)' },
   { name: 'Resend, Inc.', purpose: 'odesílání e-mailů', where: 'USA' },
   { name: 'BulkGate s.r.o.', purpose: 'odesílání SMS (jen při zrušení či změně akce, kde obec SMS zapnula)', where: 'EU' },
+  { name: 'GitHub, Inc.', purpose: 'zálohování databáze — záloha prochází jeho automatizovaným prostředím, než se uloží do šifrovaného úložiště', where: 'USA' },
+  { name: 'Anthropic, PBC', purpose: 'automatické čtení textů z webů obcí při návrhu akcí k importu (zpracovává veřejné texty, ne údaje uživatelů)', where: 'USA' },
   { name: 'Google Ireland Limited', purpose: 'přihlášení účtem Google (jen když ho zvolíte)', where: 'EU / USA' },
   { name: 'OpenStreetMap Foundation', purpose: 'podkladové mapy a vyhledání adresy — váš prohlížeč jim posílá svou IP adresu', where: 'EU / Velká Británie' },
 ]

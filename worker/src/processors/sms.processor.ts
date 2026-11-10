@@ -5,6 +5,7 @@ import { ProviderRateLimitedError } from '../runtime/provider-errors'
 import { checkSmsUsageAlerts } from '@/lib/billing/sms-alerts'
 import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
 import { releaseSmsReservation } from '@/lib/billing/sms-reservations'
+import { markSmsSent, wasSmsSent } from '@/lib/billing/sms-sent-marker'
 import { logger, serializeError } from '@/lib/logger'
 
 import { getWorkerPayload } from '../runtime/payload'
@@ -45,6 +46,13 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
   }
   const senderId = process.env.BULKGATE_SENDER_ID || 'gSystem'
   const senderIdValue = process.env.BULKGATE_SENDER_ID_VALUE
+
+  // Already sent by an earlier attempt of this job (it went out but the job never finished) —
+  // nothing to do; the quota record and reservation were handled then.
+  if (await wasSmsSent(payload.requestId)) {
+    logger.info('SMS already sent, skipped', { event: 'sms.already_sent', jobId: context?.jobId, to: payload.to })
+    return
+  }
 
   logger.info('SMS send started', {
     event: 'sms.send_started',
@@ -95,6 +103,8 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
   }
 
   const sent = body.data
+  // Straight away, before anything else that can fail or crash — a retry must find it.
+  await markSmsSent(payload.requestId)
   logger.info('SMS send succeeded', {
     event: 'sms.send_succeeded',
     jobId: context?.jobId,

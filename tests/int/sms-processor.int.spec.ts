@@ -12,6 +12,13 @@ vi.mock('../../worker/src/runtime/payload', () => ({
 }))
 const { checkAlerts } = vi.hoisted(() => ({ checkAlerts: vi.fn(async () => undefined) }))
 vi.mock('@/lib/billing/sms-alerts', () => ({ checkSmsUsageAlerts: checkAlerts }))
+const { sentMarkers } = vi.hoisted(() => ({ sentMarkers: new Set<string>() }))
+vi.mock('@/lib/billing/sms-sent-marker', () => ({
+  wasSmsSent: async (id?: string) => (id ? sentMarkers.has(id) : false),
+  markSmsSent: async (id?: string) => {
+    if (id) sentMarkers.add(id)
+  },
+}))
 
 const job = {
   to: '+420735929442',
@@ -53,6 +60,19 @@ describe('SMS go out through BulkGate', () => {
     vi.unstubAllEnvs()
     createRow.mockClear()
     checkAlerts.mockClear()
+    sentMarkers.clear()
+  })
+
+  it('does not text again when an earlier attempt of the same request already went out', async () => {
+    configure(credentials)
+    const fetchMock = bulkGateAnswers(200, accepted('tmp1'))
+
+    await processSmsJob({ ...job, municipalityId: 42 })
+    // The job never finished (crash, lost acknowledgement) and is retried hours later.
+    await processSmsJob({ ...job, municipalityId: 42 })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(createRow).toHaveBeenCalledTimes(1)
   })
 
   it('sends Czech text without diacritics and counts the parts it goes out as', () => {
