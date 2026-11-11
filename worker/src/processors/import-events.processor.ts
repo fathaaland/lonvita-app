@@ -8,6 +8,7 @@ import { defaultImportDeps, ImportReadError, loadImportContext, readUrl, storeCa
 import { deleteImportFile, downloadImportFile } from '@/lib/import/storage'
 import { addDays, pragueToday } from '@/lib/import/time'
 import { aiRefusalFor, emptyTotals, isAiHeldBack, meterAi, type UsageTotals } from '@/lib/import/usage'
+import { sourcesWithinPackage } from '@/lib/billing/scraping'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId, relationNumber } from '@/lib/relations'
 
@@ -191,6 +192,22 @@ async function processSource(
   const municipalityId = relationNumber(source.municipality)!
   const importContext = await loadImportContext(payload, municipalityId)
   if (!importContext) return { found: 0, created: 0, updated: 0, skipped: 'municipality_gone' }
+  // Where the AI may be used (the obec pays for scraping and isn't suspended), only the sources its
+  // package covers are read — whoever asked (the weekly slot, "Projít teď", a source switched back
+  // on); one left switched on past a smaller package waits (lib/billing/scraping). Without the AI
+  // (not subscribed, suspended) a read costs nothing — iCal and schema.org only — and isn't capped.
+  if (
+    importContext.aiEnabled &&
+    !importContext.suspended &&
+    !(await sourcesWithinPackage(payload, municipalityId)).has(source.id)
+  ) {
+    logger.info('Import source outside the package, not read', {
+      event: 'import.source_outside_package',
+      sourceId: source.id,
+      municipalityId,
+    })
+    return { found: 0, created: 0, updated: 0, skipped: 'outside_package' }
+  }
 
   const now = deps.now()
   const runAt = now.toISOString()

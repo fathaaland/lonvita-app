@@ -1,12 +1,14 @@
 import type {
   CollectionAfterChangeHook,
   CollectionBeforeChangeHook,
+  CollectionBeforeOperationHook,
   CollectionBeforeValidateHook,
   CollectionConfig,
 } from 'payload'
 import { APIError } from 'payload'
 
 import { scrapingLimitsOf, sourceRefusal } from '@/lib/billing/scraping'
+import { lockRowOrRefuse } from '@/lib/db-lock'
 
 import { canAccessImportRecords } from './access/import'
 import { canCreateForAdministeredMunicipality } from './access/shared'
@@ -63,9 +65,23 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
   }
   // The obec's scraping package (lib/billing/scraping) — trusted internal writes (seeds, tests) aside.
   if (req.user && data.enabled !== false) {
+    // Two admins (or two tabs) adding at once would each count the other's source as not there yet.
+    await lockRowOrRefuse(req, 'municipalities', Number(municipalityId))
+    const enabledNow = await req.payload.count({
+      collection: 'event-sources',
+      where: {
+        and: [
+          { municipality: { equals: municipalityId } },
+          { organization: { exists: false } },
+          { enabled: { equals: true } },
+        ],
+      },
+      overrideAccess: true,
+      req,
+    })
     const refusal = sourceRefusal(
       await scrapingLimitsOf(req.payload, Number(municipalityId), { req }),
-      existing.docs.filter((s) => s.enabled).length,
+      enabledNow.totalDocs,
     )
     if (refusal) throw new APIError(refusal, 400)
   }
@@ -114,6 +130,7 @@ const recordSourceChange: CollectionBeforeChangeHook = async ({ data, originalDo
   // Switching one back on counts against the package like adding one (the system's own writes aside).
   if (switchedOn && req.user) {
     const municipalityId = Number(relationId(originalDoc?.municipality))
+    await lockRowOrRefuse(req, 'municipalities', municipalityId)
     const others = await req.payload.count({
       collection: 'event-sources',
       where: {
@@ -137,6 +154,16 @@ const recordSourceChange: CollectionBeforeChangeHook = async ({ data, originalDo
       : {}),
     ...((switchedOn || (waiverChanged && waived)) && enabled ? { queuedAt: now } : {}),
   }
+}
+
+/** One source at a time through the API — a bulk update by `where` would check each against the
+ * package on its own, none seeing the others switched on in the same request. The panel only ever
+ * changes one; a platform admin and the system's own writes may still change many. */
+const refuseBulkUpdate: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
+  if (operation !== 'update') return args
+  const { id, overrideAccess } = args as { id?: number | string; overrideAccess?: boolean }
+  if (overrideAccess !== false || id !== undefined || req.user?.role === 'admin') return args
+  throw new APIError('Zdroje akcí se mění jen po jednom.', 403)
 }
 
 /** A new source is read straight away — the owner sees what it brings without waiting for the next
@@ -356,6 +383,7 @@ export const EventSources: CollectionConfig = {
     { name: 'lastModified', type: 'text', access: hiddenSystemField, admin: { hidden: true } },
   ],
   hooks: {
+    beforeOperation: [refuseBulkUpdate],
     beforeValidate: [prepareSource],
     beforeChange: [recordSourceChange],
     afterChange: [readNewSource],

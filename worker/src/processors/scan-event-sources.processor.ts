@@ -2,6 +2,7 @@ import { APP_TIME_ZONE } from '@/lib/date'
 import { pragueToday } from '@/lib/import/time'
 import { logger } from '@/lib/logger'
 import { enqueueImportEvents } from '@/lib/queue/queues'
+import { sourcesWithinPackage } from '@/lib/billing/scraping'
 
 import { getWorkerPayload } from '../runtime/payload'
 
@@ -125,7 +126,16 @@ export const processScanEventSourcesJob = async (
     pagination: false,
     overrideAccess: true,
   })
-  const sources = { docs: [...inSlot.docs, ...caughtUp.filter((id) => !inSlot.docs.some((d) => d.id === id)).map((id) => ({ id }))] }
+  // Only what each obec's package covers — after a smaller package more may still be switched on.
+  const covered = new Set<number>()
+  for (const m of municipalities.docs) {
+    for (const id of await sourcesWithinPackage(payload, m.id)) covered.add(id)
+  }
+  const sources = {
+    docs: [...inSlot.docs, ...caughtUp.filter((id) => !inSlot.docs.some((d) => d.id === id)).map((id) => ({ id }))].filter(
+      (d) => covered.has(d.id),
+    ),
+  }
   if (caughtUp.length > 0) {
     logger.warn('Event sources caught up after a missed slot', { event: 'import.sources_caught_up', count: caughtUp.length })
   }
