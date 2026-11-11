@@ -1,6 +1,6 @@
 // Load test for a PREVIEW / STAGING deployment — never run against production.
 //
-//   k6 run -e BASE_URL=https://<preview>.vercel.app -e SCENARIO=browse loadtest/k6.js
+//   k6 run -e BASE_URL=https://<preview>.vercel.app -e VERCEL_BYPASS=<secret> -e SCENARIO=browse loadtest/k6.js
 //   k6 run -e BASE_URL=... -e SCENARIO=signup -e EVENT_ID=123 \
 //          -e USERS_FILE=loadtest/users.json loadtest/k6.js
 //
@@ -25,6 +25,13 @@ const SCENARIO = __ENV.SCENARIO || 'browse'
 // Peak of the browse scenario. A single home connection often cannot hold 2000 sockets (connection
 // refused is the client's or the platform's edge limit, not the app's) — start lower.
 const PEAK_VUS = Number(__ENV.PEAK_VUS || 2000)
+
+// A preview sits behind Vercel Deployment Protection: without the bypass secret every request ends on
+// Vercel's login page (a 302 chain, then a 200) — the checks pass and the app has seen nothing.
+// Settings → Deployment Protection → Protection Bypass for Automation.
+const BYPASS = __ENV.VERCEL_BYPASS
+if (!BYPASS) throw new Error('VERCEL_BYPASS is required (Deployment Protection bypass secret of the preview)')
+const HEADERS = { 'x-vercel-protection-bypass': BYPASS }
 
 const users = new SharedArray('users', () => (__ENV.USERS_FILE ? JSON.parse(open(__ENV.USERS_FILE)) : []))
 const rateLimited = new Counter('rate_limited_429')
@@ -66,23 +73,23 @@ export const options = {
 }
 
 export function browse() {
-  const list = http.get(`${BASE}/`)
+  const list = http.get(`${BASE}/`, { headers: HEADERS, redirects: 0 })
   check(list, { 'home 200': (r) => r.status === 200 })
-  const counts = http.get(`${BASE}/api/events/registration-counts?event=1&event=2&event=3`)
+  const counts = http.get(`${BASE}/api/events/registration-counts?event=1&event=2&event=3`, { headers: HEADERS, redirects: 0 })
   check(counts, { 'counts 200': (r) => r.status === 200 })
   sleep(5 + Math.random() * 10)
 }
 
 // What an open event page does: the cached counts, every ~10–15 s (see EventDetail).
 export function watch() {
-  const r = http.get(`${BASE}/api/events/registration-counts?event=${EVENT_ID}`)
+  const r = http.get(`${BASE}/api/events/registration-counts?event=${EVENT_ID}`, { headers: HEADERS, redirects: 0 })
   check(r, { 'counts 200': (x) => x.status === 200 })
   sleep(10 + Math.random() * 5)
 }
 
 function signIn(user) {
   const res = http.post(`${BASE}/api/users/login`, JSON.stringify({ email: user.email, password: user.password }), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...HEADERS, 'Content-Type': 'application/json' },
   })
   if (res.status === 429) rateLimited.add(1)
   check(res, { 'login 200': (r) => r.status === 200 })
@@ -103,7 +110,7 @@ export function signup() {
   const res = http.post(
     `${BASE}/api/registrations`,
     JSON.stringify({ event: Number(EVENT_ID), user: session.user.id }),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers: { ...HEADERS, 'Content-Type': 'application/json' } },
   )
   if (res.status === 429) rateLimited.add(1)
   // 201 = registered; 4xx "full" is a correct answer once the capacity is gone, not a failure.
