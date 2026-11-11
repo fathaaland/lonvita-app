@@ -5,7 +5,7 @@
 //          -e USERS_FILE=loadtest/users.json loadtest/k6.js
 //
 // SCENARIO: browse (default) | signup | login
-//   browse  – 2000 virtual users reading the event list and counts (cacheable, public).
+//   browse  – PEAK_VUS (default 2000) virtual users reading the event list and counts (cacheable, public).
 //   signup  – up to 500 users sign in and register for ONE event (EVENT_ID) in a burst.
 //   login   – sign-in only.
 // USERS_FILE: JSON array of {"email","password"}, one per virtual user (seeded on the preview
@@ -22,6 +22,9 @@ if (!BASE) throw new Error('BASE_URL is required')
 if (/^https?:\/\/(www\.)?lonvita\.(cz|app)/.test(BASE)) throw new Error('refusing to load-test production')
 const EVENT_ID = __ENV.EVENT_ID
 const SCENARIO = __ENV.SCENARIO || 'browse'
+// Peak of the browse scenario. A single home connection often cannot hold 2000 sockets (connection
+// refused is the client's or the platform's edge limit, not the app's) — start lower.
+const PEAK_VUS = Number(__ENV.PEAK_VUS || 2000)
 
 const users = new SharedArray('users', () => (__ENV.USERS_FILE ? JSON.parse(open(__ENV.USERS_FILE)) : []))
 const rateLimited = new Counter('rate_limited_429')
@@ -32,8 +35,8 @@ const scenarios = {
     browse: {
       executor: 'ramping-vus',
       stages: [
-        { duration: '1m', target: 500 },
-        { duration: '3m', target: 2000 },
+        { duration: '1m', target: Math.min(500, PEAK_VUS) },
+        { duration: '3m', target: PEAK_VUS },
         { duration: '1m', target: 0 },
       ],
       exec: 'browse',
