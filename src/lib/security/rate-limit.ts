@@ -145,10 +145,20 @@ export const getClientIp = (requestHeaders: { get: (name: string) => string | nu
   )
 }
 
+/** Load tests only: multiplies every limit. Honoured on Vercel PREVIEW deployments and outside
+ * production — never on the production deployment, whatever the variable says. */
+const limitMultiplier = (): number => {
+  const raw = Number(process.env.RATE_LIMIT_MULTIPLIER)
+  if (!Number.isFinite(raw) || raw <= 1) return 1
+  if (process.env.VERCEL_ENV === 'production') return 1
+  if (process.env.NODE_ENV === 'production' && process.env.VERCEL_ENV !== 'preview') return 1
+  return Math.min(raw, 10_000)
+}
+
 export const consumeRateLimit = async ({
   namespace,
   identifier,
-  max,
+  max: baseMax,
   windowSeconds,
   store = getRedis(),
   failureMode = 'allow',
@@ -160,6 +170,7 @@ export const consumeRateLimit = async ({
   store?: RateLimitStore | null
   failureMode?: RateLimitFailureMode
 }): Promise<RateLimitResult> => {
+  const max = baseMax * limitMultiplier()
   const retryAfter = windowSeconds
   const unavailableResult: RateLimitResult =
     failureMode === 'deny' ? { allowed: false, retryAfter, unavailable: true } : { allowed: true, retryAfter }

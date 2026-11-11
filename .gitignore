@@ -63,3 +63,6 @@ node_modules/
 /.claude/.headroom_*
 /.claude/worktrees/
 :memory:*
+
+# k6 load test: generated users (holds a password)
+/loadtest/users.json
