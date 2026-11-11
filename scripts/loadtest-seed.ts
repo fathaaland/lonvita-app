@@ -46,6 +46,11 @@ if (process.env.LOADTEST_DENY_HOST && host === process.env.LOADTEST_DENY_HOST) {
 const TAG = 'loadtest'
 const DAY = 24 * 60 * 60 * 1000
 
+// Building a Payload instance runs the app's own onInit, which seeds demo accounts anywhere that is
+// not NODE_ENV=production — into a copy of real data, that is noise at best. PAYLOAD_MIGRATING is the
+// switch the worker and `payload migrate` use to skip it (payload.config.ts).
+process.env.PAYLOAD_MIGRATING = 'true'
+
 const payload = await getPayload({ config })
 
 if (process.argv.includes('--cleanup')) {
