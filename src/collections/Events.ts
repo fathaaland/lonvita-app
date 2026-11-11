@@ -101,7 +101,7 @@ export async function administeredIdsFor(req: PayloadRequest, userId: number | s
   const key = `administeredMunicipalityIds:${userId}`
   const cached = req.context?.[key] as string[] | undefined
   if (cached) return cached
-  const ids = await getAdministeredMunicipalityIds(req.payload, Number(userId))
+  const ids = await getAdministeredMunicipalityIds(req.payload, Number(userId), req)
   if (req.context) req.context[key] = ids
   return ids
 }

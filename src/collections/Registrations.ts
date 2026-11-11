@@ -8,7 +8,7 @@ import type {
   PayloadRequest,
   Where,
 } from 'payload'
-import { APIError } from 'payload'
+import { APIError, commitTransaction, createLocalReq, initTransaction, killTransaction, NotFound } from 'payload'
 
 import { isUnlimitedCapacity } from '@/lib/capacity'
 import { hasEventEnded } from '@/lib/eventEnded'
@@ -24,8 +24,8 @@ import { addToRegistrationDigest, digestEmail } from '@/lib/notifications/regist
 import { municipalityOrganizationIds } from './Organizations'
 import { deletedAtField } from './shared/softDelete'
 import { requiredRelationNumber } from '@/lib/relations'
-import { deferredUntilCommit } from '@/lib/after-commit'
-import { lockRow } from '@/lib/db-lock'
+import { afterCommit, deferredUntilCommit } from '@/lib/after-commit'
+import { lockRow, lockRowOrRefuse } from '@/lib/db-lock'
 
 /** Who takes up the event's places: participants. A volunteer helping run it (an accepted
  * VolunteerInvitation) never uses up a participant's spot. */
@@ -56,35 +56,40 @@ const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previou
   if (!mayHaveChanged) return doc
 
   const eventId = typeof doc.event === 'object' ? doc.event.id : doc.event
+  // After the sign-up has committed, not inside it: under a rush on one event every sign-up queues
+  // on that event's row lock (beforeValidate), and this recount + status write used to be held
+  // under it too — tripling how long each one blocks the next.
+  await afterCommit(req, () => syncEventFullStatus(req.payload, eventId))
+  return doc
+}
+
+/** Flips the event to 'full' / back to 'active' from its approved participants. Its own short
+ * transaction holding the event row, counting only once it has it: two sign-ups finishing together
+ * would otherwise each count without the other and the later write could leave 'active' on a full
+ * event. Never touches 'cancelled' or 'finished'. */
+async function syncEventFullStatus(payload: PayloadRequest['payload'], eventId: number | string): Promise<void> {
+  const req = await createLocalReq({}, payload)
+  const shouldCommit = await initTransaction(req)
   try {
-    // Passing `req` matters: this write is still inside the current request's DB
-    // transaction, so a count query on a fresh connection (no `req`) would run against the
-    // pre-write snapshot and undercount the row that was just approved/unapproved.
-    const result = await req.payload.count({
+    await lockRow(req, 'events', eventId)
+    const result = await payload.count({
       collection: 'registrations',
       where: { and: [{ event: { equals: eventId } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },
       overrideAccess: true,
       req,
     })
-
-    const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
+    const event = await payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     if (event.status === 'active' || event.status === 'full') {
-      const shouldBeFull = result.totalDocs >= event.capacity
-      const nextStatus = shouldBeFull ? 'full' : 'active'
+      const nextStatus = result.totalDocs >= event.capacity ? 'full' : 'active'
       if (nextStatus !== event.status) {
-        await req.payload.update({
-          collection: 'events',
-          id: eventId,
-          data: { status: nextStatus },
-          overrideAccess: true,
-          req,
-        })
+        await payload.update({ collection: 'events', id: eventId, data: { status: nextStatus }, overrideAccess: true, req })
       }
     }
+    if (shouldCommit) await commitTransaction(req)
   } catch (error) {
-    req.payload.logger.error(`Failed to broadcast capacity change for event ${eventId}: ${error}`)
+    if (shouldCommit) await killTransaction(req)
+    payload.logger.error(`Failed to sync the full status of event ${eventId}: ${error}`)
   }
-  return doc
 }
 
 const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
@@ -549,7 +554,7 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
     // Two organizers' tabs approving the last place at once would each count the other's approval
     // as not there yet. Holding the event row until this transaction ends makes the second wait and
     // count again — the same lock as signing up (beforeValidate), so the two never interleave.
-    await lockRow(req, 'events', event.id)
+    await lockRowOrRefuse(req, 'events', event.id)
     const approved = await req.payload.count({
       collection: 'registrations',
       where: { and: [{ event: { equals: event.id } }, { status: { equals: 'approved' } }, PARTICIPANTS_ONLY] },
@@ -620,7 +625,12 @@ const guardRegistrationWindow: CollectionBeforeOperationHook = async ({ args, op
 
   const event = await req.payload
     .findByID({ collection: 'events', id: requiredRelationNumber(data.event), depth: 0, overrideAccess: true, req })
-    .catch(() => null)
+    // Only "no such event" is for the later checks to answer. Any other failure has already rolled
+    // this request's transaction back (killTransaction) — going on would sign up without it.
+    .catch((error) => {
+      if (error instanceof NotFound) return null
+      throw error
+    })
   if (event && !isRegistrationOpen(event.dateTime)) {
     throw new APIError(
       // `Přihlásit se na akci lze nejpozději ${REGISTRATION_CUTOFF_HOURS} hodiny před jejím začátkem — zavolejte nebo napište pořadateli.`,
@@ -983,7 +993,10 @@ export const Registrations: CollectionConfig = {
             // others' rows as not there yet (uncommitted) and all get in. Holding the event row
             // until this transaction ends makes them queue: each counts only once the one before it
             // has committed, so the count is exact. Only events that can fill up pay for the wait.
-            if (!isUnlimitedCapacity(event.capacity)) await lockRow(req, 'events', event.id)
+            // Read before the lock — it depends on the person, not on the event, and every statement
+            // held under the lock is one the whole queue behind it waits for.
+            const { restrictedUntil } = await reliabilityOf(req.payload, data.user, { req })
+            if (!isUnlimitedCapacity(event.capacity)) await lockRowOrRefuse(req, 'events', event.id)
             const activeCount = await req.payload.count({
               collection: 'registrations',
               where: {
@@ -997,7 +1010,6 @@ export const Registrations: CollectionConfig = {
             }
             // Whoever has gone NO_SHOW_LIMIT times without a word lately waits for the organizer,
             // here too (lib/reliability) — the place is held for them meanwhile, as counted above.
-            const { restrictedUntil } = await reliabilityOf(req.payload, data.user, { req })
             data.status = restrictedUntil ? 'pending' : 'approved'
           }
         }

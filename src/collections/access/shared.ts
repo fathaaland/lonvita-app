@@ -7,13 +7,18 @@ export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 export const getAdministeredMunicipalityIds = async (
   payload: import('payload').Payload,
   userId: number,
+  /** The caller's request — inside a transaction the lookup must run on its connection: a second one
+   * per request is what runs the pool dry under a rush (and a timeout there rolls the caller back). */
+  req?: PayloadRequest,
 ): Promise<string[]> => {
   const result = await payload.find({
     collection: 'user-roles',
     where: { and: [{ user: { equals: userId } }, { role: { equals: 'municipality_admin' } }] },
     depth: 0,
     limit: 200,
+    pagination: false,
     overrideAccess: true,
+    req,
   })
   return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
 }
@@ -92,13 +97,18 @@ export const canReadOwnOrAdministered =
 export const getOrganizerMunicipalityIds = async (
   payload: import('payload').Payload,
   userId: number,
+  /** The caller's request — inside a transaction the lookup must run on its connection: a second one
+   * per request is what runs the pool dry under a rush (and a timeout there rolls the caller back). */
+  req?: PayloadRequest,
 ): Promise<string[]> => {
   const result = await payload.find({
     collection: 'user-roles',
     where: { and: [{ user: { equals: userId } }, { role: { equals: 'organizer' } }] },
     depth: 0,
     limit: 200,
+    pagination: false,
     overrideAccess: true,
+    req,
   })
   return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
 }

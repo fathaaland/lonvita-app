@@ -520,7 +520,9 @@ export async function createRegistration(
   userId: string,
 ): Promise<RegistrationRow> {
   // The status is the server's to decide (Registrations) — pending, or approved without approval.
-  const doc = await post<PayloadRegistration>('/registrations', {
+  // depth=0: only the ids are read back (mapRegistration), and populating the event, obec and user
+  // happens inside the sign-up's transaction — while the event's row lock is held.
+  const doc = await post<PayloadRegistration>('/registrations?depth=0', {
     event: Number(eventId),
     user: Number(userId),
   })
