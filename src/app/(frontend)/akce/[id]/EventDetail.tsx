@@ -136,44 +136,41 @@ function EventDetailContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id]);
 
-  // Brief §8 live "Přihlásit se"/"Akce je plná" button. The message carries the new approved count,
-  // which is all the button needs — taken from it as is, not re-fetched: under a rush on one event
-  // every viewer re-pulling the registrations on every sign-up is what would take the API down.
-  // Only whoever runs the event sees the list of registrants change, so only they re-pull it, once
-  // the burst has settled. Only while there are places to take — a finished, cancelled or draft
-  // event opens no stream at all.
+  // Brief §8 live "Přihlásit se"/"Akce je plná" button. Polled, not streamed: an open stream holds a
+  // serverless invocation per viewer, which at thousands of viewers on one event is both the bill
+  // and the platform limit. The counts route is cached on the CDN for a few seconds, so any number
+  // of viewers is a handful of database queries. Paused while the tab is hidden. Only whoever runs
+  // the event sees the list of registrants change, so only they re-pull it, when the count moved.
+  // Only while there are places to take — a finished, cancelled or draft event polls nothing.
   const canManageRef = useRef(false);
   const liveCapacity =
     !!event && !event.is_draft && (event.status === "active" || event.status === "full");
   useEffect(() => {
     if (!id || !liveCapacity) return;
-    const source = new EventSource(`/api/events/${id}/capacity-stream`);
-    let refetch: ReturnType<typeof setTimeout> | undefined;
-    let first = true;
-    source.onmessage = (message) => {
-      let approvedCount: unknown;
-      try {
-        approvedCount = (JSON.parse(message.data) as { approvedCount?: unknown }).approvedCount;
-      } catch {
-        return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    let last: number | undefined;
+    const tick = async () => {
+      if (!document.hidden) {
+        try {
+          const approved = (await getRegistrationCounts([id])).get(id)?.approved;
+          if (typeof approved === "number") {
+            setCounts((prev) => (prev.approved === approved ? prev : { ...prev, approved }));
+            if (last !== undefined && approved !== last && canManageRef.current) {
+              refreshRegistrations(id).catch(() => {});
+            }
+            last = approved;
+          }
+        } catch {
+          // Next tick tries again.
+        }
       }
-      if (typeof approvedCount === "number") {
-        setCounts((prev) => (prev.approved === approvedCount ? prev : { ...prev, approved: approvedCount }));
-      }
-      // The first message is the count on connect — load() has just fetched everything else.
-      if (first) {
-        first = false;
-        return;
-      }
-      if (!canManageRef.current) return;
-      clearTimeout(refetch);
-      refetch = setTimeout(() => {
-        refreshRegistrations(id).catch(() => {});
-      }, 2000 + Math.random() * 1000);
+      if (!stopped) timer = setTimeout(tick, 10000 + Math.random() * 5000);
     };
+    timer = setTimeout(tick, 10000 + Math.random() * 5000);
     return () => {
-      clearTimeout(refetch);
-      source.close();
+      stopped = true;
+      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user?.id, liveCapacity]);

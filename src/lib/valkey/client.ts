@@ -6,7 +6,7 @@ const redisUrl =
   process.env.REDIS_URL ||
   (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build'
     ? (() => {
-        throw new Error('REDIS_URL is not set — the job queue, rate limits and live capacity need it.')
+        throw new Error('REDIS_URL is not set — the job queue and rate limits need it.')
       })()
     : 'redis://localhost:6379')
 const parsedRedisUrl = new URL(redisUrl)

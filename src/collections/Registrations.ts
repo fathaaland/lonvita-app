@@ -12,7 +12,6 @@ import { APIError } from 'payload'
 
 import { isUnlimitedCapacity } from '@/lib/capacity'
 import { hasEventEnded } from '@/lib/eventEnded'
-import { publishCapacityChange } from '@/lib/realtime/eventCapacity'
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
 import { formatRestrictedUntil, RELIABILITY_WINDOW_MONTHS } from '@/lib/reliability'
 import { describeUser, escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
@@ -25,7 +24,7 @@ import { addToRegistrationDigest, digestEmail } from '@/lib/notifications/regist
 import { municipalityOrganizationIds } from './Organizations'
 import { deletedAtField } from './shared/softDelete'
 import { requiredRelationNumber } from '@/lib/relations'
-import { afterCommit, deferredUntilCommit } from '@/lib/after-commit'
+import { deferredUntilCommit } from '@/lib/after-commit'
 import { lockRow } from '@/lib/db-lock'
 
 /** Who takes up the event's places: participants. A volunteer helping run it (an accepted
@@ -67,10 +66,6 @@ const broadcastCapacityChange: CollectionAfterChangeHook = async ({ doc, previou
       overrideAccess: true,
       req,
     })
-    // Once committed — an open detail page told earlier would show a place taken by a sign-up that
-    // may still roll back, and would wait on Redis inside the transaction.
-    const approvedCount = result.totalDocs
-    await afterCommit(req, () => publishCapacityChange(eventId, approvedCount))
 
     const event = await req.payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true, req })
     if (event.status === 'active' || event.status === 'full') {

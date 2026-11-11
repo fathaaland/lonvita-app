@@ -47,8 +47,8 @@ export async function GET(request: Request) {
     if (row.status === 'approved' || row.status === 'pending') counts[eventId][row.status] = Number(row.n)
   }
 
-  // A few seconds on the CDN take a burst of visitors off the database; the event detail gets its
-  // live numbers from the capacity stream (api/events/[id]/capacity-stream) anyway.
+  // A few seconds on the CDN take a burst of visitors off the database; the event detail polls
+  // this route for its live numbers, so the cache is what carries a rush on one event.
   return NextResponse.json(
     { counts },
     { headers: { 'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=30' } },
