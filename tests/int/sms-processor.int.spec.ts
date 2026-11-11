@@ -6,10 +6,20 @@ import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
 
 import { processSmsJob } from '../../worker/src/processors/sms.processor'
 
-const createRow = vi.fn(async () => ({}))
-vi.mock('../../worker/src/runtime/payload', () => ({
-  getWorkerPayload: async () => ({ create: createRow }),
+vi.mock('../../worker/src/runtime/payload', () => ({ getWorkerPayload: async () => ({}) }))
+// The ledger itself is tested against the database (billing-enforcement); here, what the worker does with its answer.
+const { claim, confirm, drop } = vi.hoisted(() => ({
+  claim: vi.fn(async (): Promise<{ decision: 'send'; rowId: number; overage: boolean } | { decision: 'skip'; reason: string }> => ({
+    decision: 'send',
+    rowId: 7,
+    overage: false,
+  })),
+  confirm: vi.fn(async () => undefined),
+  drop: vi.fn(async () => undefined),
 }))
+vi.mock('@/lib/billing/sms-ledger', () => ({ claimSmsParts: claim, confirmSmsClaim: confirm, dropSmsClaim: drop }))
+const { release } = vi.hoisted(() => ({ release: vi.fn(async () => undefined) }))
+vi.mock('@/lib/billing/sms-reservations', () => ({ releaseSmsReservation: release }))
 const { checkAlerts } = vi.hoisted(() => ({ checkAlerts: vi.fn(async () => undefined) }))
 vi.mock('@/lib/billing/sms-alerts', () => ({ checkSmsUsageAlerts: checkAlerts }))
 const { sentMarkers } = vi.hoisted(() => ({ sentMarkers: new Set<string>() }))
@@ -58,7 +68,10 @@ describe('SMS go out through BulkGate', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
-    createRow.mockClear()
+    claim.mockClear()
+    confirm.mockClear()
+    drop.mockClear()
+    release.mockClear()
     checkAlerts.mockClear()
     sentMarkers.clear()
   })
@@ -72,7 +85,7 @@ describe('SMS go out through BulkGate', () => {
     await processSmsJob({ ...job, municipalityId: 42 })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(createRow).toHaveBeenCalledTimes(1)
+    expect(claim).toHaveBeenCalledTimes(1)
   })
 
   it('sends Czech text without diacritics and counts the parts it goes out as', () => {
@@ -83,22 +96,53 @@ describe('SMS go out through BulkGate', () => {
     expect(smsPartsOf('a'.repeat(307))).toBe(3)
   })
 
-  it("counts a sent SMS against its obec's yearly quota, part by part — and a job without an obec against nobody", async () => {
+  it("puts a sent SMS on its obec's ledger before sending — and a job without an obec on nobody's", async () => {
     configure(credentials)
-    bulkGateAnswers(200, accepted('tmp9'))
+    const fetchMock = bulkGateAnswers(200, accepted('tmp9'))
 
     await processSmsJob({ ...job, municipalityId: 42 })
-    expect(createRow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        collection: 'sms-messages',
-        data: { municipality: 42, requestId: job.requestId, providerMessageSid: 'tmp9', parts: 1, overage: false },
-      }),
-    )
+    expect(claim).toHaveBeenCalledWith(expect.anything(), { municipalityId: 42, requestId: job.requestId, parts: 1 })
+    expect(claim.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
+    expect(confirm).toHaveBeenCalledWith(expect.anything(), 7, 'tmp9')
+    expect(release).toHaveBeenCalledWith(42, 1)
     expect(checkAlerts).toHaveBeenCalledWith(expect.anything(), 42, expect.any(Date))
+    expect(drop).not.toHaveBeenCalled()
 
-    createRow.mockClear()
+    claim.mockClear()
     await processSmsJob(job)
-    expect(createRow).not.toHaveBeenCalled()
+    expect(claim).not.toHaveBeenCalled()
+  })
+
+  it('does not text when the obec has no SMS left — and gives its reservation back', async () => {
+    configure(credentials)
+    const fetchMock = bulkGateAnswers(200, accepted('tmp3'))
+    claim.mockResolvedValueOnce({ decision: 'skip', reason: 'quota_used_up' })
+
+    await processSmsJob({ ...job, municipalityId: 42 })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledWith(42, 1)
+  })
+
+  it('takes the row back off the ledger when BulkGate refuses or cannot be reached', async () => {
+    configure(credentials)
+    bulkGateAnswers(400, { type: 'invalid_phone_number', error: 'Invalid phone number' })
+    await expect(processSmsJob({ ...job, municipalityId: 42 })).rejects.toBeInstanceOf(UnrecoverableError)
+    expect(drop).toHaveBeenCalledWith(expect.anything(), 7, job.requestId)
+
+    drop.mockClear()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('timeout') }))
+    await expect(processSmsJob({ ...job, municipalityId: 42 })).rejects.toThrow('timeout')
+    expect(drop).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send at all when the ledger cannot be checked — the job is retried', async () => {
+    configure(credentials)
+    const fetchMock = bulkGateAnswers(200, accepted('tmp4'))
+    claim.mockRejectedValueOnce(new Error('database down'))
+    const error = await processSmsJob({ ...job, municipalityId: 42 }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(UnrecoverableError)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('posts the message to the Simple API transactional endpoint, from the configured sender', async () => {

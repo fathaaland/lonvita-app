@@ -170,7 +170,7 @@ const canUpdateOwnMunicipality: Access = async ({ req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
 
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administeredIds.length === 0) return false
   return { id: { in: administeredIds } }
 }

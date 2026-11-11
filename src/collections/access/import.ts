@@ -17,7 +17,7 @@ export const canAccessImportRecords: Access = async ({ req }) => {
   const { user, payload } = req
   if (!user) return false
   if (user.role === 'admin') return true
-  const administered = await getAdministeredMunicipalityIds(payload, user.id)
+  const administered = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administered.length === 0) return false
   const where: Where = {
     and: [{ municipality: { in: administered } }, { organization: { exists: false } }],

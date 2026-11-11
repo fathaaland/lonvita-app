@@ -32,11 +32,11 @@ import { DELETION_CONSENT_HOURS } from '@/lib/requestDeadlines'
 export const OPEN_STATUSES = ['pending', 'escalated']
 
 /** The requester, whoever has to consent, the obec's admins and a platform admin. */
-const canReadDeletionRequest: Access = async ({ req: { user, payload } }) => {
+const canReadDeletionRequest: Access = async ({ req: { user, payload }, req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
   const or: Where[] = [{ requestedBy: { equals: user.id } }, { approvers: { in: [user.id] } }]
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administeredIds.length > 0) {
     or.push(
       { municipality: { in: administeredIds } },

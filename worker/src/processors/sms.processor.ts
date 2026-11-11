@@ -4,6 +4,7 @@ import { ProviderRateLimitedError } from '../runtime/provider-errors'
 
 import { checkSmsUsageAlerts } from '@/lib/billing/sms-alerts'
 import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
+import { claimSmsParts, confirmSmsClaim, dropSmsClaim } from '@/lib/billing/sms-ledger'
 import { releaseSmsReservation } from '@/lib/billing/sms-reservations'
 import { markSmsSent, wasSmsSent } from '@/lib/billing/sms-sent-marker'
 import { logger, serializeError } from '@/lib/logger'
@@ -54,6 +55,51 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     return
   }
 
+  const text = toSmsText(payload.message)
+  const parts = smsPartsOf(text)
+  // Parts it reserved when queued (sendSmsToMany) — given back however this ends.
+  const giveBackReservation = async () => {
+    if (payload.municipalityId !== undefined && payload.overage !== true) {
+      await releaseSmsReservation(payload.municipalityId, parts)
+    }
+  }
+
+  // The obec's last word (lib/billing/sms-ledger): its package, its suspension and its quota as they
+  // are now, and the SMS on the ledger before it goes. A ledger that can't be written now means a retry
+  // later — never an SMS nobody would be billed for.
+  let claim: Awaited<ReturnType<typeof claimSmsParts>> | null = null
+  if (payload.municipalityId !== undefined) {
+    try {
+      claim = await claimSmsParts(await getWorkerPayload(), {
+        municipalityId: payload.municipalityId,
+        requestId: payload.requestId,
+        parts,
+      })
+    } catch (error) {
+      logger.error('SMS quota not checked — retried', {
+        event: 'sms.claim_failed',
+        jobId: context?.jobId,
+        municipalityId: payload.municipalityId,
+        ...serializeError(error),
+      })
+      throw new Error('SMS quota could not be checked')
+    }
+    if (claim.decision === 'skip') {
+      logger.info('SMS not sent — the obec has no SMS left', {
+        event: 'sms.skipped_by_package',
+        jobId: context?.jobId,
+        municipalityId: payload.municipalityId,
+        reason: claim.reason,
+      })
+      await giveBackReservation()
+      return
+    }
+  }
+  const rowId = claim?.decision === 'send' ? claim.rowId : null
+  const unclaim = async () => {
+    if (rowId !== null) await dropSmsClaim(await getWorkerPayload(), rowId, payload.requestId)
+  }
+
   logger.info('SMS send started', {
     event: 'sms.send_started',
     jobId: context?.jobId,
@@ -61,7 +107,9 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     attempt: (context?.attemptsMade ?? 0) + 1,
   })
 
-  const res = await fetch(BULKGATE_API, {
+  let res: Response
+  try {
+    res = await fetch(BULKGATE_API, {
     // A hung request would hold a slot of the SMS queue; timed out, it's retried, and BulkGate's
     // duplicates_check keeps the retry from texting the person twice.
     signal: AbortSignal.timeout(15_000),
@@ -73,14 +121,19 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
       // toE164 gives "+420…"; BulkGate takes the international number without the plus.
       number: payload.to.replace(/^\+/, ''),
       // Already without diacritics when queued (sendSmsToMany); again for a job queued before that.
-      text: toSmsText(payload.message),
+      text,
       unicode: false,
       sender_id: senderId,
       ...(senderIdValue ? { sender_id_value: senderIdValue } : {}),
       duplicates_check: 'on',
       ...(payload.requestId ? { tag: payload.requestId } : {}),
     }),
-  })
+    })
+  } catch (error) {
+    // Timed out or no connection: retried (BulkGate's duplicates_check keeps a retry from texting twice).
+    await unclaim()
+    throw error
+  }
 
   const body = (await res.json().catch(() => ({}))) as BulkGateSuccess & BulkGateError
   if (!res.ok || !body.data) {
@@ -97,6 +150,7 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
       providerErrorDetail: body.detail,
       retryable,
     })
+    await unclaim()
     const message = `BulkGate error ${res.status}${body.type ? ` (${body.type})` : ''}: ${body.error ?? 'no details'}`
     if (res.status === 429) throw new ProviderRateLimitedError(message, 5_000)
     throw retryable ? new Error(message) : new UnrecoverableError(message)
@@ -113,36 +167,11 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
     providerStatus: sent.status,
   })
 
-  // Counted against the obec's yearly SMS quota, part by part. Sent is sent: a failed write is logged,
-  // not retried — a retry would text the person again.
-  if (payload.municipalityId !== undefined) {
-    try {
-      const db = await getWorkerPayload()
-      await db.create({
-        collection: 'sms-messages',
-        data: {
-          municipality: payload.municipalityId,
-          requestId: payload.requestId,
-          providerMessageSid: sent.sms_id,
-          // Counted off our own text — BulkGate's part ids don't say it reliably.
-          parts: smsPartsOf(toSmsText(payload.message)),
-          overage: payload.overage === true,
-        },
-        overrideAccess: true,
-      })
-    } catch (error) {
-      logger.error('SMS not recorded', {
-        event: 'sms.record_failed',
-        jobId: context?.jobId,
-        municipalityId: payload.municipalityId,
-        ...serializeError(error),
-      })
-    }
-    // Counted as sent now — the part reservation made when it was queued is given back.
-    if (payload.overage !== true) {
-      await releaseSmsReservation(payload.municipalityId, smsPartsOf(toSmsText(payload.message)))
-    }
+  if (payload.municipalityId !== undefined && rowId !== null) {
+    const db = await getWorkerPayload()
+    await confirmSmsClaim(db, rowId, sent.sms_id)
+    await giveBackReservation()
     // 80 % / 100 % of the quota — its admins hear it once a licence year.
-    await checkSmsUsageAlerts(await getWorkerPayload(), payload.municipalityId, new Date())
+    await checkSmsUsageAlerts(db, payload.municipalityId, new Date())
   }
 }

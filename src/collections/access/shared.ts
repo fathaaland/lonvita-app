@@ -40,7 +40,7 @@ export const isPlatformOrMunicipalityAdmin =
     if (!user) return false
     if (user.role === 'admin') return true
 
-    const municipalityIds = await getAdministeredMunicipalityIds(payload, user.id)
+    const municipalityIds = await getAdministeredMunicipalityIds(payload, user.id, req)
     if (municipalityIds.length === 0) return false
 
     return { [municipalityField]: { in: municipalityIds } }
@@ -60,7 +60,7 @@ export const canCreateForAdministeredMunicipality =
     if (!user) return false
     if (user.role === 'admin') return true
 
-    const municipalityIds = await getAdministeredMunicipalityIds(payload, user.id)
+    const municipalityIds = await getAdministeredMunicipalityIds(payload, user.id, req)
     if (municipalityIds.length === 0) return false
 
     const submitted = (data as Record<string, unknown> | undefined)?.[municipalityField]
@@ -87,7 +87,7 @@ export const canReadOwnOrAdministered =
     if (!user) return false
     if (user.role === 'admin') return true
 
-    const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+    const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
     const or: Where[] = [{ [ownerField]: { equals: user.id } }]
     if (administeredIds.length > 0) or.push({ [municipalityWhereField]: { in: administeredIds } })
     return { or }
@@ -143,7 +143,7 @@ export const perRequest = <T>(req: PayloadRequest, key: string, load: () => Prom
 }
 
 const administeredIdsOf = (req: PayloadRequest, userId: number) =>
-  perRequest(req, `profileAccess:administered:${userId}`, () => getAdministeredMunicipalityIds(req.payload, userId))
+  perRequest(req, `profileAccess:administered:${userId}`, () => getAdministeredMunicipalityIds(req.payload, userId, req))
 
 /** Events `userId` runs or co-organizes, or that are in an obec they administer — their Spravovat pages. */
 const eventsManagedBy = (req: PayloadRequest, userId: number) =>

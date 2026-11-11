@@ -29,7 +29,7 @@ const canReadInvitation: Access = async ({ req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
 
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   const managedEventsWhere: Where[] = [{ organizer: { equals: user.id } }, { coOrganizers: { in: [user.id] } }]
   if (administeredIds.length > 0) managedEventsWhere.push({ municipality: { in: administeredIds } })
   const managed = await payload.find({
@@ -60,7 +60,7 @@ const canDecideInvitation: Access = async ({ req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
 
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   const creatorOf: Where[] = [{ organizer: { equals: user.id } }]
   if (administeredIds.length > 0) creatorOf.push({ municipality: { in: administeredIds } })
   const events = await payload.find({

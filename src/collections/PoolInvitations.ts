@@ -99,7 +99,7 @@ const guardDecision: CollectionBeforeChangeHook = async ({ data, operation, orig
     if (data.status === 'declined') {
       if (!invitee) throw new APIError('Pozvánku může odmítnout jen pozvaný.', 403)
     } else if (data.status === 'withdrawn') {
-      const administered = await getAdministeredMunicipalityIds(payload, user.id)
+      const administered = await getAdministeredMunicipalityIds(payload, user.id, req)
       if (user.role !== 'admin' && !administered.includes(String(relationNumber(originalDoc.municipality)))) {
         throw new APIError('Pozvánku může stáhnout jen obec, která ji poslala.', 403)
       }

@@ -23,11 +23,11 @@ import { CO_ORGANIZING_INVITATION_HOURS } from '@/lib/requestDeadlines'
 
 /** The requester, whoever answers for the invited organization (its owner, or for the obec its
  * admins — who also see every invitation in their obec) and a platform admin. */
-const canReadRequest: Access = async ({ req: { user, payload } }) => {
+const canReadRequest: Access = async ({ req: { user, payload }, req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
   const or: Where[] = [{ requestedBy: { equals: user.id } }, { organizationOwner: { equals: user.id } }]
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
   const where: Where = { or }
   return where
@@ -35,11 +35,11 @@ const canReadRequest: Access = async ({ req: { user, payload } }) => {
 
 /** Only whoever answers for the invited organization decides: its owner, or — for the obec's own
  * organization, which has none — any of the obec's admins. A platform admin everywhere. */
-const canDecideRequest: Access = async ({ req: { user, payload } }) => {
+const canDecideRequest: Access = async ({ req: { user, payload }, req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
   const or: Where[] = [{ organizationOwner: { equals: user.id } }]
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administeredIds.length > 0) {
     or.push({ and: [{ organizationOwner: { exists: false } }, { municipality: { in: administeredIds } }] })
   }

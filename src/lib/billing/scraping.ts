@@ -35,7 +35,7 @@ export async function scrapingLimitsOf(
         scrapingMaxInputTokensOverride: true,
       },
     }),
-    catalog ?? getBillingCatalog(payload),
+    catalog ?? getBillingCatalog(payload, req),
   ])
   const pkg = isPackageKey(m.scrapingPackage) ? m.scrapingPackage : 's'
   return {

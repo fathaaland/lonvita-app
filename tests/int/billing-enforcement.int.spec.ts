@@ -15,6 +15,7 @@ import { enqueueImportEvents, enqueueSms } from '@/lib/queue/queues'
 import { sendSmsToMany } from '@/collections/shared/notify'
 import { smsUsageOf } from '@/lib/billing/sms'
 import { sourcesWithinPackage } from '@/lib/billing/scraping'
+import { claimSmsParts } from '@/lib/billing/sms-ledger'
 import { processScanEventSourcesJob } from '../../worker/src/processors/scan-event-sources.processor'
 
 let payload: Payload
@@ -344,6 +345,71 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
       expect(usage.usedParts).toBe(2)
       expect(usage.quota).toBe(10)
       void inPeriod
+    } finally {
+      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+    }
+  })
+
+  // ---------------------------------------------------------------------------------------------
+  // The worker's last word (lib/billing/sms-ledger): the quota is a hard cap, the invoice exact
+  // ---------------------------------------------------------------------------------------------
+
+  it('the ledger caps the quota for real — even when twenty SMS are decided at once', async () => {
+    const fresh = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Ledger cap ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 5 } as never,
+      overrideAccess: true,
+    })
+    try {
+      const claims = await Promise.all(
+        Array.from({ length: 20 }, (_, i) =>
+          claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-cap-${STAMP}-${i}`, parts: 1 }),
+        ),
+      )
+      expect(claims.filter((c) => c.decision === 'send')).toHaveLength(5)
+      expect(claims.filter((c) => c.decision === 'skip' && c.reason === 'quota_used_up')).toHaveLength(15)
+      expect((await smsUsageOf(payload, fresh.id, new Date())).usedParts).toBe(5)
+    } finally {
+      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+    }
+  })
+
+  it('with overage allowed every SMS past the quota is marked so — the invoice counts them exactly', async () => {
+    const fresh = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Ledger overage ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 3, smsOverageAllowed: true } as never,
+      overrideAccess: true,
+    })
+    try {
+      await Promise.all(
+        Array.from({ length: 10 }, (_, i) =>
+          claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-over-${STAMP}-${i}`, parts: 1 }),
+        ),
+      )
+      const usage = await smsUsageOf(payload, fresh.id, new Date())
+      expect(usage.usedParts).toBe(10)
+      expect(usage.overageParts).toBe(7)
+    } finally {
+      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+    }
+  })
+
+  it('a retry of the same SMS keeps its one row — and a suspended or unsubscribed obec gets none', async () => {
+    const fresh = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Ledger retry ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 10 } as never,
+      overrideAccess: true,
+    })
+    try {
+      const first = await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-retry-${STAMP}`, parts: 2 })
+      const again = await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-retry-${STAMP}`, parts: 2 })
+      expect(first.decision === 'send' && again.decision === 'send' && first.rowId === again.rowId).toBe(true)
+      expect((await smsUsageOf(payload, fresh.id, new Date())).usedParts).toBe(2)
+
+      await payload.update({ collection: 'municipalities', id: fresh.id, data: { billingStatus: 'suspended' }, overrideAccess: true })
+      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-s-${STAMP}`, parts: 1 })).toEqual({ decision: 'skip', reason: 'suspended' })
+      await payload.update({ collection: 'municipalities', id: fresh.id, data: { billingStatus: 'active', smsEnabled: false }, overrideAccess: true })
+      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-n-${STAMP}`, parts: 1 })).toEqual({ decision: 'skip', reason: 'no_sms' })
     } finally {
       await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
     }

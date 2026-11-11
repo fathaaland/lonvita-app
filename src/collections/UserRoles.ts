@@ -191,10 +191,10 @@ export const UserRoles: CollectionConfig = {
     // Their own roles, and every role in an obec they administer — the obec's admin lists its
     // organizers to revoke the role (Administrace obce → Žádosti), which delete below already
     // allows. Without the second half that list was always empty: the right existed, the way to it didn't.
-    read: async ({ req: { user, payload } }) => {
+    read: async ({ req: { user, payload }, req }) => {
       if (!user) return false
       if (user.role === 'admin') return true
-      const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+      const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
       const or: Where[] = [{ user: { equals: user.id } }]
       if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
       return { or }

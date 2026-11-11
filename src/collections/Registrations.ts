@@ -407,7 +407,7 @@ async function attendanceRights(req: PayloadRequest, eventId: number | string): 
   const rights: AttendanceRights = { mark: false, correct: false }
   if (event && !isUnlimitedCapacity(event.capacity)) {
     rights.mark = await isEventCreator(req, req.user!, event)
-    rights.correct = (await getAdministeredMunicipalityIds(req.payload, req.user!.id)).includes(
+    rights.correct = (await getAdministeredMunicipalityIds(req.payload, req.user!.id, req)).includes(
       String(requiredRelationNumber(event.municipality)),
     )
   }
@@ -727,7 +727,7 @@ const isOwnRegistrationField: FieldAccess = ({ req, doc }) =>
  * since OR-ing several relationship joins there matched every row. */
 const ownOrManagedRegistrationsWhere = async (req: Parameters<Access>[0]['req']): Promise<Where> => {
   const { user, payload } = req
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user!.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user!.id, req)
   const manageableEventsWhere: Where[] = [{ organizer: { equals: user!.id } }, { coOrganizers: { in: [user!.id] } }]
   if (administeredIds.length > 0) {
     manageableEventsWhere.push({ municipality: { in: administeredIds } })

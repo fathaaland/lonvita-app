@@ -26,10 +26,10 @@ import {
 import { requiredRelationNumber } from '@/lib/relations'
 
 /** The owner renames their own organization; the obec's admins and a platform admin may too. */
-const canUpdateOrganization: Access = async ({ req: { user, payload } }) => {
+const canUpdateOrganization: Access = async ({ req: { user, payload }, req }) => {
   if (!user) return false
   if (user.role === 'admin') return true
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   const or: Where[] = [{ owner: { equals: user.id } }]
   if (administeredIds.length > 0) or.push({ municipality: { in: administeredIds } })
   return { or }
@@ -142,7 +142,7 @@ const grantOrganizerRole: CollectionAfterChangeHook = async ({ doc, operation, r
   })
   if (roles.docs.length === 0) {
     // The obec's own admin runs events as the obec, not as an organization of it.
-    const administeredIds = await getAdministeredMunicipalityIds(req.payload, owner)
+    const administeredIds = await getAdministeredMunicipalityIds(req.payload, owner, req)
     if (administeredIds.includes(String(municipality))) {
       throw new APIError('Admin obce pořádá akce za obec — organizaci v ní mít nemůže.', 400)
     }

@@ -10,7 +10,7 @@ const COMMENT_MAX_LENGTH = 500
 
 /** The rated volunteer, and whoever organizes anywhere (the pool's audience — they weigh whom to
  * invite by it). */
-const canReadRating: Access = async ({ req: { user, payload } }) => {
+const canReadRating: Access = async ({ req: { user, payload }, req }) => {
   if (!user) return false
   // A rating the obec removed on the volunteer's complaint (ReviewComplaints) is gone for everyone.
   if (user.role === 'admin') return notDeleted

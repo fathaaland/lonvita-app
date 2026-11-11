@@ -1,4 +1,4 @@
-import type { Payload } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 /**
  * What the platform sells an obec (Balíčky služeb, 27. 10. 2026): a yearly licence priced by the band
@@ -105,9 +105,9 @@ export function catalogFrom(stored: StoredCatalog | null | undefined): BillingCa
   }
 }
 
-export async function getBillingCatalog(payload: Payload): Promise<BillingCatalog> {
+export async function getBillingCatalog(payload: Payload, req?: PayloadRequest): Promise<BillingCatalog> {
   const stored = await payload
-    .findGlobal({ slug: 'billing-settings', depth: 0, overrideAccess: true })
+    .findGlobal({ slug: 'billing-settings', depth: 0, overrideAccess: true, req })
     .catch(() => null)
   return catalogFrom(stored as StoredCatalog | null)
 }

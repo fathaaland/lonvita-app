@@ -1,5 +1,5 @@
 import { sql } from '@payloadcms/db-postgres'
-import type { Payload } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import type { Municipality } from '@/payload-types'
 
@@ -71,10 +71,17 @@ export async function countSmsParts(
   municipalityId: number,
   from: Date,
   to: Date,
+  /** Inside a transaction: counted on its connection (a second one per caller runs the pool dry). */
+  req?: PayloadRequest,
 ): Promise<{ parts: number; overageParts: number; messages: number }> {
+  const db = payload.db as unknown as {
+    drizzle: Payload['db']['drizzle']
+    sessions?: Record<string, { db?: Payload['db']['drizzle'] }>
+  }
+  const session = req?.transactionID ? db.sessions?.[String(await req.transactionID)]?.db : undefined
   // Summed in the database: an obec's year of SMS is thousands of rows, and this runs for every SMS
   // sent (the quota alerts) and every announcement deciding who gets one.
-  const { rows } = await payload.db.drizzle.execute<{ parts: string | null; overage_parts: string | null; messages: string }>(sql`
+  const { rows } = await (session ?? db.drizzle).execute<{ parts: string | null; overage_parts: string | null; messages: string }>(sql`
     SELECT
       COALESCE(SUM(COALESCE(parts, 1)), 0) AS parts,
       COALESCE(SUM(COALESCE(parts, 1)) FILTER (WHERE overage), 0) AS overage_parts,

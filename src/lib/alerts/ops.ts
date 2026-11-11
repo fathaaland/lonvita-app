@@ -59,6 +59,7 @@ const IMMEDIATE: Record<string, { severity: OpsSeverity; title: string }> = {
   'audit_export.day_failed': { severity: 'critical', title: 'WORM kopie audit logu selhala' },
   'audit_export.lock_not_enforced': { severity: 'critical', title: 'Audit bucket není neměnný (zámek nedrží) — export zastaven' },
   'audit_export.probe_failed': { severity: 'critical', title: 'Audit bucket nejde ověřit — export zastaven' },
+  'sms.ledger_failed': { severity: 'critical', title: 'SMS: neodeslaná SMS zůstala v podkladech pro fakturaci' },
   'users.anonymize_failed': { severity: 'critical', title: 'Anonymizace účtu (GDPR výmaz) selhala' },
   'security.rate_limit_backend_unavailable': { severity: 'critical', title: 'Rate limiting nefunguje (Redis nedostupný)' },
   'auth.superadmin_locked': { severity: 'critical', title: 'Účet superadmina zablokován po neúspěšných pokusech' },

@@ -62,7 +62,7 @@ const canCreateEvent: Access = async ({ req, data }) => {
     typeof data.municipality === 'object' ? data.municipality.id : data.municipality,
   )
 
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administeredIds.includes(municipalityId)) return true
 
   const municipality = await payload.findByID({
@@ -75,7 +75,7 @@ const canCreateEvent: Access = async ({ req, data }) => {
 
   if (rule === 'municipality_only') return false
 
-  const organizerIds = await getOrganizerMunicipalityIds(payload, user.id)
+  const organizerIds = await getOrganizerMunicipalityIds(payload, user.id, req)
   return organizerIds.includes(municipalityId)
 }
 
@@ -439,7 +439,7 @@ const canDeleteEvent: Access = async ({ req }) => {
   if (user.role === 'admin') return true
 
   const ownDraft: Where = { and: [{ organizer: { equals: user.id } }, { isDraft: { equals: true } }] }
-  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id)
+  const administeredIds = await getAdministeredMunicipalityIds(payload, user.id, req)
   if (administeredIds.length === 0) return ownDraft
   const where: Where = {
     or: [ownDraft, { and: [{ isDraft: { not_equals: true } }, { municipality: { in: administeredIds } }] }],
@@ -664,7 +664,7 @@ const resolveOrganizations: CollectionBeforeChangeHook = async ({ data, req, ope
   const municipalityChanged = operation === 'update' && relationId(originalDoc?.municipality) !== municipalityId
   const organizerChanged = operation === 'update' && relationId(originalDoc?.organizer) !== organizerId
   if (operation === 'create' || municipalityChanged || organizerChanged) {
-    const organizerIsObecAdmin = (await getAdministeredMunicipalityIds(req.payload, Number(organizerId))).includes(
+    const organizerIsObecAdmin = (await getAdministeredMunicipalityIds(req.payload, Number(organizerId), req)).includes(
       municipalityId,
     )
     data.organization = organizerIsObecAdmin
