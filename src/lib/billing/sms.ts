@@ -132,6 +132,22 @@ export async function smsUsageOf(
 }
 
 /**
+ * What an SMS is for. A cancellation or a change of time or place ('announcement') that starts while
+ * the obec still has any SMS left goes out to everyone it concerns — the part past the quota is
+ * recorded as overage (SmsMessages.overage) and billed; only the next announcement is blocked. A
+ * reminder ('reminder') never goes past the quota.
+ */
+export type SmsPurpose = 'announcement' | 'reminder'
+
+export type SmsAllowance = {
+  /** The obec has SMS and isn't suspended — without, nobody is texted and nothing is "withheld". */
+  active: boolean
+  quota: number
+  remainingParts: number
+  overageAllowed: boolean
+}
+
+/**
  * What the obec may still text — parts left in its quota, and whether it may go past it. Nothing for
  * an obec without SMS, or one suspended for not paying: its people hear it by e-mail and in-app.
  */
@@ -139,11 +155,43 @@ export async function smsAllowanceOf(
   payload: Payload,
   municipalityId: number,
   now: Date,
-): Promise<{ remainingParts: number; overageAllowed: boolean }> {
+): Promise<SmsAllowance> {
   const usage = await smsUsageOf(payload, municipalityId, now)
-  if (!usage.enabled || usage.suspended) return { remainingParts: 0, overageAllowed: false }
+  if (!usage.enabled || usage.suspended) {
+    return { active: false, quota: usage.quota, remainingParts: 0, overageAllowed: false }
+  }
   return {
+    active: true,
+    quota: usage.quota,
     remainingParts: Math.max(0, usage.quota - usage.usedParts),
     overageAllowed: usage.overageAllowed,
   }
+}
+
+/**
+ * Who of `reachable` (in priority order) gets the SMS. An announcement is admitted while any part is
+ * left (after those held by SMS already queued) — or whenever the obec allows overage — and then
+ * goes to everyone: the first as many as fit the quota, the rest marked as overage. Once nothing is
+ * left, the next one is blocked. A reminder gets only as many as fit (or overage where allowed).
+ */
+export function planSmsRecipients<R>(
+  reachable: R[],
+  parts: number,
+  allowance: SmsAllowance,
+  reservedParts: number,
+  purpose: SmsPurpose,
+): (R & { overage: boolean })[] {
+  let left = Math.max(0, allowance.remainingParts - reservedParts)
+  if (purpose === 'announcement' && left <= 0 && !allowance.overageAllowed) return []
+  const chosen: (R & { overage: boolean })[] = []
+  for (const r of reachable) {
+    if (left >= parts) {
+      left -= parts
+      chosen.push({ ...r, overage: false })
+    } else if (purpose === 'announcement' || allowance.overageAllowed) {
+      left = 0
+      chosen.push({ ...r, overage: true })
+    } else break
+  }
+  return chosen
 }

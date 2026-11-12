@@ -19,7 +19,7 @@ vi.mock('@/collections/shared/reminders', async (importOriginal) => ({
   cancelEventReminders: vi.fn(async () => undefined),
 }))
 
-import { releaseSmsReservation } from '@/lib/billing/sms-reservations'
+import { clearSmsReservations } from '@/lib/billing/sms-reservations'
 import { cancelEventReminders, rescheduleEventReminders } from '@/collections/shared/reminders'
 import {
   enqueueEmail,
@@ -367,19 +367,24 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
           overrideAccess: true,
         })
         // Earlier runs' reservations (lib/billing/sms-reservations) — nothing here is really sent.
-        await releaseSmsReservation(municipality.id, 1_000_000)
+        await clearSmsReservations(municipality.id)
         await processEventCancelledJob(job, { jobId: '10' })
         expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
         expect(vi.mocked(enqueueSms).mock.calls[0][0]).toMatchObject({
           municipalityId: municipality.id,
         })
 
-        // A second announcement before the first SMS went out: its part is held, nothing is left.
+        expect(await notificationsFor(organizer, 'SMS nedošla všem')).toHaveLength(0)
+
+        // A second announcement before the first SMS went out: its part is held, nothing is left —
+        // and the pořadatel hears that one who chose SMS didn't get it.
         vi.clearAllMocks()
         await processEventCancelledJob(job, { jobId: '10a' })
         expect(vi.mocked(enqueueSms)).not.toHaveBeenCalled()
+        const [shortfall] = await notificationsFor(organizer, 'SMS nedošla všem')
+        expect(shortfall.message).toContain('dostalo 0 z 1')
         // …until it's sent (the worker gives the reservation back) — here it never was.
-        await releaseSmsReservation(municipality.id, 1_000_000)
+        await clearSmsReservations(municipality.id)
 
         // Both chose SMS, the quota has room for one: the other only with overage allowed.
         await payload.update({
@@ -390,8 +395,14 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         })
         vi.clearAllMocks()
         await processEventCancelledJob(job, { jobId: '10b' })
-        expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(1)
-        await releaseSmsReservation(municipality.id, 1_000_000)
+        // One SMS left, two chose SMS: the cancellation goes to both — the approved registrant first,
+        // within the quota, the pending one after, as overage.
+        expect(vi.mocked(enqueueSms)).toHaveBeenCalledTimes(2)
+        const [within, past] = vi.mocked(enqueueSms).mock.calls.map((c) => c[0])
+        expect(within.requestId).toBe(`event-cancelled-${event.id}-10b-${approved.id}`)
+        expect(within.overage).toBeFalsy()
+        expect(past.overage).toBe(true)
+        await clearSmsReservations(municipality.id)
 
         vi.clearAllMocks()
         await payload.update({

@@ -65,6 +65,9 @@ export type SmsJobData = {
   municipalityId?: number
   /** Past the obec's quota, sent because it allows overage — billed at the year's end. */
   overage?: boolean
+  /** A day-before reminder — leaves the quota's announcement reserve alone (lib/billing/sms).
+   * Absent: an announcement (a cancel, a change of time or place). */
+  purpose?: 'reminder'
 }
 
 /**
@@ -180,7 +183,11 @@ export type EventCancelledJobData = {
   /** The event's capacity — SMS go out only below SMS_LARGE_EVENT_CAPACITY places (lib/capacity). Optional:
    * jobs queued before it existed carry none (then the event row, if still there, says). */
   capacity?: number
-  /** Pending/approved registrants to tell (the organizer excluded). */
+  /** The pořadatel — told when the obec's SMS quota left some registrants without one. Optional:
+   * jobs queued before it existed carry none (then the event row, if still there, says). */
+  organizerId?: number | string
+  /** Pending/approved registrants to tell (the organizer excluded) — approved first, then by when
+   * they signed up: the order SMS go out in when the quota runs short. */
   userIds: (number | string)[]
   /** Every registration of the event, whose reminder jobs have to go. */
   registrationIds: (number | string)[]

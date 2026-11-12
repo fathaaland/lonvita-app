@@ -824,6 +824,16 @@ export async function getEventReliability(
   return new Map(Object.entries(records))
 }
 
+export type EventSmsPreview =
+  | { sms: false }
+  | { sms: true; wanted: number; texted: number; overage: number; remaining: number; overageAllowed: boolean }
+
+/** What cancelling the event would text as things stand — for the cancel dialog
+ * (/api/events/:id/sms-preview, only for whoever may cancel it). */
+export async function getEventSmsPreview(eventId: string): Promise<EventSmsPreview> {
+  return get<EventSmsPreview>(`/events/${eventId}/sms-preview`)
+}
+
 /** The viewer's own reliability — their profile's "Vaše docházka" (/api/account/reliability). */
 export async function getMyReliability(): Promise<ReliabilityRecord> {
   return get<ReliabilityRecord>('/account/reliability')

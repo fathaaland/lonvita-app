@@ -42,9 +42,14 @@ export const snapshotNotifiableFields = (doc: Record<string, unknown>): Record<s
 export const changedNotifiableFields = (before: Record<string, string>, doc: Record<string, unknown>): string[] =>
   Object.keys(NOTIFIABLE_EDIT_FIELDS).filter((field) => before[field] !== comparable(field, doc[field]))
 
+/** The SMS registrants get when the event is cancelled — the job sends it, the cancel dialog
+ * previews what it costs (api/events/:id/sms-preview). */
+export const cancellationSmsText = (title: string) => `Lonvita: akce „${title}“ byla zrušena.`
+
 /** Everyone an announcement about the event concerns: the pending/approved registrants to tell
- * (the organizer excluded), every registration, whose reminder jobs a cancellation drops, and the
- * volunteers whose invitation or offer is still waiting on it. */
+ * (the organizer excluded) — approved first, then by when they signed up, the order SMS go out in
+ * when the obec's quota runs short —, every registration, whose reminder jobs a cancellation drops,
+ * and the volunteers whose invitation or offer is still waiting on it. */
 export async function getEventRegistrants(
   payload: Payload,
   eventId: number | string,
@@ -58,6 +63,7 @@ export async function getEventRegistrants(
   const regs = await payload.find({
     collection: 'registrations',
     where: { event: { equals: eventId } },
+    sort: 'createdAt',
     req,
     depth: 0,
     pagination: false,
@@ -65,6 +71,8 @@ export async function getEventRegistrants(
   })
   const userIds = regs.docs
     .filter((reg) => reg.status === 'pending' || reg.status === 'approved')
+    // Stable: within each status the order of signing up stays.
+    .sort((a, b) => Number(b.status === 'approved') - Number(a.status === 'approved'))
     .map((reg) => (typeof reg.user === 'object' ? reg.user.id : reg.user))
     .filter((userId) => String(userId) !== String(organizerId))
   const waiting = await payload.find({
@@ -146,6 +154,7 @@ export async function notifyEventCancelled(
         title: event.title,
         capacity: event.capacity,
         municipalityId: requiredRelationNumber(event.municipality),
+        organizerId,
         ...registrants,
       },
     },

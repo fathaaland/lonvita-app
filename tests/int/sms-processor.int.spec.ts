@@ -101,10 +101,10 @@ describe('SMS go out through BulkGate', () => {
     const fetchMock = bulkGateAnswers(200, accepted('tmp9'))
 
     await processSmsJob({ ...job, municipalityId: 42 })
-    expect(claim).toHaveBeenCalledWith(expect.anything(), { municipalityId: 42, requestId: job.requestId, parts: 1 })
+    expect(claim).toHaveBeenCalledWith(expect.anything(), { municipalityId: 42, requestId: job.requestId, parts: 1, purpose: 'announcement' })
     expect(claim.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
     expect(confirm).toHaveBeenCalledWith(expect.anything(), 7, 'tmp9')
-    expect(release).toHaveBeenCalledWith(42, 1)
+    expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
     expect(checkAlerts).toHaveBeenCalledWith(expect.anything(), 42, expect.any(Date))
     expect(drop).not.toHaveBeenCalled()
 
@@ -120,7 +120,42 @@ describe('SMS go out through BulkGate', () => {
 
     await processSmsJob({ ...job, municipalityId: 42 })
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(release).toHaveBeenCalledWith(42, 1)
+    expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
+    // The admins hear the quota ran out, even though the SMS was queued within it.
+    expect(checkAlerts).toHaveBeenCalledWith(expect.anything(), 42, expect.any(Date))
+  })
+
+  it('a reminder asks the ledger as a reminder', async () => {
+    configure(credentials)
+    const fetchMock = bulkGateAnswers(200, accepted('tmp5'))
+    claim.mockResolvedValueOnce({ decision: 'skip', reason: 'quota_used_up' })
+
+    await processSmsJob({ ...job, municipalityId: 42, purpose: 'reminder' })
+    expect(claim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ purpose: 'reminder' }))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
+  })
+
+  it('gives the reservation back once the SMS fails for good — not while a retry may still send it', async () => {
+    configure(credentials)
+    bulkGateAnswers(503, { error: 'Try again later' })
+    await expect(processSmsJob({ ...job, municipalityId: 42 }, { attemptsMade: 3, attempts: 10 })).rejects.toThrow()
+    expect(release).not.toHaveBeenCalled()
+
+    bulkGateAnswers(503, { error: 'Try again later' })
+    await expect(processSmsJob({ ...job, municipalityId: 42 }, { attemptsMade: 9, attempts: 10 })).rejects.toThrow()
+    expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
+
+    release.mockClear()
+    bulkGateAnswers(400, { type: 'invalid_phone_number', error: 'Invalid phone number' })
+    await expect(processSmsJob({ ...job, municipalityId: 42 }, { attemptsMade: 0, attempts: 10 })).rejects.toBeInstanceOf(UnrecoverableError)
+    expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
+
+    // An overage SMS held nothing.
+    release.mockClear()
+    bulkGateAnswers(400, { type: 'invalid_phone_number', error: 'Invalid phone number' })
+    await expect(processSmsJob({ ...job, municipalityId: 42, overage: true })).rejects.toBeInstanceOf(UnrecoverableError)
+    expect(release).not.toHaveBeenCalled()
   })
 
   it('takes the row back off the ledger when BulkGate refuses or cannot be reached', async () => {

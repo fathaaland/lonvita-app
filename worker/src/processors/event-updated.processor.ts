@@ -4,7 +4,8 @@ import {
   changedNotifiableFields,
   getEventRegistrants,
 } from '@/collections/shared/eventNotifications'
-import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
+import { escapeHtml, sendNotificationToMany, sendSmsToMany, type SmsOutcome } from '@/collections/shared/notify'
+import { reportSmsShortfall } from '@/lib/billing/sms-shortfall'
 import { smsSentForCapacity } from '@/lib/capacity'
 import { rescheduleEventReminders } from '@/collections/shared/reminders'
 import { formatPragueDateTime } from '@/lib/date'
@@ -91,7 +92,7 @@ export const processEventUpdatedJob = async (
 
   const municipalityId = relationNumber(event.municipality)
   const smsWorthy = changedFields.some((field) => SMS_FIELDS.has(field))
-  const sms =
+  const sms: SmsOutcome =
     smsWorthy && municipalityId !== null && smsSentForCapacity(event.capacity)
       ? await sendSmsToMany(
           payload,
@@ -100,7 +101,17 @@ export const processEventUpdatedJob = async (
           `Lonvita: akce „${event.title}“ se změnila. Nově: ${when}, ${event.locationText}.`,
           announcementId,
         )
-      : 0
+      : { wanted: 0, queued: 0, withheld: 0 }
+  if (municipalityId !== null) {
+    await reportSmsShortfall(payload, {
+      municipalityId,
+      organizerId: relationNumber(event.organizer),
+      eventTitle: event.title,
+      kind: 'update',
+      outcome: sms,
+      dedupPrefix: announcementId,
+    })
+  }
 
   logger.info('Event update announced', {
     event: 'event.update_notified',
@@ -109,7 +120,8 @@ export const processEventUpdatedJob = async (
     registrants: userIds.length,
     inApp: sent.inApp,
     emails: sent.emails,
-    sms,
+    sms: sms.queued,
+    smsWithheld: sms.withheld,
   })
   return { notified: userIds.length }
 }

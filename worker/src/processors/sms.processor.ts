@@ -16,6 +16,8 @@ import type { SmsJobData } from '@/lib/queue/contracts'
 type QueueJobContext = {
   jobId?: string
   attemptsMade?: number
+  /** The job's attempts in all — to tell its last one. */
+  attempts?: number
 }
 
 /**
@@ -37,7 +39,29 @@ const BULKGATE_API = 'https://portal.bulkgate.com/api/1.0/simple/transactional'
 type BulkGateSuccess = { data?: { status?: string; sms_id?: string; number?: string } }
 type BulkGateError = { type?: string; code?: number; error?: string; detail?: unknown }
 
+/**
+ * The parts reserved when the SMS was queued (sendSmsToMany) go back however the job ends — sent,
+ * refused by the ledger, or failed for good (a rejected number, its last attempt). Until then a
+ * failing SMS keeps holding them, since a retry may still send it.
+ */
 export const processSmsJob = async (payload: SmsJobData, context?: QueueJobContext): Promise<void> => {
+  try {
+    await sendSms(payload, context)
+  } catch (error) {
+    const lastAttempt = context?.attempts !== undefined && (context.attemptsMade ?? 0) + 1 >= context.attempts
+    const forGood = error instanceof UnrecoverableError || (lastAttempt && !(error instanceof ProviderRateLimitedError))
+    if (forGood) await giveBackReservation(payload)
+    throw error
+  }
+}
+
+const giveBackReservation = async (payload: SmsJobData) => {
+  if (payload.municipalityId !== undefined && payload.overage !== true) {
+    await releaseSmsReservation(payload.municipalityId, payload.requestId, smsPartsOf(toSmsText(payload.message)))
+  }
+}
+
+const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<void> => {
   const applicationId = process.env.BULKGATE_APPLICATION_ID
   const applicationToken = process.env.BULKGATE_APPLICATION_TOKEN
   if (!applicationId || !applicationToken) {
@@ -57,12 +81,6 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
 
   const text = toSmsText(payload.message)
   const parts = smsPartsOf(text)
-  // Parts it reserved when queued (sendSmsToMany) — given back however this ends.
-  const giveBackReservation = async () => {
-    if (payload.municipalityId !== undefined && payload.overage !== true) {
-      await releaseSmsReservation(payload.municipalityId, parts)
-    }
-  }
 
   // The obec's last word (lib/billing/sms-ledger): its package, its suspension and its quota as they
   // are now, and the SMS on the ledger before it goes. A ledger that can't be written now means a retry
@@ -74,6 +92,7 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
         municipalityId: payload.municipalityId,
         requestId: payload.requestId,
         parts,
+        purpose: payload.purpose ?? 'announcement',
       })
     } catch (error) {
       logger.error('SMS quota not checked — retried', {
@@ -85,13 +104,19 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
       throw new Error('SMS quota could not be checked')
     }
     if (claim.decision === 'skip') {
-      logger.info('SMS not sent — the obec has no SMS left', {
+      // Queued within the quota, refused now: something else got there first (the quota lock timed
+      // out, Redis was away, the superadmin lowered the quota). The person still has the e-mail and
+      // the in-app notice; the obec's admins hear the quota ran out (once a licence year).
+      logger.warn('SMS not sent — the obec has no SMS left', {
         event: 'sms.skipped_by_package',
         jobId: context?.jobId,
         municipalityId: payload.municipalityId,
         reason: claim.reason,
       })
-      await giveBackReservation()
+      await giveBackReservation(payload)
+      if (claim.reason === 'quota_used_up') {
+        await checkSmsUsageAlerts(await getWorkerPayload(), payload.municipalityId, new Date())
+      }
       return
     }
   }
@@ -170,7 +195,7 @@ export const processSmsJob = async (payload: SmsJobData, context?: QueueJobConte
   if (payload.municipalityId !== undefined && rowId !== null) {
     const db = await getWorkerPayload()
     await confirmSmsClaim(db, rowId, sent.sms_id)
-    await giveBackReservation()
+    await giveBackReservation(payload)
     // 80 % / 100 % of the quota — its admins hear it once a licence year.
     await checkSmsUsageAlerts(db, payload.municipalityId, new Date())
   }

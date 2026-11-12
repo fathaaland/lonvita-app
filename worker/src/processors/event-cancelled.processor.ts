@@ -1,8 +1,9 @@
-import { escapeHtml, sendNotificationToMany, sendSmsToMany } from '@/collections/shared/notify'
+import { escapeHtml, sendNotificationToMany, sendSmsToMany, type SmsOutcome } from '@/collections/shared/notify'
+import { reportSmsShortfall } from '@/lib/billing/sms-shortfall'
 import { cancelEventReminders } from '@/collections/shared/reminders'
 import { smsSentForCapacity } from '@/lib/capacity'
 import { recordAuditLog } from '@/collections/shared/auditLog'
-import { CANCELLATION_ANNOUNCED_ACTION } from '@/collections/shared/eventNotifications'
+import { CANCELLATION_ANNOUNCED_ACTION, cancellationSmsText } from '@/collections/shared/eventNotifications'
 import { logger, serializeError } from '@/lib/logger'
 import { relationNumber } from '@/lib/relations'
 
@@ -66,16 +67,20 @@ export const processEventCancelledJob = async (
   // A bigger event (unlimited included) hears it in-app and by e-mail only — both the pořadatel and
   // the participants were told so up front. Unknown capacity (an old job, event gone): no SMS.
   const smsAllowed = smsSentForCapacity(data.capacity ?? event?.capacity)
-  const sms =
+  const sms: SmsOutcome =
     municipalityId === null || !smsAllowed
-      ? 0
-      : await sendSmsToMany(
-          payload,
-          municipalityId,
-          data.userIds,
-          `Lonvita: akce „${data.title}“ byla zrušena.`,
-          announcementId,
-        )
+      ? { wanted: 0, queued: 0, withheld: 0 }
+      : await sendSmsToMany(payload, municipalityId, data.userIds, cancellationSmsText(data.title), announcementId)
+  if (municipalityId !== null) {
+    await reportSmsShortfall(payload, {
+      municipalityId,
+      organizerId: data.organizerId ?? relationNumber(event?.organizer),
+      eventTitle: data.title,
+      kind: 'cancel',
+      outcome: sms,
+      dedupPrefix: announcementId,
+    })
+  }
 
   // An invitation or offer that was still waiting is void now (withdrawn with the cancel) — whoever
   // was asked, or offered, would otherwise wait for an answer about an event that's gone.
@@ -103,7 +108,7 @@ export const processEventCancelledJob = async (
     action: CANCELLATION_ANNOUNCED_ACTION,
     targetCollection: 'events',
     targetId: data.eventId,
-    metadata: { registrants: data.userIds.length, volunteers: volunteerUserIds.length, inApp: sent.inApp, emails: sent.emails, sms },
+    metadata: { registrants: data.userIds.length, volunteers: volunteerUserIds.length, inApp: sent.inApp, emails: sent.emails, sms: sms.queued, smsWithheld: sms.withheld },
   }).catch((error) =>
     logger.error('Event cancellation announcement not recorded', {
       event: 'event.cancel_record_failed',
@@ -119,7 +124,8 @@ export const processEventCancelledJob = async (
     volunteers: volunteerUserIds.length,
     inApp: sent.inApp,
     emails: sent.emails,
-    sms,
+    sms: sms.queued,
+    smsWithheld: sms.withheld,
     smsSkippedForCapacity: !smsAllowed,
   })
   return { notified: data.userIds.length }

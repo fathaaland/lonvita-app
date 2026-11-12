@@ -5,8 +5,8 @@ import { toE164 } from '@/lib/phone'
 import { enqueueOrPark } from '@/lib/outbox'
 import { JOB_NAMES } from '@/lib/queue/contracts'
 import { enqueueEmail } from '@/lib/queue/queues'
-import { smsAllowanceOf, smsPartsOf, toSmsText } from '@/lib/billing/sms'
-import { withSmsQuotaReservation } from '@/lib/billing/sms-reservations'
+import { planSmsRecipients, smsAllowanceOf, smsPartsOf, toSmsText, type SmsPurpose } from '@/lib/billing/sms'
+import { releaseSmsReservation, withSmsQuotaReservation } from '@/lib/billing/sms-reservations'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
@@ -318,78 +318,112 @@ export { toE164 } from '@/lib/phone'
  * without diacritics (lib/billing/sms), and only for an obec that has the SMS package and isn't
  * suspended. Its yearly quota counts parts: once it's used up, the rest are texted only if the obec
  * allows overage (marked so, billed at the year's end) — otherwise they hear it in-app and by e-mail,
- * which go out all the same. A no-op (not an error) when BulkGate isn't configured — the worker logs
- * that. The request id becomes the queue job id, so `requestIdPrefix` must be unique per announcement
- * but stable across retries of it. Never throws; returns how many were queued.
+ * which go out all the same. A reminder (`purpose: 'reminder'`) leaves the announcement reserve of
+ * the quota alone (lib/billing/sms). A no-op (not an error) when BulkGate isn't configured — the
+ * worker logs that. The request id becomes the queue job id, so `requestIdPrefix` must be unique per
+ * announcement but stable across retries of it. Never throws; returns how it went (SmsOutcome).
  */
+/**
+ * Those of `userIds` who chose SMS and have a phone on file, in the order given — the callers pass
+ * the registrants in their priority (approved first, then by when they signed up), so whoever is
+ * left out when the quota runs short is decided, not random.
+ */
+export async function findSmsReachable(
+  payload: Payload,
+  userIds: (number | string)[],
+): Promise<{ to: string; userId: number }[]> {
+  const ids = [...new Set(userIds.map(String))]
+  if (ids.length === 0) return []
+  const profiles = await payload.find({
+    collection: 'profiles',
+    where: { and: [{ user: { in: ids } }, { notifySms: { equals: true } }] },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  const byUser = new Map<string, { to: string; userId: number }>()
+  for (const p of profiles.docs) {
+    const to = p.phone ? toE164(p.phone) : null
+    const userId = typeof p.user === 'object' ? p.user.id : p.user
+    if (to) byUser.set(String(userId), { to, userId })
+  }
+  return ids.flatMap((id) => byUser.get(id) ?? [])
+}
+
+/** How an SMS round went: `wanted` chose SMS and have a phone, `queued` were queued, `withheld`
+ * weren't because the obec's quota ran short (an obec without SMS, or suspended, withholds nothing —
+ * it texts nobody by design). Those not texted hear it in-app and by e-mail all the same. */
+export type SmsOutcome = { wanted: number; queued: number; withheld: number }
+
+const NO_SMS: SmsOutcome = { wanted: 0, queued: 0, withheld: 0 }
+
 export async function sendSmsToMany(
   payload: Payload,
   municipalityId: number,
   userIds: (number | string)[],
   message: string,
   requestIdPrefix: string,
-): Promise<number> {
-  const ids = [...new Set(userIds.map(String))]
-  if (ids.length === 0) return 0
+  { purpose = 'announcement' }: { purpose?: SmsPurpose } = {},
+): Promise<SmsOutcome> {
+  if (userIds.length === 0) return NO_SMS
   try {
-    const profiles = await payload.find({
-      collection: 'profiles',
-      where: { and: [{ user: { in: ids } }, { notifySms: { equals: true } }] },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    })
-    const reachable = profiles.docs.flatMap((p) => {
-      const to = p.phone ? toE164(p.phone) : null
-      return to ? [{ to, userId: typeof p.user === 'object' ? p.user.id : p.user }] : []
-    })
-    if (reachable.length === 0) return 0
+    const reachable = await findSmsReachable(payload, userIds)
+    if (reachable.length === 0) return NO_SMS
     const text = toSmsText(message)
     const parts = smsPartsOf(text)
+    const requestIdOf = (userId: number) => `${requestIdPrefix}-${userId}`
     // Decided under the obec's quota lock, against what's sent plus what's queued (sms-reservations).
-    const recipients = await withSmsQuotaReservation(municipalityId, async (reservedParts) => {
+    const { recipients, active } = await withSmsQuotaReservation(municipalityId, async (reservedParts) => {
       const allowance = await smsAllowanceOf(payload, municipalityId, new Date())
-      let left = Math.max(0, allowance.remainingParts - reservedParts)
-      const chosen: { to: string; userId: number; overage: boolean }[] = []
-      for (const r of reachable) {
-        if (left >= parts) {
-          left -= parts
-          chosen.push({ ...r, overage: false })
-        } else if (allowance.overageAllowed) {
-          chosen.push({ ...r, overage: true })
-        } else break
+      const chosen = planSmsRecipients(reachable, parts, allowance, reservedParts, purpose)
+      return {
+        result: { recipients: chosen, active: allowance.active },
+        reserve: chosen.filter((r) => !r.overage).map((r) => ({ requestId: requestIdOf(r.userId), parts })),
       }
-      return { result: chosen, reserve: chosen.filter((r) => !r.overage).length * parts }
     })
+    if (!active) return { wanted: reachable.length, queued: 0, withheld: 0 }
     if (recipients.length < reachable.length) {
       payload.logger.warn(
-        { municipalityId, skipped: reachable.length - recipients.length },
-        'SMS quota of the obec used up — the rest not texted',
+        { municipalityId, purpose, wanted: reachable.length, skipped: reachable.length - recipients.length },
+        'SMS quota of the obec too low — the rest not texted',
       )
     }
     const queued = await Promise.all(
       recipients.map(async ({ to, userId, overage }) => {
-        const requestId = `${requestIdPrefix}-${userId}`
+        const requestId = requestIdOf(userId)
         try {
           // Every SMS is an announcement that must not be missed — parked in the outbox while the
           // queue is down (lib/outbox).
           await enqueueOrPark(payload, {
             job: {
               jobType: JOB_NAMES.SEND_SMS,
-              payload: { to, message: text, requestId, municipalityId, ...(overage ? { overage } : {}) },
+              payload: {
+                to,
+                message: text,
+                requestId,
+                municipalityId,
+                ...(overage ? { overage } : {}),
+                ...(purpose === 'reminder' ? { purpose } : {}),
+              },
             },
             jobId: `sms-${requestId}`,
           })
           return true
         } catch (error) {
           payload.logger.error({ err: error, requestId }, 'Failed to enqueue SMS')
+          // Never queued: the parts it held go back straight away.
+          if (!overage) await releaseSmsReservation(municipalityId, requestId, parts)
           return false
         }
       }),
     )
-    return queued.filter(Boolean).length
+    return {
+      wanted: reachable.length,
+      queued: queued.filter(Boolean).length,
+      withheld: reachable.length - recipients.length,
+    }
   } catch (error) {
-    payload.logger.error({ err: error, users: ids }, 'Failed to send SMS')
-    return 0
+    payload.logger.error({ err: error, users: userIds.map(String) }, 'Failed to send SMS')
+    return NO_SMS
   }
 }

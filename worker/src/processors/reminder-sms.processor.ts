@@ -44,7 +44,14 @@ export const processReminderSmsJob = async (data: ReminderSmsJobData): Promise<R
     [userId],
     `Lonvita: zítra vás čeká akce „${event.title}“ — ${formatPragueDateTime(event.dateTime)}, ${event.locationText}.`,
     `reminder-${registration.id}-${new Date(event.dateTime).getTime()}`,
+    // Leaves the quota's reserve for cancellations and changes alone (lib/billing/sms).
+    { purpose: 'reminder' },
   )
-  logger.info('Reminder SMS', { event: 'reminder_sms.done', registrationId: registration.id, sent })
-  return { sent }
+  logger.info('Reminder SMS', {
+    event: 'reminder_sms.done',
+    registrationId: registration.id,
+    sent: sent.queued,
+    withheld: sent.withheld,
+  })
+  return { sent: sent.queued, ...(sent.withheld > 0 ? { skipped: 'quota_reserved' } : {}) }
 }

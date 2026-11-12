@@ -5,7 +5,7 @@ import { logger, serializeError } from '@/lib/logger'
 
 import { getBillingCatalog } from './catalog'
 import { licencePeriodOf } from './period'
-import { countSmsParts, smsQuotaOf } from './sms'
+import { countSmsParts, smsQuotaOf, type SmsPurpose } from './sms'
 
 /**
  * The worker's last word on every SMS of an obec, right before it goes to BulkGate — what the quota
@@ -22,7 +22,13 @@ export type SmsClaim =
 
 export async function claimSmsParts(
   payload: Payload,
-  { municipalityId, requestId, parts, now = new Date() }: { municipalityId: number; requestId?: string; parts: number; now?: Date },
+  {
+    municipalityId,
+    requestId,
+    parts,
+    purpose = 'announcement',
+    now = new Date(),
+  }: { municipalityId: number; requestId?: string; parts: number; purpose?: SmsPurpose; now?: Date },
 ): Promise<SmsClaim> {
   const req = await createLocalReq({}, payload)
   const shouldCommit = await initTransaction(req)
@@ -72,8 +78,11 @@ export async function claimSmsParts(
       const period = licencePeriodOf(obec, now)
       // Counted after the lock is held: every earlier claim of this obec has committed by then.
       const used = await countSmsParts(payload, municipalityId, period.start, period.end, req)
-      overage = used.parts + parts > smsQuotaOf(obec, await getBillingCatalog(payload, req))
-      if (overage && obec.smsOverageAllowed !== true) refusal = 'quota_used_up'
+      const quota = smsQuotaOf(obec, await getBillingCatalog(payload, req))
+      overage = used.parts + parts > quota
+      // An announcement was admitted when it was queued and goes out whole — what's past the quota is
+      // recorded as overage. Only a reminder is turned away at the quota (unless overage is allowed).
+      if (overage && purpose === 'reminder' && obec.smsOverageAllowed !== true) refusal = 'quota_used_up'
     }
     if (refusal) {
       if (shouldCommit) await commitTransaction(req)

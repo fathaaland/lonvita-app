@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Ban, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { deleteEvent } from "@/integrations/payload/admin-queries";
+import { getEventSmsPreview, type EventSmsPreview } from "@/integrations/payload/queries";
+import { smsSentForCapacity } from "@/lib/capacity";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -48,6 +50,23 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
   const { isSuperAdmin, isAdmin } = useAuth();
   const [open, setOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  // The answer remembers which opening of the dialog it belongs to, so an old one is never shown
+  // for a new opening — the quota moves with every SMS the obec sends.
+  const [answer, setAnswer] = useState<{ opening: number; preview: EventSmsPreview } | null>(null);
+  const [opening, setOpening] = useState(0);
+
+  const wantsPreview = open && sms && smsSentForCapacity(capacity);
+  useEffect(() => {
+    if (!wantsPreview) return;
+    let active = true;
+    getEventSmsPreview(eventId)
+      .then((p) => active && setAnswer({ opening, preview: p }))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [wantsPreview, eventId, opening]);
+  const preview = answer?.opening === opening ? answer.preview : null;
 
   if (!canCancelEvent(dateTime)) {
     if (variant === "icon") return null;
@@ -83,7 +102,14 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
   };
 
   const dialog = (
-    <AlertDialog open={open} onOpenChange={(next) => !cancelling && setOpen(next)}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (cancelling) return;
+        if (next) setOpening((n) => n + 1);
+        setOpen(next);
+      }}
+    >
       <AlertDialogTrigger asChild>
         {variant === "icon" ? (
           <Button
@@ -110,6 +136,7 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
             Všichni přihlášení účastníci dostanou upozornění {cancelChannels(sms, capacity)} a akce zmizí z přehledu.
             Zrušení nejde vrátit zpět.
           </AlertDialogDescription>
+          {preview?.sms && preview.wanted > 0 && <SmsPreviewNote preview={preview} />}
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={cancelling}>Ponechat akci</AlertDialogCancel>
@@ -135,5 +162,26 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
         {formatEventDateTime(eventCancellationDeadline(dateTime).toISOString())}.
       </p>
     </div>
+  );
+}
+
+/** How far the obec's SMS quota reaches for this cancellation — a warning when not everyone who chose
+ * SMS gets one. Numbers after a colon: no Czech plural to get wrong. */
+function SmsPreviewNote({ preview }: { preview: Extract<EventSmsPreview, { sms: true }> }) {
+  const { wanted, texted, overage, remaining } = preview;
+  const left = wanted - texted - overage;
+  if (left > 0) {
+    return (
+      <p className="text-sm text-destructive">
+        Kvóta SMS obce nestačí na všechny. SMS si zvolilo: {wanted}, obci zbývá SMS: {remaining}. SMS dostane: {texted},
+        ostatní ({left}) se o zrušení dozvědí jen e-mailem a v aplikaci.
+      </p>
+    );
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      SMS dostanou všichni, kdo si je zvolili (počet: {wanted})
+      {overage > 0 ? `, z toho ${overage} nad roční kvótu jako přečerpání.` : `. Obci zbývá SMS: ${remaining}.`}
+    </p>
   );
 }
