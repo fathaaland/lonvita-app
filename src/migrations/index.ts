@@ -49,6 +49,7 @@ import * as migration_20261107_105007_production_hardening from './20261107_1050
 import * as migration_20261108_140730_payload_3_93 from './20261108_140730_payload_3_93';
 import * as migration_20261109_220000_audit_register_wording from './20261109_220000_audit_register_wording';
 import * as migration_20261110_120000_security_events_guard from './20261110_120000_security_events_guard';
+import * as migration_20261112_085410_scraping_pricing from './20261112_085410_scraping_pricing';
 
 export const migrations = [
   {
@@ -294,7 +295,7 @@ export const migrations = [
   {
     up: migration_20261108_140730_payload_3_93.up,
     down: migration_20261108_140730_payload_3_93.down,
-    name: '20261108_140730_payload_3_93'
+    name: '20261108_140730_payload_3_93',
   },
   {
     up: migration_20261109_220000_audit_register_wording.up,
@@ -305,5 +306,10 @@ export const migrations = [
     up: migration_20261110_120000_security_events_guard.up,
     down: migration_20261110_120000_security_events_guard.down,
     name: '20261110_120000_security_events_guard',
+  },
+  {
+    up: migration_20261112_085410_scraping_pricing.up,
+    down: migration_20261112_085410_scraping_pricing.down,
+    name: '20261112_085410_scraping_pricing'
   },
 ];

@@ -162,8 +162,14 @@ export function ServicesCostCard({
                       ` (z toho přečerpání ${num(s.sms.overageParts)})`}.{' '}
                     {s.sms.overageAllowed
                       ? 'Po vyčerpání se posílá dál jako přečerpání.'
-                      : 'Po vyčerpání jde upozornění jen e-mailem a v aplikaci.'}
+                      : 'Po vyčerpání jde další upozornění jen e-mailem a v aplikaci.'}
                   </p>
+                  {s.sms.usedParts < s.sms.quota && (
+                    <p className="text-sm text-muted-foreground">
+                      Zbývá {num(s.sms.quota - s.sms.usedParts)} SMS. Zrušení nebo změna akce se
+                      rozešle všem, i když zbytek nestačí — přebytek se vyúčtuje jako přečerpání.
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -192,10 +198,28 @@ export function ServicesCostCard({
                 <>
                   <Meter used={s.scraping.enabledSources} limit={s.scraping.maxSources} />
                   <p className="text-sm text-muted-foreground">
-                    Zapnuté zdroje {s.scraping.enabledSources} z {s.scraping.maxSources} · kontrola{' '}
-                    {s.scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně'},{' '}
+                    Zapnuté zdroje {s.scraping.enabledSources} z {s.scraping.maxSources}
+                    {s.scraping.extraSources > 0 &&
+                      ` (balíček ${s.scraping.packageMaxSources} + ${s.scraping.extraSources} navíc)`}{' '}
+                    · kontrola {s.scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně'},{' '}
                     {WEEKDAY_NAMES[s.scraping.slotDay - 1]} v {s.scraping.slotHour}:00
                   </p>
+                  {s.scraping.yearlyPriceCzk != null &&
+                    (s.scraping.extraSources > 0 || s.scraping.frequency === 'twice_weekly') && (
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        Balíček {czk(s.scraping.packagePriceCzk ?? 0)}
+                        {s.scraping.extraSources > 0 &&
+                          ` + ${s.scraping.extraSources} zdroj(e) navíc ${czk(s.scraping.extraSourcesPriceCzk ?? 0)}`}
+                        {s.scraping.frequency === 'twice_weekly' &&
+                          ` + 2× týdně ${czk(s.scraping.frequencyPriceCzk ?? 0)}`}
+                      </p>
+                    )}
+                  {s.scraping.cheaperPackage && (
+                    <p className="text-xs text-warning">
+                      Balíček {PACKAGE_LABELS[s.scraping.cheaperPackage]} by obci se stejným počtem zdrojů
+                      vyšel levněji.
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">

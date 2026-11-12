@@ -9,6 +9,7 @@ import { deleteImportFile, downloadImportFile } from '@/lib/import/storage'
 import { addDays, pragueToday } from '@/lib/import/time'
 import { aiRefusalFor, emptyTotals, isAiHeldBack, meterAi, type UsageTotals } from '@/lib/import/usage'
 import { sourcesWithinPackage } from '@/lib/billing/scraping'
+import { checkScrapingCost } from '@/lib/billing/scraping-cost'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId, relationNumber } from '@/lib/relations'
 
@@ -155,6 +156,7 @@ async function reportTokenCap(
   municipalityId: number,
   totals: UsageTotals,
   cap: number,
+  reason: string,
 ): Promise<void> {
   logger.warn('Import run stopped at the token cap', {
     event: 'import.token_cap',
@@ -168,7 +170,10 @@ async function reportTokenCap(
     await sendNotificationToMany(payload, userIds, {
       title: 'Scraping: běh zastaven limitem tokenů',
       link: `/superadmin/obce/${municipalityId}`,
-      message: `Zdroj ${source.label || source.url} spotřeboval ${totals.inputTokens.toLocaleString('cs-CZ')} vstupních tokenů (limit ${cap.toLocaleString('cs-CZ')}) a běh se zastavil. Zkontrolujte ho v logu běhů obce.`,
+      message:
+        totals.inputTokens > 0
+          ? `Zdroj ${source.label || source.url} spotřeboval ${totals.inputTokens.toLocaleString('cs-CZ')} vstupních tokenů (limit ${cap.toLocaleString('cs-CZ')}) a běh se zastavil. Zkontrolujte ho v logu běhů obce.`
+          : `Zdroj ${source.label || source.url} se nenačetl: ${reason} Zkontrolujte ho v logu běhů obce.`,
     })
   } catch (error) {
     logger.warn('Token cap report not sent', { event: 'import.token_cap_report_failed', ...serializeError(error) })
@@ -341,7 +346,7 @@ async function processSource(
         overrideAccess: true,
       })
       await finishRun(payload, runId, { status: 'failed', error: messageOf(error), errorCode: 'token_cap' }, totals, deps.now())
-      await reportTokenCap(payload, source, municipalityId, totals, importContext.maxInputTokensPerRun)
+      await reportTokenCap(payload, source, municipalityId, totals, importContext.maxInputTokensPerRun, messageOf(error))
       return { found: 0, created: 0, updated: 0, skipped: 'token_cap' }
     }
     if (error instanceof ImportAiUnavailableError) {
@@ -505,5 +510,17 @@ export const processImportEventsJob = async (
       ? await processSource(payload, data, deps, context, isLastAttempt)
       : await processManual(payload, data, deps, context, isLastAttempt)
   logger.info('Events imported', { event: 'import.finished', kind: data.kind, jobId: context.jobId, ...result })
+  // The platform's watch on what the AI costs (lib/billing/scraping-cost) — tells, never blocks.
+  const municipalityId =
+    data.kind === 'source'
+      ? relationNumber(
+          (
+            await payload
+              .findByID({ collection: 'event-sources', id: data.sourceId, depth: 0, overrideAccess: true, select: { municipality: true } })
+              .catch(() => null)
+          )?.municipality,
+        )
+      : Number(data.municipalityId)
+  if (municipalityId) await checkScrapingCost(payload, municipalityId, deps.now())
   return result
 }

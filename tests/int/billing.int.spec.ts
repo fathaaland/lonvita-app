@@ -16,9 +16,17 @@ import {
   countActiveUsers,
   takeActiveUserSnapshot,
 } from '@/lib/billing/active-users'
-import { catalogFrom, DEFAULT_CATALOG, tierForUsers, tierRangeLabel } from '@/lib/billing/catalog'
-import { licencePeriodOf } from '@/lib/billing/period'
+import {
+  catalogFrom,
+  cheaperScrapingPackage,
+  DEFAULT_CATALOG,
+  scrapingYearlyPriceOf,
+  tierForUsers,
+  tierRangeLabel,
+} from '@/lib/billing/catalog'
+import { licencePeriodOf, pragueMonthKey } from '@/lib/billing/period'
 import { billingCsv, billingRowsFor } from '@/lib/billing/report'
+import { checkScrapingCost } from '@/lib/billing/scraping-cost'
 import { getMunicipalityServices, withoutPrices } from '@/lib/services/municipality-services'
 
 import {
@@ -114,6 +122,25 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     // Sorted, the open-ended band last.
     expect(catalog.licenceTiers.map((t) => t.maxUsers)).toEqual([10, null])
     expect(catalog.maxInputTokensPerRun).toBe(60_000)
+  })
+
+  it('prices all of scraping it is given: the package, every source past it, and reading twice a week', () => {
+    const c = DEFAULT_CATALOG
+    // M: 10 sources. Twelve and twice a week: 12 000 + 2 × 1 500 + 2 400.
+    expect(scrapingYearlyPriceOf(c, 'm', 12, 'twice_weekly')).toEqual({
+      packageCzk: 12_000,
+      extraSources: 2,
+      extraSourcesCzk: 3_000,
+      frequencyCzk: 2_400,
+      totalCzk: 17_400,
+    })
+    // A limit set below the package's is no discount.
+    expect(scrapingYearlyPriceOf(c, 'm', 4, 'weekly').totalCzk).toBe(12_000)
+    // S with ten extra (13 sources): 5 400 + 15 000 = 20 400 — L gives 25 for 26 400, M with 3 extra
+    // 12 000 + 4 500 = 16 500: the cheaper deal is pointed out.
+    expect(cheaperScrapingPackage(c, 's', 13, 'weekly')).toBe('m')
+    expect(cheaperScrapingPackage(c, 'm', 10, 'weekly')).toBeNull()
+    expect(catalogFrom({ scrapingExtraSourcePriceCzk: 900 }).scrapingExtraSourcePriceCzk).toBe(900)
   })
 
   it('counts every registered user of the obec once — home obec or a role, however many roles', async () => {
@@ -406,5 +433,82 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     const csv = billingCsv([{ ...row!, name: '=HYPERLINK("x")' }])
     expect(csv.startsWith('﻿Obec;Stav;')).toBe(true)
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`)
+  })
+
+  it("puts in the month's overview everything to bill — extra sources, twice a week, SMS overage, sources set up — and the AI cost", async () => {
+    const fresh = await payload.create({
+      collection: 'municipalities',
+      data: {
+        name: `Billing items ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers',
+        smsEnabled: true, importAiEnabled: true, scrapingPackage: 'm', scrapingMaxSourcesOverride: 12, scrapingFrequency: 'twice_weekly',
+      } as never,
+      overrideAccess: true,
+    })
+    try {
+      await payload.create({ collection: 'sms-messages', data: { municipality: fresh.id, parts: 3, overage: true }, overrideAccess: true })
+      await payload.create({ collection: 'event-sources', data: { municipality: fresh.id, url: `https://items-${STAMP}.cz/akce` }, overrideAccess: true })
+      await payload.create({
+        collection: 'usage-events',
+        data: {
+          municipality: fresh.id, provider: 'anthropic', model: 'claude-haiku-5-5', operationType: 'event_import',
+          source: 'worker', usageKind: 'tokens', status: 'success', costUsd: 0.04,
+        } as never,
+        overrideAccess: true,
+      })
+      const now = new Date()
+      const rows = await billingRowsFor(payload, pragueMonthKey(now), now)
+      expect(rows.find((r) => r.municipalityId === fresh.id)).toMatchObject({
+        extraSources: 2,
+        scrapingFrequency: '2× týdně',
+        scrapingYearlyCzk: 12_000 + 2 * 1_500 + 2_400,
+        smsOveragePartsMonth: 3,
+        smsOverageCzkMonth: 7.5,
+        sourcesSetUpMonth: 1,
+        sourceSetupCzkMonth: 500,
+        aiCostUsdMonth: 0.04,
+      })
+    } finally {
+      await payload.delete({ collection: 'event-sources', where: { municipality: { equals: fresh.id } }, overrideAccess: true })
+      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+    }
+  })
+
+  it('tells the platform once a month when an obec\'s AI cost passes its threshold — and blocks nothing', async () => {
+    const platform = await makeUser('platform-cost')
+    await payload.update({ collection: 'users', id: platform.id, data: { role: 'admin' }, overrideAccess: true })
+    const fresh = await payload.create({
+      collection: 'municipalities',
+      data: { name: `Billing cost ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', importAiEnabled: true, scrapingPackage: 's' } as never,
+      overrideAccess: true,
+    })
+    const alerts = async () =>
+      (
+        await payload.find({
+          collection: 'notifications',
+          where: { and: [{ user: { equals: platform.id } }, { link: { equals: `/superadmin/obce/${fresh.id}` } }] },
+          overrideAccess: true,
+        })
+      ).totalDocs
+    const spend = (costUsd: number) =>
+      payload.create({
+        collection: 'usage-events',
+        data: {
+          municipality: fresh.id, provider: 'anthropic', model: 'claude-haiku-5-5', operationType: 'event_import',
+          source: 'worker', usageKind: 'tokens', status: 'success', costUsd,
+        } as never,
+        overrideAccess: true,
+      })
+    try {
+      // S: 3 sources × $0.5 = $1.5 a month.
+      await spend(1)
+      await checkScrapingCost(payload, fresh.id, new Date())
+      expect(await alerts()).toBe(0)
+      await spend(1)
+      await checkScrapingCost(payload, fresh.id, new Date())
+      await checkScrapingCost(payload, fresh.id, new Date())
+      expect(await alerts()).toBe(1)
+    } finally {
+      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+    }
   })
 })

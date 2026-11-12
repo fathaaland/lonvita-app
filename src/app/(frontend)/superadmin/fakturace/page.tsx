@@ -263,12 +263,34 @@ function CatalogEditor() {
               />
             </div>
           ))}
-          <Amount
-            id="max-tokens"
-            label="Technický limit vstupních tokenů na běh (neúčtuje se)"
-            value={catalog.maxInputTokensPerRun}
-            onChange={(v) => update({ maxInputTokensPerRun: v ?? 0 })}
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <Amount
+              id="extra-source"
+              label="Zdroj navíc nad balíček (Kč/rok za zdroj)"
+              value={catalog.scrapingExtraSourcePriceCzk}
+              onChange={(v) => update({ scrapingExtraSourcePriceCzk: v ?? 0 })}
+            />
+            <Amount
+              id="twice-weekly"
+              label="Kontrola 2× týdně (Kč/rok navíc)"
+              value={catalog.scrapingTwiceWeeklyPriceCzk}
+              onChange={(v) => update({ scrapingTwiceWeeklyPriceCzk: v ?? 0 })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Amount
+              id="max-tokens"
+              label="Technický limit vstupních tokenů na běh (neúčtuje se)"
+              value={catalog.maxInputTokensPerRun}
+              onChange={(v) => update({ maxInputTokensPerRun: v ?? 0 })}
+            />
+            <Amount
+              id="cost-alert"
+              label="Hlídání nákladů AI (USD/měsíc za zdroj, interní)"
+              value={catalog.scrapingCostAlertUsdPerSource}
+              onChange={(v) => update({ scrapingCostAlertUsdPerSource: v ?? 0 })}
+            />
+          </div>
         </div>
 
         <Button onClick={save} disabled={saving} className="w-full h-11">
@@ -338,7 +360,8 @@ function Overview() {
                   <th className="py-1.5 pr-3 font-medium">SMS</th>
                   <th className="py-1.5 pr-3 font-medium text-right">SMS měsíc / rok</th>
                   <th className="py-1.5 pr-3 font-medium">Scraping</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">Běhy / tokeny</th>
+                  <th className="py-1.5 pr-3 font-medium text-right">Běhy / náklad AI</th>
+                  <th className="py-1.5 pr-3 font-medium text-right">Účtovat za měsíc</th>
                   <th className="py-1.5 font-medium text-right">Kč/rok</th>
                 </tr>
               </thead>
@@ -377,13 +400,34 @@ function Overview() {
                         </span>
                       )}
                     </td>
-                    <td className="py-2 pr-3">
-                      {r.scrapingPackage
-                        ? `${r.scrapingPackage} · ${r.enabledSources}/${r.maxSources}`
-                        : '—'}
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {r.scrapingPackage ? (
+                        <>
+                          {r.scrapingPackage} · {r.enabledSources}/{r.maxSources}
+                          {(r.extraSources ?? 0) > 0 && (
+                            <span className="text-muted-foreground"> (+{r.extraSources} navíc)</span>
+                          )}
+                          <span className="block text-xs text-muted-foreground">
+                            {r.scrapingFrequency} · {num(r.scrapingYearlyCzk)} Kč/rok
+                          </span>
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
-                      {num(r.runsMonth)} / {num(r.inputTokensMonth)}
+                      {num(r.runsMonth)} / ${r.aiCostUsdMonth.toFixed(2)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                      {(r.smsOverageCzkMonth ?? 0) > 0 && (
+                        <span className="block">přečerpání SMS {num(r.smsOverageCzkMonth)} Kč</span>
+                      )}
+                      {r.sourcesSetUpMonth > 0 && (
+                        <span className="block">
+                          zřízení {r.sourcesSetUpMonth}× zdroj {num(r.sourceSetupCzkMonth)} Kč
+                        </span>
+                      )}
+                      {!(r.smsOverageCzkMonth ?? 0) && r.sourcesSetUpMonth === 0 && '—'}
                     </td>
                     <td className="py-2 text-right tabular-nums">{num(r.yearlyTotalCzk)}</td>
                   </tr>

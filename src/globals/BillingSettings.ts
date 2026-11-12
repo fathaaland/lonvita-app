@@ -76,6 +76,9 @@ export const BillingSettings: GlobalConfig = {
       amount('yearlyPriceCzk', DEFAULT_CATALOG.scrapingPackages[key].yearlyPriceCzk),
     ]),
     amount('sourceSetupFeeCzk', DEFAULT_CATALOG.sourceSetupFeeCzk),
+    amount('scrapingExtraSourcePriceCzk', DEFAULT_CATALOG.scrapingExtraSourcePriceCzk),
+    amount('scrapingTwiceWeeklyPriceCzk', DEFAULT_CATALOG.scrapingTwiceWeeklyPriceCzk),
     amount('maxInputTokensPerRun', DEFAULT_CATALOG.maxInputTokensPerRun),
+    amount('scrapingCostAlertUsdPerSource', DEFAULT_CATALOG.scrapingCostAlertUsdPerSource),
   ],
 }

@@ -2316,7 +2316,10 @@ export interface BillingSetting {
     };
   };
   sourceSetupFeeCzk: number;
+  scrapingExtraSourcePriceCzk: number;
+  scrapingTwiceWeeklyPriceCzk: number;
   maxInputTokensPerRun: number;
+  scrapingCostAlertUsdPerSource: number;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -2434,7 +2437,10 @@ export interface BillingSettingsSelect<T extends boolean = true> {
             };
       };
   sourceSetupFeeCzk?: T;
+  scrapingExtraSourcePriceCzk?: T;
+  scrapingTwiceWeeklyPriceCzk?: T;
   maxInputTokensPerRun?: T;
+  scrapingCostAlertUsdPerSource?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

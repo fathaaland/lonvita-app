@@ -2,7 +2,14 @@ import type { Payload } from 'payload'
 
 import type { Municipality } from '@/payload-types'
 import { computedTierOf, countActiveUsers, listActiveUserSnapshots } from '@/lib/billing/active-users'
-import { getBillingCatalog, isPackageKey, tierRangeLabel, type PackageKey } from '@/lib/billing/catalog'
+import {
+  cheaperScrapingPackage,
+  getBillingCatalog,
+  isPackageKey,
+  scrapingYearlyPriceOf,
+  tierRangeLabel,
+  type PackageKey,
+} from '@/lib/billing/catalog'
 import { licencePeriodOf } from '@/lib/billing/period'
 import { scrapingLimitsOf } from '@/lib/billing/scraping'
 import { countSmsParts, smsQuotaOf } from '@/lib/billing/sms'
@@ -54,8 +61,17 @@ export type MunicipalityServices = {
     slotHour: number
     frequency: 'weekly' | 'twice_weekly'
     maxInputTokensPerRun: number
+    /** What the package itself allows — `maxSources` past it are extra sources, billed each. */
+    packageMaxSources: number
+    extraSources: number
+    /** The whole scraping a year: the package, the extra sources and twice-weekly reading. */
     yearlyPriceCzk: number | null
+    packagePriceCzk: number | null
+    extraSourcesPriceCzk: number | null
+    frequencyPriceCzk: number | null
     setupFeeCzk: number | null
+    /** A package that would give the same for less — a hint for the platform, never for the obec. */
+    cheaperPackage: PackageKey | null
   }
   /** Licence + the add-ons it has on, a year — none for the obec's own view. */
   yearlyTotalCzk: number | null
@@ -115,7 +131,8 @@ export async function getMunicipalityServices(
   const smsPackage = isPackageKey(m.smsPackage) ? m.smsPackage : 's'
   const smsEnabled = m.smsEnabled === true
   const smsPrice = catalog.smsPackages[smsPackage].yearlyPriceCzk
-  const scrapingPrice = catalog.scrapingPackages[scraping.package].yearlyPriceCzk
+  const frequency = m.scrapingFrequency === 'twice_weekly' ? 'twice_weekly' : 'weekly'
+  const scrapingPrice = scrapingYearlyPriceOf(catalog, scraping.package, scraping.maxSources, frequency)
 
   return {
     billingStatus: m.billingStatus === 'suspended' ? 'suspended' : 'active',
@@ -152,13 +169,19 @@ export async function getMunicipalityServices(
       totalSources: sources.docs.length,
       slotDay: m.scrapingSlotDay ?? 1,
       slotHour: m.scrapingSlotHour ?? 2,
-      frequency: m.scrapingFrequency === 'twice_weekly' ? 'twice_weekly' : 'weekly',
+      frequency,
       maxInputTokensPerRun: scraping.maxInputTokensPerRun,
-      yearlyPriceCzk: scrapingPrice,
+      packageMaxSources: catalog.scrapingPackages[scraping.package].maxSources,
+      extraSources: scrapingPrice.extraSources,
+      yearlyPriceCzk: scrapingPrice.totalCzk,
+      packagePriceCzk: scrapingPrice.packageCzk,
+      extraSourcesPriceCzk: scrapingPrice.extraSourcesCzk,
+      frequencyPriceCzk: scrapingPrice.frequencyCzk,
       setupFeeCzk: catalog.sourceSetupFeeCzk,
+      cheaperPackage: cheaperScrapingPackage(catalog, scraping.package, scraping.maxSources, frequency),
     },
     yearlyTotalCzk:
-      licencePrice + (smsEnabled ? smsPrice : 0) + (scraping.enabled ? scrapingPrice : 0),
+      licencePrice + (smsEnabled ? smsPrice : 0) + (scraping.enabled ? scrapingPrice.totalCzk : 0),
   }
 }
 
@@ -167,6 +190,14 @@ export const withoutPrices = (s: MunicipalityServices): MunicipalityServices => 
   ...s,
   licence: { ...s.licence, yearlyPriceCzk: null, implementationFeeCzk: null },
   sms: { ...s.sms, yearlyPriceCzk: null, overagePriceCzk: null },
-  scraping: { ...s.scraping, yearlyPriceCzk: null, setupFeeCzk: null },
+  scraping: {
+    ...s.scraping,
+    yearlyPriceCzk: null,
+    packagePriceCzk: null,
+    extraSourcesPriceCzk: null,
+    frequencyPriceCzk: null,
+    setupFeeCzk: null,
+    cheaperPackage: null,
+  },
   yearlyTotalCzk: null,
 })

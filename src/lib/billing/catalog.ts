@@ -6,6 +6,11 @@ import type { Payload, PayloadRequest } from 'payload'
  * event sources read weekly). All prices are Kč without VAT, yearly. The numbers are a working
  * hypothesis, so they live in the BillingSettings global and the superadmin changes them without a
  * deploy; these are its defaults (and the fallback while the global hasn't been saved yet).
+ *
+ * Everything an obec can be given is priced: a source over its package (the superadmin raising its
+ * limit) costs `scrapingExtraSourcePriceCzk` a year, reading twice a week `scrapingTwiceWeeklyPriceCzk`.
+ * The AI's tokens never are — they are a fraction of the price; `scrapingCostAlertUsdPerSource` only
+ * tells the platform when an obec's runs cost far more than they should.
  */
 
 export const PACKAGE_KEYS = ['s', 'm', 'l'] as const
@@ -28,8 +33,15 @@ export type BillingCatalog = {
   smsOveragePriceCzk: number
   scrapingPackages: Record<PackageKey, ScrapingPackage>
   sourceSetupFeeCzk: number
+  /** A source past the package's — Kč a year each (the superadmin raised the obec's limit). */
+  scrapingExtraSourcePriceCzk: number
+  /** Reading the sources twice a week instead of once — Kč a year on top of the package. */
+  scrapingTwiceWeeklyPriceCzk: number
   /** The technical safety net on one scraping run — never billed (§ Doplněk scraping). */
   maxInputTokensPerRun: number
+  /** What the AI may cost an obec a month per source it may have, in USD, before the platform is
+   * told — never billed, never blocks anything (lib/billing/scraping-cost). */
+  scrapingCostAlertUsdPerSource: number
 }
 
 export const DEFAULT_CATALOG: BillingCatalog = {
@@ -57,7 +69,13 @@ export const DEFAULT_CATALOG: BillingCatalog = {
     l: { maxSources: 25, yearlyPriceCzk: 26_400 },
   },
   sourceSetupFeeCzk: 500,
+  // Above the per-source price of every package (M: 1 200, L: 1 056), so the next package is the
+  // better deal once the obec needs several more.
+  scrapingExtraSourcePriceCzk: 1_500,
+  scrapingTwiceWeeklyPriceCzk: 2_400,
   maxInputTokensPerRun: 60_000,
+  // A source read weekly costs about $0.01 a run; ten times what's expected before anyone looks.
+  scrapingCostAlertUsdPerSource: 0.5,
 }
 
 type StoredPackage = Record<string, number | null | undefined> | null | undefined
@@ -67,7 +85,10 @@ type StoredCatalog = {
   implementationFeeCzk?: number | null
   smsOveragePriceCzk?: number | null
   sourceSetupFeeCzk?: number | null
+  scrapingExtraSourcePriceCzk?: number | null
+  scrapingTwiceWeeklyPriceCzk?: number | null
   maxInputTokensPerRun?: number | null
+  scrapingCostAlertUsdPerSource?: number | null
   smsPackages?: Partial<Record<PackageKey, StoredPackage>> | null
   scrapingPackages?: Partial<Record<PackageKey, StoredPackage>> | null
 }
@@ -101,7 +122,10 @@ export function catalogFrom(stored: StoredCatalog | null | undefined): BillingCa
     smsOveragePriceCzk: stored.smsOveragePriceCzk ?? d.smsOveragePriceCzk,
     scrapingPackages: packages(stored.scrapingPackages, d.scrapingPackages),
     sourceSetupFeeCzk: stored.sourceSetupFeeCzk ?? d.sourceSetupFeeCzk,
+    scrapingExtraSourcePriceCzk: stored.scrapingExtraSourcePriceCzk ?? d.scrapingExtraSourcePriceCzk,
+    scrapingTwiceWeeklyPriceCzk: stored.scrapingTwiceWeeklyPriceCzk ?? d.scrapingTwiceWeeklyPriceCzk,
     maxInputTokensPerRun: stored.maxInputTokensPerRun ?? d.maxInputTokensPerRun,
+    scrapingCostAlertUsdPerSource: stored.scrapingCostAlertUsdPerSource ?? d.scrapingCostAlertUsdPerSource,
   }
 }
 
@@ -128,3 +152,37 @@ export function tierRangeLabel(tiers: LicenceTier[], index: number): string {
 
 export const isPackageKey = (value: unknown): value is PackageKey =>
   typeof value === 'string' && (PACKAGE_KEYS as readonly string[]).includes(value)
+
+export type ScrapingFrequency = 'weekly' | 'twice_weekly'
+
+/** What the obec's scraping costs a year: its package, every source past it, and reading twice a
+ * week. A limit set below the package's is no discount. */
+export function scrapingYearlyPriceOf(
+  catalog: BillingCatalog,
+  pkg: PackageKey,
+  maxSources: number,
+  frequency: ScrapingFrequency,
+): { packageCzk: number; extraSources: number; extraSourcesCzk: number; frequencyCzk: number; totalCzk: number } {
+  const packageCzk = catalog.scrapingPackages[pkg].yearlyPriceCzk
+  const extraSources = Math.max(0, maxSources - catalog.scrapingPackages[pkg].maxSources)
+  const extraSourcesCzk = extraSources * catalog.scrapingExtraSourcePriceCzk
+  const frequencyCzk = frequency === 'twice_weekly' ? catalog.scrapingTwiceWeeklyPriceCzk : 0
+  return { packageCzk, extraSources, extraSourcesCzk, frequencyCzk, totalCzk: packageCzk + extraSourcesCzk + frequencyCzk }
+}
+
+/** A package that would give the obec at least `maxSources` for less than it pays now — or null. */
+export function cheaperScrapingPackage(
+  catalog: BillingCatalog,
+  current: PackageKey,
+  maxSources: number,
+  frequency: ScrapingFrequency,
+): PackageKey | null {
+  const now = scrapingYearlyPriceOf(catalog, current, maxSources, frequency).totalCzk
+  let best: { key: PackageKey; czk: number } | null = null
+  for (const key of PACKAGE_KEYS) {
+    if (key === current) continue
+    const czk = scrapingYearlyPriceOf(catalog, key, maxSources, frequency).totalCzk
+    if (czk < now && (!best || czk < best.czk)) best = { key, czk }
+  }
+  return best?.key ?? null
+}

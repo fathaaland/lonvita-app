@@ -598,7 +598,11 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                   />
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field id="max-sources" label="Vlastní max. zdrojů">
+                  <Field
+                    id="max-sources"
+                    label="Vlastní max. zdrojů"
+                    hint={`Nad balíček se účtuje ${czk(catalog.scrapingExtraSourcePriceCzk)}/rok za zdroj.`}
+                  >
                     <NumberInput
                       id="max-sources"
                       value={draft.scrapingMaxSourcesOverride}
@@ -666,7 +670,9 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="weekly">1× týdně</SelectItem>
-                        <SelectItem value="twice_weekly">2× týdně</SelectItem>
+                        <SelectItem value="twice_weekly">
+                          2× týdně (+{czk(catalog.scrapingTwiceWeeklyPriceCzk)}/rok)
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>

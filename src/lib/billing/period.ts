@@ -40,3 +40,13 @@ export function licencePeriodOf(
 
 /** "2026-11" — the month `now` falls in, in Prague. */
 export const pragueMonthKey = (now: Date): string => pragueToday(now).slice(0, 7)
+
+/** [start, end) of a "2026-11" month in Prague. */
+export function monthRange(month: string): { from: Date; to: Date } {
+  const [y, mo] = month.split('-').map(Number)
+  const next = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`
+  return {
+    from: new Date(pragueWallTimeToIso(`${month}-01`, null)),
+    to: new Date(pragueWallTimeToIso(`${next}-01`, null)),
+  }
+}

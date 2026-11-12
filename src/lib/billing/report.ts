@@ -1,6 +1,5 @@
 import type { Payload } from 'payload'
 
-import { pragueWallTimeToIso } from '@/lib/import/time'
 import { relationNumber } from '@/lib/relations'
 import {
   getMunicipalityServices,
@@ -9,7 +8,11 @@ import {
 
 import { listActiveUserSnapshots, type ActiveUserSnapshot } from './active-users'
 import { PACKAGE_LABELS } from './catalog'
+import { monthRange } from './period'
+import { importAiCostUsd } from './scraping-cost'
 import { countSmsParts } from './sms'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
  * What the superadmin bills from (Balíčky služeb: "Fakturaci dělám ručně, superadmin mi dává jen
@@ -236,15 +239,7 @@ export async function billingDetailOf(
   }
 }
 
-/** [start, end) of a "2026-11" month in Prague. */
-export function monthRange(month: string): { from: Date; to: Date } {
-  const [y, mo] = month.split('-').map(Number)
-  const next = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`
-  return {
-    from: new Date(pragueWallTimeToIso(`${month}-01`, null)),
-    to: new Date(pragueWallTimeToIso(`${next}-01`, null)),
-  }
-}
+export { monthRange } from './period'
 
 export const isMonthKey = (value: string | null): value is string =>
   typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
@@ -263,12 +258,24 @@ export type BillingRow = {
   smsPartsMonth: number
   smsOveragePartsMonth: number
   smsPartsPeriod: number
+  /** What the month's SMS past the quota are billed at (smsOveragePriceCzk each). */
+  smsOverageCzkMonth: number | null
   scrapingPackage: string | null
+  scrapingFrequency: string | null
   enabledSources: number
   maxSources: number | null
+  /** Sources the obec may have past its package's — billed each a year. */
+  extraSources: number | null
+  /** The whole scraping a year: package + extra sources + twice-weekly reading. */
+  scrapingYearlyCzk: number | null
+  /** Sources set up this month — each a one-off sourceSetupFeeCzk. */
+  sourcesSetUpMonth: number
+  sourceSetupCzkMonth: number | null
   runsMonth: number
   inputTokensMonth: number
   outputTokensMonth: number
+  /** What the import AI cost the platform this month — internal, never billed. */
+  aiCostUsdMonth: number
   yearlyTotalCzk: number | null
 }
 
@@ -279,7 +286,7 @@ export async function billingRowsFor(
   now: Date,
 ): Promise<BillingRow[]> {
   const { from, to } = monthRange(month)
-  const [municipalities, snapshots, runs] = await Promise.all([
+  const [municipalities, snapshots, runs, newSources, aiCost] = await Promise.all([
     payload.find({
       collection: 'municipalities',
       select: { name: true },
@@ -308,6 +315,22 @@ export async function billingRowsFor(
       pagination: false,
       overrideAccess: true,
     }),
+    // The obec's own sources set up this month (an organizer's never were billed).
+    payload.find({
+      collection: 'event-sources',
+      where: {
+        and: [
+          { createdAt: { greater_than_equal: from.toISOString() } },
+          { createdAt: { less_than: to.toISOString() } },
+          { organization: { exists: false } },
+        ],
+      },
+      select: { municipality: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    }),
+    importAiCostUsd(payload, from, to),
   ])
   const snapshotBy = new Map(
     snapshots.docs.map((s) => [relationNumber(s.municipality), s.activeUsers]),
@@ -323,6 +346,12 @@ export async function billingRowsFor(
     runsBy.set(id, t)
   }
 
+  const setUpBy = new Map<number, number>()
+  for (const src of newSources.docs) {
+    const id = relationNumber(src.municipality)
+    if (id !== null) setUpBy.set(id, (setUpBy.get(id) ?? 0) + 1)
+  }
+
   const rows: BillingRow[] = []
   for (const m of municipalities.docs) {
     const [services, smsMonth] = await Promise.all([
@@ -330,6 +359,8 @@ export async function billingRowsFor(
       countSmsParts(payload, m.id, from, to),
     ])
     const r = runsBy.get(m.id) ?? { runs: 0, input: 0, output: 0 }
+    const scraping = services.scraping
+    const sourcesSetUp = setUpBy.get(m.id) ?? 0
     rows.push({
       municipalityId: m.id,
       name: m.name,
@@ -344,12 +375,20 @@ export async function billingRowsFor(
       smsPartsMonth: smsMonth.parts,
       smsOveragePartsMonth: smsMonth.overageParts,
       smsPartsPeriod: services.sms.usedParts,
-      scrapingPackage: services.scraping.enabled ? PACKAGE_LABELS[services.scraping.package] : null,
-      enabledSources: services.scraping.enabledSources,
-      maxSources: services.scraping.enabled ? services.scraping.maxSources : null,
+      smsOverageCzkMonth:
+        services.sms.overagePriceCzk != null ? round2(smsMonth.overageParts * services.sms.overagePriceCzk) : null,
+      scrapingPackage: scraping.enabled ? PACKAGE_LABELS[scraping.package] : null,
+      scrapingFrequency: scraping.enabled ? (scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně') : null,
+      enabledSources: scraping.enabledSources,
+      maxSources: scraping.enabled ? scraping.maxSources : null,
+      extraSources: scraping.enabled ? scraping.extraSources : null,
+      scrapingYearlyCzk: scraping.enabled ? scraping.yearlyPriceCzk : null,
+      sourcesSetUpMonth: sourcesSetUp,
+      sourceSetupCzkMonth: scraping.setupFeeCzk != null ? sourcesSetUp * scraping.setupFeeCzk : null,
       runsMonth: r.runs,
       inputTokensMonth: r.input,
       outputTokensMonth: r.output,
+      aiCostUsdMonth: round2(aiCost.get(m.id) ?? 0),
       yearlyTotalCzk: services.yearlyTotalCzk,
     })
   }
@@ -369,12 +408,19 @@ const CSV_COLUMNS: [keyof BillingRow, string][] = [
   ['smsPartsMonth', 'SMS části (měsíc)'],
   ['smsOveragePartsMonth', 'SMS přečerpání (měsíc)'],
   ['smsPartsPeriod', 'SMS části (licenční rok)'],
+  ['smsOverageCzkMonth', 'SMS přečerpání Kč (měsíc)'],
   ['scrapingPackage', 'Scraping balíček'],
+  ['scrapingFrequency', 'Scraping frekvence'],
   ['enabledSources', 'Zapnuté zdroje'],
   ['maxSources', 'Max. zdrojů'],
+  ['extraSources', 'Zdroje navíc'],
+  ['scrapingYearlyCzk', 'Scraping Kč/rok'],
+  ['sourcesSetUpMonth', 'Zřízené zdroje (měsíc)'],
+  ['sourceSetupCzkMonth', 'Zřízení zdrojů Kč (měsíc)'],
   ['runsMonth', 'Běhy scrapingu (měsíc)'],
   ['inputTokensMonth', 'Vstupní tokeny (měsíc)'],
   ['outputTokensMonth', 'Výstupní tokeny (měsíc)'],
+  ['aiCostUsdMonth', 'Náklad AI USD (měsíc, interní)'],
   ['yearlyTotalCzk', 'Celkem Kč/rok'],
 ]
 

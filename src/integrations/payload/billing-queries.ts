@@ -22,7 +22,10 @@ export type StoredCatalog = {
     Record<PackageKey, { maxSources?: number | null; yearlyPriceCzk?: number | null }>
   > | null
   sourceSetupFeeCzk?: number | null
+  scrapingExtraSourcePriceCzk?: number | null
+  scrapingTwiceWeeklyPriceCzk?: number | null
   maxInputTokensPerRun?: number | null
+  scrapingCostAlertUsdPerSource?: number | null
 }
 
 /** The price list as stored — fields never saved come back empty and the defaults fill them. */

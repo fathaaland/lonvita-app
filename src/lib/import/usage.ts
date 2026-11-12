@@ -7,6 +7,7 @@ import { logger } from '@/lib/logger'
 import {
   ImportAiError,
   importModel,
+  TOKEN_CAP_MESSAGE,
   type AiMeter,
   type extractEventDetailsWithAi,
   type extractEventsWithAi,
@@ -55,8 +56,7 @@ export async function isAiSwitchedOff(payload: Payload): Promise<boolean> {
 }
 
 const REFUSALS = {
-  token_cap:
-    'Běh překročil technický limit vstupních tokenů a zastavil se. Provozovatel Lonvity dostal hlášení a zdroj zkontroluje.',
+  token_cap: TOKEN_CAP_MESSAGE,
   suspended:
     'Služby obce jsou pozastavené — čtou se jen kalendáře iCal a strukturovaná data.',
   disabled:
@@ -165,7 +165,9 @@ export function meterAi<D extends MeteredAi>(
     ...deps,
     extractWithAi: async (input, context) => {
       check()
-      return deps.extractWithAi(input, { ...context, meter })
+      // What's left of the cap — a file that wouldn't fit is refused before it's paid for (lib/import/ai).
+      const left = maxInputTokens - spentBefore - totals.inputTokens
+      return deps.extractWithAi(input, { ...context, meter, ...(Number.isFinite(left) ? { inputTokenBudget: left } : {}) })
     },
     extractDetailsWithAi: async (text, event, context) => {
       check()

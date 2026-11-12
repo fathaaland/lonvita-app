@@ -107,6 +107,10 @@ export type AiContext = {
   until?: string
   now?: Date
   meter?: AiMeter
+  /** Input tokens the run may still spend (the per-run cap, lib/import/usage). A file or a long text
+   * is counted first — free — and not sent at all when it wouldn't fit: one big PDF must not blow
+   * through the cap, and past 100 000 tokens Haiku's price goes up fivefold. Unset: no limit. */
+  inputTokenBudget?: number
 }
 
 const eventSchema = (categoryNames: string[]) =>
@@ -227,11 +231,50 @@ function contentFor(input: AiInput, context: AiContext): Anthropic.ContentBlockP
   ]
 }
 
+/** Text shorter than this can't reach the cap (Czech runs about 3 characters a token) — not counted. */
+const COUNT_TEXT_FROM_CHARS = 100_000
+
+/**
+ * Refuses, before anything is spent, an input that wouldn't fit the run's remaining `budget` — a file
+ * (a PDF, an image) or a long text, counted by the API (count_tokens costs nothing). Counting that
+ * fails lets the call go: the cap after it still holds the run.
+ */
+async function guardInputBudget(
+  client: Anthropic,
+  system: string,
+  content: Anthropic.ContentBlockParam[],
+  budget: number | undefined,
+): Promise<void> {
+  if (budget === undefined || !Number.isFinite(budget)) return
+  if (budget <= 0) throw new ImportAiError(TOKEN_CAP_MESSAGE, 'token_cap')
+  const worthCounting = content.some(
+    (b) => b.type === 'document' || b.type === 'image' || (b.type === 'text' && b.text.length > COUNT_TEXT_FROM_CHARS),
+  )
+  if (!worthCounting) return
+  let counted: number
+  try {
+    counted = (await client.messages.countTokens({ model: importModel(), system, messages: [{ role: 'user', content }] }))
+      .input_tokens
+  } catch (error) {
+    logger.warn('Import input not counted — sent uncounted', { event: 'import.count_failed', ...serializeError(error) })
+    return
+  }
+  if (counted > budget) {
+    throw new ImportAiError(
+      `Zdroj je na jedno zpracování příliš rozsáhlý (asi ${counted.toLocaleString('cs-CZ')} tokenů, limit běhu ${budget.toLocaleString('cs-CZ')}) — nic se nezpracovalo ani nezaplatilo. Zadejte přímo stránku s programem akcí nebo menší soubor.`,
+      'token_cap',
+    )
+  }
+}
+
+export const TOKEN_CAP_MESSAGE =
+  'Běh překročil technický limit vstupních tokenů a zastavil se. Provozovatel Lonvity dostal hlášení a zdroj zkontroluje.'
+
 async function callModel<T extends z.ZodType>(
   schema: T,
   system: string,
   content: Anthropic.ContentBlockParam[],
-  { purpose, meter }: { purpose: AiUsage['purpose']; meter?: AiMeter },
+  { purpose, meter, inputTokenBudget }: { purpose: AiUsage['purpose']; meter?: AiMeter; inputTokenBudget?: number },
 ): Promise<z.infer<T>> {
   const record = async (usage: AiUsage) => {
     // Not "…Tokens" — the logger masks any key with "token" in it as a secret.
@@ -252,6 +295,7 @@ async function callModel<T extends z.ZodType>(
     )
   }
   const client = getClient()
+  await guardInputBudget(client, system, content, inputTokenBudget)
   let response
   try {
     response = await client.messages.parse({
@@ -326,6 +370,7 @@ export async function extractEventsWithAi(
   const result = await callModel(schema, system, contentFor(input, context), {
     purpose: 'events',
     meter: context.meter,
+    inputTokenBudget: context.inputTokenBudget,
   })
   return toExtracted(result.events, context.categoryNames)
 }
