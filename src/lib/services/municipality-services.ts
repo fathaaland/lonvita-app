@@ -47,7 +47,6 @@ export type MunicipalityServices = {
     quota: number
     usedParts: number
     overageParts: number
-    overageAllowed: boolean
     yearlyPriceCzk: number | null
     overagePriceCzk: number | null
   }
@@ -61,8 +60,9 @@ export type MunicipalityServices = {
     slotHour: number
     frequency: 'weekly' | 'twice_weekly'
     maxInputTokensPerRun: number
-    /** What the package itself allows — `maxSources` past it are extra sources, billed each. */
+    /** What the package itself allows — sources switched on past it are extra, billed each a year. */
     packageMaxSources: number
+    /** Switched-on sources past the package (within `maxSources`) — what's billed as extra. */
     extraSources: number
     /** The whole scraping a year: the package, the extra sources and twice-weekly reading. */
     yearlyPriceCzk: number | null
@@ -88,7 +88,6 @@ type BillingDoc = Pick<
   | 'smsEnabled'
   | 'smsPackage'
   | 'smsQuotaOverride'
-  | 'smsOverageAllowed'
   | 'importAiEnabled'
   | 'scrapingSlotDay'
   | 'scrapingSlotHour'
@@ -132,7 +131,10 @@ export async function getMunicipalityServices(
   const smsEnabled = m.smsEnabled === true
   const smsPrice = catalog.smsPackages[smsPackage].yearlyPriceCzk
   const frequency = m.scrapingFrequency === 'twice_weekly' ? 'twice_weekly' : 'weekly'
-  const scrapingPrice = scrapingYearlyPriceOf(catalog, scraping.package, scraping.maxSources, frequency)
+  const enabledSources = sources.docs.filter((s) => s.enabled).length
+  // Billed are the sources really switched on — and only those it may have (the rest aren't read).
+  const billedSources = Math.min(enabledSources, scraping.maxSources)
+  const scrapingPrice = scrapingYearlyPriceOf(catalog, scraping.package, billedSources, frequency)
 
   return {
     billingStatus: m.billingStatus === 'suspended' ? 'suspended' : 'active',
@@ -157,7 +159,6 @@ export async function getMunicipalityServices(
       quota: smsQuotaOf(m, catalog),
       usedParts: smsUsed.parts,
       overageParts: smsUsed.overageParts,
-      overageAllowed: m.smsOverageAllowed === true,
       yearlyPriceCzk: smsPrice,
       overagePriceCzk: catalog.smsOveragePriceCzk,
     },
@@ -165,7 +166,7 @@ export async function getMunicipalityServices(
       enabled: scraping.enabled,
       package: scraping.package,
       maxSources: scraping.maxSources,
-      enabledSources: sources.docs.filter((s) => s.enabled).length,
+      enabledSources,
       totalSources: sources.docs.length,
       slotDay: m.scrapingSlotDay ?? 1,
       slotHour: m.scrapingSlotHour ?? 2,
@@ -178,7 +179,7 @@ export async function getMunicipalityServices(
       extraSourcesPriceCzk: scrapingPrice.extraSourcesCzk,
       frequencyPriceCzk: scrapingPrice.frequencyCzk,
       setupFeeCzk: catalog.sourceSetupFeeCzk,
-      cheaperPackage: cheaperScrapingPackage(catalog, scraping.package, scraping.maxSources, frequency),
+      cheaperPackage: cheaperScrapingPackage(catalog, scraping.package, billedSources, frequency),
     },
     yearlyTotalCzk:
       licencePrice + (smsEnabled ? smsPrice : 0) + (scraping.enabled ? scrapingPrice.totalCzk : 0),

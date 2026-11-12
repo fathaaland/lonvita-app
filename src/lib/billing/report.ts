@@ -1,3 +1,4 @@
+import { sql } from '@payloadcms/db-postgres'
 import type { Payload } from 'payload'
 
 import { relationNumber } from '@/lib/relations'
@@ -94,7 +95,6 @@ export type BillingSettingsOfObec = {
   smsEnabled: boolean
   smsPackage: string
   smsQuotaOverride: number | null
-  smsOverageAllowed: boolean
   importAiEnabled: boolean
   scrapingPackage: string
   scrapingMaxSourcesOverride: number | null
@@ -184,7 +184,6 @@ export async function billingDetailOf(
       smsEnabled: m.smsEnabled === true,
       smsPackage: m.smsPackage ?? 's',
       smsQuotaOverride: m.smsQuotaOverride ?? null,
-      smsOverageAllowed: m.smsOverageAllowed === true,
       importAiEnabled: m.importAiEnabled === true,
       scrapingPackage: m.scrapingPackage ?? 's',
       scrapingMaxSourcesOverride: m.scrapingMaxSourcesOverride ?? null,
@@ -279,6 +278,30 @@ export type BillingRow = {
   yearlyTotalCzk: number | null
 }
 
+/**
+ * Sources whose set-up fee falls in [from, to), per obec: web addresses the obec set up for the first
+ * time then — from the audit log (event-sources.create, append-only), so a source deleted and added
+ * again, or switched off and on, is never billed twice; nor is one set up and taken down within the
+ * month spared (the work was done).
+ */
+export async function sourcesSetUpIn(payload: Payload, from: Date, to: Date): Promise<Map<number, number>> {
+  const { rows } = await payload.db.drizzle.execute<{ municipality_id: number; sources: string }>(sql`
+    WITH firsts AS (
+      SELECT municipality_id, lower(rtrim(metadata->>'url', '/')) AS url, MIN(created_at) AS first_at
+      FROM audit_log
+      WHERE action = 'event-sources.create'
+        AND municipality_id IS NOT NULL
+        AND metadata->>'url' IS NOT NULL
+      GROUP BY municipality_id, lower(rtrim(metadata->>'url', '/'))
+    )
+    SELECT municipality_id, COUNT(*) AS sources
+    FROM firsts
+    WHERE first_at >= ${from.toISOString()} AND first_at < ${to.toISOString()}
+    GROUP BY municipality_id
+  `)
+  return new Map(rows.map((r) => [Number(r.municipality_id), Number(r.sources)]))
+}
+
 /** Every obec for one month — the overview in the superadmin panel and its CSV export. */
 export async function billingRowsFor(
   payload: Payload,
@@ -286,7 +309,7 @@ export async function billingRowsFor(
   now: Date,
 ): Promise<BillingRow[]> {
   const { from, to } = monthRange(month)
-  const [municipalities, snapshots, runs, newSources, aiCost] = await Promise.all([
+  const [municipalities, snapshots, runs, setUpBy, aiCost] = await Promise.all([
     payload.find({
       collection: 'municipalities',
       select: { name: true },
@@ -315,21 +338,7 @@ export async function billingRowsFor(
       pagination: false,
       overrideAccess: true,
     }),
-    // The obec's own sources set up this month (an organizer's never were billed).
-    payload.find({
-      collection: 'event-sources',
-      where: {
-        and: [
-          { createdAt: { greater_than_equal: from.toISOString() } },
-          { createdAt: { less_than: to.toISOString() } },
-          { organization: { exists: false } },
-        ],
-      },
-      select: { municipality: true },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
+    sourcesSetUpIn(payload, from, to),
     importAiCostUsd(payload, from, to),
   ])
   const snapshotBy = new Map(
@@ -344,12 +353,6 @@ export async function billingRowsFor(
     t.input += r.inputTokens ?? 0
     t.output += r.outputTokens ?? 0
     runsBy.set(id, t)
-  }
-
-  const setUpBy = new Map<number, number>()
-  for (const src of newSources.docs) {
-    const id = relationNumber(src.municipality)
-    if (id !== null) setUpBy.set(id, (setUpBy.get(id) ?? 0) + 1)
   }
 
   const rows: BillingRow[] = []

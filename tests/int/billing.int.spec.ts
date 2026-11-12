@@ -124,7 +124,7 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     expect(catalog.maxInputTokensPerRun).toBe(60_000)
   })
 
-  it('prices all of scraping it is given: the package, every source past it, and reading twice a week', () => {
+  it('prices all of scraping it is given: the package, every switched-on source past it, and reading twice a week', () => {
     const c = DEFAULT_CATALOG
     // M: 10 sources. Twelve and twice a week: 12 000 + 2 × 1 500 + 2 400.
     expect(scrapingYearlyPriceOf(c, 'm', 12, 'twice_weekly')).toEqual({
@@ -141,6 +141,25 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     expect(cheaperScrapingPackage(c, 's', 13, 'weekly')).toBe('m')
     expect(cheaperScrapingPackage(c, 'm', 10, 'weekly')).toBeNull()
     expect(catalogFrom({ scrapingExtraSourcePriceCzk: 900 }).scrapingExtraSourcePriceCzk).toBe(900)
+  })
+
+  it('repeats a set licence period once it is over — the SMS never fall outside every period', () => {
+    const set = { licencePeriodStart: '2025-07-01T00:00:00.000Z', licencePeriodEnd: '2026-07-01T00:00:00.000Z' }
+    const now = licencePeriodOf(set, new Date('2026-11-12T10:00:00Z'))
+    expect([now.start.toISOString(), now.end.toISOString()]).toEqual(['2026-07-01T00:00:00.000Z', '2027-07-01T00:00:00.000Z'])
+    expect(now.key).toBe('2026-07-01')
+    // Years later, and before it began, too.
+    expect(licencePeriodOf(set, new Date('2031-01-05T00:00:00Z')).start.toISOString()).toBe('2030-07-01T00:00:00.000Z')
+    expect(licencePeriodOf(set, new Date('2024-12-31T00:00:00Z')).start.toISOString()).toBe('2024-07-01T00:00:00.000Z')
+    // On the boundary the new one has begun.
+    expect(licencePeriodOf(set, new Date('2026-07-01T00:00:00Z')).start.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+    // A month-end start keeps to month ends, without drifting.
+    const monthEnd = { licencePeriodStart: '2025-01-31T00:00:00.000Z', licencePeriodEnd: '2025-02-28T00:00:00.000Z' }
+    expect(licencePeriodOf(monthEnd, new Date('2025-05-15T00:00:00Z')).start.toISOString()).toBe('2025-04-30T00:00:00.000Z')
+    // A start alone is a year.
+    expect(licencePeriodOf({ licencePeriodStart: '2025-03-01T00:00:00.000Z' }, new Date('2027-03-02T00:00:00Z')).start.toISOString()).toBe(
+      '2027-03-01T00:00:00.000Z',
+    )
   })
 
   it('counts every registered user of the obec once — home obec or a role, however many roles', async () => {
@@ -435,18 +454,54 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`)
   })
 
-  it("puts in the month's overview everything to bill — extra sources, twice a week, SMS overage, sources set up — and the AI cost", async () => {
+  it("puts in the month's overview everything to bill — switched-on extra sources, twice a week, SMS overage, first set-ups — and the AI cost", async () => {
     const fresh = await payload.create({
       collection: 'municipalities',
       data: {
         name: `Billing items ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers',
-        smsEnabled: true, importAiEnabled: true, scrapingPackage: 'm', scrapingMaxSourcesOverride: 12, scrapingFrequency: 'twice_weekly',
+        smsEnabled: true, importAiEnabled: true, scrapingPackage: 'm', scrapingMaxSourcesOverride: 14, scrapingFrequency: 'twice_weekly',
       } as never,
       overrideAccess: true,
     })
+    const url = (i: number) => `https://items-${STAMP}-${i}.cz/akce`
+    const setUpEntries = async () =>
+      (
+        await payload.count({
+          collection: 'audit-log',
+          where: { and: [{ action: { equals: 'event-sources.create' } }, { municipality: { equals: fresh.id } }] },
+          overrideAccess: true,
+        })
+      ).totalDocs
+    const waitForEntries = async (n: number) => {
+      for (let i = 0; i < 50 && (await setUpEntries()) < n; i++) await new Promise((r) => setTimeout(r, 100))
+    }
     try {
       await payload.create({ collection: 'sms-messages', data: { municipality: fresh.id, parts: 3, overage: true }, overrideAccess: true })
-      await payload.create({ collection: 'event-sources', data: { municipality: fresh.id, url: `https://items-${STAMP}.cz/akce` }, overrideAccess: true })
+      // 11 switched on — the package has 10, the obec may have 14: one extra is billed, not four.
+      const sources = []
+      for (let i = 0; i < 11; i++) {
+        sources.push(await payload.create({ collection: 'event-sources', data: { municipality: fresh.id, url: url(i) }, overrideAccess: true }))
+      }
+      // One deleted and added again — set up once, billed once.
+      await payload.delete({ collection: 'event-sources', id: sources[0].id, overrideAccess: true })
+      await payload.create({ collection: 'event-sources', data: { municipality: fresh.id, url: url(0) }, overrideAccess: true })
+      await waitForEntries(12)
+      // One set up already last year: taken down and set up again this month — no fee again.
+      await payload.create({
+        collection: 'audit-log',
+        data: {
+          action: 'event-sources.create', targetCollection: 'event-sources', targetId: 'old',
+          municipality: fresh.id, metadata: { url: `https://old-${STAMP}.cz/akce` }, createdAt: '2025-03-01T10:00:00.000Z',
+        } as never,
+        overrideAccess: true,
+      })
+      const oldAgain = await payload.create({
+        collection: 'event-sources',
+        data: { municipality: fresh.id, url: `https://old-${STAMP}.cz/akce`, enabled: false },
+        overrideAccess: true,
+      })
+      await waitForEntries(14)
+      expect(oldAgain.enabled).toBe(false)
       await payload.create({
         collection: 'usage-events',
         data: {
@@ -458,13 +513,15 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
       const now = new Date()
       const rows = await billingRowsFor(payload, pragueMonthKey(now), now)
       expect(rows.find((r) => r.municipalityId === fresh.id)).toMatchObject({
-        extraSources: 2,
+        enabledSources: 11,
+        maxSources: 14,
+        extraSources: 1,
         scrapingFrequency: '2× týdně',
-        scrapingYearlyCzk: 12_000 + 2 * 1_500 + 2_400,
+        scrapingYearlyCzk: 12_000 + 1_500 + 2_400,
         smsOveragePartsMonth: 3,
         smsOverageCzkMonth: 7.5,
-        sourcesSetUpMonth: 1,
-        sourceSetupCzkMonth: 500,
+        sourcesSetUpMonth: 11,
+        sourceSetupCzkMonth: 11 * 500,
         aiCostUsdMonth: 0.04,
       })
     } finally {
