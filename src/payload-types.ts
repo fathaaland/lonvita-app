@@ -300,7 +300,6 @@ export interface Municipality {
   implementationFeeCzk?: number | null;
   smsPackage?: ('s' | 'm' | 'l') | null;
   smsQuotaOverride?: number | null;
-  smsOverageAllowed?: boolean | null;
   smsAlertState?: string | null;
   scrapingPackage?: ('s' | 'm' | 'l') | null;
   scrapingMaxSourcesOverride?: number | null;
@@ -1612,7 +1611,6 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   implementationFeeCzk?: T;
   smsPackage?: T;
   smsQuotaOverride?: T;
-  smsOverageAllowed?: T;
   smsAlertState?: T;
   scrapingPackage?: T;
   scrapingMaxSourcesOverride?: T;

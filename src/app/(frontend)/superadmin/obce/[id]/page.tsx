@@ -108,7 +108,6 @@ const FIELD_LABELS: Record<string, string> = {
   smsEnabled: 'SMS zapnuto',
   smsPackage: 'SMS balíček',
   smsQuotaOverride: 'SMS kvóta (ručně)',
-  smsOverageAllowed: 'Přečerpání SMS',
   importAiEnabled: 'Scraping zapnut',
   scrapingPackage: 'Scraping balíček',
   scrapingMaxSourcesOverride: 'Max. zdrojů (ručně)',

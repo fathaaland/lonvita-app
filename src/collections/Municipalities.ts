@@ -241,16 +241,6 @@ const billingFields: Field[] = [
   // A yearly quota of SMS parts other than the package's.
   { name: 'smsQuotaOverride', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
   {
-    // No longer used (12. 11. 2026): a cancellation started within the quota always goes out whole and
-    // the excess is billed by the contract's terms — nobody chooses. Closed to every request, the
-    // platform's too; the column goes in a following migration (two steps: the running code first).
-    name: 'smsOverageAllowed',
-    type: 'checkbox',
-    defaultValue: false,
-    access: { read: () => false, create: () => false, update: () => false },
-    admin: { hidden: true },
-  },
-  {
     // Which usage alert (80 / 100 %) its admins already got, and for which licence year.
     name: 'smsAlertState',
     type: 'text',

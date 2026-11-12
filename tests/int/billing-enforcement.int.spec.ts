@@ -369,21 +369,6 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
     }
   })
 
-  it('the overage switch is gone from the API — nobody reads or sets it, the platform neither', async () => {
-    const platform = await payload.create({
-      collection: 'users',
-      data: { email: `enf-platform-${STAMP}@test.local`, password: 'test1234', role: 'admin' },
-      overrideAccess: true,
-    })
-    userIds.push(platform.id)
-    const asPlatform = { user: { ...platform, collection: 'users' as const }, overrideAccess: false as const }
-    await payload.update({ collection: 'municipalities', id: obec.id, data: { smsOverageAllowed: true } as never, ...asPlatform })
-    const read = await payload.findByID({ collection: 'municipalities', id: obec.id, depth: 0, ...asPlatform })
-    expect(read).not.toHaveProperty('smsOverageAllowed')
-    const stored = await payload.findByID({ collection: 'municipalities', id: obec.id, depth: 0, overrideAccess: true })
-    expect(stored.smsOverageAllowed ?? false).toBe(false)
-  })
-
   // ---------------------------------------------------------------------------------------------
   // The worker's last word (lib/billing/sms-ledger): exact, and holding without Redis
   // ---------------------------------------------------------------------------------------------
