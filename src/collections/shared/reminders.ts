@@ -6,7 +6,6 @@ import {
   enqueueAttendanceReminder,
   enqueueEmail,
   enqueueFeedbackRequest,
-  enqueueReminderSms,
   getEmailQueue,
   getQueue,
 } from '@/lib/queue/queues'
@@ -28,6 +27,7 @@ type EventForReminders = {
 
 const attendanceJobId = (eventId: number | string) => `attendance-reminder-${eventId}`
 const participantJobId = (registrationId: number | string) => `reminder-${registrationId}`
+/** The day-before SMS, discontinued 12. 11. 2026 — still taken off the queue where one was planned before. */
 const participantSmsJobId = (registrationId: number | string) => `reminder-sms-${registrationId}`
 /** Keyed by the end time too: a rescheduled event gets a fresh job at the new time, and the old
  * one — which BullMQ would otherwise keep in place of it — finds the event not over yet and skips. */
@@ -71,23 +71,16 @@ export async function scheduleParticipantReminder(
   userId: number | string,
   event: EventForReminders,
 ): Promise<number> {
-  let queued = 0
   const [profiles, user] = await Promise.all([
     payload.find({ collection: 'profiles', where: { user: { equals: userId } }, limit: 1, depth: 0, overrideAccess: true }),
     payload.findByID({ collection: 'users', id: userId, depth: 0, overrideAccess: true }),
   ])
   const delay = new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000 - Date.now()
-  if (delay <= 0) return queued
+  if (delay <= 0) return 0
 
-  // By SMS too for whoever chose it — the worker checks the obec's package, its quota and the
-  // event's size when it fires (reminder-sms.processor).
+  // E-mail only: SMS go out on a cancellation alone (lib/billing/sms).
   const profile = profiles.docs[0]
-  if (profile?.notifySms && profile.phone) {
-    await enqueueReminderSms({ registrationId }, { jobId: participantSmsJobId(registrationId), delay })
-    queued++
-  }
-
-  if (!user?.email || !(profile?.notifyEmail ?? true)) return queued
+  if (!user?.email || !(profile?.notifyEmail ?? true)) return 0
 
   await enqueueEmail(
     {
@@ -97,7 +90,7 @@ export async function scheduleParticipantReminder(
     },
     { jobId: participantJobId(registrationId), delay },
   )
-  return queued + 1
+  return 1
 }
 
 /** They're no longer coming (taken off the event, or cancelled themselves) — no reminder for it. */
@@ -183,12 +176,9 @@ export async function restoreMissingReminders(
   if (new Date(event.dateTime).getTime() - 24 * 60 * 60 * 1000 <= Date.now()) return restored
   for (const reg of approved) {
     const present =
-      (await hasJob(participantJobId(reg.id), getEmailQueue())) ||
-      (await hasJob(participantJobId(reg.id))) ||
-      (await hasJob(participantSmsJobId(reg.id)))
+      (await hasJob(participantJobId(reg.id), getEmailQueue())) || (await hasJob(participantJobId(reg.id)))
     if (present) continue
-    // Adds under fixed ids — whichever of the two is still there stays as it is. Someone who wants
-    // neither (no e-mail, no SMS) gets nothing, as when it was first planned.
+    // Adds under its fixed id. Someone who wants no e-mail gets nothing, as when it was first planned.
     if ((await scheduleParticipantReminder(payload, reg.id, requiredRelationNumber(reg.user), event)) > 0) restored++
   }
   return restored

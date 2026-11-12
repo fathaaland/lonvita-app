@@ -160,20 +160,18 @@ export function ServicesCostCard({
                     V licenčním roce odesláno {num(s.sms.usedParts)} z {num(s.sms.quota)} SMS
                     {s.sms.overageParts > 0 &&
                       ` (z toho přečerpání ${num(s.sms.overageParts)})`}.{' '}
-                    {s.sms.overageAllowed
-                      ? 'Po vyčerpání se posílá dál jako přečerpání.'
-                      : 'Po vyčerpání jde další upozornění jen e-mailem a v aplikaci.'}
+                    Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle všem — SMS nad
+                    kvótu se vyúčtují jako přečerpání. Potom upozornění chodí jen e-mailem a v aplikaci.
                   </p>
                   {s.sms.usedParts < s.sms.quota && (
                     <p className="text-sm text-muted-foreground">
-                      Zbývá {num(s.sms.quota - s.sms.usedParts)} SMS. Zrušení nebo změna akce se
-                      rozešle všem, i když zbytek nestačí — přebytek se vyúčtuje jako přečerpání.
+                      Zbývá {num(s.sms.quota - s.sms.usedParts)} SMS.
                     </p>
                   )}
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Zrušení či změna akce a připomínka i na telefon — lidem, kteří si SMS zapnou.
+                  Zrušení akce i na telefon — lidem, kteří si SMS zapnou.
                 </p>
               )}
             </Row>

@@ -42,10 +42,6 @@ export const snapshotNotifiableFields = (doc: Record<string, unknown>): Record<s
 export const changedNotifiableFields = (before: Record<string, string>, doc: Record<string, unknown>): string[] =>
   Object.keys(NOTIFIABLE_EDIT_FIELDS).filter((field) => before[field] !== comparable(field, doc[field]))
 
-/** The SMS registrants get when the event is cancelled — the job sends it, the cancel dialog
- * previews what it costs (api/events/:id/sms-preview). */
-export const cancellationSmsText = (title: string) => `Lonvita: akce „${title}“ byla zrušena.`
-
 /** Everyone an announcement about the event concerns: the pending/approved registrants to tell
  * (the organizer excluded) — approved first, then by when they signed up, the order SMS go out in
  * when the obec's quota runs short —, every registration, whose reminder jobs a cancellation drops,

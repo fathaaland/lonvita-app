@@ -70,7 +70,7 @@ export function NotificationPreferencesCard() {
                 <Label htmlFor="notify-sms" className="text-base font-semibold">SMS</Label>
                 <p className="text-sm text-muted-foreground mt-0.5">
                   {profile?.phone
-                    ? `Zrušení či změna času nebo místa akce a připomínka den předem i na telefon. Neplatí pro akce pro ${SMS_LARGE_EVENT_CAPACITY} a více lidí.`
+                    ? `Zrušení akce i na telefon. Neplatí pro akce pro ${SMS_LARGE_EVENT_CAPACITY} a více lidí.`
                     : "Nejdřív si v osobních údajích doplňte telefon."}
                 </p>
               </div>

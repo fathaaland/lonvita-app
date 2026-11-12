@@ -12,8 +12,8 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
 }))
 
 import { enqueueImportEvents, enqueueSms } from '@/lib/queue/queues'
-import { sendSmsToMany } from '@/collections/shared/notify'
-import { smsUsageOf } from '@/lib/billing/sms'
+import { sendCancellationSms } from '@/collections/shared/notify'
+import { cancellationSmsText, smsUsageOf } from '@/lib/billing/sms'
 import { sourcesWithinPackage } from '@/lib/billing/scraping'
 import { claimSmsParts } from '@/lib/billing/sms-ledger'
 import { clearSmsReservations, releaseSmsReservation, smsPartsHeld } from '@/lib/billing/sms-reservations'
@@ -26,7 +26,7 @@ const STAMP = Date.now()
  * What an obec pays for is what it gets — no more. The obec's own admin, through the same access
  * control every REST and GraphQL request goes through (overrideAccess: false), can neither switch a
  * service on, raise a limit, nor wipe the record of what it used; and the SMS and scraping limits
- * hold where they are enforced (sendSmsToMany, the worker).
+ * hold where they are enforced (sendCancellationSms, the worker).
  */
 describe('Billing enforcement — the obec gets what it pays for', () => {
   let obec: { id: number }
@@ -99,7 +99,6 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
       billingStatus: 'suspended',
       smsPackage: 's',
       smsQuotaOverride: null,
-      smsOverageAllowed: false,
       scrapingPackage: 's',
       scrapingMaxSourcesOverride: null,
       scrapingMaxInputTokensOverride: null,
@@ -115,7 +114,6 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
         billingStatus: 'active',
         smsPackage: 'l',
         smsQuotaOverride: 1_000_000,
-        smsOverageAllowed: true,
         scrapingPackage: 'l',
         scrapingMaxSourcesOverride: 1000,
         scrapingMaxInputTokensOverride: 10_000_000,
@@ -130,7 +128,6 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
     expect(after.billingStatus).toBe('suspended')
     expect(after.smsPackage).toBe('s')
     expect(after.smsQuotaOverride ?? null).toBeNull()
-    expect(after.smsOverageAllowed).toBe(false)
     expect(after.scrapingPackage).toBe('s')
     expect(after.scrapingMaxSourcesOverride ?? null).toBeNull()
     expect(after.scrapingMaxInputTokensOverride ?? null).toBeNull()
@@ -259,254 +256,207 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
   })
 
   // ---------------------------------------------------------------------------------------------
-  // SMS: who gets one is decided by the package, the quota and the suspension
+  // SMS: only a cancellation, decided by the package, the quota and the suspension
   // ---------------------------------------------------------------------------------------------
+
+  const cancel = (municipalityId: number, users: number[], name: string, title = 'Ples') =>
+    sendCancellationSms(payload, municipalityId, users, title, `event-cancelled-${name}-${STAMP}`)
+
+  const freshObec = (name: string, data: Record<string, unknown>) =>
+    payload.create({
+      collection: 'municipalities',
+      data: { name: `Enforcement ${name} ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, ...data } as never,
+      overrideAccess: true,
+    })
+
+  const dropObec = async (id: number) => {
+    await clearSmsReservations(id)
+    await payload.delete({ collection: 'municipalities', id, overrideAccess: true })
+  }
 
   it('no SMS at all for an obec without the SMS package, or a suspended one', async () => {
     vi.mocked(enqueueSms).mockClear()
     await setObec({ smsEnabled: false, billingStatus: 'active' })
-    expect((await sendSmsToMany(payload, obec.id, smsRecipients, 'Akce zrusena', `enf-off-${STAMP}`)).queued).toBe(0)
+    expect((await cancel(obec.id, smsRecipients, 'off')).queued).toBe(0)
     await setObec({ smsEnabled: true, billingStatus: 'suspended', smsQuotaOverride: 1000 })
-    expect((await sendSmsToMany(payload, obec.id, smsRecipients, 'Akce zrusena', `enf-susp-${STAMP}`)).queued).toBe(0)
+    expect((await cancel(obec.id, smsRecipients, 'susp')).queued).toBe(0)
     expect(queuedSms()).toHaveLength(0)
     await setObec({ billingStatus: 'active' })
   })
 
-  it('an announcement started within the quota goes out whole, the excess marked as overage — then the next is blocked', async () => {
-    await payload.delete({ collection: 'sms-messages', where: { municipality: { equals: obec.id } }, overrideAccess: true })
-    await setObec({ smsEnabled: true, billingStatus: 'active', smsQuotaOverride: 3, smsOverageAllowed: false, licencePeriodStart: null, licencePeriodEnd: null })
-
-    // 3 SMS left, 6 people: the cancellation goes to all six — three within the quota, three as overage.
+  it('sends nothing but a cancellation — no other announcement id gets through', async () => {
     vi.mocked(enqueueSms).mockClear()
-    expect((await sendSmsToMany(payload, obec.id, smsRecipients, 'Akce zrusena', `enf-q1-${STAMP}`)).queued).toBe(6)
-    expect(queuedSms().filter((s) => s.overage)).toHaveLength(3)
-
-    // They are queued, not sent yet — their reservation keeps a second announcement out.
-    vi.mocked(enqueueSms).mockClear()
-    expect((await sendSmsToMany(payload, obec.id, smsRecipients, 'Akce zmenena', `enf-q2-${STAMP}`)).queued).toBe(0)
-
-    // With overage allowed, the next goes out too — every SMS past the quota marked as overage.
-    await setObec({ smsOverageAllowed: true })
-    vi.mocked(enqueueSms).mockClear()
-    expect((await sendSmsToMany(payload, obec.id, smsRecipients, 'Akce zmenena', `enf-q3-${STAMP}`)).queued).toBe(6)
-    expect(queuedSms().filter((s) => s.overage)).toHaveLength(6)
-    await setObec({ smsOverageAllowed: false })
+    const outcome = await sendCancellationSms(payload, obec.id, smsRecipients, 'Ples', `event-updated-x-${STAMP}`)
+    expect(outcome.queued).toBe(0)
+    expect(queuedSms()).toHaveLength(0)
   })
 
-  it('a long SMS uses up as many parts of the quota as it goes out in', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Enforcement parts ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 5 } as never,
-      overrideAccess: true,
-    })
+  it('the text is one part without links, however the pořadatel named the event', () => {
+    const text = cancellationSmsText(`Ples https://phish.example/x a www.zly.cz nebo zly.cz/login ${'dlouhy nazev '.repeat(30)}`)
+    expect(text.length).toBeLessThanOrEqual(160)
+    expect(text).toMatch(/^Lonvita: akce ".*" byla zrusena\.$/)
+    expect(text).not.toMatch(/https?:|www\.|zly\.cz|phish/)
+    expect(cancellationSmsText('Žluťoučký kůň')).toBe('Lonvita: akce "Zlutoucky kun" byla zrusena.')
+  })
+
+  it('a cancellation started within the quota goes out whole, the excess marked as overage — then the next is blocked', async () => {
+    const fresh = await freshObec('whole', { smsQuotaOverride: 3 })
     try {
+      // 3 SMS left, 6 people: the cancellation goes to all six — three within the quota, three as overage.
       vi.mocked(enqueueSms).mockClear()
-      // 300 characters → two parts each: five parts of quota cover two people, the other four are overage.
-      const long = 'x'.repeat(300)
-      expect((await sendSmsToMany(payload, fresh.id, smsRecipients, long, `enf-long-${STAMP}`)).queued).toBe(6)
-      expect(queuedSms().filter((s) => !s.overage)).toHaveLength(2)
+      expect(await cancel(fresh.id, smsRecipients, 'q1')).toEqual({ wanted: 6, queued: 6, withheld: 0 })
+      expect(queuedSms().every((s) => !s.overage)).toBe(true) // decided by the ledger, not the job
+      // They are queued, not sent yet — their reservation keeps a second cancellation out.
+      vi.mocked(enqueueSms).mockClear()
+      expect(await cancel(fresh.id, smsRecipients, 'q2')).toEqual({ wanted: 6, queued: 0, withheld: 6 })
     } finally {
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 
-  it('two announcements at once: one is admitted whole, the other blocked', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Enforcement race ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 4 } as never,
-      overrideAccess: true,
-    })
+  it('two cancellations at once: one is admitted whole, the other blocked', async () => {
+    const fresh = await freshObec('race', { smsQuotaOverride: 4 })
     try {
-      vi.mocked(enqueueSms).mockClear()
-      const [a, b] = await Promise.all([
-        sendSmsToMany(payload, fresh.id, smsRecipients, 'Akce A zrusena', `enf-race-a-${STAMP}`),
-        sendSmsToMany(payload, fresh.id, smsRecipients, 'Akce B zrusena', `enf-race-b-${STAMP}`),
-      ])
-      // One is admitted and goes to everyone; the other sees its parts held and is blocked.
+      const [a, b] = await Promise.all([cancel(fresh.id, smsRecipients, 'race-a'), cancel(fresh.id, smsRecipients, 'race-b')])
       expect([a.queued, b.queued].sort()).toEqual([0, 6])
-      expect(queuedSms().filter((s) => !s.overage)).toHaveLength(4)
     } finally {
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 
-  it('an announcement that starts with any SMS left goes to everyone — the part past the quota is overage, then the obec is blocked', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Enforcement overshoot ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 4, smsOverageAllowed: false } as never,
-      overrideAccess: true,
-    })
-    try {
-      vi.mocked(enqueueSms).mockClear()
-      // 2 of 4 left, 6 people to text: all 6 go out, 4 of them past the quota.
-      await payload.create({ collection: 'sms-messages', data: { municipality: fresh.id, parts: 2 }, overrideAccess: true })
-      const first = await sendSmsToMany(payload, fresh.id, smsRecipients, 'Akce zrusena', `enf-over-${STAMP}`)
-      expect(first).toEqual({ wanted: 6, queued: 6, withheld: 0 })
-      expect(queuedSms().filter((s) => s.overage)).toHaveLength(4)
-
-      // Their parts are held until sent, so the next announcement is already blocked …
-      vi.mocked(enqueueSms).mockClear()
-      expect((await sendSmsToMany(payload, fresh.id, smsRecipients, 'Akce zmenena', `enf-over2-${STAMP}`)).queued).toBe(0)
-      // … and a reminder never goes past the quota.
-      expect((await sendSmsToMany(payload, fresh.id, smsRecipients, 'Zitra akce', `enf-over3-${STAMP}`, { purpose: 'reminder' })).queued).toBe(0)
-
-      // The worker's ledger takes the admitted ones as they come: within the quota first, the rest
-      // recorded as overage — and never refused, whatever ran in between.
-      await clearSmsReservations(fresh.id)
-      const claims = []
-      for (let i = 0; i < 4; i++) claims.push(await claimSmsParts(payload, { municipalityId: fresh.id, parts: 1 }))
-      expect(claims.every((c) => c.decision === 'send')).toBe(true)
-      expect(claims.filter((c) => c.decision === 'send' && c.overage)).toHaveLength(2)
-      expect(await claimSmsParts(payload, { municipalityId: fresh.id, parts: 1, purpose: 'reminder' })).toEqual({
-        decision: 'skip',
-        reason: 'quota_used_up',
-      })
-      const usage = await smsUsageOf(payload, fresh.id, new Date())
-      expect(usage.usedParts).toBe(6)
-      expect(usage.overageParts).toBe(2)
-
-      // Nothing left now: the next announcement is blocked outright.
-      vi.mocked(enqueueSms).mockClear()
-      expect((await sendSmsToMany(payload, fresh.id, smsRecipients, 'Akce zrusena', `enf-over4-${STAMP}`)).queued).toBe(0)
-    } finally {
-      await clearSmsReservations(fresh.id)
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
-    }
-  })
-
-  it('when the quota runs short, the first of the given order are texted, not a random few', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Enforcement order ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 2 } as never,
-      overrideAccess: true,
-    })
+  it('texts in the order given — the callers pass approved first, then by sign-up', async () => {
+    const fresh = await freshObec('order', { smsQuotaOverride: 2 })
     try {
       vi.mocked(enqueueSms).mockClear()
       const order = [...smsRecipients].reverse()
-      await sendSmsToMany(payload, fresh.id, order, 'Akce zrusena', `enf-order-${STAMP}`)
-      // Within the quota go the first two of the given order; the rest follow as overage.
-      expect(queuedSms().filter((s) => !s.overage).map((s) => s.requestId)).toEqual(order.slice(0, 2).map((id) => `enf-order-${STAMP}-${id}`))
+      await cancel(fresh.id, order, 'order')
+      expect(queuedSms().map((s) => s.requestId)).toEqual(order.map((id) => `event-cancelled-order-${STAMP}-${id}`))
     } finally {
-      await clearSmsReservations(fresh.id)
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
+    }
+  })
+
+  it('a retried cancellation texts nobody twice and holds no quota for those already texted', async () => {
+    const fresh = await freshObec('retry', { smsQuotaOverride: 10 })
+    try {
+      const prefix = `event-cancelled-retry-${STAMP}`
+      await cancel(fresh.id, smsRecipients, 'retry')
+      // Two of them already went out (on the ledger) when the job ran again after a crash.
+      for (const id of smsRecipients.slice(0, 2)) {
+        await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `${prefix}-${id}`, parts: 1 })
+        await releaseSmsReservation(fresh.id, `${prefix}-${id}`, 1)
+      }
+      vi.mocked(enqueueSms).mockClear()
+      expect(await cancel(fresh.id, smsRecipients, 'retry')).toEqual({ wanted: 6, queued: 4, withheld: 0 })
+      expect(queuedSms().map((s) => s.requestId)).not.toContain(`${prefix}-${smsRecipients[0]}`)
+      expect(await smsPartsHeld(fresh.id)).toBe(4)
+    } finally {
+      await dropObec(fresh.id)
     }
   })
 
   it('a reservation given back twice (a retried job) is taken off once', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Enforcement release ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 2 } as never,
-      overrideAccess: true,
-    })
+    const fresh = await freshObec('release', { smsQuotaOverride: 2 })
     try {
-      await sendSmsToMany(payload, fresh.id, smsRecipients, 'Akce zrusena', `enf-rel-${STAMP}`)
+      await cancel(fresh.id, smsRecipients.slice(0, 2), 'rel')
       expect(await smsPartsHeld(fresh.id)).toBe(2)
-      const first = `enf-rel-${STAMP}-${smsRecipients[0]}`
+      const first = `event-cancelled-rel-${STAMP}-${smsRecipients[0]}`
       await releaseSmsReservation(fresh.id, first, 1)
       await releaseSmsReservation(fresh.id, first, 1)
       expect(await smsPartsHeld(fresh.id)).toBe(1)
     } finally {
-      await clearSmsReservations(fresh.id)
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 
-  it('counts only the SMS of the current licence year', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: {
-        name: `Enforcement period ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers',
-        smsEnabled: true, smsQuotaOverride: 10,
-        licencePeriodStart: '2026-07-01T00:00:00.000Z', licencePeriodEnd: '2027-07-01T00:00:00.000Z',
-      } as never,
+  it('the overage switch is gone from the API — nobody reads or sets it, the platform neither', async () => {
+    const platform = await payload.create({
+      collection: 'users',
+      data: { email: `enf-platform-${STAMP}@test.local`, password: 'test1234', role: 'admin' },
       overrideAccess: true,
     })
+    userIds.push(platform.id)
+    const asPlatform = { user: { ...platform, collection: 'users' as const }, overrideAccess: false as const }
+    await payload.update({ collection: 'municipalities', id: obec.id, data: { smsOverageAllowed: true } as never, ...asPlatform })
+    const read = await payload.findByID({ collection: 'municipalities', id: obec.id, depth: 0, ...asPlatform })
+    expect(read).not.toHaveProperty('smsOverageAllowed')
+    const stored = await payload.findByID({ collection: 'municipalities', id: obec.id, depth: 0, overrideAccess: true })
+    expect(stored.smsOverageAllowed ?? false).toBe(false)
+  })
+
+  // ---------------------------------------------------------------------------------------------
+  // The worker's last word (lib/billing/sms-ledger): exact, and holding without Redis
+  // ---------------------------------------------------------------------------------------------
+
+  it('the ledger takes only a cancellation', async () => {
+    const fresh = await freshObec('ledger-only', { smsQuotaOverride: 10 })
     try {
-      const inPeriod = await payload.create({ collection: 'sms-messages', data: { municipality: fresh.id, parts: 2 }, overrideAccess: true })
-      const before = await payload.create({ collection: 'sms-messages', data: { municipality: fresh.id, parts: 5 }, overrideAccess: true })
-      await payload.db.drizzle.execute(
-        `UPDATE sms_messages SET created_at = '2026-06-15T00:00:00Z' WHERE id = ${Number(before.id)}` as never,
-      )
-      const usage = await smsUsageOf(payload, fresh.id, new Date('2026-11-11T12:00:00Z'))
-      expect(usage.usedParts).toBe(2)
-      expect(usage.quota).toBe(10)
-      void inPeriod
+      for (const requestId of [undefined, `event-updated-1-${STAMP}-5`, `reminder-1-${STAMP}-5`]) {
+        expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId, parts: 1 })).toEqual({
+          decision: 'skip',
+          reason: 'not_cancellation',
+        })
+      }
     } finally {
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 
-  // ---------------------------------------------------------------------------------------------
-  // The worker's last word (lib/billing/sms-ledger): the quota is a hard cap, the invoice exact
-  // ---------------------------------------------------------------------------------------------
-
-  it('the ledger counts exactly — twenty announcement SMS at once: five within the quota, fifteen overage, none lost', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Ledger cap ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 5 } as never,
-      overrideAccess: true,
-    })
+  it('one cancellation at once goes out whole past the quota — counted exactly, none lost', async () => {
+    const fresh = await freshObec('ledger-whole', { smsQuotaOverride: 5 })
     try {
       const claims = await Promise.all(
         Array.from({ length: 20 }, (_, i) =>
-          claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-cap-${STAMP}-${i}`, parts: 1 }),
+          claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-lw-${STAMP}-${i}`, parts: 1 }),
         ),
       )
       expect(claims.filter((c) => c.decision === 'send' && !c.overage)).toHaveLength(5)
       expect(claims.filter((c) => c.decision === 'send' && c.overage)).toHaveLength(15)
       const usage = await smsUsageOf(payload, fresh.id, new Date())
       expect([usage.usedParts, usage.overageParts]).toEqual([20, 15])
-
-      // A reminder is turned away at the quota, never recorded.
-      const reminders = await Promise.all(
-        Array.from({ length: 5 }, (_, i) =>
-          claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-rem-${STAMP}-${i}`, parts: 1, purpose: 'reminder' }),
-        ),
-      )
-      expect(reminders.every((c) => c.decision === 'skip' && c.reason === 'quota_used_up')).toBe(true)
+      // The next cancellation started with nothing left — refused, never recorded.
+      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-lw2-${STAMP}-1`, parts: 1 })).toEqual({
+        decision: 'skip',
+        reason: 'quota_used_up',
+      })
     } finally {
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 
-  it('with overage allowed every SMS past the quota is marked so — the invoice counts them exactly', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Ledger overage ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 3, smsOverageAllowed: true } as never,
-      overrideAccess: true,
-    })
+  it('two cancellations decided at once by the ledger alone (no Redis): only one gets past the quota', async () => {
+    const fresh = await freshObec('ledger-two', { smsQuotaOverride: 1 })
     try {
-      await Promise.all(
-        Array.from({ length: 10 }, (_, i) =>
-          claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-over-${STAMP}-${i}`, parts: 1 }),
+      const claims = await Promise.all(
+        ['a', 'b'].flatMap((x) =>
+          [1, 2, 3].map((i) => claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-l2${x}-${STAMP}-${i}`, parts: 1 })),
         ),
       )
-      const usage = await smsUsageOf(payload, fresh.id, new Date())
-      expect(usage.usedParts).toBe(10)
-      expect(usage.overageParts).toBe(7)
+      const sentA = claims.slice(0, 3).filter((c) => c.decision === 'send').length
+      const sentB = claims.slice(3).filter((c) => c.decision === 'send').length
+      // Whichever came first goes to all three; the other started with the quota used up — refused whole.
+      expect([sentA, sentB].filter((n) => n > 0)).toHaveLength(1)
+      expect(sentA + sentB).toBe(3)
     } finally {
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 
   it('a retry of the same SMS keeps its one row — and a suspended or unsubscribed obec gets none', async () => {
-    const fresh = await payload.create({
-      collection: 'municipalities',
-      data: { name: `Ledger retry ${STAMP}`, lat: 49.4, lng: 15.2, eventRadiusKm: 15, rulesForCreation: 'approved_organizers', smsEnabled: true, smsQuotaOverride: 10 } as never,
-      overrideAccess: true,
-    })
+    const fresh = await freshObec('ledger-retry', { smsQuotaOverride: 10 })
     try {
-      const first = await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-retry-${STAMP}`, parts: 2 })
-      const again = await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-retry-${STAMP}`, parts: 2 })
+      const id = `event-cancelled-lr-${STAMP}-1`
+      const first = await claimSmsParts(payload, { municipalityId: fresh.id, requestId: id, parts: 2 })
+      const again = await claimSmsParts(payload, { municipalityId: fresh.id, requestId: id, parts: 2 })
       expect(first.decision === 'send' && again.decision === 'send' && first.rowId === again.rowId).toBe(true)
       expect((await smsUsageOf(payload, fresh.id, new Date())).usedParts).toBe(2)
 
       await payload.update({ collection: 'municipalities', id: fresh.id, data: { billingStatus: 'suspended' }, overrideAccess: true })
-      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-s-${STAMP}`, parts: 1 })).toEqual({ decision: 'skip', reason: 'suspended' })
+      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-ls-${STAMP}-1`, parts: 1 })).toEqual({ decision: 'skip', reason: 'suspended' })
       await payload.update({ collection: 'municipalities', id: fresh.id, data: { billingStatus: 'active', smsEnabled: false }, overrideAccess: true })
-      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `ledger-n-${STAMP}`, parts: 1 })).toEqual({ decision: 'skip', reason: 'no_sms' })
+      expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-ln-${STAMP}-1`, parts: 1 })).toEqual({ decision: 'skip', reason: 'no_sms' })
     } finally {
-      await payload.delete({ collection: 'municipalities', id: fresh.id, overrideAccess: true })
+      await dropObec(fresh.id)
     }
   })
 })

@@ -4,6 +4,7 @@ import { describe, it, afterEach, expect, vi } from 'vitest'
 
 import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
 
+import { processReminderSmsJob } from '../../worker/src/processors/reminder-sms.processor'
 import { processSmsJob } from '../../worker/src/processors/sms.processor'
 
 vi.mock('../../worker/src/runtime/payload', () => ({ getWorkerPayload: async () => ({}) }))
@@ -34,6 +35,7 @@ const job = {
   to: '+420735929442',
   message: 'Lonvita: akce „Posezení“ byla zrušena.',
   requestId: 'event-cancelled-1-7',
+  municipalityId: 42,
 }
 
 const bulkGateAnswers = (status: number, body: unknown) => {
@@ -96,21 +98,18 @@ describe('SMS go out through BulkGate', () => {
     expect(smsPartsOf('a'.repeat(307))).toBe(3)
   })
 
-  it("puts a sent SMS on its obec's ledger before sending — and a job without an obec on nobody's", async () => {
+  it("puts a sent SMS on its obec's ledger before sending", async () => {
     configure(credentials)
     const fetchMock = bulkGateAnswers(200, accepted('tmp9'))
 
     await processSmsJob({ ...job, municipalityId: 42 })
-    expect(claim).toHaveBeenCalledWith(expect.anything(), { municipalityId: 42, requestId: job.requestId, parts: 1, purpose: 'announcement' })
+    expect(claim).toHaveBeenCalledWith(expect.anything(), { municipalityId: 42, requestId: job.requestId, parts: 1 })
     expect(claim.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
     expect(confirm).toHaveBeenCalledWith(expect.anything(), 7, 'tmp9')
     expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
     expect(checkAlerts).toHaveBeenCalledWith(expect.anything(), 42, expect.any(Date))
     expect(drop).not.toHaveBeenCalled()
 
-    claim.mockClear()
-    await processSmsJob(job)
-    expect(claim).not.toHaveBeenCalled()
   })
 
   it('does not text when the obec has no SMS left — and gives its reservation back', async () => {
@@ -125,15 +124,26 @@ describe('SMS go out through BulkGate', () => {
     expect(checkAlerts).toHaveBeenCalledWith(expect.anything(), 42, expect.any(Date))
   })
 
-  it('a reminder asks the ledger as a reminder', async () => {
+  it('drops a day-before SMS reminder planned before they were discontinued — unsent', async () => {
+    configure(credentials)
+    const fetchMock = bulkGateAnswers(200, accepted('tmp6'))
+    expect(await processReminderSmsJob({ registrationId: 12 })).toEqual({ sent: 0, skipped: 'discontinued' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing but a cancellation of an obec — a change, a reminder or a job without its obec is dropped', async () => {
     configure(credentials)
     const fetchMock = bulkGateAnswers(200, accepted('tmp5'))
-    claim.mockResolvedValueOnce({ decision: 'skip', reason: 'quota_used_up' })
-
-    await processSmsJob({ ...job, municipalityId: 42, purpose: 'reminder' })
-    expect(claim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ purpose: 'reminder' }))
+    for (const other of [
+      { ...job, requestId: 'event-updated-1-7-5' },
+      { ...job, requestId: 'reminder-12-1700000000000-5' },
+      { ...job, requestId: undefined },
+      { ...job, municipalityId: undefined },
+    ]) {
+      await processSmsJob(other)
+    }
     expect(fetchMock).not.toHaveBeenCalled()
-    expect(release).toHaveBeenCalledWith(42, job.requestId, 1)
+    expect(claim).not.toHaveBeenCalled()
   })
 
   it('gives the reservation back once the SMS fails for good — not while a retry may still send it', async () => {

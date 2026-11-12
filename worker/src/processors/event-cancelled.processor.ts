@@ -1,9 +1,9 @@
-import { escapeHtml, sendNotificationToMany, sendSmsToMany, type SmsOutcome } from '@/collections/shared/notify'
+import { escapeHtml, sendCancellationSms, sendNotificationToMany, type SmsOutcome } from '@/collections/shared/notify'
 import { reportSmsShortfall } from '@/lib/billing/sms-shortfall'
 import { cancelEventReminders } from '@/collections/shared/reminders'
 import { smsSentForCapacity } from '@/lib/capacity'
 import { recordAuditLog } from '@/collections/shared/auditLog'
-import { CANCELLATION_ANNOUNCED_ACTION, cancellationSmsText } from '@/collections/shared/eventNotifications'
+import { CANCELLATION_ANNOUNCED_ACTION } from '@/collections/shared/eventNotifications'
 import { logger, serializeError } from '@/lib/logger'
 import { relationNumber } from '@/lib/relations'
 
@@ -70,13 +70,12 @@ export const processEventCancelledJob = async (
   const sms: SmsOutcome =
     municipalityId === null || !smsAllowed
       ? { wanted: 0, queued: 0, withheld: 0 }
-      : await sendSmsToMany(payload, municipalityId, data.userIds, cancellationSmsText(data.title), announcementId)
+      : await sendCancellationSms(payload, municipalityId, data.userIds, data.title, announcementId)
   if (municipalityId !== null) {
     await reportSmsShortfall(payload, {
       municipalityId,
       organizerId: data.organizerId ?? relationNumber(event?.organizer),
       eventTitle: data.title,
-      kind: 'cancel',
       outcome: sms,
       dedupPrefix: announcementId,
     })

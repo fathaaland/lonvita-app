@@ -488,7 +488,7 @@ function EventDetailContent() {
             <div className="flex items-start gap-3">
               <Info className="h-5 w-5 mt-0.5 text-muted-foreground shrink-0" />
               <p className="text-sm text-muted-foreground">
-                O zrušení nebo změně akce vás upozorníme pouze e-mailem a v aplikaci — u akcí pro {SMS_LARGE_EVENT_CAPACITY} a více lidí ani s neomezenou kapacitou SMS neposíláme.
+                O zrušení akce vás upozorníme pouze e-mailem a v aplikaci — u akcí pro {SMS_LARGE_EVENT_CAPACITY} a více lidí ani s neomezenou kapacitou SMS neposíláme.
               </p>
             </div>
           )}

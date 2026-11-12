@@ -165,23 +165,23 @@ export function CancelEventButton({ eventId, title, dateTime, variant = "button"
   );
 }
 
-/** How far the obec's SMS quota reaches for this cancellation — a warning when not everyone who chose
- * SMS gets one. Numbers after a colon: no Czech plural to get wrong. */
+/** Whether the registrants who chose SMS get one — and, for the obec's admins, what it does to the
+ * quota. Numbers after a colon: no Czech plural to get wrong. */
 function SmsPreviewNote({ preview }: { preview: Extract<EventSmsPreview, { sms: true }> }) {
   const { wanted, texted, overage, remaining } = preview;
-  const left = wanted - texted - overage;
-  if (left > 0) {
+  if (texted === 0) {
     return (
       <p className="text-sm text-destructive">
-        Kvóta SMS obce nestačí na všechny. SMS si zvolilo: {wanted}, obci zbývá SMS: {remaining}. SMS dostane: {texted},
-        ostatní ({left}) se o zrušení dozvědí jen e-mailem a v aplikaci.
+        Obec už vyčerpala roční kvótu SMS — SMS si zvolilo: {wanted}, o zrušení se ale dozvědí jen e-mailem a v
+        aplikaci.
       </p>
     );
   }
   return (
     <p className="text-sm text-muted-foreground">
-      SMS dostanou všichni, kdo si je zvolili (počet: {wanted})
-      {overage > 0 ? `, z toho ${overage} nad roční kvótu jako přečerpání.` : `. Obci zbývá SMS: ${remaining}.`}
+      SMS o zrušení dostanou všichni, kdo si ji zvolili (počet: {texted}).
+      {remaining !== undefined && ` Obci zbývá SMS: ${remaining}`}
+      {overage ? `, nad roční kvótu půjde: ${overage} (vyúčtuje se jako přečerpání).` : remaining !== undefined ? "." : ""}
     </p>
   );
 }

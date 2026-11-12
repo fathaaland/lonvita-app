@@ -3,7 +3,7 @@ import { UnrecoverableError } from 'bullmq'
 import { ProviderRateLimitedError } from '../runtime/provider-errors'
 
 import { checkSmsUsageAlerts } from '@/lib/billing/sms-alerts'
-import { smsPartsOf, toSmsText } from '@/lib/billing/sms'
+import { isCancellationSmsRequest, smsPartsOf, toSmsText } from '@/lib/billing/sms'
 import { claimSmsParts, confirmSmsClaim, dropSmsClaim } from '@/lib/billing/sms-ledger'
 import { releaseSmsReservation } from '@/lib/billing/sms-reservations'
 import { markSmsSent, wasSmsSent } from '@/lib/billing/sms-sent-marker'
@@ -21,7 +21,7 @@ type QueueJobContext = {
 }
 
 /**
- * Sent through BulkGate's Simple API — only ever "akce byla zrušena" (see sendSmsToMany):
+ * Sent through BulkGate's Simple API — only ever "akce byla zrušena" (see sendCancellationSms):
  *   POST https://portal.bulkgate.com/api/1.0/simple/transactional
  *   body: JSON application_id, application_token, number, text, unicode, sender_id(_value)
  * `BULKGATE_SENDER_ID` is the sender type (gSystem = BulkGate's own number, the default; gText =
@@ -40,7 +40,7 @@ type BulkGateSuccess = { data?: { status?: string; sms_id?: string; number?: str
 type BulkGateError = { type?: string; code?: number; error?: string; detail?: unknown }
 
 /**
- * The parts reserved when the SMS was queued (sendSmsToMany) go back however the job ends — sent,
+ * The parts reserved when the SMS was queued (sendCancellationSms) go back however the job ends — sent,
  * refused by the ledger, or failed for good (a rejected number, its last attempt). Until then a
  * failing SMS keeps holding them, since a retry may still send it.
  */
@@ -72,6 +72,19 @@ const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<
   const senderId = process.env.BULKGATE_SENDER_ID || 'gSystem'
   const senderIdValue = process.env.BULKGATE_SENDER_ID_VALUE
 
+  // Only "akce byla zrušena", only on an obec's ledger — whoever queued anything else (an old job of
+  // a change or a reminder, a job without its obec) gets nothing sent. Not an error: nothing to retry.
+  if (!isCancellationSmsRequest(payload.requestId) || payload.municipalityId === undefined) {
+    logger.warn('SMS refused — only a cancellation of an obec is texted', {
+      event: 'sms.refused_not_cancellation',
+      jobId: context?.jobId,
+      requestId: payload.requestId,
+    })
+    await giveBackReservation(payload)
+    return
+  }
+  const municipalityId = payload.municipalityId
+
   // Already sent by an earlier attempt of this job (it went out but the job never finished) —
   // nothing to do; the quota record and reservation were handled then.
   if (await wasSmsSent(payload.requestId)) {
@@ -85,44 +98,37 @@ const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<
   // The obec's last word (lib/billing/sms-ledger): its package, its suspension and its quota as they
   // are now, and the SMS on the ledger before it goes. A ledger that can't be written now means a retry
   // later — never an SMS nobody would be billed for.
-  let claim: Awaited<ReturnType<typeof claimSmsParts>> | null = null
-  if (payload.municipalityId !== undefined) {
-    try {
-      claim = await claimSmsParts(await getWorkerPayload(), {
-        municipalityId: payload.municipalityId,
-        requestId: payload.requestId,
-        parts,
-        purpose: payload.purpose ?? 'announcement',
-      })
-    } catch (error) {
-      logger.error('SMS quota not checked — retried', {
-        event: 'sms.claim_failed',
-        jobId: context?.jobId,
-        municipalityId: payload.municipalityId,
-        ...serializeError(error),
-      })
-      throw new Error('SMS quota could not be checked')
-    }
-    if (claim.decision === 'skip') {
-      // Queued within the quota, refused now: something else got there first (the quota lock timed
-      // out, Redis was away, the superadmin lowered the quota). The person still has the e-mail and
-      // the in-app notice; the obec's admins hear the quota ran out (once a licence year).
-      logger.warn('SMS not sent — the obec has no SMS left', {
-        event: 'sms.skipped_by_package',
-        jobId: context?.jobId,
-        municipalityId: payload.municipalityId,
-        reason: claim.reason,
-      })
-      await giveBackReservation(payload)
-      if (claim.reason === 'quota_used_up') {
-        await checkSmsUsageAlerts(await getWorkerPayload(), payload.municipalityId, new Date())
-      }
-      return
-    }
+  let claim: Awaited<ReturnType<typeof claimSmsParts>>
+  try {
+    claim = await claimSmsParts(await getWorkerPayload(), { municipalityId, requestId: payload.requestId, parts })
+  } catch (error) {
+    logger.error('SMS quota not checked — retried', {
+      event: 'sms.claim_failed',
+      jobId: context?.jobId,
+      municipalityId,
+      ...serializeError(error),
+    })
+    throw new Error('SMS quota could not be checked')
   }
-  const rowId = claim?.decision === 'send' ? claim.rowId : null
+  if (claim.decision === 'skip') {
+    // Queued as within the quota, refused now: another cancellation used it up first (the quota lock
+    // timed out, Redis was away), or the obec lost its package or was suspended meanwhile. The person
+    // still has the e-mail and the in-app notice; the obec's admins hear the quota ran out.
+    logger.warn('SMS not sent — refused by the obec\'s ledger', {
+      event: 'sms.skipped_by_package',
+      jobId: context?.jobId,
+      municipalityId,
+      reason: claim.reason,
+    })
+    await giveBackReservation(payload)
+    if (claim.reason === 'quota_used_up') {
+      await checkSmsUsageAlerts(await getWorkerPayload(), municipalityId, new Date())
+    }
+    return
+  }
+  const rowId = claim.rowId
   const unclaim = async () => {
-    if (rowId !== null) await dropSmsClaim(await getWorkerPayload(), rowId, payload.requestId)
+    await dropSmsClaim(await getWorkerPayload(), rowId, payload.requestId)
   }
 
   logger.info('SMS send started', {
@@ -145,7 +151,7 @@ const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<
       application_token: applicationToken,
       // toE164 gives "+420…"; BulkGate takes the international number without the plus.
       number: payload.to.replace(/^\+/, ''),
-      // Already without diacritics when queued (sendSmsToMany); again for a job queued before that.
+      // Already without diacritics when queued (sendCancellationSms); again for a job queued before that.
       text,
       unicode: false,
       sender_id: senderId,
@@ -192,11 +198,9 @@ const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<
     providerStatus: sent.status,
   })
 
-  if (payload.municipalityId !== undefined && rowId !== null) {
-    const db = await getWorkerPayload()
-    await confirmSmsClaim(db, rowId, sent.sms_id)
-    await giveBackReservation(payload)
-    // 80 % / 100 % of the quota — its admins hear it once a licence year.
-    await checkSmsUsageAlerts(db, payload.municipalityId, new Date())
-  }
+  const db = await getWorkerPayload()
+  await confirmSmsClaim(db, rowId, sent.sms_id)
+  await giveBackReservation(payload)
+  // 80 % / 100 % of the quota (and beyond, by the overage) — its admins hear it once per level and year.
+  await checkSmsUsageAlerts(db, municipalityId, new Date())
 }

@@ -5,8 +5,14 @@ import { toE164 } from '@/lib/phone'
 import { enqueueOrPark } from '@/lib/outbox'
 import { JOB_NAMES } from '@/lib/queue/contracts'
 import { enqueueEmail } from '@/lib/queue/queues'
-import { planSmsRecipients, smsAllowanceOf, smsPartsOf, toSmsText, type SmsPurpose } from '@/lib/billing/sms'
-import { releaseSmsReservation, withSmsQuotaReservation } from '@/lib/billing/sms-reservations'
+import {
+  CANCELLATION_SMS_PREFIX,
+  cancellationSmsText,
+  planCancellationSms,
+  smsAllowanceOf,
+  smsPartsOf,
+} from '@/lib/billing/sms'
+import { releaseSmsReservation, smsPartsHeldBy, withSmsQuotaReservation } from '@/lib/billing/sms-reservations'
 
 /** Fire-and-forget in-app notification — a failed write must never block the operation
  * that triggered it (matches the pattern already used for audit-log writes). Used directly
@@ -311,19 +317,6 @@ export async function sendNotificationToMany(
 export { toE164 } from '@/lib/phone'
 
 /**
- * Brief §8 "oznámení o změně/zrušení musí jít přes SMS/mail", narrowed by the SMS package (Balíčky
- * služeb): SMS go out on a cancel, a change of time or place and the reminder a day before — and only
- * for an event of fewer than SMS_LARGE_EVENT_CAPACITY places (the callers check the capacity). Only to
- * those of these users who chose SMS in their profile (Profiles.notifySms) and have a phone on file,
- * without diacritics (lib/billing/sms), and only for an obec that has the SMS package and isn't
- * suspended. Its yearly quota counts parts: once it's used up, the rest are texted only if the obec
- * allows overage (marked so, billed at the year's end) — otherwise they hear it in-app and by e-mail,
- * which go out all the same. A reminder (`purpose: 'reminder'`) leaves the announcement reserve of
- * the quota alone (lib/billing/sms). A no-op (not an error) when BulkGate isn't configured — the
- * worker logs that. The request id becomes the queue job id, so `requestIdPrefix` must be unique per
- * announcement but stable across retries of it. Never throws; returns how it went (SmsOutcome).
- */
-/**
  * Those of `userIds` who chose SMS and have a phone on file, in the order given — the callers pass
  * the registrants in their priority (approved first, then by when they signed up), so whoever is
  * left out when the quota runs short is decided, not random.
@@ -357,62 +350,89 @@ export type SmsOutcome = { wanted: number; queued: number; withheld: number }
 
 const NO_SMS: SmsOutcome = { wanted: 0, queued: 0, withheld: 0 }
 
-export async function sendSmsToMany(
+/**
+ * "Akce byla zrušena" by SMS — the only SMS Lonvita sends (decided 12. 11. 2026; never for a change,
+ * a reminder or anything else). To those of `userIds` (in their priority order) who chose SMS in their
+ * profile and have a phone, for an obec that has the SMS package and isn't suspended; the caller
+ * checks the event's size (SMS_LARGE_EVENT_CAPACITY). The text is built here from the title alone
+ * (cancellationSmsText: one part, no links) — no caller can send anything else.
+ *
+ * Its quota (lib/billing/sms planCancellationSms): a cancellation that starts while the obec has any
+ * SMS left goes to everyone, the part past the quota billed as overage; with nothing left, nobody is
+ * texted — they hear it in-app and by e-mail, which go out all the same. Decided under the obec's quota
+ * lock against what's sent plus what's queued, and again by the worker's ledger (sms-ledger).
+ *
+ * `announcementId` must start with CANCELLATION_SMS_PREFIX, be unique per cancellation and stable
+ * across retries of it: the request ids are `<announcementId>-<userId>`, and whoever the ledger already
+ * has an SMS of this cancellation for is neither texted again nor holds the quota again. A no-op (not
+ * an error) when BulkGate isn't configured — the worker logs that. Never throws.
+ */
+export async function sendCancellationSms(
   payload: Payload,
   municipalityId: number,
   userIds: (number | string)[],
-  message: string,
-  requestIdPrefix: string,
-  { purpose = 'announcement' }: { purpose?: SmsPurpose } = {},
+  eventTitle: string,
+  announcementId: string,
 ): Promise<SmsOutcome> {
   if (userIds.length === 0) return NO_SMS
+  if (!announcementId.startsWith(CANCELLATION_SMS_PREFIX)) {
+    payload.logger.error({ announcementId }, 'SMS refused — not a cancellation')
+    return NO_SMS
+  }
   try {
+    const requestIdOf = (userId: number) => `${announcementId}-${userId}`
     const reachable = await findSmsReachable(payload, userIds)
     if (reachable.length === 0) return NO_SMS
-    const text = toSmsText(message)
+    // A retry of this cancellation (the job ran again after a crash): whoever's SMS is already on the
+    // ledger got it — not again, and not holding the quota again either.
+    const onLedger = await payload.find({
+      collection: 'sms-messages',
+      where: { requestId: { in: reachable.map((r) => requestIdOf(r.userId)) } },
+      select: { requestId: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    })
+    const sent = new Set(onLedger.docs.map((d) => d.requestId))
+    const pending = reachable.filter((r) => !sent.has(requestIdOf(r.userId)))
+    if (pending.length === 0) return { wanted: reachable.length, queued: 0, withheld: 0 }
+
+    const text = cancellationSmsText(eventTitle)
     const parts = smsPartsOf(text)
-    const requestIdOf = (userId: number) => `${requestIdPrefix}-${userId}`
-    // Decided under the obec's quota lock, against what's sent plus what's queued (sms-reservations).
     const { recipients, active } = await withSmsQuotaReservation(municipalityId, async (reservedParts) => {
       const allowance = await smsAllowanceOf(payload, municipalityId, new Date())
-      const chosen = planSmsRecipients(reachable, parts, allowance, reservedParts, purpose)
+      // An SMS of this cancellation already queued holds its own parts — not counted against itself.
+      const ownHeld = await smsPartsHeldBy(municipalityId, announcementId)
+      const chosen = sent.size > 0
+        ? pending.map((r) => ({ ...r, overage: false })) // started earlier, so it was admitted then
+        : planCancellationSms(pending, parts, allowance, reservedParts - ownHeld)
       return {
-        result: { recipients: chosen, active: allowance.active },
-        reserve: chosen.filter((r) => !r.overage).map((r) => ({ requestId: requestIdOf(r.userId), parts })),
+        result: { recipients: allowance.active ? chosen : [], active: allowance.active },
+        reserve: allowance.active ? chosen.map((r) => ({ requestId: requestIdOf(r.userId), parts })) : [],
       }
     })
     if (!active) return { wanted: reachable.length, queued: 0, withheld: 0 }
-    if (recipients.length < reachable.length) {
+    if (recipients.length < pending.length) {
       payload.logger.warn(
-        { municipalityId, purpose, wanted: reachable.length, skipped: reachable.length - recipients.length },
-        'SMS quota of the obec too low — the rest not texted',
+        { municipalityId, wanted: pending.length, skipped: pending.length - recipients.length },
+        'SMS quota of the obec used up — the cancellation not texted',
       )
     }
     const queued = await Promise.all(
-      recipients.map(async ({ to, userId, overage }) => {
+      recipients.map(async ({ to, userId }) => {
         const requestId = requestIdOf(userId)
         try {
-          // Every SMS is an announcement that must not be missed — parked in the outbox while the
-          // queue is down (lib/outbox).
+          // A cancellation notice must not be missed — parked in the outbox while the queue is down
+          // (lib/outbox).
           await enqueueOrPark(payload, {
-            job: {
-              jobType: JOB_NAMES.SEND_SMS,
-              payload: {
-                to,
-                message: text,
-                requestId,
-                municipalityId,
-                ...(overage ? { overage } : {}),
-                ...(purpose === 'reminder' ? { purpose } : {}),
-              },
-            },
+            job: { jobType: JOB_NAMES.SEND_SMS, payload: { to, message: text, requestId, municipalityId } },
             jobId: `sms-${requestId}`,
           })
           return true
         } catch (error) {
           payload.logger.error({ err: error, requestId }, 'Failed to enqueue SMS')
           // Never queued: the parts it held go back straight away.
-          if (!overage) await releaseSmsReservation(municipalityId, requestId, parts)
+          await releaseSmsReservation(municipalityId, requestId, parts)
           return false
         }
       }),
@@ -420,7 +440,7 @@ export async function sendSmsToMany(
     return {
       wanted: reachable.length,
       queued: queued.filter(Boolean).length,
-      withheld: reachable.length - recipients.length,
+      withheld: pending.length - recipients.length,
     }
   } catch (error) {
     payload.logger.error({ err: error, users: userIds.map(String) }, 'Failed to send SMS')

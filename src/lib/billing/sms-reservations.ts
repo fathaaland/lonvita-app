@@ -52,6 +52,20 @@ end
 return total
 `
 
+/** The parts held by one announcement's SMS (members `<announcement>-<userId>|<parts>`). */
+const HELD_BY_SCRIPT = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+local prefix = ARGV[2]
+local total = 0
+for _, m in ipairs(redis.call('ZRANGE', KEYS[1], 0, -1)) do
+  if string.sub(m, 1, string.len(prefix)) == prefix then
+    local parts = tonumber(string.match(m, '|(%d+)$'))
+    if parts then total = total + parts end
+  end
+end
+return total
+`
+
 /** Off the set; an SMS reserved on the legacy counter is taken off that one (never below zero, and
  * never creating the key again once it lapsed). */
 const GIVE_BACK_SCRIPT = `
@@ -128,6 +142,17 @@ const heldParts = async (redis: Redis, municipalityId: number): Promise<number> 
 export async function smsPartsHeld(municipalityId: number): Promise<number> {
   try {
     return await heldParts(getClient(), municipalityId)
+  } catch {
+    return 0
+  }
+}
+
+/** Parts held by the queued SMS of one announcement — a retry of it doesn't count them against itself. */
+export async function smsPartsHeldBy(municipalityId: number, announcementId: string): Promise<number> {
+  try {
+    return (
+      Number(await getClient().eval(HELD_BY_SCRIPT, 1, heldKey(municipalityId), String(Date.now()), `${announcementId}-`)) || 0
+    )
   } catch {
     return 0
   }

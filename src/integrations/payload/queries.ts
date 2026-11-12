@@ -826,7 +826,8 @@ export async function getEventReliability(
 
 export type EventSmsPreview =
   | { sms: false }
-  | { sms: true; wanted: number; texted: number; overage: number; remaining: number; overageAllowed: boolean }
+  /** `overage` and `remaining` only for an admin of the obec or the platform. */
+  | { sms: true; wanted: number; texted: number; overage?: number; remaining?: number }
 
 /** What cancelling the event would text as things stand — for the cancel dialog
  * (/api/events/:id/sms-preview, only for whoever may cancel it). */

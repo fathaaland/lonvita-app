@@ -4,7 +4,7 @@ import { getMunicipalityAdminUserIds, sendNotificationToMany, escapeHtml } from 
 
 import { findSmsFields, smsUsageOf, type SmsUsage } from './sms'
 
-/** Percent of the quota at which the obec's admins are told — past 100 only reachable with overage. */
+/** Percent of the quota at which the obec's admins are told — past 100 by the overage of the cancellation that used it up. */
 const LEVELS = [200, 150, 120, 100, 80] as const
 
 const smsCount = (n: number) => `${n.toLocaleString('cs-CZ')} SMS`
@@ -21,9 +21,7 @@ export function smsAlertMessage(level: number, usage: SmsUsage): { title: string
   if (level === 100) {
     return {
       title: 'Kvóta SMS je vyčerpaná',
-      message: usage.overageAllowed
-        ? `Roční kvóta SMS je vyčerpaná (${used}). SMS chodí dál jako přečerpání, které se vyúčtuje na konci roku.`
-        : `Roční kvóta SMS je vyčerpaná (${used}). Další zrušení a změny akcí už chodí jen e-mailem a v aplikaci. SMS rozeslané přes kvótu se vyúčtují jako přečerpání. O navýšení balíčku si řekněte provozovateli Lonvity.`,
+      message: `Roční kvóta SMS je vyčerpaná (${used}). Další zrušení akcí už půjdou jen e-mailem a v aplikaci; SMS rozeslané přes kvótu se vyúčtují jako přečerpání. O navýšení balíčku si řekněte provozovateli Lonvity.`,
     }
   }
   const left = Math.max(0, usage.quota - usage.usedParts)
@@ -31,14 +29,14 @@ export function smsAlertMessage(level: number, usage: SmsUsage): { title: string
     title: 'Kvóta SMS se blíží limitu',
     message:
       `Obec vyčerpala ${level} % roční kvóty SMS (${used}), zbývá ${smsCount(left)}. ` +
-      'Zrušení nebo změna akce, která začne rozesílat, se rozešle všem i přes zbytek kvóty — přebytek se vyúčtuje jako přečerpání.',
+      'Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle všem — přebytek se vyúčtuje jako přečerpání. Potom už SMS nechodí.',
   }
 }
 
 /**
  * Balíčky služeb: "Při 80 % a 100 % čerpání dostane admin obce upozornění" — once per level and
- * licence year (Municipalities.smsAlertState remembers the last one sent); with overage allowed also
- * at 120, 150 and 200 %, so a growing bill doesn't go unseen. Run after every SMS the worker sent and
+ * licence year (Municipalities.smsAlertState remembers the last one sent); also at 120, 150 and 200 %
+ * — a small quota can be overshot that far by one cancellation, and the bill grows with it. Run after every SMS the worker sent and
  * every one it refused for the quota; never throws.
  */
 export async function checkSmsUsageAlerts(

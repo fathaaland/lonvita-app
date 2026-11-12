@@ -5,31 +5,30 @@ import { logger, serializeError } from '@/lib/logger'
 
 import { getBillingCatalog } from './catalog'
 import { licencePeriodOf } from './period'
-import { countSmsParts, smsQuotaOf, type SmsPurpose } from './sms'
+import { announcementOfSms, countSmsParts, isCancellationSmsRequest, smsQuotaOf } from './sms'
 
 /**
  * The worker's last word on every SMS of an obec, right before it goes to BulkGate — what the quota
- * and the invoice rest on, whatever happened when it was queued (the quota lock in sms-reservations
- * timed out, or Redis was away). Under the obec's row lock it counts what the obec has really sent
- * this licence year and either refuses (no SMS package, suspended, quota used up with no overage) or
- * writes the SMS to the ledger (sms-messages) up front, marked as overage when it no longer fits the
- * quota. Written before sending, so a send whose record would fail afterwards can't go uncounted; a
- * send that then fails takes its row back out (dropSmsClaim).
+ * and the invoice rest on, whatever happened when it was queued (the quota lock timed out, Redis was
+ * away). Under the obec's row lock:
+ * - only a cancellation SMS goes at all (CANCELLATION_SMS_PREFIX) — anything else is refused;
+ * - nothing for an obec without the SMS package, or suspended;
+ * - a cancellation that started while the obec had SMS left goes out whole: what the *other*
+ *   announcements used is what decides, so its own SMS never block the rest of it, and the part past
+ *   the quota is written as overage. One that started with nothing left is refused — two at once can
+ *   never both slip past the quota, Redis or not.
+ * The SMS is written to the ledger (sms-messages) up front, so a send whose record would fail
+ * afterwards can't go uncounted; a send that then fails takes its row back out (dropSmsClaim).
  */
 export type SmsClaim =
   | { decision: 'send'; rowId: number; overage: boolean }
-  | { decision: 'skip'; reason: 'no_sms' | 'suspended' | 'quota_used_up' }
+  | { decision: 'skip'; reason: 'not_cancellation' | 'no_sms' | 'suspended' | 'quota_used_up' }
 
 export async function claimSmsParts(
   payload: Payload,
-  {
-    municipalityId,
-    requestId,
-    parts,
-    purpose = 'announcement',
-    now = new Date(),
-  }: { municipalityId: number; requestId?: string; parts: number; purpose?: SmsPurpose; now?: Date },
+  { municipalityId, requestId, parts, now = new Date() }: { municipalityId: number; requestId?: string; parts: number; now?: Date },
 ): Promise<SmsClaim> {
+  if (!isCancellationSmsRequest(requestId)) return { decision: 'skip', reason: 'not_cancellation' }
   const req = await createLocalReq({}, payload)
   const shouldCommit = await initTransaction(req)
   try {
@@ -39,20 +38,18 @@ export async function claimSmsParts(
     }
     // A retry of the same request (an earlier attempt recorded it, then failed before marking it
     // sent) keeps its row — counted once.
-    if (requestId) {
-      const existing = await payload.find({
-        collection: 'sms-messages',
-        where: { and: [{ requestId: { equals: requestId } }, { municipality: { equals: municipalityId } }] },
-        depth: 0,
-        limit: 1,
-        overrideAccess: true,
-        req,
-      })
-      const row = existing.docs[0]
-      if (row) {
-        if (shouldCommit) await commitTransaction(req)
-        return { decision: 'send', rowId: row.id, overage: row.overage === true }
-      }
+    const existing = await payload.find({
+      collection: 'sms-messages',
+      where: { and: [{ requestId: { equals: requestId } }, { municipality: { equals: municipalityId } }] },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      req,
+    })
+    const row = existing.docs[0]
+    if (row) {
+      if (shouldCommit) await commitTransaction(req)
+      return { decision: 'send', rowId: row.id, overage: row.overage === true }
     }
     const obec = await payload.findByID({
       collection: 'municipalities',
@@ -65,7 +62,6 @@ export async function claimSmsParts(
         billingStatus: true,
         smsPackage: true,
         smsQuotaOverride: true,
-        smsOverageAllowed: true,
         licencePeriodStart: true,
         licencePeriodEnd: true,
       },
@@ -76,26 +72,26 @@ export async function claimSmsParts(
     else if (obec.smsEnabled !== true) refusal = 'no_sms'
     else {
       const period = licencePeriodOf(obec, now)
-      // Counted after the lock is held: every earlier claim of this obec has committed by then.
-      const used = await countSmsParts(payload, municipalityId, period.start, period.end, req)
       const quota = smsQuotaOf(obec, await getBillingCatalog(payload, req))
-      overage = used.parts + parts > quota
-      // An announcement was admitted when it was queued and goes out whole — what's past the quota is
-      // recorded as overage. Only a reminder is turned away at the quota (unless overage is allowed).
-      if (overage && purpose === 'reminder' && obec.smsOverageAllowed !== true) refusal = 'quota_used_up'
+      // Counted after the lock is held: every earlier claim of this obec has committed by then.
+      // One after the other: both on the transaction's one connection.
+      const all = await countSmsParts(payload, municipalityId, period.start, period.end, req)
+      const others = await countSmsParts(payload, municipalityId, period.start, period.end, req, announcementOfSms(requestId))
+      if (others.parts >= quota) refusal = 'quota_used_up'
+      else overage = all.parts + parts > quota
     }
     if (refusal) {
       if (shouldCommit) await commitTransaction(req)
       return { decision: 'skip', reason: refusal }
     }
-    const row = await payload.create({
+    const created = await payload.create({
       collection: 'sms-messages',
       data: { municipality: municipalityId, requestId, parts, overage },
       overrideAccess: true,
       req,
     })
     if (shouldCommit) await commitTransaction(req)
-    return { decision: 'send', rowId: row.id, overage }
+    return { decision: 'send', rowId: created.id, overage }
   } catch (error) {
     if (shouldCommit) await killTransaction(req)
     throw error

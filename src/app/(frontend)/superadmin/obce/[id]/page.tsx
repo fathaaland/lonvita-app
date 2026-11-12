@@ -553,20 +553,11 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                     onChange={set('smsQuotaOverride')}
                   />
                 </Field>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label htmlFor="sms-overage">Povolit přečerpání</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Po vyčerpání posílat dál ({czk(catalog.smsOveragePriceCzk)}/ks, vyúčtovat na
-                      konci roku). Vypnuto: jen e-mail.
-                    </p>
-                  </div>
-                  <Switch
-                    id="sms-overage"
-                    checked={draft.smsOverageAllowed}
-                    onCheckedChange={set('smsOverageAllowed')}
-                  />
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  Zrušení akce, které začne, dokud obci zbývá aspoň 1 SMS, se rozešle všem; SMS nad
+                  kvótu se vyúčtují jako přečerpání ({czk(catalog.smsOveragePriceCzk)}/ks, podle
+                  smluvních podmínek). Potom už jen e-mail a aplikace.
+                </p>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">

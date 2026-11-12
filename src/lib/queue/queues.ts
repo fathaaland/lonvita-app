@@ -19,7 +19,6 @@ import type {
   PasswordResetJobData,
   QueueJobEnvelope,
   RegistrationDigestJobData,
-  ReminderSmsJobData,
   SmsJobData,
 } from './contracts'
 
@@ -142,9 +141,6 @@ export async function enqueueComplianceCheck(options?: EnqueueOptions) {
   )
 }
 
-export async function enqueueReminderSms(data: ReminderSmsJobData, options?: EnqueueOptions) {
-  return enqueueJob({ jobType: JOB_NAMES.REMINDER_SMS, payload: data }, options)
-}
 
 export async function enqueueRegistrationDigest(data: RegistrationDigestJobData, options?: EnqueueOptions) {
   return enqueueJob({ jobType: JOB_NAMES.REGISTRATION_DIGEST, payload: data }, options)

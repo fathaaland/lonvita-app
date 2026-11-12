@@ -27,13 +27,42 @@ export function toSmsText(text: string): string {
 export const smsPartsOf = (text: string): number =>
   text.length <= 160 ? 1 : Math.ceil(text.length / 153)
 
+/**
+ * The one SMS Lonvita sends (decided 12. 11. 2026): "akce byla zrušena", to the registrants of a
+ * cancelled event — never for a change, a reminder or anything else. Every SMS's request id starts
+ * with this, and the worker sends nothing else (sms.processor), whoever queued it.
+ */
+export const CANCELLATION_SMS_PREFIX = 'event-cancelled-'
+
+export const isCancellationSmsRequest = (requestId: string | undefined): requestId is string =>
+  typeof requestId === 'string' && requestId.startsWith(CANCELLATION_SMS_PREFIX)
+
+/** The announcement an SMS belongs to — its request id is `<announcement>-<userId>`. */
+export const announcementOfSms = (requestId: string): string => requestId.replace(/-[^-]+$/, '')
+
+/** Links and web addresses — a title typed by the pořadatel must not travel as a link in an SMS sent
+ * from Lonvita's own sender. */
+const LINKS =
+  /(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:cz|sk|com|net|org|eu|info|io|me|app|link|ly|to|gl|co|online|site|xyz|biz|de|at|pl|ru|ua|shop|club|top)\b(?:\/\S*)?/gi
+
+const PREFIX = 'Lonvita: akce "'
+const SUFFIX = '" byla zrusena.'
+
+/** "Lonvita: akce „…“ byla zrušena." — without diacritics or links, the title cut so the whole SMS is
+ * always one part, whatever the pořadatel named the event. */
+export function cancellationSmsText(title: string): string {
+  const clean = toSmsText(title).replace(LINKS, ' ').replace(/["\n]/g, ' ').replace(/\s+/g, ' ').trim() || 'bez nazvu'
+  const room = 160 - PREFIX.length - SUFFIX.length
+  const cut = clean.length > room ? `${clean.slice(0, room - 3).trimEnd()}...` : clean
+  return `${PREFIX}${cut}${SUFFIX}`
+}
+
 type SmsFields = Pick<
   Municipality,
   | 'smsEnabled'
   | 'billingStatus'
   | 'smsPackage'
   | 'smsQuotaOverride'
-  | 'smsOverageAllowed'
   | 'licencePeriodStart'
   | 'licencePeriodEnd'
   | 'smsAlertState'
@@ -50,7 +79,6 @@ export const findSmsFields = (payload: Payload, municipalityId: number): Promise
       billingStatus: true,
       smsPackage: true,
       smsQuotaOverride: true,
-      smsOverageAllowed: true,
       licencePeriodStart: true,
       licencePeriodEnd: true,
       smsAlertState: true,
@@ -73,6 +101,8 @@ export async function countSmsParts(
   to: Date,
   /** Inside a transaction: counted on its connection (a second one per caller runs the pool dry). */
   req?: PayloadRequest,
+  /** Leave out the SMS of this announcement — what the others used before it. */
+  exceptAnnouncement?: string,
 ): Promise<{ parts: number; overageParts: number; messages: number }> {
   const db = payload.db as unknown as {
     drizzle: Payload['db']['drizzle']
@@ -90,6 +120,7 @@ export async function countSmsParts(
     WHERE municipality_id = ${municipalityId}
       AND created_at >= ${from.toISOString()}
       AND created_at < ${to.toISOString()}
+      ${exceptAnnouncement ? sql`AND (request_id IS NULL OR request_id NOT LIKE ${`${exceptAnnouncement.replace(/[\\%_]/g, '\\$&')}-%`})` : sql``}
   `)
   const row = rows[0]
   return {
@@ -105,7 +136,6 @@ export type SmsUsage = {
   quota: number
   usedParts: number
   overageParts: number
-  overageAllowed: boolean
   period: LicencePeriod
 }
 
@@ -126,30 +156,20 @@ export async function smsUsageOf(
     quota: smsQuotaOf(f, c),
     usedParts: used.parts,
     overageParts: used.overageParts,
-    overageAllowed: f.smsOverageAllowed === true,
     period,
   }
 }
-
-/**
- * What an SMS is for. A cancellation or a change of time or place ('announcement') that starts while
- * the obec still has any SMS left goes out to everyone it concerns — the part past the quota is
- * recorded as overage (SmsMessages.overage) and billed; only the next announcement is blocked. A
- * reminder ('reminder') never goes past the quota.
- */
-export type SmsPurpose = 'announcement' | 'reminder'
 
 export type SmsAllowance = {
   /** The obec has SMS and isn't suspended — without, nobody is texted and nothing is "withheld". */
   active: boolean
   quota: number
   remainingParts: number
-  overageAllowed: boolean
 }
 
 /**
- * What the obec may still text — parts left in its quota, and whether it may go past it. Nothing for
- * an obec without SMS, or one suspended for not paying: its people hear it by e-mail and in-app.
+ * What the obec may still text — parts left in its quota. Nothing for an obec without SMS, or one
+ * suspended for not paying: its people hear it by e-mail and in-app.
  */
 export async function smsAllowanceOf(
   payload: Payload,
@@ -157,41 +177,26 @@ export async function smsAllowanceOf(
   now: Date,
 ): Promise<SmsAllowance> {
   const usage = await smsUsageOf(payload, municipalityId, now)
-  if (!usage.enabled || usage.suspended) {
-    return { active: false, quota: usage.quota, remainingParts: 0, overageAllowed: false }
-  }
-  return {
-    active: true,
-    quota: usage.quota,
-    remainingParts: Math.max(0, usage.quota - usage.usedParts),
-    overageAllowed: usage.overageAllowed,
-  }
+  if (!usage.enabled || usage.suspended) return { active: false, quota: usage.quota, remainingParts: 0 }
+  return { active: true, quota: usage.quota, remainingParts: Math.max(0, usage.quota - usage.usedParts) }
 }
 
 /**
- * Who of `reachable` (in priority order) gets the SMS. An announcement is admitted while any part is
- * left (after those held by SMS already queued) — or whenever the obec allows overage — and then
- * goes to everyone: the first as many as fit the quota, the rest marked as overage. Once nothing is
- * left, the next one is blocked. A reminder gets only as many as fit (or overage where allowed).
+ * Who of `reachable` gets the cancellation SMS. A cancellation that starts while the obec has any part
+ * left (after those held by SMS already queued) goes to everyone it concerns — those past the quota
+ * marked as overage, billed by the contract's terms; once nothing is left, nobody. Then the obec is
+ * blocked until its next licence year or a bigger package.
  */
-export function planSmsRecipients<R>(
+export function planCancellationSms<R>(
   reachable: R[],
   parts: number,
   allowance: SmsAllowance,
   reservedParts: number,
-  purpose: SmsPurpose,
 ): (R & { overage: boolean })[] {
-  let left = Math.max(0, allowance.remainingParts - reservedParts)
-  if (purpose === 'announcement' && left <= 0 && !allowance.overageAllowed) return []
-  const chosen: (R & { overage: boolean })[] = []
-  for (const r of reachable) {
-    if (left >= parts) {
-      left -= parts
-      chosen.push({ ...r, overage: false })
-    } else if (purpose === 'announcement' || allowance.overageAllowed) {
-      left = 0
-      chosen.push({ ...r, overage: true })
-    } else break
-  }
-  return chosen
+  let left = allowance.active ? allowance.remainingParts - reservedParts : 0
+  if (left <= 0) return []
+  return reachable.map((r) => {
+    left -= parts
+    return { ...r, overage: left < 0 }
+  })
 }

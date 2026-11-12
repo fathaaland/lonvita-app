@@ -439,7 +439,7 @@ export function EventForm({
         )}
         {smsWithheld && (
           <p className="text-xs text-warning mt-1.5">
-            U akce pro {SMS_LARGE_EVENT_CAPACITY} a více lidí (i s neomezenou kapacitou) se SMS neposílají — o zrušení či změně dostanou účastníci upozornění pouze e-mailem a v aplikaci.
+            U akce pro {SMS_LARGE_EVENT_CAPACITY} a více lidí (i s neomezenou kapacitou) se SMS neposílají — o zrušení dostanou účastníci upozornění pouze e-mailem a v aplikaci.
           </p>
         )}
       </div>

@@ -4,9 +4,7 @@ import {
   changedNotifiableFields,
   getEventRegistrants,
 } from '@/collections/shared/eventNotifications'
-import { escapeHtml, sendNotificationToMany, sendSmsToMany, type SmsOutcome } from '@/collections/shared/notify'
-import { reportSmsShortfall } from '@/lib/billing/sms-shortfall'
-import { smsSentForCapacity } from '@/lib/capacity'
+import { escapeHtml, sendNotificationToMany } from '@/collections/shared/notify'
 import { rescheduleEventReminders } from '@/collections/shared/reminders'
 import { formatPragueDateTime } from '@/lib/date'
 import { logger } from '@/lib/logger'
@@ -14,16 +12,13 @@ import { logger } from '@/lib/logger'
 import { getWorkerPayload } from '../runtime/payload'
 
 import type { EventUpdatedJobData, EventUpdatedJobResult } from '@/lib/queue/contracts'
-import { relationNumber, requiredRelationNumber } from '@/lib/relations'
-
-/** What moving makes worth an SMS (Balíčky služeb: "změna času nebo místa") — not every edit. */
-const SMS_FIELDS = new Set(['dateTime', 'locationText', 'lat', 'lng'])
+import { requiredRelationNumber } from '@/lib/relations'
 
 type DispatchContext = { jobId?: string }
 
 /**
- * "Akce byla upravena" for every registrant — in-app and e-mail, and by SMS when its time or place
- * moved on an event of fewer than SMS_LARGE_EVENT_CAPACITY places. Runs a minute after the
+ * "Akce byla upravena" for every registrant — in-app and e-mail; never by SMS (Lonvita texts only a
+ * cancellation, lib/billing/sms). Runs a minute after the
  * first edit of a burst and diffs the event as it is now against that edit's starting point, so
  * a rolled-back edit, or one undone straight away, tells nobody anything.
  *
@@ -90,29 +85,6 @@ export const processEventUpdatedJob = async (
     { jobIdPrefix: announcementId },
   )
 
-  const municipalityId = relationNumber(event.municipality)
-  const smsWorthy = changedFields.some((field) => SMS_FIELDS.has(field))
-  const sms: SmsOutcome =
-    smsWorthy && municipalityId !== null && smsSentForCapacity(event.capacity)
-      ? await sendSmsToMany(
-          payload,
-          municipalityId,
-          userIds,
-          `Lonvita: akce „${event.title}“ se změnila. Nově: ${when}, ${event.locationText}.`,
-          announcementId,
-        )
-      : { wanted: 0, queued: 0, withheld: 0 }
-  if (municipalityId !== null) {
-    await reportSmsShortfall(payload, {
-      municipalityId,
-      organizerId: relationNumber(event.organizer),
-      eventTitle: event.title,
-      kind: 'update',
-      outcome: sms,
-      dedupPrefix: announcementId,
-    })
-  }
-
   logger.info('Event update announced', {
     event: 'event.update_notified',
     eventId: event.id,
@@ -120,8 +92,6 @@ export const processEventUpdatedJob = async (
     registrants: userIds.length,
     inApp: sent.inApp,
     emails: sent.emails,
-    sms: sms.queued,
-    smsWithheld: sms.withheld,
   })
   return { notified: userIds.length }
 }

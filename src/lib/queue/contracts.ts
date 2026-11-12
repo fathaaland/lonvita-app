@@ -63,11 +63,9 @@ export type SmsJobData = {
   /** The obec whose SMS it is — counted against its yearly SMS quota (SmsMessages). Optional: jobs
    * queued before it existed carry none. */
   municipalityId?: number
-  /** Past the obec's quota, sent because it allows overage — billed at the year's end. */
+  /** Only on jobs queued before 12. 11. 2026 (past the quota when queued; held no reservation). The
+   * ledger decides what's overage now (lib/billing/sms-ledger). */
   overage?: boolean
-  /** A day-before reminder — leaves the quota's announcement reserve alone (lib/billing/sms).
-   * Absent: an announcement (a cancel, a change of time or place). */
-  purpose?: 'reminder'
 }
 
 /**
@@ -79,6 +77,8 @@ export type SmsJobData = {
  * fire 24 h before the event, with a fixed job id per registration (collections/shared/reminders).
  * Everything is checked again when it fires: still approved, the event still on and small enough.
  */
+/** The day-before SMS reminder, discontinued 12. 11. 2026 (SMS go out only on a cancellation). Only
+ * jobs delayed before then still arrive — the worker drops them unsent. */
 export type ReminderSmsJobData = { registrationId: number | string }
 export type ReminderSmsJobResult = { sent: number; skipped?: string }
 
