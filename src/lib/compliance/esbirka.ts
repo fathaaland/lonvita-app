@@ -5,13 +5,10 @@
  *
  * GET {base}/dokumenty-sbirky/{staleUrl}/historie (the versions) and …/souvislosti (amending and
  * repealing acts), staleUrl "/sb/{rok}/{cislo}" URL-encoded whole.
- * With ESBIRKA_API_KEY set: the official public REST API (api.e-sbirka.gov.cz, header
- * esel-api-access-key — the key is granted by MV ČR on request, see e-sbirka.gov.cz/restful-api).
- * Without it: the portal's own public cache (e-sbirka.gov.cz/sbr-cache), the same data with no key —
- * a few requests a night, one at a time.
+ * Read from the portal's own public cache (e-sbirka.gov.cz/sbr-cache), no key — a few requests a
+ * night, one at a time.
  */
 
-const API_BASE = 'https://api.e-sbirka.gov.cz'
 const PUBLIC_BASE = 'https://e-sbirka.gov.cz/sbr-cache'
 const USER_AGENT = 'Lonvita-compliance-watch/1.0 (+https://lonvita.cz)'
 const TIMEOUT_MS = 20_000
@@ -57,9 +54,7 @@ async function getJson(code: string, suffix: string, fetchImpl: typeof fetch): P
       false,
     )
   }
-  const key = process.env.ESBIRKA_API_KEY?.trim()
-  const base = key ? API_BASE : PUBLIC_BASE
-  const url = `${base}/dokumenty-sbirky/${encodeURIComponent(staleUrl)}/${suffix}`
+  const url = `${PUBLIC_BASE}/dokumenty-sbirky/${encodeURIComponent(staleUrl)}/${suffix}`
 
   let res: Response
   try {
@@ -67,7 +62,6 @@ async function getJson(code: string, suffix: string, fetchImpl: typeof fetch): P
       headers: {
         Accept: 'application/json',
         'User-Agent': USER_AGENT,
-        ...(key ? { 'esel-api-access-key': key } : {}),
       },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
@@ -75,8 +69,6 @@ async function getJson(code: string, suffix: string, fetchImpl: typeof fetch): P
     throw new EsbirkaError('e-Sbírka neodpověděla.', true)
   }
   if (res.status === 404) throw new EsbirkaError(`Předpis ${code} v e-Sbírce není.`, false)
-  if (res.status === 401)
-    throw new EsbirkaError('e-Sbírka odmítla API klíč (ESBIRKA_API_KEY).', false)
   if (!res.ok) {
     throw new EsbirkaError(
       `e-Sbírka vrátila chybu ${res.status}.`,

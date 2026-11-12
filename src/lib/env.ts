@@ -55,11 +55,6 @@ const ENV_VARS: EnvVar[] = [
     description: 'BulkGate — SMS (cancellations, changes, reminders); none go out without it',
     required: false,
   },
-  {
-    key: 'ESBIRKA_API_KEY',
-    description: 'e-Sbírka API — the nightly legal compliance check (Compliance in the superadmin panel)',
-    required: false,
-  },
   { key: 'SENTRY_DSN', description: 'Sentry — errors of the server and the worker', required: false },
   {
     key: 'OPS_DISCORD_WEBHOOK_URL',
