@@ -51,6 +51,7 @@ import * as migration_20261109_220000_audit_register_wording from './20261109_22
 import * as migration_20261110_120000_security_events_guard from './20261110_120000_security_events_guard';
 import * as migration_20261112_085410_scraping_pricing from './20261112_085410_scraping_pricing';
 import * as migration_20261112_120543_drop_sms_overage_allowed from './20261112_120543_drop_sms_overage_allowed';
+import * as migration_20261113_181853_age_15_plus_declaration from './20261113_181853_age_15_plus_declaration';
 
 export const migrations = [
   {
@@ -316,6 +317,11 @@ export const migrations = [
   {
     up: migration_20261112_120543_drop_sms_overage_allowed.up,
     down: migration_20261112_120543_drop_sms_overage_allowed.down,
-    name: '20261112_120543_drop_sms_overage_allowed'
+    name: '20261112_120543_drop_sms_overage_allowed',
+  },
+  {
+    up: migration_20261113_181853_age_15_plus_declaration.up,
+    down: migration_20261113_181853_age_15_plus_declaration.down,
+    name: '20261113_181853_age_15_plus_declaration'
   },
 ];

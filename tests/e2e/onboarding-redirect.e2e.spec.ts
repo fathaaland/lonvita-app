@@ -20,6 +20,7 @@ async function register(page: Page) {
   await page.fill('#email', NEW_USER.email)
   await page.fill('#password', NEW_USER.password)
   await page.getByText('Souhlasím s podmínkami používání Lonvity.').click()
+  await page.getByText('Prohlašuji, že je mi alespoň 15 let.').click()
   await page.getByRole('button', { name: 'Vytvořit účet' }).click()
   await expect(page.getByText(/Účet vytvořen/)).toBeVisible({ timeout: 15000 })
 }

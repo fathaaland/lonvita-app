@@ -19,6 +19,8 @@ type RegisterBody = {
   municipality?: string | null
   noMunicipality?: boolean
   consentAccepted?: boolean
+  /** "Je mi alespoň 15 let" — required, recorded as an `age_15_plus` row in Consents. */
+  ageConfirmed?: boolean
   marketingConsent?: boolean
   turnstileToken?: string
 }
@@ -41,6 +43,9 @@ const validate = (body: RegisterBody): string | null => {
   }
   if (!body.consentAccepted) {
     return 'You must agree to the terms to create an account.'
+  }
+  if (body.ageConfirmed !== true) {
+    return 'You must confirm you are at least 15 years old.'
   }
   return null
 }
@@ -115,6 +120,11 @@ export async function POST(request: Request) {
     await payload.create({
       collection: 'consents',
       data: { user: payloadUser.id, type: 'platform_terms', version: CONSENT_VERSION, grantedAt },
+      overrideAccess: true,
+    })
+    await payload.create({
+      collection: 'consents',
+      data: { user: payloadUser.id, type: 'age_15_plus', version: CONSENT_VERSION, grantedAt },
       overrideAccess: true,
     })
     if (marketingConsent) {

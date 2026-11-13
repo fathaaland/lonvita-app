@@ -5,6 +5,7 @@ import { Check, Pencil, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { getEventCategories, listMunicipalities, updateProfile, type MunicipalityRow } from "@/integrations/payload/queries";
 import { MunicipalityPicker } from "@/components/map/MunicipalityPicker";
+import { latestBirthDateInputValue } from "@/lib/date";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,10 +80,12 @@ export function PersonalDetailsCard() {
   // the number here would quietly undo what onboarding asked for.
   const phoneValid = isValidPhone(phone);
   const obecValid = !canChangeObec || noMunicipality || municipality !== "";
+  const maxDob = latestBirthDateInputValue();
+  const dobValid = !dob || dob <= maxDob;
   const nextMunicipality = noMunicipality ? null : municipality || null;
 
   const save = async () => {
-    if (!profile || !phoneValid || !obecValid) return;
+    if (!profile || !phoneValid || !obecValid || !dobValid) return;
     setSaving(true);
     try {
       await updateProfile(profile.id, {
@@ -180,11 +183,14 @@ export function PersonalDetailsCard() {
                 id="details-dob"
                 type="date"
                 value={dob}
-                max="2000-12-31"
-                min="1920-01-01"
+                max={maxDob}
+                min="1900-01-01"
                 onChange={(e) => setDob(e.target.value)}
                 className="h-12 text-base"
               />
+              {!dobValid && (
+                <p className="text-xs text-destructive">Účet může mít osoba, které je alespoň 15 let.</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -233,7 +239,7 @@ export function PersonalDetailsCard() {
             <Button variant="outline" className="h-12" onClick={() => setEditing(false)} disabled={saving}>
               Zrušit
             </Button>
-            <Button className="h-12" onClick={save} disabled={saving || !phoneValid || !obecValid}>
+            <Button className="h-12" onClick={save} disabled={saving || !phoneValid || !obecValid || !dobValid}>
               {saving ? "Ukládám…" : "Uložit"}
             </Button>
           </DialogFooter>

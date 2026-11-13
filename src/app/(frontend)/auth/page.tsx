@@ -51,6 +51,9 @@ const signUpSchema = z
     consent_accepted: z
       .boolean()
       .refine((v) => v === true, 'Musíte souhlasit s podmínkami používání'),
+    age_confirmed: z
+      .boolean()
+      .refine((v) => v === true, 'Účet si může založit jen osoba, které je alespoň 15 let'),
   })
   .refine((v) => v.no_municipality || v.municipality.length > 0, {
     message: 'Vyberte svou obec — klepněte na pole „Vaše obec“ a najděte ji na mapě.',
@@ -74,6 +77,7 @@ function AuthPageContent() {
     Pick<MunicipalityRow, 'id' | 'name' | 'lat' | 'lng'>[]
   >([])
   const [consentAccepted, setConsentAccepted] = useState(false)
+  const [ageConfirmed, setAgeConfirmed] = useState(false)
   const [marketingConsent, setMarketingConsent] = useState(false)
   const [loading, setLoading] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -122,6 +126,7 @@ function AuthPageContent() {
         municipality,
         no_municipality: noMunicipality,
         consent_accepted: consentAccepted,
+        age_confirmed: ageConfirmed,
       })
       if (!parsed.success) {
         toast.error(parsed.error.issues[0].message)
@@ -136,6 +141,7 @@ function AuthPageContent() {
           municipality: parsed.data.no_municipality ? null : parsed.data.municipality,
           noMunicipality: parsed.data.no_municipality,
           consentAccepted: parsed.data.consent_accepted,
+          ageConfirmed: parsed.data.age_confirmed,
           marketingConsent,
           turnstileToken,
         })
@@ -321,6 +327,14 @@ function AuthPageContent() {
                   Lonvity a beru na vědomí{" "}
                   <a href="/zasady-ochrany-osobnich-udaju" target="_blank" rel="noopener" className="underline underline-offset-2">zásady ochrany osobních údajů</a>.
                 </span>
+              </label>
+              <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+                <Checkbox
+                  checked={ageConfirmed}
+                  onCheckedChange={(v) => setAgeConfirmed(v === true)}
+                  className="mt-0.5"
+                />
+                <span>Prohlašuji, že je mi alespoň 15 let.</span>
               </label>
               <label className="flex items-start gap-2.5 text-sm cursor-pointer">
                 <Checkbox

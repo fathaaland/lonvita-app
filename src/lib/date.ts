@@ -45,6 +45,17 @@ export function toDateInputValue(date: Date | string = new Date()): string {
   return pragueDateKey(typeof date === "string" ? date : date.toISOString());
 }
 
+/** Minimum age of an account holder — the "je mi alespoň 15 let" declaration (Consents age_15_plus). */
+export const MIN_ACCOUNT_AGE_YEARS = 15;
+
+/** The latest birth date an account holder can have: today in Prague, 15 years back, as YYYY-MM-DD —
+ * the `max` of a date-of-birth input, and comparable as a string. 29 February falls back to the 28th. */
+export function latestBirthDateInputValue(now: Date = new Date()): string {
+  const [year, month, day] = toDateInputValue(now).split("-");
+  const monthDay = `${month}-${day}` === "02-29" ? "02-28" : `${month}-${day}`;
+  return `${Number(year) - MIN_ACCOUNT_AGE_YEARS}-${monthDay}`;
+}
+
 /** "HH:MM" in Prague — for an `<input type="time">`. */
 export function toTimeInputValue(iso: string): string {
   const p = pragueParts(iso);

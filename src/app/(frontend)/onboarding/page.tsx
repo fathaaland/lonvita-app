@@ -4,7 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   acceptPlatformTerms,
+  declareAge15Plus,
   getEventCategories,
+  hasAgeDeclaration,
   hasPlatformTermsConsent,
   listMunicipalities,
   MunicipalityRow,
@@ -28,6 +30,7 @@ import { ArrowRight, ArrowLeft, Check, LogOut, Phone } from "lucide-react";
 import { SignOutButton } from "@/components/SignOutButton";
 import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
+import { latestBirthDateInputValue } from "@/lib/date";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
 
@@ -64,6 +67,9 @@ function OnboardingContent() {
   const [needsTerms, setNeedsTerms] = useState<boolean | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
+  // Same for the "15+" declaration (Consents age_15_plus). null until known; true = none on record.
+  const [needsAge, setNeedsAge] = useState<boolean | null>(null);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
 
   useEffect(() => {
     getEventCategories().then(setCats);
@@ -85,6 +91,9 @@ function OnboardingContent() {
       .then((has) => setNeedsTerms(!has))
       // Can't tell — ask; a second consent row is harmless, a missing one isn't.
       .catch(() => setNeedsTerms(true));
+    hasAgeDeclaration(String(user.id))
+      .then((has) => setNeedsAge(!has))
+      .catch(() => setNeedsAge(true));
   }, [user?.id]);
 
   // Prefill from the profile — an account created by a superadmin may already carry some of this.
@@ -117,6 +126,10 @@ function OnboardingContent() {
         await acceptPlatformTerms(String(user.id), { marketing: marketingConsent });
         setNeedsTerms(false);
       }
+      if (needsAge) {
+        await declareAge15Plus(String(user.id));
+        setNeedsAge(false);
+      }
       if (needsMunicipality && municipality && !noMunicipality) {
         await setOnboardingMunicipality(municipality);
       }
@@ -138,12 +151,14 @@ function OnboardingContent() {
     }
   };
 
-  if (authLoading || needsMunicipality === null || needsTerms === null) return <Loading />;
+  if (authLoading || needsMunicipality === null || needsTerms === null || needsAge === null) return <Loading />;
 
   const current: StepKey = steps[step];
+  const maxDob = latestBirthDateInputValue();
+  const dobTooRecent = !!dob && dob > maxDob;
   const canNext =
     (current === "municipality" && (noMunicipality || !!municipality)) ||
-    (current === "dob" && !!dob) ||
+    (current === "dob" && !!dob && !dobTooRecent) ||
     // "Raději neuvedu" is a valid answer too — only an untouched step blocks.
     (current === "gender" && gender !== null) ||
     current === "interests" ||
@@ -221,11 +236,14 @@ function OnboardingContent() {
                     id="dob"
                     type="date"
                     value={dob}
-                    max="2000-12-31"
-                    min="1920-01-01"
+                    max={maxDob}
+                    min="1900-01-01"
                     onChange={(e) => setDob(e.target.value)}
                     className="h-12 text-base"
                   />
+                  {dobTooRecent && (
+                    <p className="text-xs text-destructive">Účet může mít osoba, které je alespoň 15 let.</p>
+                  )}
                 </div>
               </>
             )}
@@ -319,6 +337,16 @@ function OnboardingContent() {
                     <p className="text-xs text-destructive">{INVALID_PHONE_MESSAGE}</p>
                   )}
                 </div>
+                {needsAge && (
+                  <label className="flex items-start gap-2.5 text-sm cursor-pointer pt-2">
+                    <Checkbox
+                      checked={ageConfirmed}
+                      onCheckedChange={(v) => setAgeConfirmed(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span>Prohlašuji, že je mi alespoň 15 let.</span>
+                  </label>
+                )}
                 {needsTerms && (
                   <div className="space-y-2.5 pt-2">
                     <label className="flex items-start gap-2.5 text-sm cursor-pointer">
@@ -364,7 +392,7 @@ function OnboardingContent() {
             Pokračovat <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button className="h-12" onClick={finish} disabled={!canNext || saving || (needsTerms === true && !termsAccepted)}>
+          <Button className="h-12" onClick={finish} disabled={!canNext || saving || (needsTerms === true && !termsAccepted) || (needsAge === true && !ageConfirmed)}>
             {saving ? "Ukládám…" : "Dokončit"} <Check className="h-4 w-4" />
           </Button>
         )}

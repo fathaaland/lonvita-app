@@ -47,6 +47,10 @@ export const Consents: CollectionConfig = {
       options: [
         { label: 'Podmínky platformy', value: 'platform_terms' },
         { label: 'Marketingová komunikace', value: 'marketing' },
+        // A declaration, not a consent: the account holder says they are 15 or older — the age
+        // § 7 of zákon 110/2019 Sb. sets for accepting an information-society service on one's own.
+        // Nothing checks it further; the row records who declared it, when and to which text.
+        { label: 'Prohlášení: věk 15+', value: 'age_15_plus' },
       ],
       admin: {
         description: 'Schema allows more types later (wellbeing_measurement, media_publication…) without a migration — see ERD §2.4.',

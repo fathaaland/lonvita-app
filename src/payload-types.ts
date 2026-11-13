@@ -645,7 +645,7 @@ export interface Consent {
   /**
    * Schema allows more types later (wellbeing_measurement, media_publication…) without a migration — see ERD §2.4.
    */
-  type: 'platform_terms' | 'marketing';
+  type: 'platform_terms' | 'marketing' | 'age_15_plus';
   /**
    * Version of the consent text the user agreed to, e.g. "1.0".
    */

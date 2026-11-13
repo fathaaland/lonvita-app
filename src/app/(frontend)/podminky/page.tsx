@@ -19,7 +19,7 @@ export default function TermsPage() {
       <section>
         <h2>Účet</h2>
         <ul>
-          <li>Účet může mít osoba, které je alespoň 15 let. Registrací to potvrzujete.</li>
+          <li>Účet může mít osoba, které je alespoň 15 let. Při registraci to výslovně prohlašujete.</li>
           <li>Údaje v profilu uvádějte pravdivě. Za zneužití přihlašovacích údajů odpovídáte, pokud jste je nechránili.</li>
           <li>Účet můžete kdykoli smazat v profilu. Smazat ho nelze, dokud pořádáte akce, které ještě neproběhly, nebo
             jste jediným správcem obce.</li>

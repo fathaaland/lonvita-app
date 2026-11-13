@@ -20,6 +20,49 @@ import { getEventTeamUserIds, sendNotificationToMany } from './shared/notify'
 import { PARTICIPANTS_ONLY } from './Registrations'
 import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
 import { requiredRelationNumber } from '@/lib/relations'
+import { latestBirthDateInputValue, toDateInputValue } from '@/lib/date'
+
+const UNDER_15_MESSAGE = 'Účet může mít osoba, které je alespoň 15 let.'
+
+/** The date of birth can't make the account holder younger than 15 (or not born yet) — whoever
+ * writes it, the superadmin included: the forms limit the date picker, this is what the API holds to. */
+const validateDateOfBirth = (value: unknown): true | string => {
+  if (!value) return true
+  const day = toDateInputValue(value instanceof Date ? value : String(value))
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return 'Zadejte platné datum narození.'
+  if (day < '1900-01-01') return 'Zadejte platné datum narození.'
+  if (day > latestBirthDateInputValue()) return UNDER_15_MESSAGE
+  return true
+}
+
+/**
+ * Finishing onboarding needs the "je mi alespoň 15 let" declaration on record (Consents
+ * age_15_plus, not revoked). The e-mail sign-up records it on registration; a Google sign-up makes it
+ * on onboarding's last step — this keeps a direct PATCH from skipping that step. Only the account
+ * holder is held to it: a superadmin finishing onboarding for an account they look after isn't.
+ */
+const requireAgeDeclarationToFinishOnboarding: CollectionBeforeChangeHook = async ({ data, originalDoc, req }) => {
+  if (data.onboardingCompleted !== true || originalDoc?.onboardingCompleted === true) return data
+  if (!req.user || req.user.role === 'admin') return data
+  const owner = data.user ?? originalDoc?.user
+  if (!owner) return data
+  const declared = await req.payload.count({
+    collection: 'consents',
+    where: {
+      and: [
+        { user: { equals: requiredRelationNumber(owner) } },
+        { type: { equals: 'age_15_plus' } },
+        { revokedAt: { exists: false } },
+      ],
+    },
+    overrideAccess: true,
+    req,
+  })
+  if (declared.totalDocs === 0) {
+    throw new APIError('Potvrďte prosím, že je vám alespoň 15 let.', 400, undefined, true)
+  }
+  return data
+}
 
 /** Whether another account already has `phone` (E.164) — the superadmin's create-user route asks
  * before it creates anything, the hook below on every write. */
@@ -322,6 +365,7 @@ export const Profiles: CollectionConfig = {
       name: 'dateOfBirth',
       type: 'date',
       access: { read: canReadDateOfBirth },
+      validate: validateDateOfBirth,
     },
     {
       // Set by shared/anonymizeUser in place of the date of birth, which goes — the obec's overview
@@ -419,7 +463,7 @@ export const Profiles: CollectionConfig = {
     deletedAtField,
   ],
   hooks: {
-    beforeChange: [validateVolunteerContact, ensureUniquePhone],
+    beforeChange: [validateVolunteerContact, ensureUniquePhone, requireAgeDeclarationToFinishOnboarding],
     afterChange: [handleLeavingPool, acceptPoolInvitations],
   },
   timestamps: true,

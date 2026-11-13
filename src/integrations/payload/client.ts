@@ -277,6 +277,8 @@ type RegisterInput = {
   municipality: string | null;
   noMunicipality: boolean;
   consentAccepted: boolean;
+  /** "Je mi alespoň 15 let" — the server refuses the registration without it. */
+  ageConfirmed: boolean;
   marketingConsent: boolean;
   /** Cloudflare Turnstile (components/Turnstile) — omitted where it isn't configured. */
   turnstileToken?: string | null;

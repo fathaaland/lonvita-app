@@ -5,6 +5,7 @@ import {
   formatEventDate,
   formatEventTime,
   isToday,
+  latestBirthDateInputValue,
   nextDateInputValue,
   pragueStartOfDay,
   pragueWallTimeToDate,
@@ -60,5 +61,16 @@ describe('Dates in Prague time (lib/date)', () => {
     expect(days.find((d) => d.day === 'Ne')!.events).toBe(1)
     // Birthday on 8 Nov: 50 already at 00:30 on 8 Nov in Prague.
     expect(ageOn('1976-11-08T00:00:00.000Z', new Date(lateEvening))).toBe(50)
+  })
+})
+
+describe('latestBirthDateInputValue (15+ date-of-birth limit)', () => {
+  it('is today in Prague, 15 years back', () => {
+    // 23:30 UTC on 13 Nov is already 14 Nov in Prague.
+    expect(latestBirthDateInputValue(new Date('2026-11-13T23:30:00.000Z'))).toBe('2011-11-14')
+  })
+
+  it('falls back to 28 February from a leap day', () => {
+    expect(latestBirthDateInputValue(new Date('2028-02-29T12:00:00.000Z'))).toBe('2013-02-28')
   })
 })

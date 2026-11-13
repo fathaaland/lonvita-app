@@ -1945,6 +1945,26 @@ export async function hasPlatformTermsConsent(userId: string): Promise<boolean> 
   return Boolean(latest && !latest.revokedAt)
 }
 
+/** Whether the user has declared they are 15 or older — the e-mail sign-up records it on registration;
+ * a Google sign-up (and an account from before the declaration existed) is asked in onboarding. */
+export async function hasAgeDeclaration(userId: string): Promise<boolean> {
+  const where = buildWhereParams({ user: { equals: userId }, type: { equals: 'age_15_plus' } })
+  const query = buildQuery({ sort: '-createdAt', limit: 1, depth: 0 })
+  const result = await get<PayloadListResponse<PayloadConsent>>(`/consents?${where}&${query}`)
+  const latest = result.docs[0]
+  return Boolean(latest && !latest.revokedAt)
+}
+
+/** Records the user's declaration "je mi alespoň 15 let". */
+export async function declareAge15Plus(userId: string): Promise<void> {
+  await post('/consents', {
+    user: Number(userId),
+    type: 'age_15_plus',
+    version: CONSENT_VERSION,
+    grantedAt: new Date().toISOString(),
+  })
+}
+
 /** Records the user's acceptance of the platform terms (and, if they asked, marketing). */
 export async function acceptPlatformTerms(userId: string, { marketing = false } = {}): Promise<void> {
   const grantedAt = new Date().toISOString()
