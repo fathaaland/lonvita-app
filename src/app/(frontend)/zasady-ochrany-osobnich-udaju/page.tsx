@@ -15,14 +15,28 @@ export default function PrivacyPolicyPage() {
       </p>
 
       <section>
-        <h2>Kdo je správce</h2>
+        <h2>Kdo je správce a kdo zpracovatel</h2>
+        <p>Lonvita plní dvě role podle toho, o jaké údaje jde.</p>
         <p>
-          {LEGAL_ENTITY.name}, {LEGAL_ENTITY.address}, IČO {LEGAL_ENTITY.idNumber}. Se vším kolem svých údajů se na nás
-          můžete obrátit na {LEGAL_ENTITY.privacyEmail}.
+          <strong>Lonvita jako správce.</strong> {LEGAL_ENTITY.name}, {LEGAL_ENTITY.address}, IČO{' '}
+          {LEGAL_ENTITY.idNumber}, je správcem údajů o vašem účtu a jeho zabezpečení: e-mail, heslo (uložené jen jako
+          nevratný otisk), identifikátor účtu Google, nastavení profilu a záznamy o činnosti (přihlášení, odhlášení,
+          změny oprávnění). Tyto údaje zpracováváme, abychom vám mohli poskytovat službu a chránit ji před zneužitím.
         </p>
         <p>
-          Obec, v jejímž okruhu platformu používáte, vidí údaje o přihlášených na své akce a o dobrovolnících ve své
+          <strong>Lonvita jako zpracovatel pro obec.</strong> Údaje o akcích obce a o účasti na nich zpracováváme pro
+          obec, v jejímž okruhu platformu používáte. To jsou přihlášky na akce, docházka, seznamy dobrovolníků,
+          hodnocení a zprávy o akcích, včetně SMS o zrušení akce. O účelu a způsobu zpracování těchto údajů rozhoduje
+          obec, která je jejich správcem. My je zpracováváme jen na základě její smlouvy a pokynů.
+        </p>
+        <p>
+          <strong>Kdo vidí vaše údaje.</strong> Obec vidí údaje o přihlášených na své akce a o dobrovolnících ve své
           obci. Pořadatel akce vidí přihlášené na svou akci.
+        </p>
+        <p>
+          <strong>Komu se obrátit.</strong> S žádostí o přístup, opravu nebo výmaz údajů ze svého účtu nás kontaktujte
+          na {LEGAL_ENTITY.privacyEmail}. U údajů o účasti na akcích obce nám žádost také pošlete, předáme ji obci a
+          pomůžeme jí vyřídit ji. Stížnost můžete podat u Úřadu pro ochranu osobních údajů (uoou.gov.cz).
         </p>
       </section>
 

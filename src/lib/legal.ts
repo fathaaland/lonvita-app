@@ -5,14 +5,14 @@
  */
 export const LEGAL_ENTITY = {
   /** Provozovatel a správce osobních údajů. */
-  name: '[DOPLNIT: obchodní firma / jméno provozovatele]',
-  address: '[DOPLNIT: sídlo]',
-  idNumber: '[DOPLNIT: IČO]',
+  name: 'Lonvita platform s.r.o.',
+  address: 'Makovského 1558/11, Žďár nad Sázavou 7, 591 01 Žďár nad Sázavou',
+  idNumber: '29995001',
   /** The address people write to about their data. */
-  privacyEmail: '[DOPLNIT: e-mail pro věci osobních údajů]',
+  privacyEmail: 'info@lonvita.cz',
 } as const
 
-export const LEGAL_DOCUMENT_VERSION = '1.0'
+export const LEGAL_DOCUMENT_VERSION = '1.1'
 
 export const legalIsDraft = Object.values(LEGAL_ENTITY).some((value) => value.startsWith('[DOPLNIT'))
 
