@@ -89,13 +89,17 @@ export default function PrivacyPolicyPage() {
         <ul>
           {PROCESSORS.map((processor) => (
             <li key={processor.name}>
-              <strong>{processor.name}</strong> — {processor.purpose} ({processor.where}).
+              <strong>{processor.name}</strong> — {processor.purpose} ({processor.where}
+              {processor.transfer ? `; předání do USA: ${processor.transfer}` : ''}).
             </li>
           ))}
         </ul>
         <p>
-          Při předání mimo EU se opíráme o rozhodnutí Evropské komise o odpovídající ochraně (rámec EU–USA pro ochranu
-          soukromí) nebo o standardní smluvní doložky. Údaje neprodáváme a nepoužíváme je k reklamě.
+          Předání do USA má u každé služby výše uvedený právní základ: rozhodnutí Evropské komise o odpovídající
+          ochraně (rámec EU–USA pro ochranu osobních údajů, čl. 45 GDPR) u certifikovaných společností, nebo standardní
+          smluvní doložky schválené Evropskou komisí (čl. 46 GDPR), které jsou součástí zpracovatelské smlouvy se
+          službou. Totéž platí u služeb s mateřskou společností v USA, které údaje ukládají v EU, pro případ přístupu
+          z USA. Údaje neprodáváme a nepoužíváme je k reklamě.
         </p>
       </section>
 
