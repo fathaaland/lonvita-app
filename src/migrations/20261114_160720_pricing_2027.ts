@@ -10,30 +10,30 @@ export async function up({ db, payload, req }: MigrateUpArgs): Promise<void> {
   ALTER TABLE "billing_settings" ALTER COLUMN "scraping_extra_source_price_czk" DROP NOT NULL;
   ALTER TABLE "billing_settings" ALTER COLUMN "scraping_twice_weekly_price_czk" DROP DEFAULT;
   ALTER TABLE "billing_settings" ALTER COLUMN "scraping_twice_weekly_price_czk" DROP NOT NULL;
-  ALTER TABLE "users" ADD COLUMN "last_seen_at" timestamp(3) with time zone;
-  ALTER TABLE "municipalities" ADD COLUMN "population" numeric;
-  ALTER TABLE "municipalities" ADD COLUMN "population_year" numeric;
-  ALTER TABLE "municipalities" ADD COLUMN "contract_start" timestamp(3) with time zone;
-  ALTER TABLE "municipalities" ADD COLUMN "contract_years" numeric DEFAULT 2;
-  ALTER TABLE "municipalities" ADD COLUMN "first_wave" boolean DEFAULT false;
-  ALTER TABLE "municipalities" ADD COLUMN "reference_discount" boolean DEFAULT false;
-  ALTER TABLE "municipalities" ADD COLUMN "price_index_percent" numeric;
-  ALTER TABLE "municipalities" ADD COLUMN "floor_exception_note" varchar;
-  ALTER TABLE "municipalities" ADD COLUMN "trial_ends_at" timestamp(3) with time zone;
-  ALTER TABLE "municipalities" ADD COLUMN "trial_reminder_state" varchar;
-  ALTER TABLE "municipalities" ADD COLUMN "licence_billed_tier" numeric;
-  ALTER TABLE "municipalities" ADD COLUMN "licence_billed_tier_period" varchar;
-  ALTER TABLE "municipalities" ADD COLUMN "licence_next_tier" numeric;
-  ALTER TABLE "municipalities" ADD COLUMN "licence_next_tier_period" varchar;
-  ALTER TABLE "municipalities" ADD COLUMN "licence_next_tier_users" numeric;
-  ALTER TABLE "billing_settings_licence_tiers" ADD COLUMN "max_population" numeric;
-  ALTER TABLE "billing_settings_licence_tiers" ADD COLUMN "floor_czk" numeric;
-  ALTER TABLE "billing_settings_licence_tiers" ADD COLUMN "implementation_fee_czk" numeric;
-  ALTER TABLE "billing_settings" ADD COLUMN "active_users_included_percent" numeric DEFAULT 5 NOT NULL;
-  ALTER TABLE "billing_settings" ADD COLUMN "growth_cap_czk" numeric DEFAULT 200000 NOT NULL;
-  ALTER TABLE "billing_settings" ADD COLUMN "three_year_discount_percent" numeric DEFAULT 5 NOT NULL;
-  ALTER TABLE "billing_settings" ADD COLUMN "reference_implementation_discount_percent" numeric DEFAULT 50 NOT NULL;
-  CREATE INDEX "users_last_seen_at_idx" ON "users" USING btree ("last_seen_at");`)
+  ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "last_seen_at" timestamp(3) with time zone;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "population" numeric;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "population_year" numeric;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "contract_start" timestamp(3) with time zone;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "contract_years" numeric DEFAULT 2;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "first_wave" boolean DEFAULT false;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "reference_discount" boolean DEFAULT false;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "price_index_percent" numeric;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "floor_exception_note" varchar;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "trial_ends_at" timestamp(3) with time zone;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "trial_reminder_state" varchar;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "licence_billed_tier" numeric;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "licence_billed_tier_period" varchar;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "licence_next_tier" numeric;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "licence_next_tier_period" varchar;
+  ALTER TABLE "municipalities" ADD COLUMN IF NOT EXISTS "licence_next_tier_users" numeric;
+  ALTER TABLE "billing_settings_licence_tiers" ADD COLUMN IF NOT EXISTS "max_population" numeric;
+  ALTER TABLE "billing_settings_licence_tiers" ADD COLUMN IF NOT EXISTS "floor_czk" numeric;
+  ALTER TABLE "billing_settings_licence_tiers" ADD COLUMN IF NOT EXISTS "implementation_fee_czk" numeric;
+  ALTER TABLE "billing_settings" ADD COLUMN IF NOT EXISTS "active_users_included_percent" numeric DEFAULT 5 NOT NULL;
+  ALTER TABLE "billing_settings" ADD COLUMN IF NOT EXISTS "growth_cap_czk" numeric DEFAULT 200000 NOT NULL;
+  ALTER TABLE "billing_settings" ADD COLUMN IF NOT EXISTS "three_year_discount_percent" numeric DEFAULT 5 NOT NULL;
+  ALTER TABLE "billing_settings" ADD COLUMN IF NOT EXISTS "reference_implementation_discount_percent" numeric DEFAULT 50 NOT NULL;
+  CREATE INDEX IF NOT EXISTS "users_last_seen_at_idx" ON "users" USING btree ("last_seen_at");`)
 }
 
 export async function down({ db, payload, req }: MigrateDownArgs): Promise<void> {
