@@ -13,7 +13,7 @@ import {
 import { licencePeriodOf } from '@/lib/billing/period'
 import { billingStatusOf, nextBillingStepAt, type BillingStatus } from '@/lib/billing/status'
 import { scrapingLimitsOf } from '@/lib/billing/scraping'
-import { countSmsParts, smsQuotaOf } from '@/lib/billing/sms'
+import { countSmsParts, smsHardLimitOf, smsQuotaOf } from '@/lib/billing/sms'
 
 /**
  * What the obec has bought and how much of it it used (Balíčky služeb, lib/billing): the yearly
@@ -52,6 +52,8 @@ export type MunicipalityServices = {
     enabled: boolean
     package: PackageKey
     quota: number
+    /** The most it may send — the quota plus the overage cap (lib/billing/sms smsHardLimitOf). */
+    hardLimit: number
     usedParts: number
     overageParts: number
     yearlyPriceCzk: number | null
@@ -170,6 +172,7 @@ export async function getMunicipalityServices(
       enabled: smsEnabled,
       package: smsPackage,
       quota: smsQuotaOf(m, catalog),
+      hardLimit: smsHardLimitOf(smsQuotaOf(m, catalog), catalog),
       usedParts: smsUsed.parts,
       overageParts: smsUsed.overageParts,
       yearlyPriceCzk: smsPrice,

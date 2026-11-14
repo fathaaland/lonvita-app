@@ -299,12 +299,16 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
     expect(cancellationSmsText('Žluťoučký kůň')).toBe('Lonvita: akce "Zlutoucky kun" byla zrusena.')
   })
 
-  it('a cancellation started within the quota goes out whole, the excess marked as overage — then the next is blocked', async () => {
+  it('a cancellation started within the quota goes out past it — but only up to the overage cap (50 %), then the next is blocked', async () => {
     const fresh = await freshObec('whole', { smsQuotaOverride: 3 })
     try {
-      // 3 SMS left, 6 people: the cancellation goes to all six — three within the quota, three as overage.
+      // Quota 3, cap 50 % → at most 4 SMS. Six people: the first four are texted (three within the
+      // quota, one as overage), the last two hear it by e-mail and in the app.
       vi.mocked(enqueueSms).mockClear()
-      expect(await cancel(fresh.id, smsRecipients, 'q1')).toEqual({ wanted: 6, queued: 6, withheld: 0 })
+      expect(await cancel(fresh.id, smsRecipients, 'q1')).toEqual({ wanted: 6, queued: 4, withheld: 2 })
+      expect(queuedSms().map((s) => s.requestId)).toEqual(
+        smsRecipients.slice(0, 4).map((id) => `event-cancelled-q1-${STAMP}-${id}`),
+      )
       expect(queuedSms().every((s) => !s.overage)).toBe(true) // decided by the ledger, not the job
       // They are queued, not sent yet — their reservation keeps a second cancellation out.
       vi.mocked(enqueueSms).mockClear()
@@ -324,13 +328,16 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
     }
   })
 
-  it('texts in the order given — the callers pass approved first, then by sign-up', async () => {
+  it('texts in the order given — the callers pass approved first, then by sign-up — and the cap cuts off the last', async () => {
     const fresh = await freshObec('order', { smsQuotaOverride: 2 })
     try {
       vi.mocked(enqueueSms).mockClear()
       const order = [...smsRecipients].reverse()
       await cancel(fresh.id, order, 'order')
-      expect(queuedSms().map((s) => s.requestId)).toEqual(order.map((id) => `event-cancelled-order-${STAMP}-${id}`))
+      // Quota 2 + 50 % → three SMS, the first three of the order.
+      expect(queuedSms().map((s) => s.requestId)).toEqual(
+        order.slice(0, 3).map((id) => `event-cancelled-order-${STAMP}-${id}`),
+      )
     } finally {
       await dropObec(fresh.id)
     }
@@ -387,7 +394,7 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
     }
   })
 
-  it('one cancellation at once goes out whole past the quota — counted exactly, none lost', async () => {
+  it('one cancellation at once goes past the quota only up to the cap — counted exactly, none lost', async () => {
     const fresh = await freshObec('ledger-whole', { smsQuotaOverride: 5 })
     try {
       const claims = await Promise.all(
@@ -395,10 +402,12 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
           claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-lw-${STAMP}-${i}`, parts: 1 }),
         ),
       )
+      // Quota 5, cap 50 % → 7 in all: five within the quota, two as overage, the other 13 refused.
       expect(claims.filter((c) => c.decision === 'send' && !c.overage)).toHaveLength(5)
-      expect(claims.filter((c) => c.decision === 'send' && c.overage)).toHaveLength(15)
+      expect(claims.filter((c) => c.decision === 'send' && c.overage)).toHaveLength(2)
+      expect(claims.filter((c) => c.decision === 'skip' && c.reason === 'overage_cap')).toHaveLength(13)
       const usage = await smsUsageOf(payload, fresh.id, new Date())
-      expect([usage.usedParts, usage.overageParts]).toEqual([20, 15])
+      expect([usage.usedParts, usage.overageParts, usage.hardLimit]).toEqual([7, 2, 7])
       // The next cancellation started with nothing left — refused, never recorded.
       expect(await claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-lw2-${STAMP}-1`, parts: 1 })).toEqual({
         decision: 'skip',
@@ -409,19 +418,18 @@ describe('Billing enforcement — the obec gets what it pays for', () => {
     }
   })
 
-  it('two cancellations decided at once by the ledger alone (no Redis): only one gets past the quota', async () => {
-    const fresh = await freshObec('ledger-two', { smsQuotaOverride: 1 })
+  it('two cancellations decided at once by the ledger alone (no Redis): together never past the cap', async () => {
+    const fresh = await freshObec('ledger-two', { smsQuotaOverride: 2 })
     try {
       const claims = await Promise.all(
         ['a', 'b'].flatMap((x) =>
           [1, 2, 3].map((i) => claimSmsParts(payload, { municipalityId: fresh.id, requestId: `event-cancelled-l2${x}-${STAMP}-${i}`, parts: 1 })),
         ),
       )
-      const sentA = claims.slice(0, 3).filter((c) => c.decision === 'send').length
-      const sentB = claims.slice(3).filter((c) => c.decision === 'send').length
-      // Whichever came first goes to all three; the other started with the quota used up — refused whole.
-      expect([sentA, sentB].filter((n) => n > 0)).toHaveLength(1)
-      expect(sentA + sentB).toBe(3)
+      const sent = claims.filter((c) => c.decision === 'send').length
+      // Quota 2 + 50 % → exactly 3 in all, however the two interleave; the rest are refused.
+      expect(sent).toBe(3)
+      expect((await smsUsageOf(payload, fresh.id, new Date())).usedParts).toBe(3)
     } finally {
       await dropObec(fresh.id)
     }

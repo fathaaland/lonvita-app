@@ -9,7 +9,7 @@ import {
 import { logger, serializeError } from '@/lib/logger'
 
 /**
- * After a cancellation was announced: if the obec's SMS quota was already used up, so those who chose
+ * After a cancellation was announced: if the obec's SMS quota (and the overage cap on it) was used up, so those who chose
  * SMS got none, its pořadatel and the obec's admins are told how many — so nobody assumes
  * everyone got a text. Those left out had the e-mail and the in-app notice all the same. Nothing
  * when everyone who wanted an SMS got one (overage included). Never throws.
@@ -40,7 +40,7 @@ export async function reportSmsShortfall(
     const what = 'o zrušení akce'
     const message =
       `SMS ${what} „${eventTitle}“ dostalo ${got} z ${outcome.wanted} lidí, kteří si SMS zvolili — ` +
-      `roční kvóta SMS obce už byla vyčerpaná. Zbylých ${outcome.withheld} dostalo upozornění e-mailem a v aplikaci. O navýšení balíčku si řekněte provozovateli Lonvity.`
+      `roční kvóta SMS obce (včetně povoleného přečerpání) byla vyčerpaná. Zbylých ${outcome.withheld} dostalo upozornění e-mailem a v aplikaci. O navýšení balíčku si řekněte provozovateli Lonvity.`
     await sendNotificationToMany(
       payload,
       userIds,

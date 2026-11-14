@@ -18,6 +18,7 @@ export type StoredCatalog = {
     Record<PackageKey, { quota?: number | null; yearlyPriceCzk?: number | null }>
   > | null
   smsOveragePriceCzk?: number | null
+  smsOverageCapPercent?: number | null
   scrapingPackages?: Partial<
     Record<PackageKey, { maxSources?: number | null; yearlyPriceCzk?: number | null }>
   > | null

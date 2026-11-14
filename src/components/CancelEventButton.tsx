@@ -177,6 +177,16 @@ function SmsPreviewNote({ preview }: { preview: Extract<EventSmsPreview, { sms: 
       </p>
     );
   }
+  // Past the overage cap only some are texted — the others still hear it by e-mail and in the app.
+  if (texted < wanted) {
+    return (
+      <p className="text-sm text-destructive">
+        SMS o zrušení dostane jen část z těch, kdo si ji zvolili (SMS: {texted} z {wanted}) — obec dosáhne stropu
+        přečerpání SMS. Ostatní se to dozvědí e-mailem a v aplikaci.
+        {overage ? ` Nad roční kvótu půjde: ${overage} (vyúčtuje se jako přečerpání).` : ""}
+      </p>
+    );
+  }
   return (
     <p className="text-sm text-muted-foreground">
       SMS o zrušení dostanou všichni, kdo si ji zvolili (počet: {texted}).

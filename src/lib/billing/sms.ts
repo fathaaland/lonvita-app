@@ -133,10 +133,20 @@ export async function countSmsParts(
   }
 }
 
+/**
+ * The most SMS parts an obec may send in its licence year: the quota plus the overage the platform
+ * allows (the catalog's smsOverageCapPercent of it, 50 % by default). Past it nobody is texted — one
+ * cancellation, or several, can't run the bill up without end.
+ */
+export const smsHardLimitOf = (quota: number, catalog: Pick<BillingCatalog, 'smsOverageCapPercent'>): number =>
+  quota + Math.floor((quota * Math.max(0, catalog.smsOverageCapPercent)) / 100)
+
 export type SmsUsage = {
   enabled: boolean
   suspended: boolean
   quota: number
+  /** The quota plus the overage cap — the most it may send (smsHardLimitOf). */
+  hardLimit: number
   usedParts: number
   overageParts: number
   period: LicencePeriod
@@ -157,6 +167,7 @@ export async function smsUsageOf(
     enabled: f.smsEnabled === true,
     suspended: servicesHeld(f.billingStatus),
     quota: smsQuotaOf(f, c),
+    hardLimit: smsHardLimitOf(smsQuotaOf(f, c), c),
     usedParts: used.parts,
     overageParts: used.overageParts,
     period,
@@ -167,7 +178,10 @@ export type SmsAllowance = {
   /** The obec has SMS and isn't suspended — without, nobody is texted and nothing is "withheld". */
   active: boolean
   quota: number
+  /** Parts left in the quota itself — what a cancellation needs to start. */
   remainingParts: number
+  /** Parts left up to the overage cap (smsHardLimitOf) — what it may send at most. */
+  remainingToCapParts: number
 }
 
 /**
@@ -180,15 +194,23 @@ export async function smsAllowanceOf(
   now: Date,
 ): Promise<SmsAllowance> {
   const usage = await smsUsageOf(payload, municipalityId, now)
-  if (!usage.enabled || usage.suspended) return { active: false, quota: usage.quota, remainingParts: 0 }
-  return { active: true, quota: usage.quota, remainingParts: Math.max(0, usage.quota - usage.usedParts) }
+  if (!usage.enabled || usage.suspended) {
+    return { active: false, quota: usage.quota, remainingParts: 0, remainingToCapParts: 0 }
+  }
+  return {
+    active: true,
+    quota: usage.quota,
+    remainingParts: Math.max(0, usage.quota - usage.usedParts),
+    remainingToCapParts: Math.max(0, usage.hardLimit - usage.usedParts),
+  }
 }
 
 /**
- * Who of `reachable` gets the cancellation SMS. A cancellation that starts while the obec has any part
- * left (after those held by SMS already queued) goes to everyone it concerns — those past the quota
- * marked as overage, billed by the contract's terms; once nothing is left, nobody. Then the obec is
- * blocked until its next licence year or a bigger package.
+ * Who of `reachable` gets the cancellation SMS, in their priority order. A cancellation that starts while
+ * the obec has any part left of its quota (after those held by SMS already queued) is texted on — those
+ * past the quota marked as overage, billed by the contract's terms — but only up to the overage cap
+ * (smsHardLimitOf): the rest hear it by e-mail and in the app. Once nothing is left, nobody; the obec is
+ * then blocked until its next licence year or a bigger package.
  */
 export function planCancellationSms<R>(
   reachable: R[],
@@ -196,10 +218,15 @@ export function planCancellationSms<R>(
   allowance: SmsAllowance,
   reservedParts: number,
 ): (R & { overage: boolean })[] {
-  let left = allowance.active ? allowance.remainingParts - reservedParts : 0
-  if (left <= 0) return []
-  return reachable.map((r) => {
-    left -= parts
-    return { ...r, overage: left < 0 }
-  })
+  let inQuota = allowance.active ? allowance.remainingParts - reservedParts : 0
+  if (inQuota <= 0) return []
+  let toCap = allowance.remainingToCapParts - reservedParts
+  const plan: (R & { overage: boolean })[] = []
+  for (const r of reachable) {
+    if (toCap < parts) break
+    toCap -= parts
+    inQuota -= parts
+    plan.push({ ...r, overage: inQuota < 0 })
+  }
+  return plan
 }

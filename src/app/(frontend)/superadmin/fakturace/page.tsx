@@ -243,6 +243,12 @@ function CatalogEditor() {
             value={catalog.smsOveragePriceCzk}
             onChange={(v) => update({ smsOveragePriceCzk: v ?? 0 })}
           />
+          <Amount
+            id="sms-overage-cap"
+            label="Strop přečerpání (% kvóty, 0 = bez přečerpání)"
+            value={catalog.smsOverageCapPercent}
+            onChange={(v) => update({ smsOverageCapPercent: v ?? 0 })}
+          />
         </div>
 
         <div className="space-y-2">

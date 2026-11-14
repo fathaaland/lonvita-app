@@ -31,6 +31,9 @@ export type BillingCatalog = {
   implementationFeeCzk: number
   smsPackages: Record<PackageKey, SmsPackage>
   smsOveragePriceCzk: number
+  /** How far past its yearly quota an obec's SMS may go, in % of the quota — the hard cap on overage
+   * (lib/billing/sms smsHardLimitOf). Past it nobody is texted, whatever one cancellation would need. */
+  smsOverageCapPercent: number
   scrapingPackages: Record<PackageKey, ScrapingPackage>
   sourceSetupFeeCzk: number
   /** A source past the package's — Kč a year each (the superadmin raised the obec's limit). */
@@ -63,6 +66,7 @@ export const DEFAULT_CATALOG: BillingCatalog = {
     l: { quota: 12_000, yearlyPriceCzk: 26_400 },
   },
   smsOveragePriceCzk: 2.5,
+  smsOverageCapPercent: 50,
   scrapingPackages: {
     s: { maxSources: 3, yearlyPriceCzk: 5_400 },
     m: { maxSources: 10, yearlyPriceCzk: 12_000 },
@@ -84,6 +88,7 @@ type StoredCatalog = {
   licenceTiers?: { maxUsers?: number | null; yearlyPriceCzk?: number | null }[] | null
   implementationFeeCzk?: number | null
   smsOveragePriceCzk?: number | null
+  smsOverageCapPercent?: number | null
   sourceSetupFeeCzk?: number | null
   scrapingExtraSourcePriceCzk?: number | null
   scrapingTwiceWeeklyPriceCzk?: number | null
@@ -120,6 +125,7 @@ export function catalogFrom(stored: StoredCatalog | null | undefined): BillingCa
     implementationFeeCzk: stored.implementationFeeCzk ?? d.implementationFeeCzk,
     smsPackages: packages(stored.smsPackages, d.smsPackages),
     smsOveragePriceCzk: stored.smsOveragePriceCzk ?? d.smsOveragePriceCzk,
+    smsOverageCapPercent: stored.smsOverageCapPercent ?? d.smsOverageCapPercent,
     scrapingPackages: packages(stored.scrapingPackages, d.scrapingPackages),
     sourceSetupFeeCzk: stored.sourceSetupFeeCzk ?? d.sourceSetupFeeCzk,
     scrapingExtraSourcePriceCzk: stored.scrapingExtraSourcePriceCzk ?? d.scrapingExtraSourcePriceCzk,

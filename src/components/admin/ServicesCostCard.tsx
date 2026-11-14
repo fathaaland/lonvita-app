@@ -179,8 +179,11 @@ export function ServicesCostCard({
                     V licenčním roce odesláno {num(s.sms.usedParts)} z {num(s.sms.quota)} SMS
                     {s.sms.overageParts > 0 &&
                       ` (z toho přečerpání ${num(s.sms.overageParts)})`}.{' '}
-                    Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle všem — SMS nad
-                    kvótu se vyúčtují jako přečerpání. Potom upozornění chodí jen e-mailem a v aplikaci.
+                    Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle až do stropu
+                    {s.sms.hardLimit > s.sms.quota
+                      ? ` přečerpání (nejvýš ${num(s.sms.hardLimit - s.sms.quota)} SMS nad kvótu, vyúčtují se jako přečerpání)`
+                      : ' kvóty (přečerpání není povoleno)'}
+                    . Potom upozornění chodí jen e-mailem a v aplikaci.
                   </p>
                   {s.sms.usedParts < s.sms.quota && (
                     <p className="text-sm text-muted-foreground">

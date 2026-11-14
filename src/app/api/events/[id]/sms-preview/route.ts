@@ -23,7 +23,7 @@ import { relationKey, relationNumber, requiredRelationNumber } from '@/lib/relat
  *   { sms: true, wanted, texted }                       for the pořadatel
  *   { sms: true, wanted, texted, overage, remaining }  for an admin of the obec or the platform
  *     wanted    registrants who chose SMS and have a phone
- *     texted    of them, who'd get it (all of them, or none once the quota is used up)
+ *     texted    of them, who'd get it (all of them, some up to the overage cap, or none once the quota is used up)
  *     overage   of those texted, past the quota (billed by the contract's terms)
  *     remaining SMS left in the obec's quota, less those already queued
  */

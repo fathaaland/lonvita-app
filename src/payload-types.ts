@@ -2309,6 +2309,7 @@ export interface BillingSetting {
     };
   };
   smsOveragePriceCzk: number;
+  smsOverageCapPercent: number;
   scrapingPackages: {
     s: {
       maxSources: number;
@@ -2422,6 +2423,7 @@ export interface BillingSettingsSelect<T extends boolean = true> {
             };
       };
   smsOveragePriceCzk?: T;
+  smsOverageCapPercent?: T;
   scrapingPackages?:
     | T
     | {

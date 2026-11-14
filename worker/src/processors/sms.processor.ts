@@ -121,7 +121,7 @@ const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<
       reason: claim.reason,
     })
     await giveBackReservation(payload)
-    if (claim.reason === 'quota_used_up') {
+    if (claim.reason === 'quota_used_up' || claim.reason === 'overage_cap') {
       await checkSmsUsageAlerts(await getWorkerPayload(), municipalityId, new Date())
     }
     return

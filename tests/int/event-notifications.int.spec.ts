@@ -385,7 +385,8 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         // …until it's sent (the worker gives the reservation back) — here it never was.
         await clearSmsReservations(municipality.id)
 
-        // Both chose SMS, the quota has room for one: the cancellation goes to both anyway.
+        // Both chose SMS, the quota has room for one — and the overage cap (50 % of a quota of 1)
+        // for none: only the first of them is texted.
         await payload.update({
           collection: 'profiles',
           where: { user: { equals: pending.id } },
@@ -394,11 +395,19 @@ describe('Event edit/cancel notifications fanned out by the worker', () => {
         })
         vi.clearAllMocks()
         await processEventCancelledJob(job, { jobId: '10b' })
-        // One SMS left, two chose SMS: the cancellation goes to both — the approved registrant first
-        // (the ledger bills the second as overage when it's sent).
+        // One SMS left, two chose SMS, no overage allowed at this size: the approved registrant first.
         expect(vi.mocked(enqueueSms).mock.calls.map((c) => c[0].requestId)).toEqual([
           `event-cancelled-${event.id}-10b-${approved.id}`,
-          `event-cancelled-${event.id}-10b-${pending.id}`,
+        ])
+        await clearSmsReservations(municipality.id)
+
+        // With a quota of 2 both fit.
+        vi.clearAllMocks()
+        await payload.update({ collection: 'municipalities', id: municipality.id, data: { smsQuotaOverride: 2 }, overrideAccess: true })
+        await processEventCancelledJob(job, { jobId: '10c' })
+        expect(vi.mocked(enqueueSms).mock.calls.map((c) => c[0].requestId)).toEqual([
+          `event-cancelled-${event.id}-10c-${approved.id}`,
+          `event-cancelled-${event.id}-10c-${pending.id}`,
         ])
         await clearSmsReservations(municipality.id)
       } finally {

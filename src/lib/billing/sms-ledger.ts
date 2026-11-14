@@ -6,7 +6,7 @@ import { logger, serializeError } from '@/lib/logger'
 import { getBillingCatalog } from './catalog'
 import { licencePeriodOf } from './period'
 import { servicesHeld } from './status'
-import { announcementOfSms, countSmsParts, isCancellationSmsRequest, smsQuotaOf } from './sms'
+import { announcementOfSms, countSmsParts, isCancellationSmsRequest, smsHardLimitOf, smsQuotaOf } from './sms'
 
 /**
  * The worker's last word on every SMS of an obec, right before it goes to BulkGate — what the quota
@@ -23,7 +23,7 @@ import { announcementOfSms, countSmsParts, isCancellationSmsRequest, smsQuotaOf 
  */
 export type SmsClaim =
   | { decision: 'send'; rowId: number; overage: boolean }
-  | { decision: 'skip'; reason: 'not_cancellation' | 'no_sms' | 'suspended' | 'quota_used_up' }
+  | { decision: 'skip'; reason: 'not_cancellation' | 'no_sms' | 'suspended' | 'quota_used_up' | 'overage_cap' }
 
 export async function claimSmsParts(
   payload: Payload,
@@ -74,12 +74,16 @@ export async function claimSmsParts(
     else if (obec.smsEnabled !== true) refusal = 'no_sms'
     else {
       const period = licencePeriodOf(obec, now)
-      const quota = smsQuotaOf(obec, await getBillingCatalog(payload, req))
+      const catalog = await getBillingCatalog(payload, req)
+      const quota = smsQuotaOf(obec, catalog)
+      const hardLimit = smsHardLimitOf(quota, catalog)
       // Counted after the lock is held: every earlier claim of this obec has committed by then.
       // One after the other: both on the transaction's one connection.
       const all = await countSmsParts(payload, municipalityId, period.start, period.end, req)
       const others = await countSmsParts(payload, municipalityId, period.start, period.end, req, announcementOfSms(requestId))
       if (others.parts >= quota) refusal = 'quota_used_up'
+      // Whatever was queued, the ledger never lets an obec past its overage cap.
+      else if (all.parts + parts > hardLimit) refusal = 'overage_cap'
       else overage = all.parts + parts > quota
     }
     if (refusal) {

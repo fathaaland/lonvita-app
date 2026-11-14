@@ -4,24 +4,45 @@ import { getMunicipalityAdminUserIds, sendNotificationToMany, escapeHtml } from 
 
 import { findSmsFields, smsUsageOf, type SmsUsage } from './sms'
 
-/** Percent of the quota at which the obec's admins are told — past 100 by the overage of the cancellation that used it up. */
-const LEVELS = [200, 150, 120, 100, 80] as const
+/** Percent of the quota at which the obec's admins are told — and always where its overage cap is. */
+const MILESTONES = [80, 100, 120, 150, 200] as const
+
+/** The levels in force for a cap of `capPercent` % over the quota: the milestones up to it, and the cap itself. */
+export const alertLevelsFor = (capPercent: number): number[] => {
+  const capLevel = 100 + Math.max(0, capPercent)
+  return [...new Set([...MILESTONES.filter((l) => l < capLevel), capLevel])].sort((a, b) => b - a)
+}
 
 const smsCount = (n: number) => `${n.toLocaleString('cs-CZ')} SMS`
 
 /** What the admins read at `level` — always in SMS, not only in percent. */
 export function smsAlertMessage(level: number, usage: SmsUsage): { title: string; message: string } {
   const used = `${smsCount(usage.usedParts)} z ${smsCount(usage.quota)}`
+  const extra = Math.max(0, usage.hardLimit - usage.quota)
+  const capLevel = usage.quota > 0 ? Math.round((usage.hardLimit / usage.quota) * 100) : 100
+  if (level >= capLevel && level > 100) {
+    return {
+      title: 'Strop přečerpání SMS je vyčerpaný',
+      message:
+        `Obec poslala ${used} roční kvóty a dosáhla stropu přečerpání (${smsCount(usage.hardLimit)}, tj. ${smsCount(extra)} nad kvótu). ` +
+        'Další SMS o zrušení akcí už nepůjdou, lidé se to dozvědí jen e-mailem a v aplikaci. Přečerpání se vyúčtuje na konci licenčního roku. O větší balíček si řekněte provozovateli Lonvity.',
+    }
+  }
   if (level > 100) {
     return {
       title: 'Přečerpání SMS roste',
-      message: `Obec poslala ${used} roční kvóty, přečerpání je ${smsCount(usage.overageParts)}. Vyúčtuje se na konci licenčního roku. O větší balíček si řekněte provozovateli Lonvity.`,
+      message: `Obec poslala ${used} roční kvóty, přečerpání je ${smsCount(usage.overageParts)} (strop ${smsCount(extra)}). Vyúčtuje se na konci licenčního roku. O větší balíček si řekněte provozovateli Lonvity.`,
     }
   }
   if (level === 100) {
     return {
       title: 'Kvóta SMS je vyčerpaná',
-      message: `Roční kvóta SMS je vyčerpaná (${used}). Další zrušení akcí už půjdou jen e-mailem a v aplikaci; SMS rozeslané přes kvótu se vyúčtují jako přečerpání. O navýšení balíčku si řekněte provozovateli Lonvity.`,
+      message:
+        `Roční kvóta SMS je vyčerpaná (${used}). Další zrušení akcí už půjdou jen e-mailem a v aplikaci` +
+        (extra > 0
+          ? `; SMS rozeslané přes kvótu se vyúčtují jako přečerpání, nejvýš do ${smsCount(extra)} nad kvótu. `
+          : ' (přečerpání kvóty není povoleno). ') +
+        'O navýšení balíčku si řekněte provozovateli Lonvity.',
     }
   }
   const left = Math.max(0, usage.quota - usage.usedParts)
@@ -29,14 +50,16 @@ export function smsAlertMessage(level: number, usage: SmsUsage): { title: string
     title: 'Kvóta SMS se blíží limitu',
     message:
       `Obec vyčerpala ${level} % roční kvóty SMS (${used}), zbývá ${smsCount(left)}. ` +
-      'Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle všem — přebytek se vyúčtuje jako přečerpání. Potom už SMS nechodí.',
+      (extra > 0
+        ? `Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle až do stropu přečerpání (${smsCount(extra)} nad kvótu), přebytek se vyúčtuje. Potom už SMS nechodí.`
+        : 'Zrušení akce, které začne, dokud zbývá aspoň 1 SMS, se rozešle do vyčerpání kvóty. Potom už SMS nechodí.'),
   }
 }
 
 /**
  * Balíčky služeb: "Při 80 % a 100 % čerpání dostane admin obce upozornění" — once per level and
  * licence year (Municipalities.smsAlertState remembers the last one sent); also at 120, 150 and 200 %
- * — a small quota can be overshot that far by one cancellation, and the bill grows with it. Run after every SMS the worker sent and
+ * while the overage cap allows it, and where the cap is — the last one: nothing more is texted past it. Run after every SMS the worker sent and
  * every one it refused for the quota; never throws.
  */
 export async function checkSmsUsageAlerts(
@@ -49,7 +72,7 @@ export async function checkSmsUsageAlerts(
     const usage = await smsUsageOf(payload, municipalityId, now, fields)
     if (usage.quota <= 0) return
     const percent = (usage.usedParts / usage.quota) * 100
-    const level = LEVELS.find((l) => percent >= l)
+    const level = alertLevelsFor(Math.round((usage.hardLimit / usage.quota - 1) * 100)).find((l) => percent >= l)
     if (!level) return
 
     const [sentPeriod, sentLevel] = (fields.smsAlertState ?? '').split('|')

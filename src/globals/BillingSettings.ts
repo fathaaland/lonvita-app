@@ -6,10 +6,11 @@ import { DEFAULT_CATALOG, PACKAGE_KEYS } from '@/lib/billing/catalog'
 const platformAdmin = ({ req }: { req: { user?: { role?: string | null } | null } }) =>
   req.user?.role === 'admin'
 
-const amount = (name: string, defaultValue: number): Field => ({
+const amount = (name: string, defaultValue: number, max?: number): Field => ({
   name,
   type: 'number',
   min: 0,
+  ...(max !== undefined ? { max } : {}),
   required: true,
   defaultValue,
 })
@@ -71,6 +72,8 @@ export const BillingSettings: GlobalConfig = {
       amount('yearlyPriceCzk', DEFAULT_CATALOG.smsPackages[key].yearlyPriceCzk),
     ]),
     amount('smsOveragePriceCzk', DEFAULT_CATALOG.smsOveragePriceCzk),
+    // 0 = no overage at all; the rest of the cap is in lib/billing/sms smsHardLimitOf.
+    amount('smsOverageCapPercent', DEFAULT_CATALOG.smsOverageCapPercent, 200),
     packageGroup('scrapingPackages', (key) => [
       amount('maxSources', DEFAULT_CATALOG.scrapingPackages[key].maxSources),
       amount('yearlyPriceCzk', DEFAULT_CATALOG.scrapingPackages[key].yearlyPriceCzk),
