@@ -25,7 +25,22 @@ export function BillingStatusNotice({ municipalityId, className }: { municipalit
     }
   }, [municipalityId])
 
-  if (!services || services.billingStatus === 'active') return null
+  if (!services) return null
+  if (services.billingStatus === 'active') {
+    if (!services.licence.lapsed || !services.licence.paidUntil) return null
+    const lastPaid = date(new Date(new Date(services.licence.paidUntil).getTime() - 1).toISOString())
+    return (
+      <div
+        role="alert"
+        className={cn('flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm', className)}
+      >
+        <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
+        <p>
+          {`Licence obce byla zaplacená do ${lastPaid} a vypršela. Nová roční kvóta SMS se nenačetla a bez prodloužení se služby obce brzy pozastaví. Prodloužení vyřídí provozovatel Lonvity.`}
+        </p>
+      </div>
+    )
+  }
   const next = services.billingNextStepAt ? date(services.billingNextStepAt) : null
   const text =
     services.billingStatus === 'terminated'

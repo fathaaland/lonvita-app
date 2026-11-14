@@ -8,6 +8,11 @@ import { pragueToday, pragueWallTimeToIso } from '@/lib/import/time'
  * The set period repeats: once it's over (or before it began) the one `now` falls in is the same span
  * moved by whole periods — a licence nobody renewed in the panel must not leave the obec's SMS
  * counted against no period at all (they would never use up the quota nor show as overage).
+ *
+ * But it repeats only as far as the licence is paid (Municipalities.licencePaidUntil): past that date
+ * the year doesn't turn — the obec stays in its last paid period, whose quota keeps counting whatever
+ * it sends meanwhile (`end` reaches into the future, `paidEnd` is where the period really ended).
+ * A new quota comes only with the next payment.
  */
 export type LicencePeriod = {
   start: Date
@@ -16,7 +21,14 @@ export type LicencePeriod = {
   key: string
   /** Set by the superadmin rather than the calendar year. */
   custom: boolean
+  /** The licence ran out (`now` ≥ licencePaidUntil) — the period no longer moves on. */
+  lapsed: boolean
+  /** Where the period ends as a span — `end` itself, unless lapsed (then `end` is open-ended). */
+  paidEnd: Date
 }
+
+/** Far enough that every SMS of a lapsed licence still falls within its last period. */
+const OPEN_END = new Date('9999-12-31T00:00:00.000Z')
 
 /** `date` moved by `months` calendar months, the day of month kept (the 31st becomes the month's
  * last day), the time of day as it was — always counted from the same original date, so it never drifts. */
@@ -37,10 +49,31 @@ const wholeMonthsBetween = (start: Date, end: Date): number | null => {
 
 const periodKey = (start: Date) => start.toISOString().slice(0, 10)
 
-export function licencePeriodOf(
-  municipality: { licencePeriodStart?: string | null; licencePeriodEnd?: string | null },
-  now: Date,
-): LicencePeriod {
+type PeriodFields = {
+  licencePeriodStart?: string | null
+  licencePeriodEnd?: string | null
+  licencePaidUntil?: string | null
+}
+
+export function licencePeriodOf(municipality: PeriodFields, now: Date): LicencePeriod {
+  const paidUntil = municipality.licencePaidUntil ? new Date(municipality.licencePaidUntil) : null
+  if (paidUntil && !Number.isNaN(paidUntil.getTime()) && now.getTime() >= paidUntil.getTime()) {
+    // The period the last paid moment falls in — frozen, counting on.
+    const last = periodAt(municipality, new Date(paidUntil.getTime() - 1))
+    return { ...last, end: OPEN_END, lapsed: true, paidEnd: last.end }
+  }
+  const period = periodAt(municipality, now)
+  return { ...period, lapsed: false, paidEnd: period.end }
+}
+
+/** Whether the obec's licence has run out (its paid-until date passed). */
+export function licenceLapsed(municipality: Pick<PeriodFields, 'licencePaidUntil'>, now: Date): boolean {
+  if (!municipality.licencePaidUntil) return false
+  const paidUntil = new Date(municipality.licencePaidUntil).getTime()
+  return !Number.isNaN(paidUntil) && now.getTime() >= paidUntil
+}
+
+function periodAt(municipality: PeriodFields, now: Date): Omit<LicencePeriod, 'lapsed' | 'paidEnd'> {
   if (municipality.licencePeriodStart) {
     const start = new Date(municipality.licencePeriodStart)
     const setEnd = municipality.licencePeriodEnd ? new Date(municipality.licencePeriodEnd) : null

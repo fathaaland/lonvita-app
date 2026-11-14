@@ -55,6 +55,7 @@ import * as migration_20261113_181853_age_15_plus_declaration from './20261113_1
 import * as migration_20261114_084909_billing_read_only from './20261114_084909_billing_read_only';
 import * as migration_20261114_092554_contract_end from './20261114_092554_contract_end';
 import * as migration_20261114_100345_erasure_confirmation from './20261114_100345_erasure_confirmation';
+import * as migration_20261114_102057_licence_paid_until from './20261114_102057_licence_paid_until';
 
 export const migrations = [
   {
@@ -340,6 +341,11 @@ export const migrations = [
   {
     up: migration_20261114_100345_erasure_confirmation.up,
     down: migration_20261114_100345_erasure_confirmation.down,
-    name: '20261114_100345_erasure_confirmation'
+    name: '20261114_100345_erasure_confirmation',
+  },
+  {
+    up: migration_20261114_102057_licence_paid_until.up,
+    down: migration_20261114_102057_licence_paid_until.down,
+    name: '20261114_102057_licence_paid_until'
   },
 ];

@@ -387,6 +387,8 @@ async function ensureMunicipality(
       lng: input.lng,
       eventRadiusKm: 15,
       rulesForCreation: 'approved_organizers',
+      // Demo obce — a licence that doesn't run out on whoever tries the app.
+      licencePaidUntil: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString(),
     },
     overrideAccess: true,
   })

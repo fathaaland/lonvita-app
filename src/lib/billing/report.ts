@@ -90,6 +90,7 @@ export type BillingSettingsOfObec = {
   billingNote: string | null
   licencePeriodStart: string | null
   licencePeriodEnd: string | null
+  licencePaidUntil: string | null
   licenceTier: number | null
   licenceCustomYearlyCzk: number | null
   implementationFeeCzk: number | null
@@ -182,6 +183,7 @@ export async function billingDetailOf(
       billingNote: m.billingNote ?? null,
       licencePeriodStart: m.licencePeriodStart ?? null,
       licencePeriodEnd: m.licencePeriodEnd ?? null,
+      licencePaidUntil: m.licencePaidUntil ?? null,
       licenceTier: m.licenceTier ?? null,
       licenceCustomYearlyCzk: m.licenceCustomYearlyCzk ?? null,
       implementationFeeCzk: m.implementationFeeCzk ?? null,

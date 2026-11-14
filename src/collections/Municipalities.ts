@@ -21,6 +21,7 @@ import { PACKAGE_KEYS, PACKAGE_LABELS } from '@/lib/billing/catalog'
 import {
   BILLING_STATUSES,
   BILLING_STATUS_LABELS,
+  NEW_OBEC_PAYMENT_DAYS,
   READ_ONLY_MESSAGE,
   billingStatusOf,
   nextBillingStepAt,
@@ -240,6 +241,24 @@ const billingFields: Field[] = [
     admin: { hidden: true },
   },
   { name: 'billingNote', type: 'textarea', access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    // Paid up to (not including) this moment — set by the platform when the obec pays or renews. Past
+    // it the licence year no longer turns (lib/billing/period: no new SMS quota), the obec's admins are
+    // told, and LICENCE_GRACE_DAYS later the obec is suspended by itself (worker billing-status). Never
+    // empty: a new obec gets NEW_OBEC_PAYMENT_DAYS to pay (defaultLicencePaidUntil).
+    name: 'licencePaidUntil',
+    type: 'date',
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+    validate: (value: unknown) => (value ? true : 'Zadejte, do kdy má obec licenci zaplacenou.'),
+  },
+  {
+    // Which licence reminder (expiring / expired) its admins already got, and for which paid-until date.
+    name: 'licenceReminderState',
+    type: 'text',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
+  },
   // The licence year — the SMS quota counts within it. Empty: the calendar year.
   { name: 'licencePeriodStart', type: 'date', access: platformOnlyField, admin: { position: 'sidebar' } },
   {
@@ -340,6 +359,13 @@ const billingFields: Field[] = [
 const hideSuspendedServices: CollectionBeforeReadHook = ({ doc, req }) => {
   if (!servicesHeld(doc?.billingStatus) || req.user?.role === 'admin') return doc
   return { ...doc, smsEnabled: false, importAiEnabled: false }
+}
+
+/** A new obec without a paid-until date gets NEW_OBEC_PAYMENT_DAYS to pay — never an unlimited licence. */
+const defaultLicencePaidUntil: CollectionBeforeValidateHook = ({ data, operation }) => {
+  if (operation !== 'create' || !data || data.licencePaidUntil) return data
+  data.licencePaidUntil = new Date(Date.now() + NEW_OBEC_PAYMENT_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  return data
 }
 
 /** Starts the clock whenever the status moves (by the platform or the worker). */
@@ -449,7 +475,7 @@ export const BILLING_AUDITED_FIELDS = [
   'importAiEnabled',
   ...billingFields
     .map((f) => ('name' in f ? f.name : ''))
-    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage'].includes(n)),
+    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage', 'licenceReminderState'].includes(n)),
 ] as const
 
 
@@ -562,7 +588,7 @@ export const Municipalities: CollectionConfig = {
     ...billingFields,
   ],
   hooks: {
-    beforeValidate: [preventDuplicateName],
+    beforeValidate: [preventDuplicateName, defaultLicencePaidUntil],
     beforeRead: [hideSuspendedServices],
     beforeOperation: [
       // Its admins editing a read-only obec's own settings are refused like any other write of theirs.

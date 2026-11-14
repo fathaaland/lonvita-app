@@ -7,7 +7,14 @@ import { canCancelEvent } from '@/lib/eventCancellation'
 import { logger, serializeError } from '@/lib/logger'
 import type { BillingStatusJobResult } from '@/lib/queue/contracts'
 
-import { WARN_DAYS_BEFORE, billingStatusOf, erasureConfirmed, nextBillingStepAt, type BillingStatus } from './status'
+import {
+  LICENCE_GRACE_DAYS,
+  WARN_DAYS_BEFORE,
+  billingStatusOf,
+  erasureConfirmed,
+  nextBillingStepAt,
+  type BillingStatus,
+} from './status'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const pragueDate = (d: Date) => d.toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' })
@@ -138,13 +145,100 @@ async function eraseObec(payload: Payload, municipalityId: number, name: string)
 }
 
 /**
+ * The licence of every active obec against its paid-until date (Municipalities.licencePaidUntil):
+ * WARN_DAYS_BEFORE ahead its admins hear it runs out; on the day, that it ran out — no new SMS quota
+ * (lib/billing/period) and the date it will be suspended; LICENCE_GRACE_DAYS later it is suspended,
+ * which starts the way to read-only and the contract's end. Reversible: the platform renews the
+ * licence (a later paid-until date) and sets the obec active again. Each reminder once per date
+ * (licenceReminderState).
+ */
+async function checkLicences(payload: Payload, now: Date, result: BillingStatusJobResult): Promise<void> {
+  const due = await payload.find({
+    collection: 'municipalities',
+    where: {
+      and: [
+        { billingStatus: { equals: 'active' } },
+        { licencePaidUntil: { less_than_equal: new Date(now.getTime() + WARN_DAYS_BEFORE * DAY_MS).toISOString() } },
+      ],
+    },
+    select: { name: true, licencePaidUntil: true, licenceReminderState: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  for (const m of due.docs) {
+    try {
+      if (!m.licencePaidUntil) continue
+      const paidUntil = new Date(m.licencePaidUntil)
+      const suspendAt = new Date(paidUntil.getTime() + LICENCE_GRACE_DAYS * DAY_MS)
+      const key = paidUntil.toISOString()
+      if (now >= suspendAt) {
+        await payload.update({ collection: 'municipalities', id: m.id, data: { billingStatus: 'suspended' }, overrideAccess: true })
+        result.licenceSuspended++
+        logger.warn('Obec suspended — its licence ran out and was not renewed', {
+          event: 'billing.licence_auto_suspended',
+          municipalityId: m.id,
+        })
+        continue
+      }
+      const stage = now >= paidUntil ? 'expired' : 'expiring'
+      if (m.licenceReminderState === `${key}|${stage}`) continue
+      await payload.update({ collection: 'municipalities', id: m.id, data: { licenceReminderState: `${key}|${stage}` }, overrideAccess: true })
+      // The last paid day — paidUntil is the first moment after it.
+      const lastDay = pragueDate(new Date(paidUntil.getTime() - 1))
+      const { title, message } =
+        stage === 'expiring'
+          ? {
+              title: 'Licence obce brzy vyprší',
+              message:
+                `Licence obce je zaplacená do ${lastDay}. Pro prodloužení kontaktujte provozovatele Lonvity — ` +
+                'bez prodloužení se nová roční kvóta SMS nenačte a po uplynutí lhůty se služby obce pozastaví.',
+            }
+          : {
+              title: 'Licence obce vypršela',
+              message:
+                `Licence obce byla zaplacená do ${lastDay} a nebyla prodloužena. Nová roční kvóta SMS se nenačetla — ` +
+                `SMS se dál počítají do kvóty posledního zaplaceného roku. Pokud licenci neprodloužíte do ${pragueDate(suspendAt)}, ` +
+                'služby obce se pozastaví (SMS a import akcí z webu), později obec přejde do režimu jen pro čtení. ' +
+                'Prodloužení vyřídí provozovatel Lonvity.',
+            }
+      await sendNotificationToMany(payload, await getMunicipalityAdminUserIds(payload, m.id), {
+        title,
+        message,
+        link: '/admin-obce?tab=settings',
+        email: { subject: `Lonvita: ${title}`, body: `<p>${escapeHtml(message)}</p>` },
+      })
+      if (stage === 'expired') {
+        logger.warn('Obec licence expired without renewal', { event: 'billing.licence_expired', municipalityId: m.id })
+      }
+      result.licenceReminded++
+    } catch (error) {
+      result.failed++
+      logger.error('Licence check failed', { event: 'billing.licence_check_failed', municipalityId: m.id, ...serializeError(error) })
+    }
+  }
+}
+
+/**
  * Daily: each obec whose stage ran out moves on — suspended → read-only → terminated → erased (the
  * Municipalities hook tells its admins and restarts the clock); one within WARN_DAYS_BEFORE of it is
  * warned, once per stage, and a terminated one's later events are cancelled then. A stage without a
  * clock (set before it existed) starts it now. One obec failing doesn't stop the others.
  */
 export async function advanceBillingStatuses(payload: Payload, now: Date = new Date()): Promise<BillingStatusJobResult> {
-  const result: BillingStatusJobResult = { warned: 0, madeReadOnly: 0, terminated: 0, erased: 0, awaitingConfirmation: 0, eventsCancelled: 0, clockStarted: 0, failed: 0 }
+  const result: BillingStatusJobResult = {
+    warned: 0,
+    madeReadOnly: 0,
+    terminated: 0,
+    erased: 0,
+    awaitingConfirmation: 0,
+    eventsCancelled: 0,
+    clockStarted: 0,
+    licenceReminded: 0,
+    licenceSuspended: 0,
+    failed: 0,
+  }
+  await checkLicences(payload, now, result)
   const obce = await payload.find({
     collection: 'municipalities',
     where: { billingStatus: { in: ['suspended', 'read_only', 'terminated'] } },

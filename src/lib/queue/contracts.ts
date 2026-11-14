@@ -104,6 +104,10 @@ export type BillingStatusJobResult = {
   awaitingConfirmation: number
   eventsCancelled: number
   clockStarted: number
+  /** Licence reminders sent (expiring soon / expired). */
+  licenceReminded: number
+  /** Active obce suspended because their licence ran out and wasn't renewed. */
+  licenceSuspended: number
   failed: number
 }
 

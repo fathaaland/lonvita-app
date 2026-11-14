@@ -31,6 +31,9 @@ export type MunicipalityServices = {
     periodEnd: string
     /** Set by the platform rather than the calendar year. */
     periodCustom: boolean
+    /** Paid up to (not including) — past it the year doesn't turn, no new SMS quota. */
+    paidUntil: string | null
+    lapsed: boolean
     /** Its users right now (lib/billing/active-users). */
     activeUsers: number
     /** The average of the last three monthly snapshots — what the band is computed from. */
@@ -87,6 +90,7 @@ type BillingDoc = Pick<
   | 'billingStatusChangedAt'
   | 'licencePeriodStart'
   | 'licencePeriodEnd'
+  | 'licencePaidUntil'
   | 'licenceTier'
   | 'licenceCustomYearlyCzk'
   | 'implementationFeeCzk'
@@ -147,8 +151,10 @@ export async function getMunicipalityServices(
     billingNextStepAt: nextBillingStepAt(m.billingStatus, m.billingStatusChangedAt)?.toISOString() ?? null,
     licence: {
       periodStart: period.start.toISOString(),
-      periodEnd: period.end.toISOString(),
+      periodEnd: period.paidEnd.toISOString(),
       periodCustom: period.custom,
+      paidUntil: m.licencePaidUntil ?? null,
+      lapsed: period.lapsed,
       activeUsers,
       averageUsers: computed.averageUsers,
       snapshotsUsed: computed.fromSnapshots,

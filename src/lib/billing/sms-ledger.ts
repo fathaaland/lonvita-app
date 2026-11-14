@@ -65,6 +65,7 @@ export async function claimSmsParts(
         smsQuotaOverride: true,
         licencePeriodStart: true,
         licencePeriodEnd: true,
+        licencePaidUntil: true,
       },
     })
     let refusal: Extract<SmsClaim, { decision: 'skip' }>['reason'] | null = null

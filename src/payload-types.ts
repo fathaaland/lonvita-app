@@ -296,6 +296,8 @@ export interface Municipality {
   erasureConfirmedStage?: string | null;
   billingWarnedAt?: string | null;
   billingNote?: string | null;
+  licencePaidUntil?: string | null;
+  licenceReminderState?: string | null;
   licencePeriodStart?: string | null;
   licencePeriodEnd?: string | null;
   licenceTier?: number | null;
@@ -1610,6 +1612,8 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   erasureConfirmedStage?: T;
   billingWarnedAt?: T;
   billingNote?: T;
+  licencePaidUntil?: T;
+  licenceReminderState?: T;
   licencePeriodStart?: T;
   licencePeriodEnd?: T;
   licenceTier?: T;

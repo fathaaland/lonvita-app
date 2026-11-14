@@ -66,6 +66,7 @@ type SmsFields = Pick<
   | 'smsQuotaOverride'
   | 'licencePeriodStart'
   | 'licencePeriodEnd'
+  | 'licencePaidUntil'
   | 'smsAlertState'
 >
 
@@ -82,6 +83,7 @@ export const findSmsFields = (payload: Payload, municipalityId: number): Promise
       smsQuotaOverride: true,
       licencePeriodStart: true,
       licencePeriodEnd: true,
+      licencePaidUntil: true,
       smsAlertState: true,
     },
   })

@@ -36,6 +36,10 @@ export const BILLING_STATUS_LABELS: Record<BillingStatus, string> = {
 export const SUSPENDED_GRACE_DAYS = 30
 export const READ_ONLY_DAYS = 60
 export const TERMINATED_DAYS = 90
+/** Days after the licence's paid-until date before the obec is suspended by itself. */
+export const LICENCE_GRACE_DAYS = 14
+/** What a new obec gets to pay its first licence (Municipalities licencePaidUntil). */
+export const NEW_OBEC_PAYMENT_DAYS = 30
 export const WARN_DAYS_BEFORE = 7
 
 const DAY_MS = 24 * 60 * 60 * 1000

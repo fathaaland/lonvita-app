@@ -67,6 +67,8 @@ const IMMEDIATE: Record<string, { severity: OpsSeverity; title: string }> = {
   // (set the obec active again), and after.
   'billing.erasure_imminent': { severity: 'warning', title: 'Obec: za týden se nevratně smažou všechna její data' },
   'billing.erasure_unconfirmed': { severity: 'warning', title: 'Obec je po lhůtě ke smazání a čeká na vaše potvrzení (nebo ji vraťte do Aktivní)' },
+  'billing.licence_expired': { severity: 'warning', title: 'Licence obce vypršela a nebyla prodloužena — vyfakturovat / prodloužit' },
+  'billing.licence_auto_suspended': { severity: 'warning', title: 'Obec automaticky pozastavena — licence nebyla prodloužena' },
   'billing.obec_erased': { severity: 'critical', title: 'Obec byla po konci smlouvy nevratně smazána' },
   'ops.test': { severity: 'warning', title: 'Testovací alert' },
 }

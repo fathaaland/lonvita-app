@@ -44,9 +44,11 @@ import {
   type BillingCatalog,
   type PackageKey,
 } from '@/lib/billing/catalog'
+import { addDays, pragueToday, pragueWallTimeToIso } from '@/lib/import/time'
 import {
   BILLING_STATUSES,
   BILLING_STATUS_LABELS,
+  LICENCE_GRACE_DAYS,
   READ_ONLY_DAYS,
   SUSPENDED_GRACE_DAYS,
   TERMINATED_DAYS,
@@ -64,11 +66,13 @@ type NumberKey =
 /** The inputs hold text — "" is "not set" (null). */
 type Draft = Omit<
   BillingSettingsOfObec,
-  'name' | NumberKey | 'licencePeriodStart' | 'licencePeriodEnd' | 'billingNote'
+  'name' | NumberKey | 'licencePeriodStart' | 'licencePeriodEnd' | 'licencePaidUntil' | 'billingNote'
 > &
   Record<NumberKey, string> & {
     licencePeriodStart: string
     licencePeriodEnd: string
+    /** The last paid day (inclusive), as the date input holds it. */
+    licencePaidUntil: string
     billingNote: string
   }
 
@@ -80,6 +84,7 @@ const toDraft = ({ name: _name, ...s }: BillingSettingsOfObec): Draft => ({
   billingNote: s.billingNote ?? '',
   licencePeriodStart: dateInput(s.licencePeriodStart),
   licencePeriodEnd: dateInput(s.licencePeriodEnd),
+  licencePaidUntil: lastPaidDay(s.licencePaidUntil),
   licenceTier: toText(s.licenceTier),
   licenceCustomYearlyCzk: toText(s.licenceCustomYearlyCzk),
   implementationFeeCzk: toText(s.implementationFeeCzk),
@@ -96,6 +101,11 @@ const toWhole = (text: string): number | null => {
 }
 
 /** A date input's day as midnight UTC — the period's boundaries are whole days. */
+/** Stored is the first unpaid moment (midnight in Prague after the last paid day); the input shows
+ * the last paid day itself. */
+const lastPaidDay = (iso: string | null) => (iso ? pragueToday(new Date(new Date(iso).getTime() - 1)) : '')
+const paidUntilOf = (day: string): string | null => (day ? pragueWallTimeToIso(addDays(day, 1), null) : null)
+
 const toDate = (text: string): string | null =>
   text ? new Date(`${text}T00:00:00.000Z`).toISOString() : null
 
@@ -112,6 +122,7 @@ const FIELD_LABELS: Record<string, string> = {
   billingNote: 'Poznámka',
   licencePeriodStart: 'Začátek období',
   licencePeriodEnd: 'Konec období',
+  licencePaidUntil: 'Zaplaceno do',
   licenceTier: 'Pásmo (ručně)',
   licenceCustomYearlyCzk: 'Individuální cena licence',
   implementationFeeCzk: 'Implementace',
@@ -378,6 +389,7 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
         billingNote: draft.billingNote.trim() || null,
         licencePeriodStart: toDate(draft.licencePeriodStart),
         licencePeriodEnd: toDate(draft.licencePeriodEnd),
+        licencePaidUntil: paidUntilOf(draft.licencePaidUntil),
       })
       await load(true)
       setRefreshKey((k) => k + 1)
@@ -500,6 +512,23 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                 />
               </Field>
             </div>
+            <Field
+              id="paid-until"
+              label="Licence zaplacena do (včetně)"
+              hint={`Při platbě nebo prodloužení posuňte. Po tomto dni se roční kvóta SMS neobnoví, admini obce dostanou upozornění (i ${WARN_DAYS_BEFORE} dní předem) a po ${LICENCE_GRACE_DAYS} dnech se obec sama pozastaví. Po prodloužení vraťte obec do stavu Aktivní.`}
+            >
+              <Input
+                id="paid-until"
+                type="date"
+                required
+                value={draft.licencePaidUntil}
+                onChange={(e) => set('licencePaidUntil')(e.target.value)}
+                className="h-11"
+              />
+              {detail.services.licence.lapsed && (
+                <p className="text-xs text-destructive">Licence vypršela — nová kvóta SMS se nenačetla.</p>
+              )}
+            </Field>
             <p className="text-xs text-muted-foreground -mt-2">
               Prázdné: kalendářní rok. Konec prázdný: rok od začátku. V období se počítá kvóta SMS.
             </p>

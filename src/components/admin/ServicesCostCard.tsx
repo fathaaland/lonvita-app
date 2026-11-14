@@ -139,6 +139,13 @@ export function ServicesCostCard({
               <p className="text-sm text-muted-foreground">
                 Licenční období {date(s.licence.periodStart)} – {lastDay(s.licence.periodEnd)}
               </p>
+              {s.licence.paidUntil && (
+                <p className={`text-sm ${s.licence.lapsed ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {s.licence.lapsed
+                    ? `Licence byla zaplacená do ${lastDay(s.licence.paidUntil)} a vypršela — nová roční kvóta SMS se nenačte, dokud ji neprodloužíte.`
+                    : `Zaplaceno do ${lastDay(s.licence.paidUntil)}.`}
+                </p>
+              )}
             </Row>
 
             <Row
