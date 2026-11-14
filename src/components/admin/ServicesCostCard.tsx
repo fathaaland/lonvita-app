@@ -136,6 +136,13 @@ export function ServicesCostCard({
                 {num(s.licence.activeUsers)} uživatelů obce · pásmo pro {s.licence.tierRange}{' '}
                 uživatelů
               </p>
+              {!s.licence.tierManual && (
+                <p className="text-xs text-muted-foreground">
+                  Pásmo platí na celý licenční rok. Pokud průměr uživatelů za poslední 3 měsíce přeroste pásmo, obec
+                  od dalšího měsíce přejde do vyššího a doplatí jen zbývající měsíce, nikdy zpětně. Do nižšího pásma se
+                  vrací až při obnově licence.
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 Licenční období {date(s.licence.periodStart)} – {lastDay(s.licence.periodEnd)}
               </p>

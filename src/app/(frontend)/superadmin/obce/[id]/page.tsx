@@ -538,7 +538,13 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                 services.licence.snapshotsUsed
                   ? `posledních ${services.licence.snapshotsUsed} snímků`
                   : 'zatím bez snímku, počet teď'
-              }).`}
+              }). ${
+                services.licence.tierManual
+                  ? 'Pásmo je nastavené ručně — automatika ho nemění.'
+                  : services.licence.tierFixedForYear
+                    ? `Účtuje se pásmo ${services.licence.tier}, fixované na licenční rok: při růstu se od dalšího měsíce zvýší s poměrným doplatkem (nikdy zpětně), snížení až při obnově licence.`
+                    : 'Pásmo se na licenční rok zafixuje při nejbližším nočním běhu.'
+              }`}
             >
               <Select
                 value={draft.licenceTier === '' ? 'auto' : draft.licenceTier}
@@ -559,6 +565,17 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                 </SelectContent>
               </Select>
             </Field>
+            {detail.licenceUpgrades.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">Přechody do vyššího pásma (k vyfakturování)</p>
+                {detail.licenceUpgrades.map((u) => (
+                  <p key={u.createdAt} className="text-xs text-muted-foreground tabular-nums">
+                    {dateTime(u.createdAt)}: pásmo {u.fromTier} → {u.toTier} (průměr {u.averageUsers} uživatelů), od{' '}
+                    {dateTime(u.effectiveFrom)}, {u.monthsCharged}/{u.periodMonths} měsíců → doplatek {czk(u.surchargeCzk)}
+                  </p>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Field
                 id="custom-price"

@@ -57,6 +57,7 @@ import * as migration_20261114_092554_contract_end from './20261114_092554_contr
 import * as migration_20261114_100345_erasure_confirmation from './20261114_100345_erasure_confirmation';
 import * as migration_20261114_102057_licence_paid_until from './20261114_102057_licence_paid_until';
 import * as migration_20261114_105958_sms_overage_cap from './20261114_105958_sms_overage_cap';
+import * as migration_20261114_145005_licence_tier_fixed from './20261114_145005_licence_tier_fixed';
 
 export const migrations = [
   {
@@ -352,6 +353,11 @@ export const migrations = [
   {
     up: migration_20261114_105958_sms_overage_cap.up,
     down: migration_20261114_105958_sms_overage_cap.down,
-    name: '20261114_105958_sms_overage_cap'
+    name: '20261114_105958_sms_overage_cap',
+  },
+  {
+    up: migration_20261114_145005_licence_tier_fixed.up,
+    down: migration_20261114_145005_licence_tier_fixed.down,
+    name: '20261114_145005_licence_tier_fixed'
   },
 ];

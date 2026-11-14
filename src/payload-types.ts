@@ -96,6 +96,7 @@ export interface Config {
     'usage-events': UsageEvent;
     'sms-messages': SmsMessage;
     'active-user-snapshots': ActiveUserSnapshot;
+    'licence-upgrades': LicenceUpgrade;
     'legal-requirements': LegalRequirement;
     'system-logs': SystemLog;
     'security-events': SecurityEvent;
@@ -136,6 +137,7 @@ export interface Config {
     'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
     'sms-messages': SmsMessagesSelect<false> | SmsMessagesSelect<true>;
     'active-user-snapshots': ActiveUserSnapshotsSelect<false> | ActiveUserSnapshotsSelect<true>;
+    'licence-upgrades': LicenceUpgradesSelect<false> | LicenceUpgradesSelect<true>;
     'legal-requirements': LegalRequirementsSelect<false> | LegalRequirementsSelect<true>;
     'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
     'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
@@ -301,6 +303,8 @@ export interface Municipality {
   licencePeriodStart?: string | null;
   licencePeriodEnd?: string | null;
   licenceTier?: number | null;
+  licenceBilledTier?: number | null;
+  licenceBilledTierPeriod?: string | null;
   licenceCustomYearlyCzk?: number | null;
   implementationFeeCzk?: number | null;
   smsPackage?: ('s' | 'm' | 'l') | null;
@@ -1201,6 +1205,26 @@ export interface ActiveUserSnapshot {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "licence-upgrades".
+ */
+export interface LicenceUpgrade {
+  id: number;
+  municipality: number | Municipality;
+  periodKey: string;
+  fromTier: number;
+  toTier: number;
+  averageUsers: number;
+  effectiveFrom: string;
+  monthsCharged: number;
+  periodMonths: number;
+  fromYearlyCzk: number;
+  toYearlyCzk: number;
+  surchargeCzk: number;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "legal-requirements".
  */
 export interface LegalRequirement {
@@ -1458,6 +1482,10 @@ export interface PayloadLockedDocument {
         value: number | ActiveUserSnapshot;
       } | null)
     | ({
+        relationTo: 'licence-upgrades';
+        value: number | LicenceUpgrade;
+      } | null)
+    | ({
         relationTo: 'legal-requirements';
         value: number | LegalRequirement;
       } | null)
@@ -1617,6 +1645,8 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   licencePeriodStart?: T;
   licencePeriodEnd?: T;
   licenceTier?: T;
+  licenceBilledTier?: T;
+  licenceBilledTierPeriod?: T;
   licenceCustomYearlyCzk?: T;
   implementationFeeCzk?: T;
   smsPackage?: T;
@@ -2147,6 +2177,25 @@ export interface ActiveUserSnapshotsSelect<T extends boolean = true> {
   activeUsers?: T;
   takenAt?: T;
   takenBy?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "licence-upgrades_select".
+ */
+export interface LicenceUpgradesSelect<T extends boolean = true> {
+  municipality?: T;
+  periodKey?: T;
+  fromTier?: T;
+  toTier?: T;
+  averageUsers?: T;
+  effectiveFrom?: T;
+  monthsCharged?: T;
+  periodMonths?: T;
+  fromYearlyCzk?: T;
+  toYearlyCzk?: T;
+  surchargeCzk?: T;
   updatedAt?: T;
   createdAt?: T;
 }

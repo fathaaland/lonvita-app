@@ -154,6 +154,8 @@ const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) =
     'user-roles',
     // Its monthly user counts (billing) — the obec is gone, so are they.
     'active-user-snapshots',
+    // Its band upgrades (billing) — likewise.
+    'licence-upgrades',
   ] as const) {
     await payload.delete({ collection, where: ofObec, overrideAccess: true, context, req })
   }
@@ -283,6 +285,23 @@ const billingFields: Field[] = [
     min: 0,
     access: platformOnlyField,
     admin: { position: 'sidebar' },
+  },
+  {
+    // The band fixed for the licence year (lib/billing/licence-tier) — set by the daily billing job at the
+    // year's start, raised by it when the obec outgrows it mid-year (LicenceUpgrades). Nobody writes it
+    // through the API; the platform sets a band by hand in licenceTier, which wins over it.
+    name: 'licenceBilledTier',
+    type: 'number',
+    min: 0,
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { position: 'sidebar', readOnly: true },
+  },
+  {
+    // The licence year (LicencePeriod.key) licenceBilledTier was fixed for.
+    name: 'licenceBilledTierPeriod',
+    type: 'text',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
   },
   // An individual yearly price instead of the band's (Žďár: 120 000).
   { name: 'licenceCustomYearlyCzk', type: 'number', min: 0, access: platformOnlyField, admin: { position: 'sidebar' } },
@@ -475,7 +494,7 @@ export const BILLING_AUDITED_FIELDS = [
   'importAiEnabled',
   ...billingFields
     .map((f) => ('name' in f ? f.name : ''))
-    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage', 'licenceReminderState'].includes(n)),
+    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage', 'licenceReminderState', 'licenceBilledTierPeriod'].includes(n)),
 ] as const
 
 

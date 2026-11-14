@@ -108,6 +108,9 @@ export type BillingStatusJobResult = {
   licenceReminded: number
   /** Active obce suspended because their licence ran out and wasn't renewed. */
   licenceSuspended: number
+  /** Licence bands fixed for a new licence year, and raised mid-year (lib/billing/licence-tier). */
+  tiersFixed?: number
+  tierUpgrades?: number
   failed: number
 }
 

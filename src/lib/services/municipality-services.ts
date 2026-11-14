@@ -11,6 +11,7 @@ import {
   type PackageKey,
 } from '@/lib/billing/catalog'
 import { licencePeriodOf } from '@/lib/billing/period'
+import { billedTierOf } from '@/lib/billing/licence-tier'
 import { billingStatusOf, nextBillingStepAt, type BillingStatus } from '@/lib/billing/status'
 import { scrapingLimitsOf } from '@/lib/billing/scraping'
 import { countSmsParts, smsHardLimitOf, smsQuotaOf } from '@/lib/billing/sms'
@@ -40,9 +41,12 @@ export type MunicipalityServices = {
     averageUsers: number
     snapshotsUsed: number
     computedTier: number
-    /** The band it's billed by — set by hand (tierManual), else the computed one. */
+    /** The band it's billed by — set by hand (tierManual), else the one fixed for the licence year
+     * (raised only if it outgrew it), else — before the year's band is fixed — the computed one. */
     tier: number
     tierManual: boolean
+    /** The band is fixed for this licence year (by hand or by the billing job). */
+    tierFixedForYear: boolean
     tierRange: string
     yearlyPriceCzk: number | null
     customPrice: boolean
@@ -94,6 +98,8 @@ type BillingDoc = Pick<
   | 'licencePeriodEnd'
   | 'licencePaidUntil'
   | 'licenceTier'
+  | 'licenceBilledTier'
+  | 'licenceBilledTierPeriod'
   | 'licenceCustomYearlyCzk'
   | 'implementationFeeCzk'
   | 'smsEnabled'
@@ -136,7 +142,9 @@ export async function getMunicipalityServices(
   const tiers = catalog.licenceTiers
   const computed = computedTierOf(tiers, snapshots, activeUsers)
   const tierManual = m.licenceTier != null
-  const tier = Math.min(tiers.length - 1, Math.max(0, m.licenceTier ?? computed.tier))
+  // The band of the licence year, fixed at its start and raised only on growth (lib/billing/licence-tier).
+  const billed = billedTierOf(m, period.key, computed.tier)
+  const tier = Math.min(tiers.length - 1, Math.max(0, billed.tier))
   const licencePrice = m.licenceCustomYearlyCzk ?? tiers[tier]?.yearlyPriceCzk ?? 0
   const smsPackage = isPackageKey(m.smsPackage) ? m.smsPackage : 's'
   const smsEnabled = m.smsEnabled === true
@@ -163,6 +171,7 @@ export async function getMunicipalityServices(
       computedTier: computed.tier,
       tier,
       tierManual,
+      tierFixedForYear: billed.fixed,
       tierRange: tierRangeLabel(tiers, tier),
       yearlyPriceCzk: licencePrice,
       customPrice: m.licenceCustomYearlyCzk != null,

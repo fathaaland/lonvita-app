@@ -434,7 +434,10 @@ function Overview() {
                           zřízení {r.sourcesSetUpMonth}× zdroj {num(r.sourceSetupCzkMonth)} Kč
                         </span>
                       )}
-                      {!(r.smsOverageCzkMonth ?? 0) && r.sourcesSetUpMonth === 0 && '—'}
+                      {r.licenceUpgradeCzkMonth > 0 && (
+                        <span className="block">doplatek za vyšší pásmo {num(r.licenceUpgradeCzkMonth)} Kč</span>
+                      )}
+                      {!(r.smsOverageCzkMonth ?? 0) && r.sourcesSetUpMonth === 0 && r.licenceUpgradeCzkMonth === 0 && '—'}
                     </td>
                     <td className="py-2 text-right tabular-nums">{num(r.yearlyTotalCzk)}</td>
                   </tr>

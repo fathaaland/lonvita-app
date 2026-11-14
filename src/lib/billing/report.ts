@@ -110,6 +110,18 @@ export type BillingDetail = {
   settings: BillingSettingsOfObec
   /** The platform has confirmed the obec's erasure for its current terminated stage. */
   erasureConfirmed: boolean
+  /** Its band raised mid-year (LicenceUpgrades), newest first. */
+  licenceUpgrades: {
+    createdAt: string
+    periodKey: string
+    fromTier: number
+    toTier: number
+    averageUsers: number
+    effectiveFrom: string
+    monthsCharged: number
+    periodMonths: number
+    surchargeCzk: number
+  }[]
   services: MunicipalityServices
   snapshots: ActiveUserSnapshot[]
   sources: BillingSource[]
@@ -128,7 +140,7 @@ export async function billingDetailOf(
     depth: 0,
     overrideAccess: true,
   })
-  const [services, snapshots, sources, runs, audit] = await Promise.all([
+  const [services, snapshots, sources, runs, audit, upgrades] = await Promise.all([
     getMunicipalityServices(payload, municipalityId, now),
     listActiveUserSnapshots(payload, municipalityId, 12),
     payload.find({
@@ -163,6 +175,14 @@ export async function billingDetailOf(
       limit: 50,
       overrideAccess: true,
     }),
+    payload.find({
+      collection: 'licence-upgrades',
+      where: { municipality: { equals: municipalityId } },
+      sort: '-createdAt',
+      depth: 0,
+      limit: 50,
+      overrideAccess: true,
+    }),
   ])
 
   const people = await namesOf(payload, [
@@ -177,6 +197,17 @@ export async function billingDetailOf(
 
   return {
     erasureConfirmed: erasureConfirmed(m.billingStatus, m.billingStatusChangedAt, m.erasureConfirmedStage),
+    licenceUpgrades: upgrades.docs.map((u) => ({
+      createdAt: u.createdAt,
+      periodKey: u.periodKey,
+      fromTier: u.fromTier,
+      toTier: u.toTier,
+      averageUsers: u.averageUsers,
+      effectiveFrom: u.effectiveFrom,
+      monthsCharged: u.monthsCharged,
+      periodMonths: u.periodMonths,
+      surchargeCzk: u.surchargeCzk,
+    })),
     settings: {
       name: m.name,
       billingStatus: billingStatusOf(m.billingStatus),
@@ -281,6 +312,8 @@ export type BillingRow = {
   outputTokensMonth: number
   /** What the import AI cost the platform this month — internal, never billed. */
   aiCostUsdMonth: number
+  /** Licence band raised this month (LicenceUpgrades) — the prorated difference to invoice, once. */
+  licenceUpgradeCzkMonth: number
   yearlyTotalCzk: number | null
 }
 
@@ -315,7 +348,7 @@ export async function billingRowsFor(
   now: Date,
 ): Promise<BillingRow[]> {
   const { from, to } = monthRange(month)
-  const [municipalities, snapshots, runs, setUpBy, aiCost] = await Promise.all([
+  const [municipalities, snapshots, runs, setUpBy, aiCost, upgrades] = await Promise.all([
     payload.find({
       collection: 'municipalities',
       select: { name: true },
@@ -346,7 +379,20 @@ export async function billingRowsFor(
     }),
     sourcesSetUpIn(payload, from, to),
     importAiCostUsd(payload, from, to),
+    payload.find({
+      collection: 'licence-upgrades',
+      where: { and: [{ createdAt: { greater_than_equal: from.toISOString() } }, { createdAt: { less_than: to.toISOString() } }] },
+      select: { municipality: true, surchargeCzk: true },
+      depth: 0,
+      pagination: false,
+      overrideAccess: true,
+    }),
   ])
+  const upgradeCzkBy = new Map<number, number>()
+  for (const u of upgrades.docs) {
+    const id = relationNumber(u.municipality)
+    if (id !== null) upgradeCzkBy.set(id, (upgradeCzkBy.get(id) ?? 0) + (u.surchargeCzk ?? 0))
+  }
   const snapshotBy = new Map(
     snapshots.docs.map((s) => [relationNumber(s.municipality), s.activeUsers]),
   )
@@ -398,6 +444,7 @@ export async function billingRowsFor(
       inputTokensMonth: r.input,
       outputTokensMonth: r.output,
       aiCostUsdMonth: round2(aiCost.get(m.id) ?? 0),
+      licenceUpgradeCzkMonth: upgradeCzkBy.get(m.id) ?? 0,
       yearlyTotalCzk: services.yearlyTotalCzk,
     })
   }
@@ -430,6 +477,7 @@ const CSV_COLUMNS: [keyof BillingRow, string][] = [
   ['inputTokensMonth', 'Vstupní tokeny (měsíc)'],
   ['outputTokensMonth', 'Výstupní tokeny (měsíc)'],
   ['aiCostUsdMonth', 'Náklad AI USD (měsíc, interní)'],
+  ['licenceUpgradeCzkMonth', 'Doplatek za vyšší pásmo Kč (měsíc)'],
   ['yearlyTotalCzk', 'Celkem Kč/rok'],
 ]
 
