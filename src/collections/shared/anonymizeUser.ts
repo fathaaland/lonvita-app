@@ -317,6 +317,7 @@ export async function anonymizeUser(req: PayloadRequest, userId: number): Promis
       resetPasswordExpiration: null,
       loginAttempts: 0,
       lockUntil: null,
+      lastSeenAt: null,
       anonymizedAt: nowIso,
     },
     req,

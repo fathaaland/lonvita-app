@@ -15,7 +15,6 @@ import { BillingSettings } from './globals/BillingSettings'
 import { RetentionSettings } from './globals/RetentionSettings'
 import { LegalRequirements } from './collections/LegalRequirements'
 import { ActiveUserSnapshots } from './collections/ActiveUserSnapshots'
-import { LicenceUpgrades } from './collections/LicenceUpgrades'
 import { Media } from './collections/Media'
 import { Municipalities } from './collections/Municipalities'
 import { EventCategories } from './collections/EventCategories'
@@ -182,7 +181,6 @@ export default buildConfig({
     UsageEvents,
     SmsMessages,
     ActiveUserSnapshots,
-    LicenceUpgrades,
     LegalRequirements,
     SystemLogs,
     SecurityEvents,

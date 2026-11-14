@@ -1,7 +1,7 @@
 import type { Payload } from 'payload'
 
 import type { Municipality } from '@/payload-types'
-import { computedTierOf, countActiveUsers, listActiveUserSnapshots } from '@/lib/billing/active-users'
+import { countActiveUsers } from '@/lib/billing/active-users'
 import {
   cheaperScrapingPackage,
   getBillingCatalog,
@@ -10,17 +10,17 @@ import {
   tierRangeLabel,
   type PackageKey,
 } from '@/lib/billing/catalog'
+import { licenceQuote } from '@/lib/billing/licence-price'
 import { licencePeriodOf } from '@/lib/billing/period'
-import { billedTierOf } from '@/lib/billing/licence-tier'
 import { billingStatusOf, nextBillingStepAt, type BillingStatus } from '@/lib/billing/status'
 import { scrapingLimitsOf } from '@/lib/billing/scraping'
 import { countSmsParts, smsHardLimitOf, smsQuotaOf } from '@/lib/billing/sms'
 
 /**
- * What the obec has bought and how much of it it used (Balíčky služeb, lib/billing): the yearly
- * licence by the band of its users, the SMS package (a yearly quota of parts) and the scraping
- * package (a number of sources). E-mails come with the licence. The platform sees the prices too;
- * the obec only its packages and use (withoutPrices) — the prices are internal for now.
+ * What the obec has bought and how much of it it used (Ceník 2027, lib/billing): the yearly licence by
+ * the band of its inhabitants (plus the growth band), the SMS package (a yearly quota of parts) and the
+ * package for loading events (a number of sources). E-mails come with the licence. The platform sees
+ * the prices and the contract; the obec only its packages and use (withoutPrices).
  */
 export type MunicipalityServices = {
   billingStatus: BillingStatus
@@ -35,22 +35,37 @@ export type MunicipalityServices = {
     /** Paid up to (not including) — past it the year doesn't turn, no new SMS quota. */
     paidUntil: string | null
     lapsed: boolean
-    /** Its users right now (lib/billing/active-users). */
+    /** Inhabitants (ČSÚ) the band is by, and of which year; null until the platform enters them. */
+    population: number | null
+    populationYear: number | null
+    /** Active users now (lib/billing/active-users — signed in or at an event in 90 days). */
     activeUsers: number
-    /** The average of the last three monthly snapshots — what the band is computed from. */
-    averageUsers: number
-    snapshotsUsed: number
-    computedTier: number
-    /** The band it's billed by — set by hand (tierManual), else the one fixed for the licence year
-     * (raised only if it outgrew it), else — before the year's band is fixed — the computed one. */
-    tier: number
+    /** Of them in the price (activeUsersIncludedPercent of the inhabitants); null without inhabitants. */
+    includedUsers: number | null
+    /** The band by size; null without inhabitants. */
+    baseTier: number | null
+    /** The band it's billed by this year (by hand, or fixed for the year incl. the growth band). */
+    tier: number | null
     tierManual: boolean
-    /** The band is fixed for this licence year (by hand or by the billing job). */
     tierFixedForYear: boolean
-    tierRange: string
+    /** Bands over its size this year. */
+    growthSteps: number
+    /** The next licence year's band, if the autumn decided it already. */
+    nextTier: number | null
+    tierRange: string | null
+    nextTierRange: string | null
+    inTrial: boolean
+    trialEndsAt: string | null
+    // — the platform's only (withoutPrices) —
     yearlyPriceCzk: number | null
+    listPriceCzk: number | null
+    floorCzk: number | null
+    belowFloor: boolean
     customPrice: boolean
     implementationFeeCzk: number | null
+    contractYear: number | null
+    /** What's missing for a price (e.g. the inhabitants) — for the platform. */
+    missing: string[]
   }
   sms: {
     enabled: boolean
@@ -73,17 +88,13 @@ export type MunicipalityServices = {
     slotHour: number
     frequency: 'weekly' | 'twice_weekly'
     maxInputTokensPerRun: number
-    /** What the package itself allows — sources switched on past it are extra, billed each a year. */
+    /** What the package itself allows (the platform may allow more, at no extra price). */
     packageMaxSources: number
-    /** Switched-on sources past the package (within `maxSources`) — what's billed as extra. */
-    extraSources: number
-    /** The whole scraping a year: the package, the extra sources and twice-weekly reading. */
     yearlyPriceCzk: number | null
-    packagePriceCzk: number | null
-    extraSourcesPriceCzk: number | null
-    frequencyPriceCzk: number | null
+    /** The first wave's first year — package S free. */
+    freeThisYear: boolean
     setupFeeCzk: number | null
-    /** A package that would give the same for less — a hint for the platform, never for the obec. */
+    /** A smaller package that would cover its sources — a hint for the platform, never for the obec. */
     cheaperPackage: PackageKey | null
   }
   /** Licence + the add-ons it has on, a year — none for the obec's own view. */
@@ -100,8 +111,19 @@ type BillingDoc = Pick<
   | 'licenceTier'
   | 'licenceBilledTier'
   | 'licenceBilledTierPeriod'
+  | 'licenceNextTier'
+  | 'licenceNextTierPeriod'
   | 'licenceCustomYearlyCzk'
   | 'implementationFeeCzk'
+  | 'population'
+  | 'populationYear'
+  | 'contractStart'
+  | 'contractYears'
+  | 'firstWave'
+  | 'referenceDiscount'
+  | 'priceIndexPercent'
+  | 'floorExceptionNote'
+  | 'trialEndsAt'
   | 'smsEnabled'
   | 'smsPackage'
   | 'smsQuotaOverride'
@@ -124,9 +146,8 @@ export async function getMunicipalityServices(
     overrideAccess: true,
   })) as BillingDoc
   const period = licencePeriodOf(m, now)
-  const [activeUsers, snapshots, smsUsed, scraping, sources] = await Promise.all([
-    countActiveUsers(payload, municipalityId),
-    listActiveUserSnapshots(payload, municipalityId, 3),
+  const [activeUsers, smsUsed, scraping, sources] = await Promise.all([
+    countActiveUsers(payload, municipalityId, now),
     countSmsParts(payload, municipalityId, period.start, period.end),
     scrapingLimitsOf(payload, municipalityId, { catalog }),
     payload.find({
@@ -140,42 +161,50 @@ export async function getMunicipalityServices(
   ])
 
   const tiers = catalog.licenceTiers
-  const computed = computedTierOf(tiers, snapshots, activeUsers)
-  const tierManual = m.licenceTier != null
-  // The band of the licence year, fixed at its start and raised only on growth (lib/billing/licence-tier).
-  const billed = billedTierOf(m, period.key, computed.tier)
-  const tier = Math.min(tiers.length - 1, Math.max(0, billed.tier))
-  const licencePrice = m.licenceCustomYearlyCzk ?? tiers[tier]?.yearlyPriceCzk ?? 0
+  const quote = licenceQuote(catalog, m, period, now)
+  const nextPeriodKey = licencePeriodOf({ ...m, licencePaidUntil: null }, period.paidEnd).key
+  const nextTier = m.licenceNextTierPeriod === nextPeriodKey && m.licenceNextTier != null ? m.licenceNextTier : null
+  const population = typeof m.population === 'number' ? m.population : null
   const smsPackage = isPackageKey(m.smsPackage) ? m.smsPackage : 's'
   const smsEnabled = m.smsEnabled === true
   const smsPrice = catalog.smsPackages[smsPackage].yearlyPriceCzk
   const frequency = m.scrapingFrequency === 'twice_weekly' ? 'twice_weekly' : 'weekly'
   const enabledSources = sources.docs.filter((s) => s.enabled).length
-  // Billed are the sources really switched on — and only those it may have (the rest aren't read).
-  const billedSources = Math.min(enabledSources, scraping.maxSources)
-  const scrapingPrice = scrapingYearlyPriceOf(catalog, scraping.package, billedSources, frequency)
+  const scrapingFree = quote.scrapingSFree && scraping.package === 's'
+  const scrapingPrice = scrapingFree ? 0 : scrapingYearlyPriceOf(catalog, scraping.package)
 
   return {
     billingStatus: billingStatusOf(m.billingStatus),
     billingStatusChangedAt: m.billingStatusChangedAt ?? null,
-    billingNextStepAt: nextBillingStepAt(m.billingStatus, m.billingStatusChangedAt)?.toISOString() ?? null,
+    billingNextStepAt: nextBillingStepAt(m.billingStatus, m.billingStatusChangedAt, m.trialEndsAt)?.toISOString() ?? null,
     licence: {
       periodStart: period.start.toISOString(),
       periodEnd: period.paidEnd.toISOString(),
       periodCustom: period.custom,
       paidUntil: m.licencePaidUntil ?? null,
       lapsed: period.lapsed,
+      population,
+      populationYear: m.populationYear ?? null,
       activeUsers,
-      averageUsers: computed.averageUsers,
-      snapshotsUsed: computed.fromSnapshots,
-      computedTier: computed.tier,
-      tier,
-      tierManual,
-      tierFixedForYear: billed.fixed,
-      tierRange: tierRangeLabel(tiers, tier),
-      yearlyPriceCzk: licencePrice,
-      customPrice: m.licenceCustomYearlyCzk != null,
-      implementationFeeCzk: m.implementationFeeCzk ?? catalog.implementationFeeCzk,
+      includedUsers: population === null ? null : Math.floor((population * catalog.activeUsersIncludedPercent) / 100),
+      baseTier: quote.baseTier,
+      tier: quote.tier,
+      tierManual: quote.tierManual,
+      tierFixedForYear: quote.tierFixedForYear,
+      growthSteps: quote.growthSteps,
+      nextTier,
+      tierRange: quote.tier === null ? null : tierRangeLabel(tiers, quote.tier),
+      nextTierRange: nextTier === null ? null : tierRangeLabel(tiers, nextTier),
+      inTrial: quote.inTrial,
+      trialEndsAt: m.trialEndsAt ?? null,
+      yearlyPriceCzk: quote.priceCzk,
+      listPriceCzk: quote.listPriceCzk,
+      floorCzk: quote.floorCzk,
+      belowFloor: quote.belowFloor,
+      customPrice: quote.customPrice,
+      implementationFeeCzk: quote.implementationFeeCzk,
+      contractYear: quote.contractYear,
+      missing: quote.missing,
     },
     sms: {
       enabled: smsEnabled,
@@ -198,32 +227,33 @@ export async function getMunicipalityServices(
       frequency,
       maxInputTokensPerRun: scraping.maxInputTokensPerRun,
       packageMaxSources: catalog.scrapingPackages[scraping.package].maxSources,
-      extraSources: scrapingPrice.extraSources,
-      yearlyPriceCzk: scrapingPrice.totalCzk,
-      packagePriceCzk: scrapingPrice.packageCzk,
-      extraSourcesPriceCzk: scrapingPrice.extraSourcesCzk,
-      frequencyPriceCzk: scrapingPrice.frequencyCzk,
+      yearlyPriceCzk: scrapingPrice,
+      freeThisYear: scrapingFree,
       setupFeeCzk: catalog.sourceSetupFeeCzk,
-      cheaperPackage: cheaperScrapingPackage(catalog, scraping.package, billedSources, frequency),
+      cheaperPackage: cheaperScrapingPackage(catalog, scraping.package, enabledSources),
     },
     yearlyTotalCzk:
-      licencePrice + (smsEnabled ? smsPrice : 0) + (scraping.enabled ? scrapingPrice.totalCzk : 0),
+      quote.priceCzk === null
+        ? null
+        : quote.priceCzk + (smsEnabled ? smsPrice : 0) + (scraping.enabled ? scrapingPrice : 0),
   }
 }
 
-/** The obec's own view — its packages and use, no prices (internal for now). */
+/** The obec's own view — its packages and use, no prices nor the contract's terms (internal). */
 export const withoutPrices = (s: MunicipalityServices): MunicipalityServices => ({
   ...s,
-  licence: { ...s.licence, yearlyPriceCzk: null, implementationFeeCzk: null },
-  sms: { ...s.sms, yearlyPriceCzk: null, overagePriceCzk: null },
-  scraping: {
-    ...s.scraping,
+  licence: {
+    ...s.licence,
     yearlyPriceCzk: null,
-    packagePriceCzk: null,
-    extraSourcesPriceCzk: null,
-    frequencyPriceCzk: null,
-    setupFeeCzk: null,
-    cheaperPackage: null,
+    listPriceCzk: null,
+    floorCzk: null,
+    belowFloor: false,
+    customPrice: false,
+    implementationFeeCzk: null,
+    contractYear: null,
+    missing: [],
   },
+  sms: { ...s.sms, yearlyPriceCzk: null, overagePriceCzk: null },
+  scraping: { ...s.scraping, yearlyPriceCzk: null, setupFeeCzk: null, cheaperPackage: null },
   yearlyTotalCzk: null,
 })

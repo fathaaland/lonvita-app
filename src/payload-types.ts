@@ -96,7 +96,6 @@ export interface Config {
     'usage-events': UsageEvent;
     'sms-messages': SmsMessage;
     'active-user-snapshots': ActiveUserSnapshot;
-    'licence-upgrades': LicenceUpgrade;
     'legal-requirements': LegalRequirement;
     'system-logs': SystemLog;
     'security-events': SecurityEvent;
@@ -137,7 +136,6 @@ export interface Config {
     'usage-events': UsageEventsSelect<false> | UsageEventsSelect<true>;
     'sms-messages': SmsMessagesSelect<false> | SmsMessagesSelect<true>;
     'active-user-snapshots': ActiveUserSnapshotsSelect<false> | ActiveUserSnapshotsSelect<true>;
-    'licence-upgrades': LicenceUpgradesSelect<false> | LicenceUpgradesSelect<true>;
     'legal-requirements': LegalRequirementsSelect<false> | LegalRequirementsSelect<true>;
     'system-logs': SystemLogsSelect<false> | SystemLogsSelect<true>;
     'security-events': SecurityEventsSelect<false> | SecurityEventsSelect<true>;
@@ -199,6 +197,7 @@ export interface User {
    * Platform-level role — controls Payload admin access, not community roles. Not editable through the app: grant it from a seed/script (Local API) only.
    */
   role: 'admin' | 'user';
+  lastSeenAt?: string | null;
   /**
    * When the account was deleted. Its personal data is gone; the row stays so the registrations, attendance and ratings hanging off it keep counting in the overviews.
    */
@@ -302,9 +301,22 @@ export interface Municipality {
   licenceReminderState?: string | null;
   licencePeriodStart?: string | null;
   licencePeriodEnd?: string | null;
+  population?: number | null;
+  populationYear?: number | null;
+  contractStart?: string | null;
+  contractYears?: number | null;
+  firstWave?: boolean | null;
+  referenceDiscount?: boolean | null;
+  priceIndexPercent?: number | null;
+  floorExceptionNote?: string | null;
+  trialEndsAt?: string | null;
+  trialReminderState?: string | null;
   licenceTier?: number | null;
   licenceBilledTier?: number | null;
   licenceBilledTierPeriod?: string | null;
+  licenceNextTier?: number | null;
+  licenceNextTierPeriod?: string | null;
+  licenceNextTierUsers?: number | null;
   licenceCustomYearlyCzk?: number | null;
   implementationFeeCzk?: number | null;
   smsPackage?: ('s' | 'm' | 'l') | null;
@@ -1205,26 +1217,6 @@ export interface ActiveUserSnapshot {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "licence-upgrades".
- */
-export interface LicenceUpgrade {
-  id: number;
-  municipality: number | Municipality;
-  periodKey: string;
-  fromTier: number;
-  toTier: number;
-  averageUsers: number;
-  effectiveFrom: string;
-  monthsCharged: number;
-  periodMonths: number;
-  fromYearlyCzk: number;
-  toYearlyCzk: number;
-  surchargeCzk: number;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "legal-requirements".
  */
 export interface LegalRequirement {
@@ -1482,10 +1474,6 @@ export interface PayloadLockedDocument {
         value: number | ActiveUserSnapshot;
       } | null)
     | ({
-        relationTo: 'licence-upgrades';
-        value: number | LicenceUpgrade;
-      } | null)
-    | ({
         relationTo: 'legal-requirements';
         value: number | LegalRequirement;
       } | null)
@@ -1549,6 +1537,7 @@ export interface PayloadMigration {
  */
 export interface UsersSelect<T extends boolean = true> {
   role?: T;
+  lastSeenAt?: T;
   anonymizedAt?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -1644,9 +1633,22 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   licenceReminderState?: T;
   licencePeriodStart?: T;
   licencePeriodEnd?: T;
+  population?: T;
+  populationYear?: T;
+  contractStart?: T;
+  contractYears?: T;
+  firstWave?: T;
+  referenceDiscount?: T;
+  priceIndexPercent?: T;
+  floorExceptionNote?: T;
+  trialEndsAt?: T;
+  trialReminderState?: T;
   licenceTier?: T;
   licenceBilledTier?: T;
   licenceBilledTierPeriod?: T;
+  licenceNextTier?: T;
+  licenceNextTierPeriod?: T;
+  licenceNextTierUsers?: T;
   licenceCustomYearlyCzk?: T;
   implementationFeeCzk?: T;
   smsPackage?: T;
@@ -2182,25 +2184,6 @@ export interface ActiveUserSnapshotsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "licence-upgrades_select".
- */
-export interface LicenceUpgradesSelect<T extends boolean = true> {
-  municipality?: T;
-  periodKey?: T;
-  fromTier?: T;
-  toTier?: T;
-  averageUsers?: T;
-  effectiveFrom?: T;
-  monthsCharged?: T;
-  periodMonths?: T;
-  fromYearlyCzk?: T;
-  toYearlyCzk?: T;
-  surchargeCzk?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "legal-requirements_select".
  */
 export interface LegalRequirementsSelect<T extends boolean = true> {
@@ -2337,12 +2320,18 @@ export interface BillingSetting {
   id: number;
   licenceTiers?:
     | {
+        maxPopulation?: number | null;
+        yearlyPriceCzk?: number | null;
+        floorCzk?: number | null;
+        implementationFeeCzk?: number | null;
         maxUsers?: number | null;
-        yearlyPriceCzk: number;
         id?: string | null;
       }[]
     | null;
-  implementationFeeCzk: number;
+  activeUsersIncludedPercent: number;
+  growthCapCzk: number;
+  threeYearDiscountPercent: number;
+  referenceImplementationDiscountPercent: number;
   smsPackages: {
     s: {
       quota: number;
@@ -2374,10 +2363,11 @@ export interface BillingSetting {
     };
   };
   sourceSetupFeeCzk: number;
-  scrapingExtraSourcePriceCzk: number;
-  scrapingTwiceWeeklyPriceCzk: number;
   maxInputTokensPerRun: number;
   scrapingCostAlertUsdPerSource: number;
+  implementationFeeCzk?: number | null;
+  scrapingExtraSourcePriceCzk?: number | null;
+  scrapingTwiceWeeklyPriceCzk?: number | null;
   updatedAt?: string | null;
   createdAt?: string | null;
 }
@@ -2444,11 +2434,17 @@ export interface BillingSettingsSelect<T extends boolean = true> {
   licenceTiers?:
     | T
     | {
-        maxUsers?: T;
+        maxPopulation?: T;
         yearlyPriceCzk?: T;
+        floorCzk?: T;
+        implementationFeeCzk?: T;
+        maxUsers?: T;
         id?: T;
       };
-  implementationFeeCzk?: T;
+  activeUsersIncludedPercent?: T;
+  growthCapCzk?: T;
+  threeYearDiscountPercent?: T;
+  referenceImplementationDiscountPercent?: T;
   smsPackages?:
     | T
     | {
@@ -2496,10 +2492,11 @@ export interface BillingSettingsSelect<T extends boolean = true> {
             };
       };
   sourceSetupFeeCzk?: T;
-  scrapingExtraSourcePriceCzk?: T;
-  scrapingTwiceWeeklyPriceCzk?: T;
   maxInputTokensPerRun?: T;
   scrapingCostAlertUsdPerSource?: T;
+  implementationFeeCzk?: T;
+  scrapingExtraSourcePriceCzk?: T;
+  scrapingTwiceWeeklyPriceCzk?: T;
   updatedAt?: T;
   createdAt?: T;
   globalType?: T;

@@ -11,5 +11,5 @@ export const processBillingStatusJob = async (now: Date = new Date()): Promise<B
   const payload = await getWorkerPayload()
   const tiers = await reviewLicenceTiers(payload, now)
   const result = await advanceBillingStatuses(payload, now)
-  return { ...result, tiersFixed: tiers.fixed, tierUpgrades: tiers.upgraded, failed: result.failed + tiers.failed }
+  return { ...result, tiersFixed: tiers.fixed, tiersEvaluated: tiers.evaluated, tiersRaised: tiers.raised, failed: result.failed + tiers.failed }
 }

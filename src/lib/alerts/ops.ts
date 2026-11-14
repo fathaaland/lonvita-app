@@ -69,7 +69,8 @@ const IMMEDIATE: Record<string, { severity: OpsSeverity; title: string }> = {
   'billing.erasure_unconfirmed': { severity: 'warning', title: 'Obec je po lhůtě ke smazání a čeká na vaše potvrzení (nebo ji vraťte do Aktivní)' },
   'billing.licence_expired': { severity: 'warning', title: 'Licence obce vypršela a nebyla prodloužena — vyfakturovat / prodloužit' },
   'billing.licence_auto_suspended': { severity: 'warning', title: 'Obec automaticky pozastavena — licence nebyla prodloužena' },
-  'billing.licence_tier_upgraded': { severity: 'warning', title: 'Obec přerostla licenční pásmo — vyfakturovat doplatek' },
+  'billing.licence_tier_raised': { severity: 'warning', title: 'Růstové pásmo: obec od dalšího období o pásmo výš — upravit cenu ve smlouvě' },
+  'billing.trial_ended': { severity: 'warning', title: 'Zkušební provoz obce skončil — fakturovat licenci (pokud obec nevypověděla)' },
   'billing.obec_erased': { severity: 'critical', title: 'Obec byla po konci smlouvy nevratně smazána' },
   'ops.test': { severity: 'warning', title: 'Testovací alert' },
 }

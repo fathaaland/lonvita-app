@@ -332,6 +332,16 @@ export const Users: CollectionConfig = {
       },
     },
     {
+      // When the account was last used (any signed-in request, at most once in LAST_SEEN_EVERY_MS — the
+      // auth strategy). What an "active user" is counted from for the obec's licence (lib/billing/
+      // active-users). Nobody writes it through the API; only the platform reads it.
+      name: 'lastSeenAt',
+      type: 'date',
+      index: true,
+      access: { read: ({ req: { user } }) => user?.role === 'admin', create: () => false, update: () => false },
+      admin: { readOnly: true, position: 'sidebar' },
+    },
+    {
       // Set once by shared/anonymizeUser — never by a client.
       name: 'anonymizedAt',
       type: 'date',

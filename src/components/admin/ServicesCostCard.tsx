@@ -125,23 +125,42 @@ export function ServicesCostCard({
             <Row
               icon={ShieldCheck}
               title="Licence"
-              badge={<Badge variant="outline">Pásmo {s.licence.tier}</Badge>}
+              badge={
+                <Badge variant="outline">
+                  {s.licence.tier != null ? `Pásmo ${s.licence.tier + 1}` : 'Pásmo nestanoveno'}
+                </Badge>
+              }
               price={
                 s.licence.yearlyPriceCzk != null
                   ? `${czk(s.licence.yearlyPriceCzk)} / rok${s.licence.customPrice ? ' (individuální)' : ''}`
                   : null
               }
             >
+              {s.licence.tierRange && (
+                <p className="text-sm text-muted-foreground">
+                  Pásmo pro obce {s.licence.tierRange} obyvatel
+                  {s.licence.growthSteps > 0 && ' (růstové pásmo)'}
+                  {s.licence.population != null && ` · obec má ${num(s.licence.population)} obyvatel`}
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
-                {num(s.licence.activeUsers)} uživatelů obce · pásmo pro {s.licence.tierRange}{' '}
-                uživatelů
+                Aktivní uživatelé {num(s.licence.activeUsers)}
+                {s.licence.includedUsers != null && ` z ${num(s.licence.includedUsers)} v ceně`} — přihlášení nebo na akci za
+                posledních 90 dní.
               </p>
+              {s.licence.nextTier != null && s.licence.nextTier !== s.licence.tier && (
+                <p className="text-sm text-warning">
+                  Od dalšího období pásmo {s.licence.nextTier + 1} (pro obce {s.licence.nextTierRange} obyvatel).
+                </p>
+              )}
               {!s.licence.tierManual && (
                 <p className="text-xs text-muted-foreground">
-                  Pásmo platí na celý licenční rok. Pokud průměr uživatelů za poslední 3 měsíce přeroste pásmo, obec
-                  od dalšího měsíce přejde do vyššího a doplatí jen zbývající měsíce, nikdy zpětně. Do nižšího pásma se
-                  vrací až při obnově licence.
+                  Cena je pevná na celé období. Když počet aktivních uživatelů přesáhne 5 % obyvatel, obec přejde až
+                  od dalšího období o jedno pásmo výš (oznámíme do 15. 11.). Uživatelé se nikdy neomezují.
                 </p>
+              )}
+              {s.licence.inTrial && s.licence.trialEndsAt && (
+                <p className="text-sm text-warning">Zkušební provoz do {lastDay(s.licence.trialEndsAt)}.</p>
               )}
               <p className="text-sm text-muted-foreground">
                 Licenční období {date(s.licence.periodStart)} – {lastDay(s.licence.periodEnd)}
@@ -226,21 +245,12 @@ export function ServicesCostCard({
                   <Meter used={s.scraping.enabledSources} limit={s.scraping.maxSources} />
                   <p className="text-sm text-muted-foreground">
                     Zapnuté zdroje {s.scraping.enabledSources} z {s.scraping.maxSources}
-                    {s.scraping.extraSources > 0 &&
-                      ` (balíček ${s.scraping.packageMaxSources} + ${s.scraping.extraSources} navíc)`}{' '}
-                    · kontrola {s.scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně'},{' '}
+                    {' '}· kontrola {s.scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně'},{' '}
                     {WEEKDAY_NAMES[s.scraping.slotDay - 1]} v {s.scraping.slotHour}:00
                   </p>
-                  {s.scraping.yearlyPriceCzk != null &&
-                    (s.scraping.extraSources > 0 || s.scraping.frequency === 'twice_weekly') && (
-                      <p className="text-xs text-muted-foreground tabular-nums">
-                        Balíček {czk(s.scraping.packagePriceCzk ?? 0)}
-                        {s.scraping.extraSources > 0 &&
-                          ` + ${s.scraping.extraSources} zdroj(e) navíc ${czk(s.scraping.extraSourcesPriceCzk ?? 0)}`}
-                        {s.scraping.frequency === 'twice_weekly' &&
-                          ` + 2× týdně ${czk(s.scraping.frequencyPriceCzk ?? 0)}`}
-                      </p>
-                    )}
+                  {s.scraping.freeThisYear && (
+                    <p className="text-xs text-muted-foreground">Balíček S je první rok zdarma.</p>
+                  )}
                   {s.scraping.cheaperPackage && (
                     <p className="text-xs text-warning">
                       Balíček {PACKAGE_LABELS[s.scraping.cheaperPackage]} by obci se stejným počtem zdrojů

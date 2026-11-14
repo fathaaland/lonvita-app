@@ -29,6 +29,9 @@ import {
   type BillingStatus,
 } from '@/lib/billing/status'
 import { deferredUntilCommit } from '@/lib/after-commit'
+import { getBillingCatalog } from '@/lib/billing/catalog'
+import { licenceQuote } from '@/lib/billing/licence-price'
+import { licencePeriodOf } from '@/lib/billing/period'
 import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
@@ -154,8 +157,6 @@ const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) =
     'user-roles',
     // Its monthly user counts (billing) — the obec is gone, so are they.
     'active-user-snapshots',
-    // Its band upgrades (billing) — likewise.
-    'licence-upgrades',
   ] as const) {
     await payload.delete({ collection, where: ofObec, overrideAccess: true, context, req })
   }
@@ -278,8 +279,71 @@ const billingFields: Field[] = [
     },
   },
   {
-    // The band set by hand (Žďár, exceptions, or fixed at the yearly invoice). Empty: computed from
-    // the average of the last three monthly snapshots of its users.
+    // Inhabitants by ČSÚ on 1. 1. of the year the contract was signed (populationYear) — what the
+    // licence band is (Ceník 2027). A later number counts from the next licence year (licence-tier).
+    name: 'population',
+    type: 'number',
+    min: 0,
+    max: 2_000_000,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  { name: 'populationYear', type: 'number', min: 2000, max: 2100, access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    // The contract (lib/billing/licence-price): signed when, for how long (2 years, or 3 with a discount),
+    // a first-wave obec (implementation month, licence from the second, the first year at the floor),
+    // a reference (half the implementation), the inflation the price moved by since (ČSÚ, from year 2).
+    name: 'contractStart',
+    type: 'date',
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    name: 'contractYears',
+    type: 'number',
+    min: 1,
+    max: 5,
+    defaultValue: 2,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  { name: 'firstWave', type: 'checkbox', defaultValue: false, access: platformOnlyField, admin: { position: 'sidebar' } },
+  { name: 'referenceDiscount', type: 'checkbox', defaultValue: false, access: platformOnlyField, admin: { position: 'sidebar' } },
+  {
+    name: 'priceIndexPercent',
+    type: 'number',
+    min: 0,
+    max: 100,
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    // Why the price is under the band's floor — agreed with whom (a mikroregion, …). Without it a
+    // price under the floor isn't saved (guardFloor).
+    name: 'floorExceptionNote',
+    type: 'textarea',
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    // A trial (up to 3 months, not in the price list): the licence free until then. Its admins and the
+    // platform are reminded before the last day to cancel (TRIAL_CANCEL_DAYS before the end); an obec
+    // that ends with the trial is erased after TRIAL_TERMINATED_DAYS, not the usual 90 (status).
+    name: 'trialEndsAt',
+    type: 'date',
+    access: platformOnlyField,
+    admin: { position: 'sidebar' },
+  },
+  {
+    // Which trial reminder its admins already got — for which end date.
+    name: 'trialReminderState',
+    type: 'text',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
+  },
+  {
+    // The band set by hand (the contract's, an exception). Empty: by its size, plus the growth band —
+    // fixed for each licence year by the billing job (licenceBilledTier).
     name: 'licenceTier',
     type: 'number',
     min: 0,
@@ -288,8 +352,8 @@ const billingFields: Field[] = [
   },
   {
     // The band fixed for the licence year (lib/billing/licence-tier) — set by the daily billing job at the
-    // year's start, raised by it when the obec outgrows it mid-year (LicenceUpgrades). Nobody writes it
-    // through the API; the platform sets a band by hand in licenceTier, which wins over it.
+    // year's start: its size, plus the growth band decided the autumn before (licenceNextTier). Nobody
+    // writes it through the API; the platform sets a band by hand in licenceTier, which wins over it.
     name: 'licenceBilledTier',
     type: 'number',
     min: 0,
@@ -300,6 +364,29 @@ const billingFields: Field[] = [
     // The licence year (LicencePeriod.key) licenceBilledTier was fixed for.
     name: 'licenceBilledTierPeriod',
     type: 'text',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
+  },
+  {
+    // The band decided in the autumn for the next licence year (the growth band), and that year's key —
+    // written by the billing job alone, announced to the obec by 15. 11.
+    name: 'licenceNextTier',
+    type: 'number',
+    min: 0,
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { position: 'sidebar', readOnly: true },
+  },
+  {
+    name: 'licenceNextTierPeriod',
+    type: 'text',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
+  },
+  {
+    // The active users that decided it (the average of the end-of-September and end-of-October snapshots).
+    name: 'licenceNextTierUsers',
+    type: 'number',
+    min: 0,
     access: { read: platformAdmin, create: () => false, update: () => false },
     admin: { hidden: true },
   },
@@ -380,6 +467,39 @@ const hideSuspendedServices: CollectionBeforeReadHook = ({ doc, req }) => {
   return { ...doc, smsEnabled: false, importAiEnabled: false }
 }
 
+/** What the floor check reads — the fields a licence price is made of. */
+const PRICE_FIELDS = [
+  'population',
+  'licenceTier',
+  'licenceCustomYearlyCzk',
+  'contractStart',
+  'contractYears',
+  'firstWave',
+  'priceIndexPercent',
+  'floorExceptionNote',
+] as const
+
+/**
+ * A licence price under its band's floor (Ceník 2027, internal) is saved only with the exception it was
+ * agreed as (floorExceptionNote — a mikroregion, a deal with David). Checked when the platform changes
+ * what the price is made of; the job writing its own fields never trips it.
+ */
+const guardFloor: CollectionBeforeChangeHook = async ({ data, originalDoc, req, operation }) => {
+  if (!data || !req.user) return data
+  if (operation === 'update' && !PRICE_FIELDS.some((f) => f in data)) return data
+  const merged = { ...(originalDoc ?? {}), ...data }
+  const period = licencePeriodOf(merged, new Date())
+  const quote = licenceQuote(await getBillingCatalog(req.payload, req), merged, period)
+  const note = typeof merged.floorExceptionNote === 'string' ? merged.floorExceptionNote.trim() : ''
+  if (quote.belowFloor && !note) {
+    throw new APIError(
+      `Cena licence ${quote.priceCzk?.toLocaleString('cs-CZ')} Kč je pod spodní hranicí pásma (${quote.floorCzk?.toLocaleString('cs-CZ')} Kč). Uložit ji jde jen s vyplněným důvodem výjimky.`,
+      400,
+    )
+  }
+  return data
+}
+
 /** A new obec without a paid-until date gets NEW_OBEC_PAYMENT_DAYS to pay — never an unlimited licence. */
 const defaultLicencePaidUntil: CollectionBeforeValidateHook = ({ data, operation }) => {
   if (operation !== 'create' || !data || data.licencePaidUntil) return data
@@ -397,7 +517,7 @@ const stampBillingStatusChange: CollectionBeforeChangeHook = ({ data, originalDo
 }
 
 /** What each status means for the obec, told to its admins when it moves there. */
-const STATUS_NOTICES: Record<BillingStatus, (doc: { billingStatusChangedAt?: string | null }) => { title: string; message: string }> = {
+const STATUS_NOTICES: Record<BillingStatus, (doc: { billingStatusChangedAt?: string | null; trialEndsAt?: string | null }) => { title: string; message: string }> = {
   active: () => ({
     title: 'Licence obce je znovu aktivní',
     message: 'Všechny služby Lonvity obci znovu běží, včetně SMS a importu akcí z webu, pokud je máte objednané.',
@@ -420,7 +540,7 @@ const STATUS_NOTICES: Record<BillingStatus, (doc: { billingStatusChangedAt?: str
     }
   },
   terminated: (doc) => {
-    const erasedAt = nextBillingStepAt('terminated', doc.billingStatusChangedAt)
+    const erasedAt = nextBillingStepAt('terminated', doc.billingStatusChangedAt, doc.trialEndsAt)
     return {
       title: 'Smlouva obce s Lonvitou skončila',
       message:
@@ -478,7 +598,7 @@ const notifyBillingStatusChange: CollectionAfterChangeHook = deferredUntilCommit
   if (to !== 'terminated') return
   const admins = new Set(adminIds.map(String))
   const residents = (await residentUserIds(req.payload, doc.id)).filter((id) => !admins.has(String(id)))
-  const notice = residentNotice(doc.name, nextBillingStepAt('terminated', doc.billingStatusChangedAt))
+  const notice = residentNotice(doc.name, nextBillingStepAt('terminated', doc.billingStatusChangedAt, doc.trialEndsAt))
   await sendNotificationToMany(
     req.payload,
     residents,
@@ -494,7 +614,7 @@ export const BILLING_AUDITED_FIELDS = [
   'importAiEnabled',
   ...billingFields
     .map((f) => ('name' in f ? f.name : ''))
-    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage', 'licenceReminderState', 'licenceBilledTierPeriod'].includes(n)),
+    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage', 'licenceReminderState', 'licenceBilledTierPeriod', 'licenceNextTierPeriod', 'licenceNextTierUsers', 'trialReminderState'].includes(n)),
 ] as const
 
 
@@ -613,7 +733,7 @@ export const Municipalities: CollectionConfig = {
       // Its admins editing a read-only obec's own settings are refused like any other write of theirs.
       guardReadOnlyObec({ collection: 'municipalities', operations: ['update'], municipalityOf: (r) => r.id }),
     ],
-    beforeChange: [stampBillingStatusChange],
+    beforeChange: [stampBillingStatusChange, guardFloor],
     afterChange: [syncMunicipalityOrganization, auditBillingChange, notifyBillingStatusChange],
     beforeDelete: [deleteMunicipalityData],
     // Takes everything of the obec along (deleteMunicipalityData) — one entry for all of it.

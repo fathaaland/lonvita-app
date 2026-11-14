@@ -9,6 +9,7 @@ import type { BillingStatusJobResult } from '@/lib/queue/contracts'
 
 import {
   LICENCE_GRACE_DAYS,
+  TRIAL_CANCEL_DAYS,
   WARN_DAYS_BEFORE,
   billingStatusOf,
   erasureConfirmed,
@@ -220,6 +221,62 @@ async function checkLicences(payload: Payload, now: Date, result: BillingStatusJ
 }
 
 /**
+ * Trials (interní podklad 13. 11.: up to 3 months, the contract goes on paid unless the obec says no
+ * TRIAL_CANCEL_DAYS before the end). A week before that deadline its admins hear when it is; on the
+ * trial's last day the platform is told to invoice. Each once per end date (trialReminderState).
+ */
+async function checkTrials(payload: Payload, now: Date, result: BillingStatusJobResult): Promise<void> {
+  const soon = new Date(now.getTime() + (TRIAL_CANCEL_DAYS + WARN_DAYS_BEFORE) * DAY_MS).toISOString()
+  const trials = await payload.find({
+    collection: 'municipalities',
+    where: {
+      and: [
+        { billingStatus: { equals: 'active' } },
+        { trialEndsAt: { less_than_equal: soon } },
+        { trialEndsAt: { greater_than: new Date(now.getTime() - 30 * DAY_MS).toISOString() } },
+      ],
+    },
+    select: { name: true, trialEndsAt: true, trialReminderState: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  for (const m of trials.docs) {
+    try {
+      if (!m.trialEndsAt) continue
+      const end = new Date(m.trialEndsAt)
+      const key = end.toISOString()
+      const stage = now >= end ? 'ended' : 'reminded'
+      const state = m.trialReminderState ?? ''
+      if (state === `${key}|${stage}` || (stage === 'reminded' && state === `${key}|ended`)) continue
+      await payload.update({ collection: 'municipalities', id: m.id, data: { trialReminderState: `${key}|${stage}` }, overrideAccess: true })
+      if (stage === 'ended') {
+        logger.warn('Trial ended — the contract goes on paid unless the obec said no: invoice the licence', {
+          event: 'billing.trial_ended',
+          municipalityId: m.id,
+        })
+        continue
+      }
+      const deadline = new Date(end.getTime() - TRIAL_CANCEL_DAYS * DAY_MS)
+      const title = 'Zkušební provoz Lonvity brzy končí'
+      const message =
+        `Zkušební provoz obce končí ${pragueDate(new Date(end.getTime() - 1))}. Pokud nechcete pokračovat, dejte provozovateli ` +
+        `Lonvity vědět nejpozději ${pragueDate(deadline)}. Jinak smlouva pokračuje jako placená a všechno v aplikaci zůstává, jak je.`
+      await sendNotificationToMany(payload, await getMunicipalityAdminUserIds(payload, m.id), {
+        title,
+        message,
+        link: '/admin-obce?tab=settings',
+        email: { subject: `Lonvita: ${title}`, body: `<p>${escapeHtml(message)}</p>` },
+      })
+      result.trialReminded++
+    } catch (error) {
+      result.failed++
+      logger.error('Trial check failed', { event: 'billing.trial_check_failed', municipalityId: m.id, ...serializeError(error) })
+    }
+  }
+}
+
+/**
  * Daily: each obec whose stage ran out moves on — suspended → read-only → terminated → erased (the
  * Municipalities hook tells its admins and restarts the clock); one within WARN_DAYS_BEFORE of it is
  * warned, once per stage, and a terminated one's later events are cancelled then. A stage without a
@@ -236,13 +293,15 @@ export async function advanceBillingStatuses(payload: Payload, now: Date = new D
     clockStarted: 0,
     licenceReminded: 0,
     licenceSuspended: 0,
+    trialReminded: 0,
     failed: 0,
   }
   await checkLicences(payload, now, result)
+  await checkTrials(payload, now, result)
   const obce = await payload.find({
     collection: 'municipalities',
     where: { billingStatus: { in: ['suspended', 'read_only', 'terminated'] } },
-    select: { name: true, billingStatus: true, billingStatusChangedAt: true, billingWarnedAt: true, erasureConfirmedStage: true },
+    select: { name: true, billingStatus: true, billingStatusChangedAt: true, billingWarnedAt: true, erasureConfirmedStage: true, trialEndsAt: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
@@ -256,7 +315,7 @@ export async function advanceBillingStatuses(payload: Payload, now: Date = new D
         result.clockStarted++
         continue
       }
-      const stepAt = nextBillingStepAt(stage, m.billingStatusChangedAt)!
+      const stepAt = nextBillingStepAt(stage, m.billingStatusChangedAt, m.trialEndsAt)!
       if (now >= stepAt) {
         if (stage === 'terminated') {
           // Irreversible, so never on the clock alone: the platform confirms each erasure by hand

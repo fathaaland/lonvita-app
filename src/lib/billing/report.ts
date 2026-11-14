@@ -91,6 +91,15 @@ export type BillingSettingsOfObec = {
   licencePeriodStart: string | null
   licencePeriodEnd: string | null
   licencePaidUntil: string | null
+  population: number | null
+  populationYear: number | null
+  contractStart: string | null
+  contractYears: number | null
+  firstWave: boolean
+  referenceDiscount: boolean
+  priceIndexPercent: number | null
+  floorExceptionNote: string | null
+  trialEndsAt: string | null
   licenceTier: number | null
   licenceCustomYearlyCzk: number | null
   implementationFeeCzk: number | null
@@ -110,18 +119,6 @@ export type BillingDetail = {
   settings: BillingSettingsOfObec
   /** The platform has confirmed the obec's erasure for its current terminated stage. */
   erasureConfirmed: boolean
-  /** Its band raised mid-year (LicenceUpgrades), newest first. */
-  licenceUpgrades: {
-    createdAt: string
-    periodKey: string
-    fromTier: number
-    toTier: number
-    averageUsers: number
-    effectiveFrom: string
-    monthsCharged: number
-    periodMonths: number
-    surchargeCzk: number
-  }[]
   services: MunicipalityServices
   snapshots: ActiveUserSnapshot[]
   sources: BillingSource[]
@@ -140,7 +137,7 @@ export async function billingDetailOf(
     depth: 0,
     overrideAccess: true,
   })
-  const [services, snapshots, sources, runs, audit, upgrades] = await Promise.all([
+  const [services, snapshots, sources, runs, audit] = await Promise.all([
     getMunicipalityServices(payload, municipalityId, now),
     listActiveUserSnapshots(payload, municipalityId, 12),
     payload.find({
@@ -175,14 +172,6 @@ export async function billingDetailOf(
       limit: 50,
       overrideAccess: true,
     }),
-    payload.find({
-      collection: 'licence-upgrades',
-      where: { municipality: { equals: municipalityId } },
-      sort: '-createdAt',
-      depth: 0,
-      limit: 50,
-      overrideAccess: true,
-    }),
   ])
 
   const people = await namesOf(payload, [
@@ -197,17 +186,6 @@ export async function billingDetailOf(
 
   return {
     erasureConfirmed: erasureConfirmed(m.billingStatus, m.billingStatusChangedAt, m.erasureConfirmedStage),
-    licenceUpgrades: upgrades.docs.map((u) => ({
-      createdAt: u.createdAt,
-      periodKey: u.periodKey,
-      fromTier: u.fromTier,
-      toTier: u.toTier,
-      averageUsers: u.averageUsers,
-      effectiveFrom: u.effectiveFrom,
-      monthsCharged: u.monthsCharged,
-      periodMonths: u.periodMonths,
-      surchargeCzk: u.surchargeCzk,
-    })),
     settings: {
       name: m.name,
       billingStatus: billingStatusOf(m.billingStatus),
@@ -215,6 +193,15 @@ export async function billingDetailOf(
       licencePeriodStart: m.licencePeriodStart ?? null,
       licencePeriodEnd: m.licencePeriodEnd ?? null,
       licencePaidUntil: m.licencePaidUntil ?? null,
+      population: m.population ?? null,
+      populationYear: m.populationYear ?? null,
+      contractStart: m.contractStart ?? null,
+      contractYears: m.contractYears ?? null,
+      firstWave: m.firstWave === true,
+      referenceDiscount: m.referenceDiscount === true,
+      priceIndexPercent: m.priceIndexPercent ?? null,
+      floorExceptionNote: m.floorExceptionNote ?? null,
+      trialEndsAt: m.trialEndsAt ?? null,
       licenceTier: m.licenceTier ?? null,
       licenceCustomYearlyCzk: m.licenceCustomYearlyCzk ?? null,
       implementationFeeCzk: m.implementationFeeCzk ?? null,
@@ -284,11 +271,17 @@ export type BillingRow = {
   municipalityId: number
   name: string
   billingStatus: BillingStatus
+  population: number | null
   activeUsers: number
+  includedUsers: number | null
   snapshotUsers: number | null
-  tier: number
+  baseTier: number | null
+  tier: number | null
   tierManual: boolean
+  nextTier: number | null
   licenceYearlyCzk: number | null
+  belowFloor: boolean
+  inTrial: boolean
   smsPackage: string | null
   smsQuota: number | null
   smsPartsMonth: number
@@ -300,9 +293,6 @@ export type BillingRow = {
   scrapingFrequency: string | null
   enabledSources: number
   maxSources: number | null
-  /** Sources the obec may have past its package's — billed each a year. */
-  extraSources: number | null
-  /** The whole scraping a year: package + extra sources + twice-weekly reading. */
   scrapingYearlyCzk: number | null
   /** Sources set up this month — each a one-off sourceSetupFeeCzk. */
   sourcesSetUpMonth: number
@@ -312,8 +302,6 @@ export type BillingRow = {
   outputTokensMonth: number
   /** What the import AI cost the platform this month — internal, never billed. */
   aiCostUsdMonth: number
-  /** Licence band raised this month (LicenceUpgrades) — the prorated difference to invoice, once. */
-  licenceUpgradeCzkMonth: number
   yearlyTotalCzk: number | null
 }
 
@@ -348,7 +336,7 @@ export async function billingRowsFor(
   now: Date,
 ): Promise<BillingRow[]> {
   const { from, to } = monthRange(month)
-  const [municipalities, snapshots, runs, setUpBy, aiCost, upgrades] = await Promise.all([
+  const [municipalities, snapshots, runs, setUpBy, aiCost] = await Promise.all([
     payload.find({
       collection: 'municipalities',
       select: { name: true },
@@ -379,20 +367,7 @@ export async function billingRowsFor(
     }),
     sourcesSetUpIn(payload, from, to),
     importAiCostUsd(payload, from, to),
-    payload.find({
-      collection: 'licence-upgrades',
-      where: { and: [{ createdAt: { greater_than_equal: from.toISOString() } }, { createdAt: { less_than: to.toISOString() } }] },
-      select: { municipality: true, surchargeCzk: true },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
   ])
-  const upgradeCzkBy = new Map<number, number>()
-  for (const u of upgrades.docs) {
-    const id = relationNumber(u.municipality)
-    if (id !== null) upgradeCzkBy.set(id, (upgradeCzkBy.get(id) ?? 0) + (u.surchargeCzk ?? 0))
-  }
   const snapshotBy = new Map(
     snapshots.docs.map((s) => [relationNumber(s.municipality), s.activeUsers]),
   )
@@ -420,11 +395,17 @@ export async function billingRowsFor(
       municipalityId: m.id,
       name: m.name,
       billingStatus: services.billingStatus,
+      population: services.licence.population,
       activeUsers: services.licence.activeUsers,
+      includedUsers: services.licence.includedUsers,
       snapshotUsers: snapshotBy.get(m.id) ?? null,
+      baseTier: services.licence.baseTier,
       tier: services.licence.tier,
       tierManual: services.licence.tierManual,
+      nextTier: services.licence.nextTier,
       licenceYearlyCzk: services.licence.yearlyPriceCzk,
+      belowFloor: services.licence.belowFloor,
+      inTrial: services.licence.inTrial,
       smsPackage: services.sms.enabled ? PACKAGE_LABELS[services.sms.package] : null,
       smsQuota: services.sms.enabled ? services.sms.quota : null,
       smsPartsMonth: smsMonth.parts,
@@ -436,7 +417,6 @@ export async function billingRowsFor(
       scrapingFrequency: scraping.enabled ? (scraping.frequency === 'twice_weekly' ? '2× týdně' : '1× týdně') : null,
       enabledSources: scraping.enabledSources,
       maxSources: scraping.enabled ? scraping.maxSources : null,
-      extraSources: scraping.enabled ? scraping.extraSources : null,
       scrapingYearlyCzk: scraping.enabled ? scraping.yearlyPriceCzk : null,
       sourcesSetUpMonth: sourcesSetUp,
       sourceSetupCzkMonth: scraping.setupFeeCzk != null ? sourcesSetUp * scraping.setupFeeCzk : null,
@@ -444,7 +424,6 @@ export async function billingRowsFor(
       inputTokensMonth: r.input,
       outputTokensMonth: r.output,
       aiCostUsdMonth: round2(aiCost.get(m.id) ?? 0),
-      licenceUpgradeCzkMonth: upgradeCzkBy.get(m.id) ?? 0,
       yearlyTotalCzk: services.yearlyTotalCzk,
     })
   }
@@ -454,11 +433,17 @@ export async function billingRowsFor(
 const CSV_COLUMNS: [keyof BillingRow, string][] = [
   ['name', 'Obec'],
   ['billingStatus', 'Stav'],
-  ['snapshotUsers', 'Uživatelé (snímek měsíce)'],
-  ['activeUsers', 'Uživatelé (teď)'],
-  ['tier', 'Pásmo'],
+  ['population', 'Obyvatel'],
+  ['snapshotUsers', 'Aktivní uživatelé (snímek měsíce)'],
+  ['activeUsers', 'Aktivní uživatelé (teď)'],
+  ['includedUsers', 'Aktivních v ceně'],
+  ['baseTier', 'Pásmo podle velikosti'],
+  ['tier', 'Pásmo účtované'],
   ['tierManual', 'Pásmo ručně'],
+  ['nextTier', 'Pásmo příští rok'],
   ['licenceYearlyCzk', 'Licence Kč/rok'],
+  ['belowFloor', 'Pod spodní hranicí'],
+  ['inTrial', 'Zkušební provoz'],
   ['smsPackage', 'SMS balíček'],
   ['smsQuota', 'SMS kvóta/rok'],
   ['smsPartsMonth', 'SMS části (měsíc)'],
@@ -469,7 +454,6 @@ const CSV_COLUMNS: [keyof BillingRow, string][] = [
   ['scrapingFrequency', 'Scraping frekvence'],
   ['enabledSources', 'Zapnuté zdroje'],
   ['maxSources', 'Max. zdrojů'],
-  ['extraSources', 'Zdroje navíc'],
   ['scrapingYearlyCzk', 'Scraping Kč/rok'],
   ['sourcesSetUpMonth', 'Zřízené zdroje (měsíc)'],
   ['sourceSetupCzkMonth', 'Zřízení zdrojů Kč (měsíc)'],
@@ -477,7 +461,6 @@ const CSV_COLUMNS: [keyof BillingRow, string][] = [
   ['inputTokensMonth', 'Vstupní tokeny (měsíc)'],
   ['outputTokensMonth', 'Výstupní tokeny (měsíc)'],
   ['aiCostUsdMonth', 'Náklad AI USD (měsíc, interní)'],
-  ['licenceUpgradeCzkMonth', 'Doplatek za vyšší pásmo Kč (měsíc)'],
   ['yearlyTotalCzk', 'Celkem Kč/rok'],
 ]
 

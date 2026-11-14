@@ -4,6 +4,19 @@ import type { AuthStrategyFunctionArgs } from 'payload'
 
 type AuthenticatedUser = { collection?: string; _strategy?: string; _sid?: string }
 
+/** How often a user's last-seen time is written — enough to count active users over 90 days. */
+export const LAST_SEEN_EVERY_MS = 12 * 60 * 60 * 1000
+
+/** The account was used now: written straight to the row (no hooks, no audit — it's bookkeeping), at
+ * most once in LAST_SEEN_EVERY_MS, never holding the request up nor failing it. */
+function noteSeen(payload: AuthStrategyFunctionArgs['payload'], user: { id: number; lastSeenAt?: string | null }) {
+  const last = user.lastSeenAt ? new Date(user.lastSeenAt).getTime() : 0
+  if (Date.now() - last < LAST_SEEN_EVERY_MS) return
+  payload.db
+    .updateOne({ collection: 'users', id: user.id, data: { lastSeenAt: new Date().toISOString() } })
+    .catch(() => undefined)
+}
+
 const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFunctionArgs) => {
   const cookieHeader = headers.get('cookie')
   if (!cookieHeader) return null
@@ -39,6 +52,8 @@ const authenticateViaPayloadToken = async ({ headers, payload }: AuthStrategyFun
     // Signed out, the password reset, or the session ended otherwise: the token still verifies, but
     // its session is gone (lib/auth/sessions) — the same check Payload's own JWT strategy makes.
     if (!hasLiveSession(user as Parameters<typeof hasLiveSession>[0], decoded.sid)) return null
+
+    noteSeen(payload, user as { id: number; lastSeenAt?: string | null })
 
     const u = user as unknown as AuthenticatedUser
     u.collection = decoded.collection as string

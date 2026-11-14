@@ -1,46 +1,40 @@
 import type { Payload } from 'payload'
 
-import { relationNumber } from '@/lib/relations'
+import { sql } from '@payloadcms/db-postgres'
 
-import { tierForUsers, type LicenceTier } from './catalog'
 import { pragueMonthKey } from './period'
 
+/** How far back a user counts as active. */
+export const ACTIVE_USER_DAYS = 90
+
 /**
- * The users the obec's licence band is counted from: every registered account whose home obec it
- * is, or who holds a role in it (organizer, admin…) — each person once however many roles they
- * have. A deleted (anonymized) account isn't anyone any more.
+ * The obec's active users (interní podklad k ceníku, 13. 11. 2026): accounts whose home obec it is,
+ * not deleted, that were signed in (Users.lastSeenAt) or signed up for an event that took place within
+ * the last ACTIVE_USER_DAYS — each person once. What the growth band is decided by (lib/billing/
+ * licence-tier); the licence itself is priced by the obec's inhabitants. Counted in the database.
  */
-export async function countActiveUsers(payload: Payload, municipalityId: number): Promise<number> {
-  const [profiles, roles] = await Promise.all([
-    payload.find({
-      collection: 'profiles',
-      where: { municipality: { equals: municipalityId } },
-      select: { user: true },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
-    payload.find({
-      collection: 'user-roles',
-      where: { municipality: { equals: municipalityId } },
-      select: { user: true },
-      depth: 0,
-      pagination: false,
-      overrideAccess: true,
-    }),
-  ])
-  const ids = new Set<number>()
-  for (const doc of [...profiles.docs, ...roles.docs]) {
-    const id = relationNumber(doc.user)
-    if (id !== null) ids.add(id)
-  }
-  if (ids.size === 0) return 0
-  const { totalDocs } = await payload.count({
-    collection: 'users',
-    where: { and: [{ id: { in: [...ids] } }, { anonymizedAt: { exists: false } }] },
-    overrideAccess: true,
-  })
-  return totalDocs
+export async function countActiveUsers(payload: Payload, municipalityId: number, now: Date = new Date()): Promise<number> {
+  const since = new Date(now.getTime() - ACTIVE_USER_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  const until = now.toISOString()
+  const { rows } = await payload.db.drizzle.execute<{ n: string }>(sql`
+    SELECT COUNT(DISTINCT u.id) AS n
+    FROM profiles p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.municipality_id = ${municipalityId}
+      AND p.deleted_at IS NULL
+      AND u.anonymized_at IS NULL
+      AND (
+        (u.last_seen_at >= ${since} AND u.last_seen_at <= ${until})
+        OR EXISTS (
+          SELECT 1 FROM registrations r JOIN events e ON e.id = r.event_id
+          WHERE r.user_id = u.id
+            AND r.status = 'approved'
+            AND r.deleted_at IS NULL
+            AND e.date_time >= ${since} AND e.date_time <= ${until}
+        )
+      )
+  `)
+  return Number(rows[0]?.n ?? 0)
 }
 
 export type ActiveUserSnapshot = {
@@ -58,7 +52,7 @@ export async function takeActiveUserSnapshot(
   now: Date,
   takenBy?: number | null,
 ): Promise<ActiveUserSnapshot> {
-  const activeUsers = await countActiveUsers(payload, municipalityId)
+  const activeUsers = await countActiveUsers(payload, municipalityId, now)
   const month = pragueMonthKey(now)
   const data = {
     municipality: municipalityId,
@@ -110,18 +104,12 @@ export async function listActiveUserSnapshots(
 }
 
 /**
- * The band the snapshots put the obec in — the average of the last three (Balíčky služeb: "podle
- * průměru posledních 3 snímků"). Without any snapshot yet, the users it has right now.
+ * The active users the growth band is decided by: the average of the snapshots taken at the end of
+ * September and of October (on 1. 10. and 1. 11., months `YYYY-10` and `YYYY-11`) — whichever of them
+ * there is. Null without either.
  */
-export function computedTierOf(
-  tiers: LicenceTier[],
-  snapshots: ActiveUserSnapshot[],
-  currentUsers: number,
-): { averageUsers: number; tier: number; fromSnapshots: number } {
-  const last = snapshots.slice(0, 3)
-  const averageUsers =
-    last.length > 0
-      ? Math.round(last.reduce((sum, s) => sum + s.activeUsers, 0) / last.length)
-      : currentUsers
-  return { averageUsers, tier: tierForUsers(tiers, averageUsers), fromSnapshots: last.length }
+export function autumnAverageUsers(snapshots: ActiveUserSnapshot[], year: number): number | null {
+  const autumn = snapshots.filter((s) => s.month === `${year}-10` || s.month === `${year}-11`)
+  if (autumn.length === 0) return null
+  return Math.round(autumn.reduce((sum, s) => sum + s.activeUsers, 0) / autumn.length)
 }

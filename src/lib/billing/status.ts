@@ -36,6 +36,11 @@ export const BILLING_STATUS_LABELS: Record<BillingStatus, string> = {
 export const SUSPENDED_GRACE_DAYS = 30
 export const READ_ONLY_DAYS = 60
 export const TERMINATED_DAYS = 90
+/** An obec that ends with its trial (terminated before or within TRIAL_CANCEL_DAYS after it) — its data
+ * go after this many days (interní podklad 13. 11.: "data obce se po 30 dnech smažou"). */
+export const TRIAL_TERMINATED_DAYS = 30
+/** How long before the trial's end an obec says it won't go on — else it goes on, paid. */
+export const TRIAL_CANCEL_DAYS = 14
 /** Days after the licence's paid-until date before the obec is suspended by itself. */
 export const LICENCE_GRACE_DAYS = 14
 /** What a new obec gets to pay its first licence (Municipalities licencePaidUntil). */
@@ -64,10 +69,18 @@ export const isReadOnly = (status: unknown): boolean => {
 
 /** When the obec moves on by itself: suspended → read-only → terminated → erased. Null when active
  * or the clock was never started (set before the field existed — the worker starts it). */
-export function nextBillingStepAt(status: unknown, changedAt: string | null | undefined): Date | null {
+export function nextBillingStepAt(
+  status: unknown,
+  changedAt: string | null | undefined,
+  trialEndsAt?: string | null,
+): Date | null {
   if (!changedAt) return null
   const s = billingStatusOf(status)
-  const days = s === 'active' ? null : STAGE_DAYS[s]
+  const endedWithTrial =
+    s === 'terminated' &&
+    Boolean(trialEndsAt) &&
+    new Date(changedAt).getTime() <= new Date(trialEndsAt as string).getTime() + TRIAL_CANCEL_DAYS * DAY_MS
+  const days = s === 'active' ? null : endedWithTrial ? TRIAL_TERMINATED_DAYS : STAGE_DAYS[s]
   return days === null ? null : new Date(new Date(changedAt).getTime() + days * DAY_MS)
 }
 

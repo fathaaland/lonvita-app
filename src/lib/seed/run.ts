@@ -96,11 +96,12 @@ const MUNICIPALITIES = [
     description: 'Nové Veselí na Žďársk a okolí a na Vysočině a Česku',
     lat: 49.5198752,
     lng: 15.9084979,
+    population: 1_250,
   },
-  { name: 'Hamry nad Sázavou', description: null, lat: 49.5660235, lng: 15.9016868 },
-  { name: 'Blansko', description: null, lat: 49.3636494, lng: 16.6442394 },
-  { name: 'Praha', description: null, lat: 50.0874654, lng: 14.4212535 },
-  { name: 'Brno', description: null, lat: 49.1922443, lng: 16.6113382 },
+  { name: 'Hamry nad Sázavou', description: null, lat: 49.5660235, lng: 15.9016868, population: 1_700 },
+  { name: 'Blansko', description: null, lat: 49.3636494, lng: 16.6442394, population: 20_500 },
+  { name: 'Praha', description: null, lat: 50.0874654, lng: 14.4212535, population: 1_380_000 },
+  { name: 'Brno', description: null, lat: 49.1922443, lng: 16.6113382, population: 400_000 },
 ] as const
 
 type MunicipalityName = (typeof MUNICIPALITIES)[number]['name']
@@ -387,7 +388,9 @@ async function ensureMunicipality(
       lng: input.lng,
       eventRadiusKm: 15,
       rulesForCreation: 'approved_organizers',
-      // Demo obce — a licence that doesn't run out on whoever tries the app.
+      // Demo obce — a size for the band, and a licence that doesn't run out on whoever tries the app.
+      population: input.population,
+      populationYear: 2026,
       licencePaidUntil: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString(),
     },
     overrideAccess: true,

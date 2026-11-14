@@ -12,7 +12,6 @@ vi.mock('@/lib/queue/queues', async (importOriginal) => ({
 
 import { enqueueImportEvents } from '@/lib/queue/queues'
 import {
-  computedTierOf,
   countActiveUsers,
   takeActiveUserSnapshot,
 } from '@/lib/billing/active-users'
@@ -21,7 +20,7 @@ import {
   cheaperScrapingPackage,
   DEFAULT_CATALOG,
   scrapingYearlyPriceOf,
-  tierForUsers,
+  tierForPopulation,
   tierRangeLabel,
 } from '@/lib/billing/catalog'
 import { licencePeriodOf, pragueMonthKey } from '@/lib/billing/period'
@@ -78,69 +77,48 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     }
   })
 
-  it('puts a number of users in its band — the open-ended one last', () => {
+  it('puts an obec of a number of inhabitants in its band — the open-ended one last', () => {
     const tiers = DEFAULT_CATALOG.licenceTiers
-    expect(tierForUsers(tiers, 0)).toBe(0)
-    expect(tierForUsers(tiers, 100)).toBe(0)
-    expect(tierForUsers(tiers, 101)).toBe(1)
-    expect(tierForUsers(tiers, 1500)).toBe(7)
-    expect(tierForUsers(tiers, 99_999)).toBe(8)
-    expect(tierRangeLabel(tiers, 1)).toBe('101 až 300')
-    expect(tierRangeLabel(tiers, 8)).toMatch(/^1\s501 a víc$/)
+    expect(tierForPopulation(tiers, 0)).toBe(0)
+    expect(tierForPopulation(tiers, 999)).toBe(0)
+    expect(tierForPopulation(tiers, 1000)).toBe(1)
+    expect(tierForPopulation(tiers, 21_000)).toBe(5)
+    expect(tierForPopulation(tiers, 99_999)).toBe(6)
+    expect(tierForPopulation(tiers, 1_300_000)).toBe(7)
+    expect(tierRangeLabel(tiers, 0)).toBe('do 999')
+    expect(tierRangeLabel(tiers, 1)).toMatch(/^1\s000 až 1\s999$/)
+    expect(tierRangeLabel(tiers, 7)).toMatch(/^100\s000 a víc$/)
+    // Ceník 2027.
+    expect(tiers.map((t) => t.yearlyPriceCzk)).toEqual([13_200, 19_800, 33_000, 59_400, 85_800, 118_800, 165_000, null])
+    expect(tiers.map((t) => t.floorCzk)).toEqual([12_000, 18_000, 30_000, 54_000, 78_000, 108_000, 150_000, 150_000])
+    expect(tiers.map((t) => t.implementationFeeCzk)).toEqual([5_000, 5_000, 5_000, 10_000, 10_000, 15_000, 15_000, 15_000])
   })
 
-  it('averages the last three snapshots — without any, the users it has now', () => {
-    const tiers = DEFAULT_CATALOG.licenceTiers
-    const snap = (activeUsers: number) => ({
-      month: '2026-01',
-      activeUsers,
-      takenAt: '',
-      byHand: false,
-    })
-    expect(computedTierOf(tiers, [], 250)).toEqual({ averageUsers: 250, tier: 1, fromSnapshots: 0 })
-    // The fourth (oldest) doesn't count.
-    expect(computedTierOf(tiers, [snap(90), snap(110), snap(100), snap(5000)], 0)).toMatchObject({
-      averageUsers: 100,
-      tier: 0,
-      fromSnapshots: 3,
-    })
-  })
-
-  it('fills what the stored price list leaves empty with the defaults', () => {
+  it('fills what the stored price list leaves empty with the defaults — and ignores the old bands by users', () => {
     const catalog = catalogFrom({
       smsPackages: { m: { quota: 4000 } },
       licenceTiers: [
-        { maxUsers: null, yearlyPriceCzk: 1 },
-        { maxUsers: 10, yearlyPriceCzk: 2 },
+        { maxPopulation: null, yearlyPriceCzk: null, floorCzk: 100, implementationFeeCzk: 3 },
+        { maxPopulation: 10, yearlyPriceCzk: 2, floorCzk: 1, implementationFeeCzk: 3 },
       ],
     })
-    expect(catalog.smsPackages.m).toEqual({
-      quota: 4000,
-      yearlyPriceCzk: DEFAULT_CATALOG.smsPackages.m.yearlyPriceCzk,
-    })
+    expect(catalog.smsPackages.m).toEqual({ quota: 4000, yearlyPriceCzk: DEFAULT_CATALOG.smsPackages.m.yearlyPriceCzk })
     expect(catalog.smsPackages.s).toEqual(DEFAULT_CATALOG.smsPackages.s)
-    // Sorted, the open-ended band last.
-    expect(catalog.licenceTiers.map((t) => t.maxUsers)).toEqual([10, null])
+    // In order, the open-ended one last.
+    expect(catalog.licenceTiers.map((t) => t.maxPopulation)).toEqual([10, null])
     expect(catalog.maxInputTokensPerRun).toBe(60_000)
+    // A list saved before 1. 11. 2026 (bands by users, no floor) counts for nothing.
+    const old = catalogFrom({ licenceTiers: [{ yearlyPriceCzk: 36_000 }, { yearlyPriceCzk: 70_000 }] })
+    expect(old.licenceTiers).toEqual(DEFAULT_CATALOG.licenceTiers)
   })
 
-  it('prices all of scraping it is given: the package, every switched-on source past it, and reading twice a week', () => {
+  it('prices loading events by the package alone — no extra source nor twice-weekly surcharge; suggests a smaller package', () => {
     const c = DEFAULT_CATALOG
-    // M: 10 sources. Twelve and twice a week: 12 000 + 2 × 1 500 + 2 400.
-    expect(scrapingYearlyPriceOf(c, 'm', 12, 'twice_weekly')).toEqual({
-      packageCzk: 12_000,
-      extraSources: 2,
-      extraSourcesCzk: 3_000,
-      frequencyCzk: 2_400,
-      totalCzk: 17_400,
-    })
-    // A limit set below the package's is no discount.
-    expect(scrapingYearlyPriceOf(c, 'm', 4, 'weekly').totalCzk).toBe(12_000)
-    // S with ten extra (13 sources): 5 400 + 15 000 = 20 400 — L gives 25 for 26 400, M with 3 extra
-    // 12 000 + 4 500 = 16 500: the cheaper deal is pointed out.
-    expect(cheaperScrapingPackage(c, 's', 13, 'weekly')).toBe('m')
-    expect(cheaperScrapingPackage(c, 'm', 10, 'weekly')).toBeNull()
-    expect(catalogFrom({ scrapingExtraSourcePriceCzk: 900 }).scrapingExtraSourcePriceCzk).toBe(900)
+    expect(scrapingYearlyPriceOf(c, 's')).toBe(5_400)
+    expect(scrapingYearlyPriceOf(c, 'm')).toBe(12_000)
+    expect(cheaperScrapingPackage(c, 'l', 3)).toBe('s')
+    expect(cheaperScrapingPackage(c, 'l', 8)).toBe('m')
+    expect(cheaperScrapingPackage(c, 'm', 10)).toBeNull()
   })
 
   it('repeats a set licence period once it is over — the SMS never fall outside every period', () => {
@@ -162,36 +140,69 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     )
   })
 
-  it('counts every registered user of the obec once — home obec or a role, however many roles', async () => {
-    const resident = await makeUser('resident')
-    const organizer = await makeUser('organizer')
-    await makeUser('outsider')
-    await payload.create({
-      collection: 'profiles',
-      data: { user: resident.id, fullName: 'Billing resident', municipality: obec.id },
+  it('counts the active users of the obec — home obec, signed in or at an event in 90 days — each once', async () => {
+    const now = new Date()
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString()
+    const resident = async (name: string, lastSeenAt: string | null, municipality: number | null = obec.id) => {
+      const u = await makeUser(name)
+      await payload.create({ collection: 'profiles', data: { user: u.id, fullName: name, municipality } as never, overrideAccess: true })
+      if (lastSeenAt) await payload.db.updateOne({ collection: 'users', id: u.id, data: { lastSeenAt } })
+      return u
+    }
+    await resident('seen-recently', daysAgo(5)) // counts
+    await resident('seen-long-ago', daysAgo(200)) // doesn't
+    const attended = await resident('at-an-event', daysAgo(200)) // counts — at an event 10 days ago
+    await resident('elsewhere', daysAgo(1), null) // another home obec: doesn't
+    const organizer = await makeUser('organizer-here') // a role here, lives elsewhere: doesn't
+    await payload.create({ collection: 'user-roles', data: { user: organizer.id, municipality: obec.id, role: 'organizer' }, overrideAccess: true })
+    await payload.db.updateOne({ collection: 'users', id: organizer.id, data: { lastSeenAt: daysAgo(1) } })
+    const gone = await resident('deleted', daysAgo(1)) // anonymized: doesn't
+    await payload.db.updateOne({ collection: 'users', id: gone.id, data: { anonymizedAt: daysAgo(0) } })
+
+    const category = await payload.create({ collection: 'event-categories', data: { name: `Billing active ${STAMP}` }, overrideAccess: true })
+    const event = await payload.create({
+      collection: 'events',
+      data: {
+        title: `Active users ${STAMP}`,
+        dateTime: new Date(now.getTime() + 2 * 86_400_000).toISOString(),
+        locationText: 'Náves',
+        lat: 49.4,
+        lng: 15.2,
+        capacity: 10,
+        organizer: organizer.id,
+        municipality: obec.id,
+        categories: [category.id],
+        status: 'active',
+        isPaid: false,
+        registrationApprovalMode: 'manual',
+      },
+      context: { skipNotifications: true },
       overrideAccess: true,
     })
-    // Lives elsewhere, but holds two roles here — still one user.
-    for (const role of ['organizer', 'municipality_admin'] as const) {
-      await payload.create({
-        collection: 'user-roles',
-        data: { user: organizer.id, municipality: obec.id, role },
+    // Took place 10 days ago (an event can't be created in the past).
+    await payload.db.updateOne({ collection: 'events', id: event.id, data: { dateTime: daysAgo(10) } })
+    await payload.db.create({
+      collection: 'registrations',
+      data: { event: event.id, user: attended.id, status: 'approved', role: 'participant', attendanceStatus: 'attended' },
+    })
+    try {
+      expect(await countActiveUsers(payload, obec.id, now)).toBe(2)
+
+      // One snapshot per month — taken again, it's overwritten.
+      await takeActiveUserSnapshot(payload, obec.id, now)
+      const again = await takeActiveUserSnapshot(payload, obec.id, now, organizer.id)
+      expect(again).toMatchObject({ activeUsers: 2, byHand: true })
+      const stored = await payload.find({
+        collection: 'active-user-snapshots',
+        where: { municipality: { equals: obec.id } },
         overrideAccess: true,
       })
+      expect(stored.totalDocs).toBe(1)
+    } finally {
+      await payload.delete({ collection: 'registrations', where: { event: { equals: event.id } }, overrideAccess: true })
+      await payload.delete({ collection: 'events', id: event.id, overrideAccess: true })
+      await payload.delete({ collection: 'event-categories', id: category.id, overrideAccess: true })
     }
-    expect(await countActiveUsers(payload, obec.id)).toBe(2)
-
-    // One snapshot per month — taken again, it's overwritten.
-    const now = new Date('2026-11-15T10:00:00Z')
-    await takeActiveUserSnapshot(payload, obec.id, now)
-    const again = await takeActiveUserSnapshot(payload, obec.id, now, organizer.id)
-    expect(again).toMatchObject({ month: '2026-11', activeUsers: 2, byHand: true })
-    const stored = await payload.find({
-      collection: 'active-user-snapshots',
-      where: { municipality: { equals: obec.id } },
-      overrideAccess: true,
-    })
-    expect(stored.totalDocs).toBe(1)
   })
 
   it('counts the SMS quota within the licence period — the calendar year unless set', () => {
@@ -218,7 +229,7 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
       overrideAccess: true,
     })
     const services = await getMunicipalityServices(payload, obec.id, new Date())
-    expect(services.licence).toMatchObject({ tier: 2, tierManual: true, yearlyPriceCzk: 100_000 })
+    expect(services.licence).toMatchObject({ tier: 2, tierManual: true, yearlyPriceCzk: 33_000 })
     expect(services.sms).toMatchObject({
       enabled: true,
       package: 'm',
@@ -226,7 +237,7 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
       yearlyPriceCzk: 9000,
     })
     expect(services.scraping).toMatchObject({ enabled: true, package: 'l', maxSources: 25 })
-    expect(services.yearlyTotalCzk).toBe(100_000 + 9000 + 26_400)
+    expect(services.yearlyTotalCzk).toBe(33_000 + 9000 + 26_400)
 
     const forObec = withoutPrices(services)
     expect(forObec.yearlyTotalCzk).toBeNull()
@@ -454,7 +465,7 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`)
   })
 
-  it("puts in the month's overview everything to bill — switched-on extra sources, twice a week, SMS overage, first set-ups — and the AI cost", async () => {
+  it("puts in the month's overview everything to bill — SMS overage, first set-ups (no surcharge for extra sources nor twice a week) — and the AI cost", async () => {
     const fresh = await payload.create({
       collection: 'municipalities',
       data: {
@@ -477,7 +488,7 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
     }
     try {
       await payload.create({ collection: 'sms-messages', data: { municipality: fresh.id, parts: 3, overage: true }, overrideAccess: true })
-      // 11 switched on — the package has 10, the obec may have 14: one extra is billed, not four.
+      // 11 switched on — the package has 10, the platform allowed 14: no surcharge (Ceník 2027).
       const sources = []
       for (let i = 0; i < 11; i++) {
         sources.push(await payload.create({ collection: 'event-sources', data: { municipality: fresh.id, url: url(i) }, overrideAccess: true }))
@@ -515,9 +526,8 @@ describe('Billing — licence bands, packages and the superadmin overview', () =
       expect(rows.find((r) => r.municipalityId === fresh.id)).toMatchObject({
         enabledSources: 11,
         maxSources: 14,
-        extraSources: 1,
         scrapingFrequency: '2× týdně',
-        scrapingYearlyCzk: 12_000 + 1_500 + 2_400,
+        scrapingYearlyCzk: 12_000,
         smsOveragePartsMonth: 3,
         smsOverageCzkMonth: 7.5,
         sourcesSetUpMonth: 11,

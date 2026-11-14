@@ -38,12 +38,14 @@ function Amount({
   value,
   onChange,
   allowEmpty = false,
+  placeholder,
 }: {
   id: string
   label?: string
   value: number | null
   onChange: (value: number | null) => void
   allowEmpty?: boolean
+  placeholder?: string
 }) {
   const [text, setText] = useState(value == null ? '' : String(value))
   useEffect(() => setText(value == null ? '' : String(value)), [value])
@@ -58,7 +60,7 @@ function Amount({
         id={id}
         inputMode="decimal"
         value={text}
-        placeholder={allowEmpty ? 'a víc' : undefined}
+        placeholder={allowEmpty ? (placeholder ?? 'a víc') : undefined}
         onChange={(e) => {
           setText(e.target.value)
           const raw = e.target.value.replace(',', '.').replace(/\s/g, '')
@@ -88,13 +90,13 @@ function CatalogEditor() {
   const tiers = catalog.licenceTiers
 
   const save = async () => {
-    const openEnded = tiers.filter((t) => t.maxUsers == null).length
-    if (openEnded !== 1 || tiers[tiers.length - 1].maxUsers != null) {
+    const openEnded = tiers.filter((t) => t.maxPopulation == null).length
+    if (openEnded !== 1 || tiers[tiers.length - 1].maxPopulation != null) {
       toast.error('Poslední pásmo musí mít horní hranici prázdnou („a víc“), ostatní vyplněnou.')
       return
     }
     for (let i = 1; i < tiers.length - 1; i++) {
-      if ((tiers[i].maxUsers ?? 0) <= (tiers[i - 1].maxUsers ?? 0)) {
+      if ((tiers[i].maxPopulation ?? 0) <= (tiers[i - 1].maxPopulation ?? 0)) {
         toast.error('Horní hranice pásem musí stoupat.')
         return
       }
@@ -132,6 +134,8 @@ function CatalogEditor() {
       },
     })
 
+  const setTier = (i: number, patch: Partial<BillingCatalog['licenceTiers'][number]>) => update({ licenceTiers: tiers.map((x, j) => (j === i ? { ...x, ...patch } : x)) })
+
   return (
     <Card>
       <CardContent className="p-4 space-y-5">
@@ -144,32 +148,40 @@ function CatalogEditor() {
         </div>
 
         <div className="space-y-2">
-          <p className="font-semibold text-sm">Licence podle počtu uživatelů (Kč/rok)</p>
+          <p className="font-semibold text-sm">Licence podle počtu obyvatel (Kč/rok, bez DPH)</p>
+          <p className="text-xs text-muted-foreground">
+            Cena prázdná = individuálně (platí individuální cena obce). Spodní hranice je interní — pod ni jen s
+            vyplněnou výjimkou u obce.
+          </p>
           {tiers.map((t, i) => (
-            <div key={i} className="grid grid-cols-[3rem_1fr_1fr_2.5rem] gap-2 items-end">
-              <span className="text-sm text-muted-foreground pb-2.5">#{i}</span>
+            <div key={i} className="grid grid-cols-[2.5rem_1fr_1fr_1fr_1fr_2.5rem] gap-2 items-end">
+              <span className="text-sm text-muted-foreground pb-2.5">{i + 1}</span>
               <Amount
                 id={`tier-max-${i}`}
-                label={i === 0 ? 'Do uživatelů' : undefined}
-                value={t.maxUsers}
+                label={i === 0 ? 'Do obyvatel' : undefined}
+                value={t.maxPopulation}
                 allowEmpty
-                onChange={(v) =>
-                  update({
-                    licenceTiers: tiers.map((x, j) => (j === i ? { ...x, maxUsers: v } : x)),
-                  })
-                }
+                onChange={(v) => setTier(i, { maxPopulation: v })}
               />
               <Amount
                 id={`tier-price-${i}`}
-                label={i === 0 ? 'Cena Kč/rok' : undefined}
+                label={i === 0 ? 'Ceník' : undefined}
                 value={t.yearlyPriceCzk}
-                onChange={(v) =>
-                  update({
-                    licenceTiers: tiers.map((x, j) =>
-                      j === i ? { ...x, yearlyPriceCzk: v ?? 0 } : x,
-                    ),
-                  })
-                }
+                allowEmpty
+                placeholder="individuálně"
+                onChange={(v) => setTier(i, { yearlyPriceCzk: v })}
+              />
+              <Amount
+                id={`tier-floor-${i}`}
+                label={i === 0 ? 'Spodní hranice' : undefined}
+                value={t.floorCzk}
+                onChange={(v) => setTier(i, { floorCzk: v ?? 0 })}
+              />
+              <Amount
+                id={`tier-impl-${i}`}
+                label={i === 0 ? 'Implementace' : undefined}
+                value={t.implementationFeeCzk}
+                onChange={(v) => setTier(i, { implementationFeeCzk: v ?? 0 })}
               />
               <Button
                 variant="ghost"
@@ -189,13 +201,9 @@ function CatalogEditor() {
             onClick={() => {
               const last = tiers[tiers.length - 1]
               const before = tiers.slice(0, -1)
-              const prevMax = before[before.length - 1]?.maxUsers ?? 0
+              const prevMax = before[before.length - 1]?.maxPopulation ?? 0
               update({
-                licenceTiers: [
-                  ...before,
-                  { maxUsers: prevMax + 200, yearlyPriceCzk: last.yearlyPriceCzk },
-                  last,
-                ],
+                licenceTiers: [...before, { ...last, maxPopulation: prevMax + 1000 }, last],
               })
             }}
           >
@@ -205,10 +213,28 @@ function CatalogEditor() {
 
         <div className="grid grid-cols-2 gap-3">
           <Amount
-            id="impl-fee"
-            label="Implementace (Kč, jednorázově)"
-            value={catalog.implementationFeeCzk}
-            onChange={(v) => update({ implementationFeeCzk: v ?? 0 })}
+            id="included-users"
+            label="Aktivní uživatelé v ceně (% obyvatel)"
+            value={catalog.activeUsersIncludedPercent}
+            onChange={(v) => update({ activeUsersIncludedPercent: v ?? 0 })}
+          />
+          <Amount
+            id="growth-cap"
+            label="Strop růstového pásma (Kč/rok)"
+            value={catalog.growthCapCzk}
+            onChange={(v) => update({ growthCapCzk: v ?? 0 })}
+          />
+          <Amount
+            id="three-year"
+            label="Sleva za závazek na 3 roky (%)"
+            value={catalog.threeYearDiscountPercent}
+            onChange={(v) => update({ threeYearDiscountPercent: v ?? 0 })}
+          />
+          <Amount
+            id="reference"
+            label="Reference — sleva z implementace (%)"
+            value={catalog.referenceImplementationDiscountPercent}
+            onChange={(v) => update({ referenceImplementationDiscountPercent: v ?? 0 })}
           />
           <Amount
             id="source-fee"
@@ -270,20 +296,6 @@ function CatalogEditor() {
               />
             </div>
           ))}
-          <div className="grid grid-cols-2 gap-3">
-            <Amount
-              id="extra-source"
-              label="Zdroj navíc nad balíček (Kč/rok za zdroj)"
-              value={catalog.scrapingExtraSourcePriceCzk}
-              onChange={(v) => update({ scrapingExtraSourcePriceCzk: v ?? 0 })}
-            />
-            <Amount
-              id="twice-weekly"
-              label="Kontrola 2× týdně (Kč/rok navíc)"
-              value={catalog.scrapingTwiceWeeklyPriceCzk}
-              onChange={(v) => update({ scrapingTwiceWeeklyPriceCzk: v ?? 0 })}
-            />
-          </div>
           <div className="grid grid-cols-2 gap-3">
             <Amount
               id="max-tokens"
@@ -362,7 +374,8 @@ function Overview() {
               <thead className="text-left text-xs text-muted-foreground">
                 <tr>
                   <th className="py-1.5 pr-3 font-medium">Obec</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">Uživatelé</th>
+                  <th className="py-1.5 pr-3 font-medium text-right">Obyvatel</th>
+                  <th className="py-1.5 pr-3 font-medium text-right">Aktivní / v ceně</th>
                   <th className="py-1.5 pr-3 font-medium">Pásmo</th>
                   <th className="py-1.5 pr-3 font-medium">SMS</th>
                   <th className="py-1.5 pr-3 font-medium text-right">SMS měsíc / rok</th>
@@ -389,11 +402,24 @@ function Overview() {
                       )}
                     </td>
                     <td className="py-2 pr-3 text-right tabular-nums">
-                      {num(r.snapshotUsers ?? r.activeUsers)}
+                      {r.population != null ? num(r.population) : <span className="text-destructive">chybí</span>}
                     </td>
-                    <td className="py-2 pr-3">
-                      {r.tier}
+                    <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                      {num(r.snapshotUsers ?? r.activeUsers)}
+                      {r.includedUsers != null && (
+                        <span className={r.activeUsers > r.includedUsers ? 'text-warning' : 'text-muted-foreground'}>
+                          {' '}/ {num(r.includedUsers)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {r.tier != null ? r.tier + 1 : '—'}
                       {r.tierManual && <span className="text-muted-foreground"> (ručně)</span>}
+                      {r.nextTier != null && r.nextTier !== r.tier && (
+                        <span className="text-warning"> → {r.nextTier + 1} příští rok</span>
+                      )}
+                      {r.inTrial && <Badge variant="outline" className="ml-1">zkouška</Badge>}
+                      {r.belowFloor && <Badge variant="destructive" className="ml-1">pod hranicí</Badge>}
                     </td>
                     <td className="py-2 pr-3">{r.smsPackage ?? '—'}</td>
                     <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
@@ -411,9 +437,7 @@ function Overview() {
                       {r.scrapingPackage ? (
                         <>
                           {r.scrapingPackage} · {r.enabledSources}/{r.maxSources}
-                          {(r.extraSources ?? 0) > 0 && (
-                            <span className="text-muted-foreground"> (+{r.extraSources} navíc)</span>
-                          )}
+
                           <span className="block text-xs text-muted-foreground">
                             {r.scrapingFrequency} · {num(r.scrapingYearlyCzk)} Kč/rok
                           </span>
@@ -434,10 +458,7 @@ function Overview() {
                           zřízení {r.sourcesSetUpMonth}× zdroj {num(r.sourceSetupCzkMonth)} Kč
                         </span>
                       )}
-                      {r.licenceUpgradeCzkMonth > 0 && (
-                        <span className="block">doplatek za vyšší pásmo {num(r.licenceUpgradeCzkMonth)} Kč</span>
-                      )}
-                      {!(r.smsOverageCzkMonth ?? 0) && r.sourcesSetUpMonth === 0 && r.licenceUpgradeCzkMonth === 0 && '—'}
+                      {!(r.smsOverageCzkMonth ?? 0) && r.sourcesSetUpMonth === 0 && '—'}
                     </td>
                     <td className="py-2 text-right tabular-nums">{num(r.yearlyTotalCzk)}</td>
                   </tr>

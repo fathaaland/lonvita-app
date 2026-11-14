@@ -108,6 +108,12 @@
           "notNull": true,
           "default": "'user'"
         },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp(3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "anonymized_at": {
           "name": "anonymized_at",
           "type": "timestamp(3) with time zone",
@@ -179,6 +185,21 @@
         }
       },
       "indexes": {
+        "users_last_seen_at_idx": {
+          "name": "users_last_seen_at_idx",
+          "columns": [
+            {
+              "expression": "last_seen_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "users_updated_at_idx": {
           "name": "users_updated_at_idx",
           "columns": [
@@ -656,6 +677,69 @@
           "primaryKey": false,
           "notNull": false
         },
+        "population": {
+          "name": "population",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "population_year": {
+          "name": "population_year",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contract_start": {
+          "name": "contract_start",
+          "type": "timestamp(3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contract_years": {
+          "name": "contract_years",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 2
+        },
+        "first_wave": {
+          "name": "first_wave",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "reference_discount": {
+          "name": "reference_discount",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
+        },
+        "price_index_percent": {
+          "name": "price_index_percent",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "floor_exception_note": {
+          "name": "floor_exception_note",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trial_ends_at": {
+          "name": "trial_ends_at",
+          "type": "timestamp(3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trial_reminder_state": {
+          "name": "trial_reminder_state",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
         "licence_tier": {
           "name": "licence_tier",
           "type": "numeric",
@@ -671,6 +755,24 @@
         "licence_billed_tier_period": {
           "name": "licence_billed_tier_period",
           "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "licence_next_tier": {
+          "name": "licence_next_tier",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "licence_next_tier_period": {
+          "name": "licence_next_tier_period",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "licence_next_tier_users": {
+          "name": "licence_next_tier_users",
+          "type": "numeric",
           "primaryKey": false,
           "notNull": false
         },
@@ -8250,165 +8352,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.licence_upgrades": {
-      "name": "licence_upgrades",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "municipality_id": {
-          "name": "municipality_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period_key": {
-          "name": "period_key",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_tier": {
-          "name": "from_tier",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_tier": {
-          "name": "to_tier",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "average_users": {
-          "name": "average_users",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "effective_from": {
-          "name": "effective_from",
-          "type": "timestamp(3) with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "months_charged": {
-          "name": "months_charged",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period_months": {
-          "name": "period_months",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_yearly_czk": {
-          "name": "from_yearly_czk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "to_yearly_czk": {
-          "name": "to_yearly_czk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "surcharge_czk": {
-          "name": "surcharge_czk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3) with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3) with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "licence_upgrades_municipality_idx": {
-          "name": "licence_upgrades_municipality_idx",
-          "columns": [
-            {
-              "expression": "municipality_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "licence_upgrades_updated_at_idx": {
-          "name": "licence_upgrades_updated_at_idx",
-          "columns": [
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "licence_upgrades_created_at_idx": {
-          "name": "licence_upgrades_created_at_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "licence_upgrades_municipality_id_municipalities_id_fk": {
-          "name": "licence_upgrades_municipality_id_municipalities_id_fk",
-          "tableFrom": "licence_upgrades",
-          "tableTo": "municipalities",
-          "columnsFrom": [
-            "municipality_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.legal_requirements": {
       "name": "legal_requirements",
       "schema": "",
@@ -9593,12 +9536,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "licence_upgrades_id": {
-          "name": "licence_upgrades_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "legal_requirements_id": {
           "name": "legal_requirements_id",
           "type": "integer",
@@ -10105,21 +10042,6 @@
           "method": "btree",
           "with": {}
         },
-        "payload_locked_documents_rels_licence_upgrades_id_idx": {
-          "name": "payload_locked_documents_rels_licence_upgrades_id_idx",
-          "columns": [
-            {
-              "expression": "licence_upgrades_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "payload_locked_documents_rels_legal_requirements_id_idx": {
           "name": "payload_locked_documents_rels_legal_requirements_id_idx",
           "columns": [
@@ -10572,19 +10494,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "payload_locked_documents_rels_licence_upgrades_fk": {
-          "name": "payload_locked_documents_rels_licence_upgrades_fk",
-          "tableFrom": "payload_locked_documents_rels",
-          "tableTo": "licence_upgrades",
-          "columnsFrom": [
-            "licence_upgrades_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "payload_locked_documents_rels_legal_requirements_fk": {
           "name": "payload_locked_documents_rels_legal_requirements_fk",
           "tableFrom": "payload_locked_documents_rels",
@@ -11002,8 +10911,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "max_users": {
-          "name": "max_users",
+        "max_population": {
+          "name": "max_population",
           "type": "numeric",
           "primaryKey": false,
           "notNull": false
@@ -11012,8 +10921,25 @@
           "name": "yearly_price_czk",
           "type": "numeric",
           "primaryKey": false,
-          "notNull": true,
-          "default": 0
+          "notNull": false
+        },
+        "floor_czk": {
+          "name": "floor_czk",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "implementation_fee_czk": {
+          "name": "implementation_fee_czk",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_users": {
+          "name": "max_users",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -11079,12 +11005,33 @@
           "primaryKey": true,
           "notNull": true
         },
-        "implementation_fee_czk": {
-          "name": "implementation_fee_czk",
+        "active_users_included_percent": {
+          "name": "active_users_included_percent",
           "type": "numeric",
           "primaryKey": false,
           "notNull": true,
-          "default": 5000
+          "default": 5
+        },
+        "growth_cap_czk": {
+          "name": "growth_cap_czk",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 200000
+        },
+        "three_year_discount_percent": {
+          "name": "three_year_discount_percent",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5
+        },
+        "reference_implementation_discount_percent": {
+          "name": "reference_implementation_discount_percent",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 50
         },
         "sms_packages_s_quota": {
           "name": "sms_packages_s_quota",
@@ -11191,20 +11138,6 @@
           "notNull": true,
           "default": 500
         },
-        "scraping_extra_source_price_czk": {
-          "name": "scraping_extra_source_price_czk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1500
-        },
-        "scraping_twice_weekly_price_czk": {
-          "name": "scraping_twice_weekly_price_czk",
-          "type": "numeric",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 2400
-        },
         "max_input_tokens_per_run": {
           "name": "max_input_tokens_per_run",
           "type": "numeric",
@@ -11218,6 +11151,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0.5
+        },
+        "implementation_fee_czk": {
+          "name": "implementation_fee_czk",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scraping_extra_source_price_czk": {
+          "name": "scraping_extra_source_price_czk",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scraping_twice_weekly_price_czk": {
+          "name": "scraping_twice_weekly_price_czk",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
         },
         "updated_at": {
           "name": "updated_at",
@@ -11740,6 +11691,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "11aedd9d-0d44-41d7-a062-5aaf6077cf3b",
+  "id": "8222e0a5-8b2e-4b88-83b7-29839e683f47",
   "prevId": "00000000-0000-0000-0000-000000000000"
 }

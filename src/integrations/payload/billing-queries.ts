@@ -11,23 +11,9 @@ import type { BillingDetail, BillingRow, BillingSettingsOfObec } from '@/lib/bil
 
 export type { BillingDetail, BillingRow, BillingSettingsOfObec }
 
-export type StoredCatalog = {
-  licenceTiers?: { maxUsers?: number | null; yearlyPriceCzk?: number | null }[] | null
-  implementationFeeCzk?: number | null
-  smsPackages?: Partial<
-    Record<PackageKey, { quota?: number | null; yearlyPriceCzk?: number | null }>
-  > | null
-  smsOveragePriceCzk?: number | null
-  smsOverageCapPercent?: number | null
-  scrapingPackages?: Partial<
-    Record<PackageKey, { maxSources?: number | null; yearlyPriceCzk?: number | null }>
-  > | null
-  sourceSetupFeeCzk?: number | null
-  scrapingExtraSourcePriceCzk?: number | null
-  scrapingTwiceWeeklyPriceCzk?: number | null
-  maxInputTokensPerRun?: number | null
-  scrapingCostAlertUsdPerSource?: number | null
-}
+/** The price list as stored — the same shape lib/billing/catalog reads (catalogFrom). */
+import type { StoredCatalog } from '@/lib/billing/catalog'
+export type { StoredCatalog }
 
 /** The price list as stored — fields never saved come back empty and the defaults fill them. */
 export async function getStoredBillingCatalog(): Promise<StoredCatalog> {

@@ -45,8 +45,9 @@ const packageGroup = (
 })
 
 /**
- * The price list the platform sells obce from (lib/billing/catalog) — licence bands, the SMS and
- * scraping packages, one-off fees and the technical limit on a scraping run. Kept by the platform's
+ * The price list the platform sells obce from (lib/billing/catalog) — licence bands by inhabitants with
+ * their floors and implementation fees, the growth band and discounts, the SMS and scraping packages,
+ * one-off fees and the technical limit on a scraping run. Kept by the platform's
  * admins in the superadmin panel (Ceník balíčků). Never shown to an obec — it sees its own package
  * and how much of it it used.
  */
@@ -56,17 +57,28 @@ export const BillingSettings: GlobalConfig = {
   hooks: { afterChange: [auditChange] },
   fields: [
     {
+      // Bands by inhabitants (Ceník 2027), in order, the open-ended one last.
       name: 'licenceTiers',
       type: 'array',
       minRows: 1,
       defaultValue: DEFAULT_CATALOG.licenceTiers,
       fields: [
         // Empty on the last band — "a víc".
-        { name: 'maxUsers', type: 'number', min: 0 },
-        amount('yearlyPriceCzk', 0),
+        { name: 'maxPopulation', type: 'number', min: 0 },
+        // Empty — individual (the contract's price).
+        { name: 'yearlyPriceCzk', type: 'number', min: 0 },
+        // Not required in the database: rows of the old price list (by users) have neither — they're
+        // ignored (catalogFrom), and adding a NOT NULL column to a table with rows would fail.
+        { name: 'floorCzk', type: 'number', min: 0 },
+        { name: 'implementationFeeCzk', type: 'number', min: 0 },
+        // The price list before 1. 11. 2026 (bands by users) — unused; dropped by a later migration.
+        { name: 'maxUsers', type: 'number', min: 0, admin: { hidden: true } },
       ],
     },
-    amount('implementationFeeCzk', DEFAULT_CATALOG.implementationFeeCzk),
+    amount('activeUsersIncludedPercent', DEFAULT_CATALOG.activeUsersIncludedPercent, 100),
+    amount('growthCapCzk', DEFAULT_CATALOG.growthCapCzk),
+    amount('threeYearDiscountPercent', DEFAULT_CATALOG.threeYearDiscountPercent, 50),
+    amount('referenceImplementationDiscountPercent', DEFAULT_CATALOG.referenceImplementationDiscountPercent, 100),
     packageGroup('smsPackages', (key) => [
       amount('quota', DEFAULT_CATALOG.smsPackages[key].quota),
       amount('yearlyPriceCzk', DEFAULT_CATALOG.smsPackages[key].yearlyPriceCzk),
@@ -79,9 +91,11 @@ export const BillingSettings: GlobalConfig = {
       amount('yearlyPriceCzk', DEFAULT_CATALOG.scrapingPackages[key].yearlyPriceCzk),
     ]),
     amount('sourceSetupFeeCzk', DEFAULT_CATALOG.sourceSetupFeeCzk),
-    amount('scrapingExtraSourcePriceCzk', DEFAULT_CATALOG.scrapingExtraSourcePriceCzk),
-    amount('scrapingTwiceWeeklyPriceCzk', DEFAULT_CATALOG.scrapingTwiceWeeklyPriceCzk),
     amount('maxInputTokensPerRun', DEFAULT_CATALOG.maxInputTokensPerRun),
     amount('scrapingCostAlertUsdPerSource', DEFAULT_CATALOG.scrapingCostAlertUsdPerSource),
+    // No longer sold (Ceník 2027) — unused; dropped by a later migration (code first, migration second).
+    { name: 'implementationFeeCzk', type: 'number', min: 0, admin: { hidden: true } },
+    { name: 'scrapingExtraSourcePriceCzk', type: 'number', min: 0, admin: { hidden: true } },
+    { name: 'scrapingTwiceWeeklyPriceCzk', type: 'number', min: 0, admin: { hidden: true } },
   ],
 }

@@ -56,6 +56,10 @@ import {
 } from '@/lib/billing/status'
 
 type NumberKey =
+  | 'population'
+  | 'populationYear'
+  | 'contractYears'
+  | 'priceIndexPercent'
   | 'licenceTier'
   | 'licenceCustomYearlyCzk'
   | 'implementationFeeCzk'
@@ -66,7 +70,15 @@ type NumberKey =
 /** The inputs hold text — "" is "not set" (null). */
 type Draft = Omit<
   BillingSettingsOfObec,
-  'name' | NumberKey | 'licencePeriodStart' | 'licencePeriodEnd' | 'licencePaidUntil' | 'billingNote'
+  | 'name'
+  | NumberKey
+  | 'licencePeriodStart'
+  | 'licencePeriodEnd'
+  | 'licencePaidUntil'
+  | 'billingNote'
+  | 'contractStart'
+  | 'trialEndsAt'
+  | 'floorExceptionNote'
 > &
   Record<NumberKey, string> & {
     licencePeriodStart: string
@@ -74,6 +86,10 @@ type Draft = Omit<
     /** The last paid day (inclusive), as the date input holds it. */
     licencePaidUntil: string
     billingNote: string
+    contractStart: string
+    /** The trial's last day (inclusive), as the date input holds it. */
+    trialEndsAt: string
+    floorExceptionNote: string
   }
 
 const toText = (value: number | null) => (value == null ? '' : String(value))
@@ -85,6 +101,13 @@ const toDraft = ({ name: _name, ...s }: BillingSettingsOfObec): Draft => ({
   licencePeriodStart: dateInput(s.licencePeriodStart),
   licencePeriodEnd: dateInput(s.licencePeriodEnd),
   licencePaidUntil: lastPaidDay(s.licencePaidUntil),
+  contractStart: dateInput(s.contractStart),
+  trialEndsAt: lastPaidDay(s.trialEndsAt),
+  floorExceptionNote: s.floorExceptionNote ?? '',
+  population: toText(s.population),
+  populationYear: toText(s.populationYear),
+  contractYears: toText(s.contractYears),
+  priceIndexPercent: toText(s.priceIndexPercent),
   licenceTier: toText(s.licenceTier),
   licenceCustomYearlyCzk: toText(s.licenceCustomYearlyCzk),
   implementationFeeCzk: toText(s.implementationFeeCzk),
@@ -123,6 +146,15 @@ const FIELD_LABELS: Record<string, string> = {
   licencePeriodStart: 'Začátek období',
   licencePeriodEnd: 'Konec období',
   licencePaidUntil: 'Zaplaceno do',
+  population: 'Počet obyvatel',
+  populationYear: 'Obyvatelé k roku',
+  contractStart: 'Začátek smlouvy',
+  contractYears: 'Délka smlouvy (roky)',
+  firstWave: 'První vlna',
+  referenceDiscount: 'Reference',
+  priceIndexPercent: 'Inflační úprava (%)',
+  floorExceptionNote: 'Výjimka ze spodní hranice',
+  trialEndsAt: 'Konec zkušebního provozu',
   licenceTier: 'Pásmo (ručně)',
   licenceCustomYearlyCzk: 'Individuální cena licence',
   implementationFeeCzk: 'Implementace',
@@ -358,6 +390,10 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     const numbers = {
+      population: toWhole(draft.population),
+      populationYear: toWhole(draft.populationYear),
+      contractYears: toWhole(draft.contractYears),
+      priceIndexPercent: toWhole(draft.priceIndexPercent),
       licenceTier: toWhole(draft.licenceTier),
       licenceCustomYearlyCzk: toWhole(draft.licenceCustomYearlyCzk),
       implementationFeeCzk: toWhole(draft.implementationFeeCzk),
@@ -370,7 +406,7 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
       return
     }
     if (numbers.licenceTier != null && numbers.licenceTier >= tiers.length) {
-      toast.error(`Pásmo může být 0 až ${tiers.length - 1}.`)
+      toast.error(`Pásmo může být 1 až ${tiers.length}.`)
       return
     }
     if (
@@ -390,6 +426,9 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
         licencePeriodStart: toDate(draft.licencePeriodStart),
         licencePeriodEnd: toDate(draft.licencePeriodEnd),
         licencePaidUntil: paidUntilOf(draft.licencePaidUntil),
+        contractStart: toDate(draft.contractStart),
+        trialEndsAt: paidUntilOf(draft.trialEndsAt),
+        floorExceptionNote: draft.floorExceptionNote.trim() || null,
       })
       await load(true)
       setRefreshKey((k) => k + 1)
@@ -532,19 +571,41 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
             <p className="text-xs text-muted-foreground -mt-2">
               Prázdné: kalendářní rok. Konec prázdný: rok od začátku. V období se počítá kvóta SMS.
             </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="population" label="Počet obyvatel (ČSÚ)" hint="K 1. 1. roku podpisu — podle něj je pásmo.">
+                <NumberInput id="population" value={draft.population} placeholder="nezadáno" onChange={set('population')} />
+              </Field>
+              <Field id="population-year" label="K roku">
+                <NumberInput id="population-year" value={draft.populationYear} placeholder="např. 2026" onChange={set('populationYear')} />
+              </Field>
+            </div>
+            <div className="rounded-md bg-muted/50 p-3 text-sm space-y-1">
+              <p>
+                Pásmo podle velikosti:{' '}
+                <strong>{services.licence.baseTier != null ? `${services.licence.baseTier + 1} (${tierRangeLabel(tiers, services.licence.baseTier)} obyv.)` : '— zadejte počet obyvatel'}</strong>
+                {services.licence.tier != null && services.licence.tier !== services.licence.baseTier && <> · účtované <strong>{services.licence.tier + 1}</strong>{services.licence.tierManual ? ' (ručně)' : ' (růstové pásmo)'}</>}
+                {services.licence.nextTier != null && services.licence.nextTier !== services.licence.tier && <> · příští rok <strong>{services.licence.nextTier + 1}</strong></>}
+              </p>
+              <p className="text-muted-foreground">
+                Aktivní uživatelé (přihlášení nebo na akci za 90 dní): {services.licence.activeUsers}
+                {services.licence.includedUsers != null && ` · v ceně ${services.licence.includedUsers} (${catalog.activeUsersIncludedPercent} % obyvatel)`}.
+                {' '}Růstové pásmo se vyhodnocuje v listopadu ze snímků konce září a října a platí od dalšího období.
+              </p>
+              <p>
+                Licence tento rok: <strong>{services.licence.yearlyPriceCzk != null ? czk(services.licence.yearlyPriceCzk) : '—'}</strong>
+                {services.licence.listPriceCzk != null && services.licence.yearlyPriceCzk !== services.licence.listPriceCzk && (
+                  <span className="text-muted-foreground"> (ceník {czk(services.licence.listPriceCzk)})</span>
+                )}
+                {services.licence.floorCzk != null && <span className="text-muted-foreground"> · spodní hranice {czk(services.licence.floorCzk)}</span>}
+                {services.licence.contractYear != null && <span className="text-muted-foreground"> · {services.licence.contractYear}. rok smlouvy</span>}
+              </p>
+              {services.licence.belowFloor && <p className="text-destructive">Cena je pod spodní hranicí — jen s vyplněnou výjimkou.</p>}
+              {services.licence.missing.length > 0 && <p className="text-destructive">Chybí: {services.licence.missing.join(', ')}.</p>}
+              {services.licence.inTrial && services.licence.trialEndsAt && <p className="text-warning">Zkušební provoz do {dateTime(services.licence.trialEndsAt)}.</p>}
+            </div>
             <Field
-              label="Pásmo licence"
-              hint={`Vypočteno: pásmo ${services.licence.computedTier} z průměru ${services.licence.averageUsers} uživatelů (${
-                services.licence.snapshotsUsed
-                  ? `posledních ${services.licence.snapshotsUsed} snímků`
-                  : 'zatím bez snímku, počet teď'
-              }). ${
-                services.licence.tierManual
-                  ? 'Pásmo je nastavené ručně — automatika ho nemění.'
-                  : services.licence.tierFixedForYear
-                    ? `Účtuje se pásmo ${services.licence.tier}, fixované na licenční rok: při růstu se od dalšího měsíce zvýší s poměrným doplatkem (nikdy zpětně), snížení až při obnově licence.`
-                    : 'Pásmo se na licenční rok zafixuje při nejbližším nočním běhu.'
-              }`}
+              label="Pásmo ručně (smlouva)"
+              hint="Prázdné: podle velikosti obce a růstového pásma, fixované na licenční rok. Ručně nastavené pásmo automatika nemění."
             >
               <Select
                 value={draft.licenceTier === '' ? 'auto' : draft.licenceTier}
@@ -554,45 +615,28 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">
-                    Automaticky (pásmo {services.licence.computedTier})
-                  </SelectItem>
+                  <SelectItem value="auto">Automaticky{services.licence.tier != null ? ` (pásmo ${services.licence.tier + 1})` : ''}</SelectItem>
                   {tiers.map((t, i) => (
                     <SelectItem key={i} value={String(i)}>
-                      Pásmo {i} — {tierRangeLabel(tiers, i)} uživatelů · {czk(t.yearlyPriceCzk)}/rok
+                      Pásmo {i + 1} — {tierRangeLabel(tiers, i)} obyv. · {t.yearlyPriceCzk != null ? `${czk(t.yearlyPriceCzk)}/rok` : 'individuálně'}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </Field>
-            {detail.licenceUpgrades.length > 0 && (
-              <div className="space-y-1">
-                <p className="text-sm font-semibold">Přechody do vyššího pásma (k vyfakturování)</p>
-                {detail.licenceUpgrades.map((u) => (
-                  <p key={u.createdAt} className="text-xs text-muted-foreground tabular-nums">
-                    {dateTime(u.createdAt)}: pásmo {u.fromTier} → {u.toTier} (průměr {u.averageUsers} uživatelů), od{' '}
-                    {dateTime(u.effectiveFrom)}, {u.monthsCharged}/{u.periodMonths} měsíců → doplatek {czk(u.surchargeCzk)}
-                  </p>
-                ))}
-              </div>
-            )}
             <div className="grid grid-cols-2 gap-3">
-              <Field
-                id="custom-price"
-                label="Individuální cena (Kč/rok)"
-                hint="Např. Žďár — místo ceny pásma."
-              >
+              <Field id="custom-price" label="Individuální cena (Kč/rok)" hint="Místo ceny pásma — slevy se na ni nepočítají.">
                 <NumberInput
                   id="custom-price"
                   value={draft.licenceCustomYearlyCzk}
-                  placeholder="podle pásma"
+                  placeholder="podle ceníku"
                   onChange={set('licenceCustomYearlyCzk')}
                 />
               </Field>
               <Field
                 id="impl-fee"
                 label="Implementace (Kč)"
-                hint={`Ceník: ${czk(catalog.implementationFeeCzk)}`}
+                hint={services.licence.baseTier != null ? `Ceník pásma: ${czk(tiers[services.licence.baseTier].implementationFeeCzk)}` : undefined}
               >
                 <NumberInput
                   id="impl-fee"
@@ -602,6 +646,38 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                 />
               </Field>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="contract-start" label="Začátek smlouvy">
+                <Input id="contract-start" type="date" value={draft.contractStart} onChange={(e) => set('contractStart')(e.target.value)} className="h-11" />
+              </Field>
+              <Field id="contract-years" label="Délka smlouvy (roky)" hint={`3 roky: −${catalog.threeYearDiscountPercent} % z licence.`}>
+                <NumberInput id="contract-years" value={draft.contractYears} placeholder="2" onChange={set('contractYears')} />
+              </Field>
+              <Field id="price-index" label="Inflační úprava od 2. roku (%)" hint="Kumulovaná míra inflace ČSÚ od podpisu.">
+                <NumberInput id="price-index" value={draft.priceIndexPercent} placeholder="0" onChange={set('priceIndexPercent')} />
+              </Field>
+              <Field id="trial-ends" label="Zkušební provoz do (včetně)" hint="Licence zdarma. Obec může vypovědět 14 dní před koncem, jinak pokračuje placeně.">
+                <Input id="trial-ends" type="date" value={draft.trialEndsAt} onChange={(e) => set('trialEndsAt')(e.target.value)} className="h-11" />
+              </Field>
+            </div>
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={draft.firstWave} onCheckedChange={set('firstWave')} aria-label="První vlna" />
+                První vlna (1. rok za spodní hranici, načítání S zdarma)
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={draft.referenceDiscount} onCheckedChange={set('referenceDiscount')} aria-label="Reference" />
+                Reference (implementace −{catalog.referenceImplementationDiscountPercent} %)
+              </label>
+            </div>
+            <Field id="floor-exception" label="Výjimka ze spodní hranice" hint="Povinné, pokud je cena pod spodní hranicí pásma (např. mikroregion, dohoda s Davidem).">
+              <Textarea
+                id="floor-exception"
+                value={draft.floorExceptionNote}
+                onChange={(e) => set('floorExceptionNote')(e.target.value)}
+                rows={2}
+              />
+            </Field>
           </Section>
 
           {detail.settings.billingStatus === 'terminated' && (
@@ -748,7 +824,7 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                   <Field
                     id="max-sources"
                     label="Vlastní max. zdrojů"
-                    hint={`Nad balíček se účtuje ${czk(catalog.scrapingExtraSourcePriceCzk)}/rok za zdroj.`}
+                    hint="Víc zdrojů než balíček (bez příplatku — ceník 2027 ho nezná)."
                   >
                     <NumberInput
                       id="max-sources"
@@ -818,7 +894,7 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                       <SelectContent>
                         <SelectItem value="weekly">1× týdně</SelectItem>
                         <SelectItem value="twice_weekly">
-                          2× týdně (+{czk(catalog.scrapingTwiceWeeklyPriceCzk)}/rok)
+                          2× týdně (bez příplatku)
                         </SelectItem>
                       </SelectContent>
                     </Select>
