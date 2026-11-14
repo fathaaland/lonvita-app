@@ -26,9 +26,12 @@ export function BillingStatusNotice({ municipalityId, className }: { municipalit
   }, [municipalityId])
 
   if (!services || services.billingStatus === 'active') return null
+  const next = services.billingNextStepAt ? date(services.billingNextStepAt) : null
   const text =
-    services.billingStatus === 'read_only'
-      ? READ_ONLY_MESSAGE
+    services.billingStatus === 'terminated'
+      ? `Smlouva obce s Lonvitou skončila, obec je jen pro čtení.${next ? ` ${next} se všechny údaje obce smažou —` : ''} stáhněte si je včas v Nastavení (Všechna data obce).`
+      : services.billingStatus === 'read_only'
+      ? READ_ONLY_MESSAGE + (next ? ` Pokud licenci neobnovíte do ${next}, smlouva skončí.` : '')
       : 'Licence obce je kvůli nezaplacení pozastavená: SMS a import akcí z webu neběží.' +
         (services.billingNextStepAt
           ? ` Pokud ji neobnovíte do ${date(services.billingNextStepAt)}, obec přejde do režimu jen pro čtení.`

@@ -4,6 +4,7 @@ import { buildNarrative, buildReportRows, computeReportMetrics } from '@/lib/rep
 
 import { EXPORT_CONTENT_TYPES, fileSlug } from './contracts'
 import { loadMunicipalityExportData, loadOrganizationExportData } from './load'
+import { buildMunicipalityArchive } from './municipality-archive'
 import { renderCommunityReportDocx, renderCommunityReportPdf } from './render/community-report'
 import { renderOrganizationReportPdf } from './render/organization-report'
 
@@ -54,6 +55,11 @@ export async function buildExport(payload: Payload, request: ExportRequest, owne
         data.profiles,
       )
       return { body: csvBuffer(csv), fileName: `prehled-${fileSlug(data.municipalityName)}-${period}.csv`, contentType }
+    }
+
+    case 'municipality-archive': {
+      const { body, municipalityName } = await buildMunicipalityArchive(payload, request.params.municipalityId)
+      return { body, fileName: `data-${fileSlug(municipalityName)}-${new Date().toISOString().slice(0, 10)}.zip`, contentType }
     }
 
     case 'organization-report': {

@@ -10,6 +10,7 @@ import {
 import { anonymizeUser, removeAnonymizedFiles } from '@/collections/shared/anonymizeUser'
 import { recordAuditLog } from '@/collections/shared/auditLog'
 import { getS3Client } from '@/lib/s3/client'
+import { eraseObecLeftovers } from '@/lib/billing/status-step'
 
 /**
  * After a restore from backup (.github/workflows/backup.yml), every account deleted since the dump is
@@ -33,11 +34,13 @@ const daysFrom = (since: string, until: Date): string[] => {
   return days
 }
 
-/** User ids whose `users.anonymize` entries are in the audit bucket's files for these days. */
+/** Target ids of the `action` entries (by default `users.anonymize`) in the audit bucket's files for
+ * these days — `municipalities.erase` for the obce erased when their contract ended. */
 export async function anonymizedIdsInAuditCopy(
   bucket: string,
   since: string,
   until = new Date(),
+  action = 'users.anonymize',
 ): Promise<{ ids: number[]; missingDays: string[] }> {
   const ids = new Set<number>()
   const missingDays: string[] = []
@@ -63,7 +66,7 @@ export async function anonymizedIdsInAuditCopy(
         type?: string
         row?: { action?: string; target_id?: string; outcome?: string }
       }
-      if (entry.type !== 'audit-log' || entry.row?.action !== 'users.anonymize') continue
+      if (entry.type !== 'audit-log' || entry.row?.action !== action) continue
       if (entry.row.outcome && entry.row.outcome !== 'success') continue
       const id = Number(entry.row.target_id)
       if (Number.isInteger(id) && id > 0) ids.add(id)
@@ -117,6 +120,44 @@ export async function replayAnonymizations(
       outcome.anonymized.push(id)
     } catch (error) {
       if (shouldCommit) await killTransaction(req)
+      outcome.refused.push({ id, reason: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  return outcome
+}
+
+/**
+ * The obce erased when their contract ended (lib/billing/status-step) are back after a restore with
+ * everything of theirs — erased again here, quietly: their people were told when it first happened.
+ * An event ahead (restored as not cancelled) stops it — `refused`, for the platform to settle.
+ */
+export async function replayMunicipalityErasures(
+  payload: Payload,
+  municipalityIds: number[],
+  { dryRun = false }: { dryRun?: boolean } = {},
+): Promise<ReplayOutcome> {
+  const outcome: ReplayOutcome = { anonymized: [], alreadyGone: [], refused: [] }
+  for (const id of municipalityIds) {
+    const obec = await payload.findByID({ collection: 'municipalities', id, depth: 0, overrideAccess: true }).catch(() => null)
+    if (!obec) {
+      outcome.alreadyGone.push(id)
+      continue
+    }
+    if (dryRun) {
+      outcome.anonymized.push(id)
+      continue
+    }
+    try {
+      await eraseObecLeftovers(payload, id)
+      await payload.delete({ collection: 'municipalities', id, overrideAccess: true, context: { skipNotifications: true } })
+      await recordAuditLog(payload, {
+        action: 'municipalities.erase-replayed',
+        targetCollection: 'municipalities',
+        targetId: id,
+        metadata: { name: obec.name, reason: 'restored from backup — the erasure predates the restore' },
+      })
+      outcome.anonymized.push(id)
+    } catch (error) {
       outcome.refused.push({ id, reason: error instanceof Error ? error.message : String(error) })
     }
   }

@@ -1,6 +1,7 @@
 /**
  * Run after restoring the database from a backup: deletes again every account deleted since the dump
- * (GDPR čl. 17) — see src/lib/retention/replay-anonymizations.ts.
+ * (GDPR čl. 17), and every obec erased when its contract ended — see
+ * src/lib/retention/replay-anonymizations.ts.
  *
  *   DATABASE_URI=<restored database> pnpm tsx scripts/replay-anonymizations.ts --since 2026-11-08 [--ids 12,34] [--apply]
  *
@@ -19,6 +20,7 @@ import config from '../src/payload.config'
 import {
   anonymizedIdsInAuditCopy,
   replayAnonymizations,
+  replayMunicipalityErasures,
 } from '../src/lib/retention/replay-anonymizations'
 
 const arg = (name: string) => {
@@ -51,12 +53,15 @@ if (missingDays.length > 0) {
 const all = [...new Set([...ids, ...extra])]
 console.log(`${all.length} deleted account(s) since ${since}: ${all.join(', ') || '—'}`)
 
+const erased = await anonymizedIdsInAuditCopy(bucket, since, new Date(), 'municipalities.erase')
+console.log(`${erased.ids.length} erased obec/obce since ${since}: ${erased.ids.join(', ') || '—'}`)
+
 const payload = await getPayload({ config })
 const outcome = await replayAnonymizations(payload, all, { dryRun: !apply })
-console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', ...outcome }, null, 2))
-if (outcome.refused.length > 0) {
-  console.error(
-    'Some accounts were refused — settle them by hand (cancel their events), then run again.',
-  )
+const obce = await replayMunicipalityErasures(payload, erased.ids, { dryRun: !apply })
+console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', accounts: outcome, obce }, null, 2))
+const refused = outcome.refused.length + obce.refused.length
+if (refused > 0) {
+  console.error('Some were refused — settle them by hand (cancel their events), then run again.')
 }
-process.exit(outcome.refused.length > 0 ? 1 : 0)
+process.exit(refused > 0 ? 1 : 0)

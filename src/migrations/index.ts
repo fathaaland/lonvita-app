@@ -53,6 +53,8 @@ import * as migration_20261112_085410_scraping_pricing from './20261112_085410_s
 import * as migration_20261112_120543_drop_sms_overage_allowed from './20261112_120543_drop_sms_overage_allowed';
 import * as migration_20261113_181853_age_15_plus_declaration from './20261113_181853_age_15_plus_declaration';
 import * as migration_20261114_084909_billing_read_only from './20261114_084909_billing_read_only';
+import * as migration_20261114_092554_contract_end from './20261114_092554_contract_end';
+import * as migration_20261114_100345_erasure_confirmation from './20261114_100345_erasure_confirmation';
 
 export const migrations = [
   {
@@ -328,6 +330,16 @@ export const migrations = [
   {
     up: migration_20261114_084909_billing_read_only.up,
     down: migration_20261114_084909_billing_read_only.down,
-    name: '20261114_084909_billing_read_only'
+    name: '20261114_084909_billing_read_only',
+  },
+  {
+    up: migration_20261114_092554_contract_end.up,
+    down: migration_20261114_092554_contract_end.down,
+    name: '20261114_092554_contract_end',
+  },
+  {
+    up: migration_20261114_100345_erasure_confirmation.up,
+    down: migration_20261114_100345_erasure_confirmation.down,
+    name: '20261114_100345_erasure_confirmation'
   },
 ];

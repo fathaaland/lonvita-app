@@ -7,6 +7,7 @@ import { Settings } from "lucide-react";
 import { setMunicipalityRulesForCreation, RulesForCreation } from "@/integrations/payload/queries";
 import { toast } from "sonner";
 import { ServicesCostCard } from "@/components/admin/ServicesCostCard";
+import { MunicipalityDataExportCard } from "@/components/admin/MunicipalityDataExportCard";
 
 const OPTIONS: { value: RulesForCreation; label: string }[] = [
   { value: "municipality_only", label: "Akce může zakládat pouze obec sama" },
@@ -47,6 +48,7 @@ export function SettingsPanel({ municipalityId, initialRules }: { municipalityId
         </CardContent>
       </Card>
       <ServicesCostCard municipalityId={municipalityId} />
+      <MunicipalityDataExportCard municipalityId={municipalityId} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { get, patch, post } from './client'
+import { del, get, patch, post } from './client'
 
 import type { BillingCatalog, PackageKey } from '@/lib/billing/catalog'
 import type { ActiveUserSnapshot } from '@/lib/billing/active-users'
@@ -57,6 +57,15 @@ export async function saveMunicipalityBilling(
   settings: Omit<BillingSettingsOfObec, 'name'>,
 ): Promise<void> {
   await patch(`/municipalities/${municipalityId}`, settings)
+}
+
+/** The platform confirms (by typing the obec's name) that the terminated obec is to be erased for good. */
+export async function confirmObecErasure(municipalityId: string, confirmName: string): Promise<{ confirmed: true }> {
+  return post(`/superadmin/billing/${municipalityId}/erasure`, { confirmName })
+}
+
+export async function withdrawObecErasure(municipalityId: string): Promise<void> {
+  await del(`/superadmin/billing/${municipalityId}/erasure`)
 }
 
 export async function takeActiveUserSnapshot(municipalityId: string): Promise<ActiveUserSnapshot> {

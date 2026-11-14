@@ -291,8 +291,9 @@ export interface Municipality {
   rulesForCreation: 'municipality_only' | 'approved_organizers';
   smsEnabled?: boolean | null;
   importAiEnabled?: boolean | null;
-  billingStatus?: ('active' | 'suspended' | 'read_only') | null;
+  billingStatus?: ('active' | 'suspended' | 'read_only' | 'terminated') | null;
   billingStatusChangedAt?: string | null;
+  erasureConfirmedStage?: string | null;
   billingWarnedAt?: string | null;
   billingNote?: string | null;
   licencePeriodStart?: string | null;
@@ -834,8 +835,8 @@ export interface EventDeletionRequest {
 export interface Export {
   id: number;
   owner: number | User;
-  kind: 'community-report' | 'organization-report' | 'municipality-events';
-  format: 'docx' | 'pdf' | 'csv';
+  kind: 'community-report' | 'organization-report' | 'municipality-events' | 'municipality-archive';
+  format: 'docx' | 'pdf' | 'csv' | 'zip';
   params:
     | {
         [k: string]: unknown;
@@ -1606,6 +1607,7 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   importAiEnabled?: T;
   billingStatus?: T;
   billingStatusChangedAt?: T;
+  erasureConfirmedStage?: T;
   billingWarnedAt?: T;
   billingNote?: T;
   licencePeriodStart?: T;

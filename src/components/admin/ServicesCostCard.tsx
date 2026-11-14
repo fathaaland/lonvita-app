@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { getMunicipalityServices } from '@/integrations/payload/queries'
 import { PACKAGE_LABELS } from '@/lib/billing/catalog'
-import { BILLING_STATUS_LABELS, READ_ONLY_MESSAGE } from '@/lib/billing/status'
+import { BILLING_STATUS_LABELS, READ_ONLY_MESSAGE, TERMINATED_MESSAGE } from '@/lib/billing/status'
 import type { MunicipalityServices } from '@/lib/services/municipality-services'
 
 const czk = (value: number) => `${value.toLocaleString('cs-CZ')} Kč`
@@ -116,6 +116,12 @@ export function ServicesCostCard({
               </p>
             )}
             {s.billingStatus === 'read_only' && <p className="text-sm text-destructive">{READ_ONLY_MESSAGE}</p>}
+            {s.billingStatus === 'terminated' && (
+              <p className="text-sm text-destructive">
+                {TERMINATED_MESSAGE}
+                {s.billingNextStepAt && ` Údaje se smažou ${date(s.billingNextStepAt)}.`}
+              </p>
+            )}
             <Row
               icon={ShieldCheck}
               title="Licence"

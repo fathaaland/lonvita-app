@@ -29,6 +29,8 @@ import {
   getStoredBillingCatalog,
   reviewImportRun,
   saveMunicipalityBilling,
+  confirmObecErasure,
+  withdrawObecErasure,
   takeActiveUserSnapshot,
   type BillingDetail,
   type BillingSettingsOfObec,
@@ -45,7 +47,9 @@ import {
 import {
   BILLING_STATUSES,
   BILLING_STATUS_LABELS,
+  READ_ONLY_DAYS,
   SUSPENDED_GRACE_DAYS,
+  TERMINATED_DAYS,
   WARN_DAYS_BEFORE,
 } from '@/lib/billing/status'
 
@@ -303,6 +307,8 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
   const [saving, setSaving] = useState(false)
   const [snapshotting, setSnapshotting] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [erasureName, setErasureName] = useState('')
+  const [erasureBusy, setErasureBusy] = useState(false)
 
   const load = useCallback(
     (resetDraft: boolean) =>
@@ -401,6 +407,21 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
     }
   }
 
+  const handleErasure = async (confirm: boolean) => {
+    setErasureBusy(true)
+    try {
+      if (confirm) await confirmObecErasure(municipalityId, erasureName)
+      else await withdrawObecErasure(municipalityId)
+      setErasureName('')
+      toast.success(confirm ? 'Smazání potvrzeno.' : 'Potvrzení smazání zrušeno.')
+      await load(false)
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError ? error.message : 'Potvrzení se nepodařilo uložit.')
+    } finally {
+      setErasureBusy(false)
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       <PageHeader title="Balíček obce" subtitle={detail.settings.name} back />
@@ -417,7 +438,7 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
           >
             <Field
               label="Stav obce"
-              hint={`Pozastaveno (nezaplatila): SMS i scraping se zastaví, akce běží dál. Po ${SUSPENDED_GRACE_DAYS} dnech přejde obec sama do režimu jen pro čtení (adminy upozorníme ${WARN_DAYS_BEFORE} dní předem): nic nového nezaloží ani neupraví, přihlášky a rušení akcí fungují. Balíčky zůstanou nastavené.`}
+              hint={`Pozastaveno (nezaplatila): SMS i scraping se zastaví, akce běží dál. Po ${SUSPENDED_GRACE_DAYS} dnech přejde obec sama do režimu jen pro čtení: nic nového nezaloží ani neupraví, přihlášky a rušení akcí fungují. Po dalších ${READ_ONLY_DAYS} dnech smlouva skončí (Ukončeno): obec si stáhne data a po ${TERMINATED_DAYS} dnech se všechny údaje obce nevratně smažou, akce po tomto datu se týden předem zruší. Ukončeno lze nastavit i ručně při konci smlouvy. Adminy před každým krokem upozorníme ${WARN_DAYS_BEFORE} dní předem; obyvatele při ukončení.`}
             >
               <Select
                 value={draft.billingStatus}
@@ -441,7 +462,9 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                   {detail.services.billingNextStepAt &&
                     (detail.settings.billingStatus === 'suspended'
                       ? ` · jen pro čtení od ${dateTime(detail.services.billingNextStepAt)}`
-                      : ` · lhůta končí ${dateTime(detail.services.billingNextStepAt)}`)}
+                      : detail.settings.billingStatus === 'read_only'
+                        ? ` · smlouva skončí ${dateTime(detail.services.billingNextStepAt)}`
+                        : ` · údaje obce se nevratně smažou ${dateTime(detail.services.billingNextStepAt)}`)}
                 </p>
               )}
             </Field>
@@ -534,6 +557,77 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
               </Field>
             </div>
           </Section>
+
+          {detail.settings.billingStatus === 'terminated' && (
+
+            <Section icon={ShieldCheck} title="Smazání dat obce">
+
+              <p className="text-sm text-muted-foreground">
+
+                Smlouva skončila. Údaje obce se smažou nevratně nejdříve{' '}
+
+                {detail.services.billingNextStepAt ? dateTime(detail.services.billingNextStepAt) : '—'}, a to jen když to
+
+                tady sami potvrdíte. Bez potvrzení se nic nesmaže, obec jen zůstane ve stavu Ukončeno. Potvrzení platí jen pro
+
+                tento stav — vrátíte-li obec do Aktivní nebo ji znovu ukončíte, je potřeba potvrdit znovu.
+
+              </p>
+
+              {detail.erasureConfirmed ? (
+
+                <>
+
+                  <p className="text-sm text-destructive">
+
+                    Smazání je potvrzeno. Po uplynutí lhůty se obec smaže při nejbližším nočním běhu.
+
+                  </p>
+
+                  <Button type="button" variant="outline" className="h-11" disabled={erasureBusy} onClick={() => handleErasure(false)}>
+
+                    Zrušit potvrzení
+
+                  </Button>
+
+                </>
+
+              ) : (
+
+                <>
+
+                  <Field label="Pro potvrzení opište název obce" hint={detail.settings.name}>
+
+                    <Input value={erasureName} onChange={(e) => setErasureName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="h-11" autoComplete="off" />
+
+                  </Field>
+
+                  <Button
+
+                    type="button"
+
+                    variant="destructive"
+
+                    className="h-11"
+
+                    disabled={erasureBusy || erasureName.trim() !== detail.settings.name.trim()}
+
+                    onClick={() => handleErasure(true)}
+
+                  >
+
+                    Potvrdit nevratné smazání dat obce
+
+                  </Button>
+
+                </>
+
+              )}
+
+            </Section>
+
+          )}
+
 
           <Section
             icon={MessageSquare}

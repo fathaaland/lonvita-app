@@ -7,7 +7,7 @@ import { aiImportRateLimited } from '@/lib/import/routes'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
 import { consumeRateLimit } from '@/lib/security/rate-limit'
-import { READ_ONLY_MESSAGE, isReadOnly } from '@/lib/billing/status'
+import { isReadOnly, writeRefusedMessage } from '@/lib/billing/status'
 import { relationId } from '@/lib/relations'
 
 /**
@@ -36,7 +36,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ? await payload.findByID({ collection: 'municipalities', id: obecId, select: { billingStatus: true }, depth: 0, overrideAccess: true }).catch(() => null)
     : null
   if (user.role !== 'admin' && isReadOnly(obec?.billingStatus)) {
-    return NextResponse.json({ error: READ_ONLY_MESSAGE }, { status: 403 })
+    return NextResponse.json({ error: writeRefusedMessage(obec?.billingStatus) }, { status: 403 })
   }
 
   const limited = await aiImportRateLimited(user.id)

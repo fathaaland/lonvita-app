@@ -1,13 +1,12 @@
 import type { CollectionBeforeOperationHook, CollectionSlug, PayloadRequest, Where } from 'payload'
 import { APIError } from 'payload'
 
-import { READ_ONLY_MESSAGE, isReadOnly } from '@/lib/billing/status'
+import { isReadOnly, writeRefusedMessage } from '@/lib/billing/status'
 
-/** Whether the obec is read-only — once per request and obec. */
-async function obecIsReadOnly(req: PayloadRequest, municipalityId: string): Promise<boolean> {
-  const key = `obecReadOnly:${municipalityId}`
-  const cached = req.context?.[key] as boolean | undefined
-  if (cached !== undefined) return cached
+/** The obec's billing status — once per request and obec. */
+async function obecStatus(req: PayloadRequest, municipalityId: string): Promise<unknown> {
+  const key = `obecBillingStatus:${municipalityId}`
+  if (req.context && key in req.context) return req.context[key]
   const obec = await req.payload
     .findByID({
       collection: 'municipalities',
@@ -18,18 +17,19 @@ async function obecIsReadOnly(req: PayloadRequest, municipalityId: string): Prom
       req,
     })
     .catch(() => null)
-  const readOnly = isReadOnly(obec?.billingStatus)
-  if (req.context) req.context[key] = readOnly
-  return readOnly
+  const status = obec?.billingStatus ?? null
+  if (req.context) req.context[key] = status
+  return status
 }
 
 /**
- * Refuses a write a person makes for a read-only obec. Trusted internal writes (no user — the worker,
- * seeds) and the platform's admins pass: the platform is who sorts the obec out.
+ * Refuses a write a person makes for a read-only or terminated obec. Trusted internal writes (no
+ * user — the worker, seeds) and the platform's admins pass: the platform is who sorts the obec out.
  */
 export async function assertObecWritable(req: PayloadRequest, municipalityId: string | number | null | undefined) {
   if (!req.user || req.user.role === 'admin' || municipalityId == null || municipalityId === '') return
-  if (await obecIsReadOnly(req, String(municipalityId))) throw new APIError(READ_ONLY_MESSAGE, 403)
+  const status = await obecStatus(req, String(municipalityId))
+  if (isReadOnly(status)) throw new APIError(writeRefusedMessage(status), 403)
 }
 
 /** The obec an event belongs to — for records that hang off an event (invitations, requests). */

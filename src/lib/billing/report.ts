@@ -12,7 +12,7 @@ import { PACKAGE_LABELS } from './catalog'
 import { monthRange } from './period'
 import { importAiCostUsd } from './scraping-cost'
 import { countSmsParts } from './sms'
-import { billingStatusOf, type BillingStatus } from './status'
+import { billingStatusOf, erasureConfirmed, type BillingStatus } from './status'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -107,6 +107,8 @@ export type BillingSettingsOfObec = {
 
 export type BillingDetail = {
   settings: BillingSettingsOfObec
+  /** The platform has confirmed the obec's erasure for its current terminated stage. */
+  erasureConfirmed: boolean
   services: MunicipalityServices
   snapshots: ActiveUserSnapshot[]
   sources: BillingSource[]
@@ -173,6 +175,7 @@ export async function billingDetailOf(
   const sourceLabel = new Map(sources.docs.map((s) => [s.id, s.label || s.url]))
 
   return {
+    erasureConfirmed: erasureConfirmed(m.billingStatus, m.billingStatusChangedAt, m.erasureConfirmedStage),
     settings: {
       name: m.name,
       billingStatus: billingStatusOf(m.billingStatus),

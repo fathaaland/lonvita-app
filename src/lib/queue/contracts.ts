@@ -93,9 +93,19 @@ export type ComplianceCheckJobResult = {
   failed: string[]
 }
 
-/** The daily step of unpaid obce (lib/billing/status): the warning before read-only, and read-only. */
+/** The daily step of unpaid and ended obce (lib/billing/status): warnings, read-only, termination, erasure. */
 export type BillingStatusJobData = Record<string, never>
-export type BillingStatusJobResult = { warned: number; madeReadOnly: number; clockStarted: number; failed: number }
+export type BillingStatusJobResult = {
+  warned: number
+  madeReadOnly: number
+  terminated: number
+  erased: number
+  /** Terminated obce past their period that the platform hasn't confirmed for erasure. */
+  awaitingConfirmation: number
+  eventsCancelled: number
+  clockStarted: number
+  failed: number
+}
 
 /** The monthly snapshot of every obec's users (lib/billing/active-users) — on the worker's cron. */
 export type SnapshotActiveUsersJobData = Record<string, never>

@@ -10,10 +10,10 @@ import { z } from 'zod'
 export const EXPORT_STATUSES = ['queued', 'processing', 'done', 'failed'] as const
 export type ExportStatus = (typeof EXPORT_STATUSES)[number]
 
-export const EXPORT_FORMATS = ['docx', 'pdf', 'csv'] as const
+export const EXPORT_FORMATS = ['docx', 'pdf', 'csv', 'zip'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
 
-export const EXPORT_KINDS = ['community-report', 'organization-report', 'municipality-events'] as const
+export const EXPORT_KINDS = ['community-report', 'organization-report', 'municipality-events', 'municipality-archive'] as const
 export type ExportKind = (typeof EXPORT_KINDS)[number]
 
 const recordId = z.union([z.string(), z.number()]).transform(String).pipe(z.string().regex(/^\d+$/))
@@ -37,6 +37,12 @@ export const exportRequestSchema = z.discriminatedUnion('kind', [
     format: z.literal('csv'),
     params: z.object({ municipalityId: recordId, scope, period: z.enum(['7', '30', '90', 'all']) }),
   }),
+  // Everything of the obec (lib/exports/municipality-archive) — what it takes along when its contract ends.
+  z.object({
+    kind: z.literal('municipality-archive'),
+    format: z.literal('zip'),
+    params: z.object({ municipalityId: recordId }),
+  }),
 ])
 
 export type ExportRequest = z.infer<typeof exportRequestSchema>
@@ -46,6 +52,7 @@ export const EXPORT_CONTENT_TYPES: Record<ExportFormat, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pdf: 'application/pdf',
   csv: 'text/csv; charset=utf-8',
+  zip: 'application/zip',
 }
 
 /** How the export is named in the "report je připraven" notification. */
@@ -53,6 +60,7 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   'community-report': 'Přehled komunitního života',
   'organization-report': 'Statistiky organizace',
   'municipality-events': 'Přehled akcí obce',
+  'municipality-archive': 'Všechna data obce',
 }
 
 /** A generated file is kept this long — then the nightly cleanup drops it from S3 and the DB. */

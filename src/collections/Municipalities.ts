@@ -8,6 +8,7 @@ import type {
   CollectionConfig,
   Field,
   FieldAccess,
+  Payload,
 } from 'payload'
 import { APIError } from 'payload'
 
@@ -112,6 +113,9 @@ const syncMunicipalityOrganization: CollectionAfterChangeHook = async ({
  */
 const deleteMunicipalityData: CollectionBeforeDeleteHook = async ({ id, req }) => {
   const { payload } = req
+  // Every delete below is `where municipality = id` — without a real id the condition could be dropped
+  // and the delete would take every obec's rows.
+  if (!(Number(id) > 0)) throw new APIError('Obec nemá platné ID — nic se nesmazalo.', 400)
   const upcoming = await payload.count({
     collection: 'events',
     where: {
@@ -217,6 +221,16 @@ const billingFields: Field[] = [
     type: 'date',
     access: platformOnlyField,
     admin: { position: 'sidebar', readOnly: true },
+  },
+  {
+    // The platform's hand-given go-ahead to erase this obec for good once its terminated period runs
+    // out: the start of the terminated stage it was given for (lib/billing/status erasureConfirmed), so
+    // it holds for that stage alone. Written only by POST /api/superadmin/billing/:id/erasure — audited,
+    // name typed — never by a generic update, whoever sends it.
+    name: 'erasureConfirmedStage',
+    type: 'date',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
   },
   {
     // When the admins were told the obec turns read-only soon — once per suspension.
@@ -331,7 +345,8 @@ const hideSuspendedServices: CollectionBeforeReadHook = ({ doc, req }) => {
 /** Starts the clock whenever the status moves (by the platform or the worker). */
 const stampBillingStatusChange: CollectionBeforeChangeHook = ({ data, originalDoc, operation }) => {
   if (!data || data.billingStatus === undefined) return data
-  const from = operation === 'create' ? null : billingStatusOf(originalDoc?.billingStatus)
+  // A new obec starts active — nothing to date until it leaves that.
+  const from = operation === 'create' ? 'active' : billingStatusOf(originalDoc?.billingStatus)
   if (from !== billingStatusOf(data.billingStatus)) data.billingStatusChangedAt = new Date().toISOString()
   return data
 }
@@ -352,7 +367,53 @@ const STATUS_NOTICES: Record<BillingStatus, (doc: { billingStatusChangedAt?: str
         ' Obnovu vyřídí provozovatel Lonvity.',
     }
   },
-  read_only: () => ({ title: 'Obec je v režimu jen pro čtení', message: READ_ONLY_MESSAGE }),
+  read_only: (doc) => {
+    const until = nextBillingStepAt('read_only', doc.billingStatusChangedAt)
+    return {
+      title: 'Obec je v režimu jen pro čtení',
+      message: READ_ONLY_MESSAGE + (until ? ` Pokud licenci neobnovíte do ${pragueDate(until)}, smlouva skončí.` : ''),
+    }
+  },
+  terminated: (doc) => {
+    const erasedAt = nextBillingStepAt('terminated', doc.billingStatusChangedAt)
+    return {
+      title: 'Smlouva obce s Lonvitou skončila',
+      message:
+        'Smlouva obce s Lonvitou skončila a obec je v režimu jen pro čtení.' +
+        (erasedAt
+          ? ` Do ${pragueDate(erasedAt)} si v Nastavení stáhněte všechna data obce (akce, přihlášky, organizace, role). Potom se údaje obce smažou a obnovit je nepůjde.`
+          : ' Stáhněte si v Nastavení všechna data obce, potom se údaje obce smažou.') +
+        ' Akce, které by se konaly později, zrušíme týden předem a přihlášené o tom zpravíme. Smlouvu obnoví provozovatel Lonvity.',
+    }
+  },
+}
+
+/** What a resident of the obec reads when its contract ends — their account isn't the obec's. */
+const residentNotice = (obecName: string, erasedAt: Date | null) => {
+  const title = `Obec ${obecName} končí s Lonvitou`
+  const message =
+    `Obec ${obecName} přestává Lonvitu používat.` +
+    (erasedAt ? ` Akce obce, které se konají do ${pragueDate(erasedAt)}, proběhnou, pozdější budou zrušeny a údaje o akcích obce se potom smažou.` : '') +
+    ' Váš účet zůstává, jen už nebude patřit pod žádnou obec — domovskou obec si můžete kdykoli změnit v profilu.'
+  return { title, message }
+}
+
+/** Everyone whose home obec, or the obec they volunteer in, it is. */
+async function residentUserIds(payload: Payload, municipalityId: number | string): Promise<number[]> {
+  const profiles = await payload.find({
+    collection: 'profiles',
+    where: {
+      and: [
+        { or: [{ municipality: { equals: municipalityId } }, { volunteerMunicipality: { equals: municipalityId } }] },
+        notDeleted,
+      ],
+    },
+    select: { user: true },
+    depth: 0,
+    pagination: false,
+    overrideAccess: true,
+  })
+  return profiles.docs.map((p) => Number(typeof p.user === 'object' ? p.user?.id : p.user)).filter((id) => id > 0)
 }
 
 const pragueDate = (d: Date) => d.toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' })
@@ -369,6 +430,17 @@ const notifyBillingStatusChange: CollectionAfterChangeHook = deferredUntilCommit
     link: '/admin-obce?tab=settings',
     email: { subject: `Lonvita: ${title}`, body: `<p>${escapeHtml(message)}</p>` },
   })
+  if (to !== 'terminated') return
+  const admins = new Set(adminIds.map(String))
+  const residents = (await residentUserIds(req.payload, doc.id)).filter((id) => !admins.has(String(id)))
+  const notice = residentNotice(doc.name, nextBillingStepAt('terminated', doc.billingStatusChangedAt))
+  await sendNotificationToMany(
+    req.payload,
+    residents,
+    { ...notice, link: '/profil', email: { subject: `Lonvita: ${notice.title}`, body: `<p>${escapeHtml(notice.message)}</p>` } },
+    // The same contract end told once, even if the hook runs again.
+    { jobIdPrefix: `obec-terminated-${doc.id}-${Date.parse(doc.billingStatusChangedAt ?? '') || 0}` },
+  )
 })
 
 /** What the platform changed of an obec's services — on the record: who, when, from what to what. */
@@ -377,7 +449,7 @@ export const BILLING_AUDITED_FIELDS = [
   'importAiEnabled',
   ...billingFields
     .map((f) => ('name' in f ? f.name : ''))
-    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt'].includes(n)),
+    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt', 'erasureConfirmedStage'].includes(n)),
 ] as const
 
 

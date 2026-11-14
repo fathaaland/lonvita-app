@@ -39,6 +39,7 @@ export async function canRequestExport(payload: Payload, viewer: Viewer, request
   switch (request.kind) {
     case 'community-report':
     case 'municipality-events':
+    case 'municipality-archive':
       return (await canAccessMunicipality(payload, viewer, request.params.municipalityId)) ? 'allowed' : 'forbidden'
     case 'organization-report':
       return canAccessOrganization(payload, viewer, request.params.organizationId)
