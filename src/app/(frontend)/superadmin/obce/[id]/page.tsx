@@ -42,6 +42,12 @@ import {
   type BillingCatalog,
   type PackageKey,
 } from '@/lib/billing/catalog'
+import {
+  BILLING_STATUSES,
+  BILLING_STATUS_LABELS,
+  SUSPENDED_GRACE_DAYS,
+  WARN_DAYS_BEFORE,
+} from '@/lib/billing/status'
 
 type NumberKey =
   | 'licenceTier'
@@ -404,16 +410,14 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
             icon={ShieldCheck}
             title="Stav a licence"
             action={
-              draft.billingStatus === 'suspended' ? (
-                <Badge variant="destructive">Pozastaveno</Badge>
-              ) : (
-                <Badge variant="outline">Aktivní</Badge>
-              )
+              <Badge variant={draft.billingStatus === 'active' ? 'outline' : 'destructive'}>
+                {BILLING_STATUS_LABELS[draft.billingStatus]}
+              </Badge>
             }
           >
             <Field
               label="Stav obce"
-              hint="Pozastaveno (např. nezaplatila): SMS i scraping se zastaví, akce, přihlášky a e-maily běží dál. Balíčky zůstanou nastavené."
+              hint={`Pozastaveno (nezaplatila): SMS i scraping se zastaví, akce běží dál. Po ${SUSPENDED_GRACE_DAYS} dnech přejde obec sama do režimu jen pro čtení (adminy upozorníme ${WARN_DAYS_BEFORE} dní předem): nic nového nezaloží ani neupraví, přihlášky a rušení akcí fungují. Balíčky zůstanou nastavené.`}
             >
               <Select
                 value={draft.billingStatus}
@@ -423,10 +427,23 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="active">Aktivní</SelectItem>
-                  <SelectItem value="suspended">Pozastaveno</SelectItem>
+                  {BILLING_STATUSES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {BILLING_STATUS_LABELS[value]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {detail.services.billingStatusChangedAt && detail.settings.billingStatus !== 'active' && (
+                <p className="text-xs text-muted-foreground">
+                  {BILLING_STATUS_LABELS[detail.settings.billingStatus]} od{' '}
+                  {dateTime(detail.services.billingStatusChangedAt)}
+                  {detail.services.billingNextStepAt &&
+                    (detail.settings.billingStatus === 'suspended'
+                      ? ` · jen pro čtení od ${dateTime(detail.services.billingNextStepAt)}`
+                      : ` · lhůta končí ${dateTime(detail.services.billingNextStepAt)}`)}
+                </p>
+              )}
             </Field>
             <Field
               id="billing-note"

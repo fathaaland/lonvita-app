@@ -104,7 +104,7 @@ export const processScanEventSourcesJob = async (
   const municipalities = await payload.find({
     collection: 'municipalities',
     where: {
-      and: [{ importAiEnabled: { equals: true } }, { billingStatus: { not_equals: 'suspended' } }],
+      and: [{ importAiEnabled: { equals: true } }, { billingStatus: { equals: 'active' } }],
     },
     select: { scrapingSlotDay: true, scrapingSlotHour: true, scrapingFrequency: true },
     depth: 0,

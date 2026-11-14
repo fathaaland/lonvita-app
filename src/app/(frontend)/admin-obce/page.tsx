@@ -21,6 +21,7 @@ import { EventsTable } from "@/components/admin/EventsTable";
 import { CommunityReport } from "@/components/admin/CommunityReport";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
 import { RegionNotice } from "@/components/RegionNotice";
+import { BillingStatusNotice } from "@/components/admin/BillingStatusNotice";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 import { PoolInvitationsCard } from "@/components/admin/PoolInvitationsCard";
 import { RequestsTable } from "@/components/admin/RequestsTable";
@@ -140,6 +141,7 @@ function AdminContent() {
               </SelectContent>
             </Select>
           )}
+          {muniId && <BillingStatusNotice key={muniId} municipalityId={muniId} className="mb-4" />}
           {muniId && (
             <RegionNotice region={region} municipalityId={muniId} municipalityName={muniName} className="mb-4" />
           )}

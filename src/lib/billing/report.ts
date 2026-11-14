@@ -12,6 +12,7 @@ import { PACKAGE_LABELS } from './catalog'
 import { monthRange } from './period'
 import { importAiCostUsd } from './scraping-cost'
 import { countSmsParts } from './sms'
+import { billingStatusOf, type BillingStatus } from './status'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -85,7 +86,7 @@ export type BillingAuditEntry = {
 
 export type BillingSettingsOfObec = {
   name: string
-  billingStatus: 'active' | 'suspended'
+  billingStatus: BillingStatus
   billingNote: string | null
   licencePeriodStart: string | null
   licencePeriodEnd: string | null
@@ -174,7 +175,7 @@ export async function billingDetailOf(
   return {
     settings: {
       name: m.name,
-      billingStatus: m.billingStatus === 'suspended' ? 'suspended' : 'active',
+      billingStatus: billingStatusOf(m.billingStatus),
       billingNote: m.billingNote ?? null,
       licencePeriodStart: m.licencePeriodStart ?? null,
       licencePeriodEnd: m.licencePeriodEnd ?? null,
@@ -246,7 +247,7 @@ export const isMonthKey = (value: string | null): value is string =>
 export type BillingRow = {
   municipalityId: number
   name: string
-  billingStatus: 'active' | 'suspended'
+  billingStatus: BillingStatus
   activeUsers: number
   snapshotUsers: number | null
   tier: number

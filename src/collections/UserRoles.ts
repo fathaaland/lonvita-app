@@ -22,6 +22,7 @@ import { notDeleted } from './shared/softDelete'
 import { findRunningEvents } from './shared/runningEvents'
 import type { OrganizationType } from '@/lib/organizations'
 import { relationId, requiredRelationNumber } from '@/lib/relations'
+import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 /**
  * A newly appointed obec admin hears what's already waiting on the obec — an organizer who asked
@@ -243,7 +244,11 @@ export const UserRoles: CollectionConfig = {
     },
   ],
   hooks: {
-    beforeOperation: [keepLastMunicipalityAdmin, keepRunningEventsOrganized],
+    beforeOperation: [
+      keepLastMunicipalityAdmin,
+      keepRunningEventsOrganized,
+      guardReadOnlyObec({ collection: 'user-roles', operations: ['create'], municipalityOf: (r) => r.municipality }),
+    ],
     beforeValidate: [
       async ({ data, req, operation, originalDoc }) => {
         if (!data?.user || !data?.role || !data?.municipality) return data

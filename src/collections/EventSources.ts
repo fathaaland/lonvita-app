@@ -18,6 +18,7 @@ import { ImportFetchError, normalizeSourceUrl } from '@/lib/import/fetch'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 import { logger, serializeError } from '@/lib/logger'
 import { relationId } from '@/lib/relations'
+import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 const SOURCE_URL_MAX_LENGTH = 2000
 
@@ -383,7 +384,10 @@ export const EventSources: CollectionConfig = {
     { name: 'lastModified', type: 'text', access: hiddenSystemField, admin: { hidden: true } },
   ],
   hooks: {
-    beforeOperation: [refuseBulkUpdate],
+    beforeOperation: [
+      refuseBulkUpdate,
+      guardReadOnlyObec({ collection: 'event-sources', operations: ['create', 'update'], municipalityOf: (r) => r.municipality }),
+    ],
     beforeValidate: [prepareSource],
     beforeChange: [recordSourceChange],
     afterChange: [readNewSource],

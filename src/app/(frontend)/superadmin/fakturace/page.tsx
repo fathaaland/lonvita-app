@@ -27,6 +27,7 @@ import {
   type BillingCatalog,
 } from '@/lib/billing/catalog'
 import { pragueMonthKey } from '@/lib/billing/period'
+import { BILLING_STATUS_LABELS } from '@/lib/billing/status'
 
 const num = (value: number | null) => (value == null ? '—' : value.toLocaleString('cs-CZ'))
 
@@ -375,9 +376,9 @@ function Overview() {
                       >
                         {r.name}
                       </Link>
-                      {r.billingStatus === 'suspended' && (
+                      {r.billingStatus !== 'active' && (
                         <Badge variant="destructive" className="ml-2">
-                          Pozastaveno
+                          {BILLING_STATUS_LABELS[r.billingStatus]}
                         </Badge>
                       )}
                     </td>

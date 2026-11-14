@@ -1,6 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { getBillingCatalog, isPackageKey, type BillingCatalog, type PackageKey } from './catalog'
+import { servicesHeld } from './status'
 
 /**
  * The obec's scraping add-on (Balíčky služeb: "Doplněk scraping") — whether it has it, how many
@@ -40,7 +41,7 @@ export async function scrapingLimitsOf(
   const pkg = isPackageKey(m.scrapingPackage) ? m.scrapingPackage : 's'
   return {
     enabled: m.importAiEnabled === true,
-    suspended: m.billingStatus === 'suspended',
+    suspended: servicesHeld(m.billingStatus),
     package: pkg,
     maxSources: m.scrapingMaxSourcesOverride ?? c.scrapingPackages[pkg].maxSources,
     maxInputTokensPerRun: m.scrapingMaxInputTokensOverride ?? c.maxInputTokensPerRun,

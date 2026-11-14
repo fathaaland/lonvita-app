@@ -5,6 +5,7 @@ import { logger, serializeError } from '@/lib/logger'
 
 import { getBillingCatalog } from './catalog'
 import { licencePeriodOf } from './period'
+import { servicesHeld } from './status'
 import { announcementOfSms, countSmsParts, isCancellationSmsRequest, smsQuotaOf } from './sms'
 
 /**
@@ -68,7 +69,7 @@ export async function claimSmsParts(
     })
     let refusal: Extract<SmsClaim, { decision: 'skip' }>['reason'] | null = null
     let overage = false
-    if (obec.billingStatus === 'suspended') refusal = 'suspended'
+    if (servicesHeld(obec.billingStatus)) refusal = 'suspended'
     else if (obec.smsEnabled !== true) refusal = 'no_sms'
     else {
       const period = licencePeriodOf(obec, now)

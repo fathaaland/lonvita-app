@@ -21,6 +21,7 @@ import { processRestoreRemindersJob } from '../processors/restore-reminders.proc
 import { processScanEventSourcesJob } from '../processors/scan-event-sources.processor'
 import { processSmsJob } from '../processors/sms.processor'
 import { processSnapshotActiveUsersJob } from '../processors/snapshot-active-users.processor'
+import { processBillingStatusJob } from '../processors/billing-status.processor'
 import { processSyncStatusesJob } from '../processors/sync-statuses.processor'
 
 import type {
@@ -45,6 +46,7 @@ import type {
   RestoreRemindersJobResult,
   ScanEventSourcesJobResult,
   SnapshotActiveUsersJobResult,
+  BillingStatusJobResult,
   SyncStatusesJobResult,
 } from '@/lib/queue/contracts'
 
@@ -70,6 +72,7 @@ type JobResult =
   | ScanEventSourcesJobResult
   | ReminderSmsJobResult
   | SnapshotActiveUsersJobResult
+  | BillingStatusJobResult
   | ComplianceCheckJobResult
   | ImportEventsJobResult
   | ExportAuditTrailJobResult
@@ -133,6 +136,8 @@ export const dispatchJobByType = async (
 
     case JOB_NAMES.SNAPSHOT_ACTIVE_USERS:
       return processSnapshotActiveUsersJob()
+    case JOB_NAMES.BILLING_STATUS:
+      return processBillingStatusJob()
 
     case JOB_NAMES.COMPLIANCE_CHECK:
       return processComplianceCheckJob()

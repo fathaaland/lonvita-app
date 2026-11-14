@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { getMunicipalityServices } from '@/integrations/payload/queries'
 import { PACKAGE_LABELS } from '@/lib/billing/catalog'
+import { BILLING_STATUS_LABELS, READ_ONLY_MESSAGE } from '@/lib/billing/status'
 import type { MunicipalityServices } from '@/lib/services/municipality-services'
 
 const czk = (value: number) => `${value.toLocaleString('cs-CZ')} Kč`
@@ -96,7 +97,9 @@ export function ServicesCostCard({
             <Wallet className="h-5 w-5 text-primary" />
             <p className="font-bold">Balíček služeb</p>
           </div>
-          {s?.billingStatus === 'suspended' && <Badge variant="destructive">Pozastaveno</Badge>}
+          {s && s.billingStatus !== 'active' && (
+            <Badge variant="destructive">{BILLING_STATUS_LABELS[s.billingStatus]}</Badge>
+          )}
         </div>
 
         {failed ? (
@@ -108,8 +111,11 @@ export function ServicesCostCard({
             {s.billingStatus === 'suspended' && (
               <p className="text-sm text-destructive">
                 SMS a import akcí z webu jsou pozastavené. Akce, přihlášky a e-maily fungují dál.
+                {s.billingNextStepAt &&
+                  ` Pokud licenci neobnovíte do ${date(s.billingNextStepAt)}, obec přejde do režimu jen pro čtení.`}
               </p>
             )}
+            {s.billingStatus === 'read_only' && <p className="text-sm text-destructive">{READ_ONLY_MESSAGE}</p>}
             <Row
               icon={ShieldCheck}
               title="Licence"

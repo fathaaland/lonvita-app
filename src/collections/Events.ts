@@ -42,6 +42,7 @@ import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 import type { Event } from '@/payload-types'
 import { relationId } from '@/lib/relations'
+import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 /**
  * Brief §3 "Pravidla pro vznik akcí" — a municipality picks one of two modes
@@ -429,6 +430,20 @@ const guardUpcomingDelete: CollectionBeforeOperationHook = async ({ args, operat
   }
   return args
 }
+
+/**
+ * A read-only obec (lib/billing/status) gets no new event nor any edit of one — but cancelling one
+ * still goes through (the registrants are told), and deleting one (only cancelled or past, above).
+ */
+const guardReadOnlyEvents = guardReadOnlyObec({
+  collection: 'events',
+  operations: ['create', 'update'],
+  municipalityOf: (r) => r.municipality,
+  // Only a bare cancellation — not an edit riding along with one.
+  skip: (data) =>
+    (data.status === 'cancelled' || Boolean(data.deletedAt)) &&
+    Object.keys(data).every((key) => key === 'status' || key === 'deletedAt' || key.startsWith('cancel')),
+})
 
 /** Platform/municipality admin everywhere they administer — a hard DELETE isn't part of the
  * organizer's self-service (cancelling is the soft-delete PATCH above). Their own draft its creator
@@ -1595,7 +1610,7 @@ export const Events: CollectionConfig = {
     },
   ],
   hooks: {
-    beforeOperation: [guardUpcomingDelete],
+    beforeOperation: [guardUpcomingDelete, guardReadOnlyEvents],
     beforeChange: [
       stampImportedFrom,
       sealCancellation,

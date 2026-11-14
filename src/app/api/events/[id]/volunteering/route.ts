@@ -4,6 +4,8 @@ import { APIError, createLocalReq, getPayload } from 'payload'
 import config from '@payload-config'
 import { isEventCreator } from '@/collections/Events'
 import { hasEventEnded } from '@/lib/eventEnded'
+import { relationId } from '@/lib/relations'
+import { assertObecWritable } from '@/collections/shared/readOnlyObec'
 
 /**
  * The event's creator marks it as one for volunteers (or takes the mark off) — no obec approval —
@@ -36,6 +38,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   try {
+    // A read-only obec recruits nobody new (lib/billing/status); taking the mark off is fine.
+    if (body.isVolunteering) await assertObecWritable(await createLocalReq({ user }, payload), relationId(event.municipality))
     const updated = await payload.update({
       collection: 'events',
       id: event.id,

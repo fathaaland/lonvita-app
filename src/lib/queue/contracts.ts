@@ -33,6 +33,7 @@ export const JOB_NAMES = {
   OUTBOX_RELAY: 'outbox-relay',
   RESTORE_REMINDERS: 'restore-reminders',
   REGISTRATION_DIGEST: 'registration-digest',
+  BILLING_STATUS: 'billing-status',
 } as const
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES]
@@ -91,6 +92,10 @@ export type ComplianceCheckJobResult = {
   dueForReview: string[]
   failed: string[]
 }
+
+/** The daily step of unpaid obce (lib/billing/status): the warning before read-only, and read-only. */
+export type BillingStatusJobData = Record<string, never>
+export type BillingStatusJobResult = { warned: number; madeReadOnly: number; clockStarted: number; failed: number }
 
 /** The monthly snapshot of every obec's users (lib/billing/active-users) — on the worker's cron. */
 export type SnapshotActiveUsersJobData = Record<string, never>
@@ -385,6 +390,7 @@ export type QueueJobEnvelope =
   | ({ jobType: typeof JOB_NAMES.EXPORT_AUDIT_TRAIL; payload: ExportAuditTrailJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.REMINDER_SMS; payload: ReminderSmsJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.SNAPSHOT_ACTIVE_USERS; payload: SnapshotActiveUsersJobData } & Traced)
+  | ({ jobType: typeof JOB_NAMES.BILLING_STATUS; payload: BillingStatusJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.COMPLIANCE_CHECK; payload: ComplianceCheckJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.OUTBOX_RELAY; payload: OutboxRelayJobData } & Traced)
   | ({ jobType: typeof JOB_NAMES.RESTORE_REMINDERS; payload: RestoreRemindersJobData } & Traced)

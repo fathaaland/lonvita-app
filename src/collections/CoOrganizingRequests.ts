@@ -19,6 +19,7 @@ import { inSameRegion } from '@/lib/microregions'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import { relationId } from '@/lib/relations'
 import { CO_ORGANIZING_INVITATION_HOURS } from '@/lib/requestDeadlines'
+import { guardReadOnlyObec, municipalityOfEvent } from './shared/readOnlyObec'
 
 
 /** The requester, whoever answers for the invited organization (its owner, or for the obec its
@@ -393,6 +394,15 @@ export const CoOrganizingRequests: CollectionConfig = {
     },
   ],
   hooks: {
+    beforeOperation: [
+      guardReadOnlyObec({
+        collection: 'co-organizing-requests',
+        operations: ['create', 'update'],
+        municipalityOf: (r, req) => municipalityOfEvent(req, r.event),
+        // Saying no stays possible; only a yes takes someone new on.
+        skip: (data) => data.status !== 'approved',
+      }),
+    ],
     beforeValidate: [prepareRequest],
     beforeChange: [applyDecision],
     afterChange: [notifyOnRequestChange],

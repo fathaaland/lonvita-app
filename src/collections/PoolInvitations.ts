@@ -8,6 +8,7 @@ import { relationNumber } from '@/lib/relations'
 import { POOL_INVITATION_DECLINE_COOLDOWN_DAYS } from '@/lib/requestDeadlines'
 import { POOL_INVITATION_MESSAGE_MAX_LENGTH } from '@/lib/validation'
 import { inSameRegion } from '@/lib/microregions'
+import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -218,6 +219,15 @@ export const PoolInvitations: CollectionConfig = {
     { name: 'decidedAt', type: 'date', admin: { position: 'sidebar' } },
   ],
   hooks: {
+    // No volunteers recruited for a read-only obec (lib/billing/status).
+    beforeOperation: [
+      guardReadOnlyObec({
+        collection: 'pool-invitations',
+        operations: ['create', 'update'],
+        municipalityOf: (r) => r.municipality,
+        skip: (data) => data.status !== 'accepted',
+      }),
+    ],
     beforeChange: [validateNewInvitation, guardDecision],
     afterChange: [notifyOnInvitation],
   },

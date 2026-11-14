@@ -1,6 +1,7 @@
 import type {
   Access,
   CollectionAfterChangeHook,
+  CollectionBeforeChangeHook,
   CollectionBeforeDeleteHook,
   CollectionBeforeReadHook,
   CollectionBeforeValidateHook,
@@ -14,7 +15,19 @@ import { getAdministeredMunicipalityIds } from './access/shared'
 import { ensureMunicipalityOrganization, findMunicipalityOrganizationId } from './Organizations'
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
 import { notDeleted } from './shared/softDelete'
+import { escapeHtml, getMunicipalityAdminUserIds, sendNotificationToMany } from './shared/notify'
 import { PACKAGE_KEYS, PACKAGE_LABELS } from '@/lib/billing/catalog'
+import {
+  BILLING_STATUSES,
+  BILLING_STATUS_LABELS,
+  READ_ONLY_MESSAGE,
+  billingStatusOf,
+  nextBillingStepAt,
+  servicesHeld,
+  type BillingStatus,
+} from '@/lib/billing/status'
+import { deferredUntilCommit } from '@/lib/after-commit'
+import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 /** A municipality, once founded, can't be founded again — matched case-insensitively/trimmed
  * so "Blansko" and "blansko " are treated as the same obec (brief item 1: superadmin shouldn't
@@ -190,15 +203,27 @@ const serviceSwitchField = { create: platformAdmin, update: platformAdmin }
  */
 const billingFields: Field[] = [
   {
+    // lib/billing/status — suspended → read-only after 30 days by itself (worker billing-status).
     name: 'billingStatus',
     type: 'select',
     defaultValue: 'active',
-    options: [
-      { label: 'Aktivní', value: 'active' },
-      { label: 'Pozastaveno', value: 'suspended' },
-    ],
+    options: BILLING_STATUSES.map((value) => ({ label: BILLING_STATUS_LABELS[value], value })),
     access: platformOnlyField,
     admin: { position: 'sidebar' },
+  },
+  {
+    // When billingStatus last changed — the clock of the grace and read-only periods. Set by the hook.
+    name: 'billingStatusChangedAt',
+    type: 'date',
+    access: platformOnlyField,
+    admin: { position: 'sidebar', readOnly: true },
+  },
+  {
+    // When the admins were told the obec turns read-only soon — once per suspension.
+    name: 'billingWarnedAt',
+    type: 'date',
+    access: { read: platformAdmin, create: () => false, update: () => false },
+    admin: { hidden: true },
   },
   { name: 'billingNote', type: 'textarea', access: platformOnlyField, admin: { position: 'sidebar' } },
   // The licence year — the SMS quota counts within it. Empty: the calendar year.
@@ -299,16 +324,62 @@ const billingFields: Field[] = [
  * billingStatus from the doc.
  */
 const hideSuspendedServices: CollectionBeforeReadHook = ({ doc, req }) => {
-  if (doc?.billingStatus !== 'suspended' || req.user?.role === 'admin') return doc
+  if (!servicesHeld(doc?.billingStatus) || req.user?.role === 'admin') return doc
   return { ...doc, smsEnabled: false, importAiEnabled: false }
 }
+
+/** Starts the clock whenever the status moves (by the platform or the worker). */
+const stampBillingStatusChange: CollectionBeforeChangeHook = ({ data, originalDoc, operation }) => {
+  if (!data || data.billingStatus === undefined) return data
+  const from = operation === 'create' ? null : billingStatusOf(originalDoc?.billingStatus)
+  if (from !== billingStatusOf(data.billingStatus)) data.billingStatusChangedAt = new Date().toISOString()
+  return data
+}
+
+/** What each status means for the obec, told to its admins when it moves there. */
+const STATUS_NOTICES: Record<BillingStatus, (doc: { billingStatusChangedAt?: string | null }) => { title: string; message: string }> = {
+  active: () => ({
+    title: 'Licence obce je znovu aktivní',
+    message: 'Všechny služby Lonvity obci znovu běží, včetně SMS a importu akcí z webu, pokud je máte objednané.',
+  }),
+  suspended: (doc) => {
+    const until = nextBillingStepAt('suspended', doc.billingStatusChangedAt)
+    return {
+      title: 'Licence obce je pozastavená',
+      message:
+        'Licence obce je kvůli nezaplacení pozastavená. SMS a import akcí z webu neběží, akce a přihlášky fungují dál.' +
+        (until ? ` Pokud ji neobnovíte do ${pragueDate(until)}, obec přejde do režimu jen pro čtení.` : '') +
+        ' Obnovu vyřídí provozovatel Lonvity.',
+    }
+  },
+  read_only: () => ({ title: 'Obec je v režimu jen pro čtení', message: READ_ONLY_MESSAGE }),
+}
+
+const pragueDate = (d: Date) => d.toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' })
+
+const notifyBillingStatusChange: CollectionAfterChangeHook = deferredUntilCommit(async ({ doc, previousDoc, operation, req }) => {
+  if (operation !== 'update') return
+  const to = billingStatusOf(doc.billingStatus)
+  if (billingStatusOf(previousDoc?.billingStatus) === to) return
+  const adminIds = await getMunicipalityAdminUserIds(req.payload, doc.id)
+  const { title, message } = STATUS_NOTICES[to](doc)
+  await sendNotificationToMany(req.payload, adminIds, {
+    title,
+    message,
+    link: '/admin-obce?tab=settings',
+    email: { subject: `Lonvita: ${title}`, body: `<p>${escapeHtml(message)}</p>` },
+  })
+})
 
 /** What the platform changed of an obec's services — on the record: who, when, from what to what. */
 export const BILLING_AUDITED_FIELDS = [
   'smsEnabled',
   'importAiEnabled',
-  ...billingFields.map((f) => ('name' in f ? f.name : '')).filter((n) => n && n !== 'smsAlertState'),
+  ...billingFields
+    .map((f) => ('name' in f ? f.name : ''))
+    .filter((n) => n && !['smsAlertState', 'billingStatusChangedAt', 'billingWarnedAt'].includes(n)),
 ] as const
+
 
 const auditBillingChange: CollectionAfterChangeHook = ({ doc, previousDoc, operation, req }) => {
   if (operation !== 'update' || !req.user) return doc
@@ -421,7 +492,12 @@ export const Municipalities: CollectionConfig = {
   hooks: {
     beforeValidate: [preventDuplicateName],
     beforeRead: [hideSuspendedServices],
-    afterChange: [syncMunicipalityOrganization, auditBillingChange],
+    beforeOperation: [
+      // Its admins editing a read-only obec's own settings are refused like any other write of theirs.
+      guardReadOnlyObec({ collection: 'municipalities', operations: ['update'], municipalityOf: (r) => r.id }),
+    ],
+    beforeChange: [stampBillingStatusChange],
+    afterChange: [syncMunicipalityOrganization, auditBillingChange, notifyBillingStatusChange],
     beforeDelete: [deleteMunicipalityData],
     // Takes everything of the obec along (deleteMunicipalityData) — one entry for all of it.
     afterDelete: [auditDeletion<{ name?: string }>((doc) => ({ metadata: { name: doc.name } }))],

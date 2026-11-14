@@ -18,6 +18,7 @@ import { scheduleParticipantReminder } from './shared/reminders'
 import { notDeleted } from './shared/softDelete'
 import { relationId } from '@/lib/relations'
 import { inSameRegion } from '@/lib/microregions'
+import { guardReadOnlyObec, municipalityOfEvent } from './shared/readOnlyObec'
 
 /** How long a note between the organizer and the volunteer may be. */
 const MESSAGE_MAX_LENGTH = 500
@@ -587,6 +588,14 @@ export const VolunteerInvitations: CollectionConfig = {
     { name: 'decidedAt', type: 'date', admin: { position: 'sidebar' } },
   ],
   hooks: {
+    beforeOperation: [
+      guardReadOnlyObec({
+        collection: 'volunteer-invitations',
+        operations: ['create', 'update'],
+        municipalityOf: (r, req) => municipalityOfEvent(req, r.event),
+        skip: (data) => data.status !== 'accepted',
+      }),
+    ],
     beforeValidate: [prepareInvitation],
     beforeChange: [applyDecision],
     afterChange: [notifyOnInvitationChange],

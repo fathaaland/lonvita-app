@@ -5,6 +5,7 @@ import type { Municipality } from '@/payload-types'
 
 import { getBillingCatalog, isPackageKey, type BillingCatalog } from './catalog'
 import { licencePeriodOf, type LicencePeriod } from './period'
+import { servicesHeld } from './status'
 
 /**
  * SMS go out without diacritics (decided 2. 11. 2026): a part then holds 160 characters instead of
@@ -152,7 +153,7 @@ export async function smsUsageOf(
   const used = await countSmsParts(payload, municipalityId, period.start, period.end)
   return {
     enabled: f.smsEnabled === true,
-    suspended: f.billingStatus === 'suspended',
+    suspended: servicesHeld(f.billingStatus),
     quota: smsQuotaOf(f, c),
     usedParts: used.parts,
     overageParts: used.overageParts,

@@ -3,6 +3,7 @@ import { APIError, type Payload } from 'payload'
 
 import { canAccessMunicipality } from '@/lib/exports/access'
 import { logger, serializeError } from '@/lib/logger'
+import { servicesHeld } from '@/lib/billing/status'
 import { consumeRateLimit } from '@/lib/security/rate-limit'
 
 /** Shared by the /api/import routes. */
@@ -40,7 +41,7 @@ export async function aiImportNotSubscribed(payload: Payload, municipalityId: st
     overrideAccess: true,
     select: { importAiEnabled: true, billingStatus: true },
   })
-  if (municipality.billingStatus === 'suspended') {
+  if (servicesHeld(municipality.billingStatus)) {
     return NextResponse.json({ error: 'Služby obce jsou pozastavené.' }, { status: 403 })
   }
   if (municipality.importAiEnabled) return null

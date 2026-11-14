@@ -7,6 +7,8 @@ import { aiImportRateLimited } from '@/lib/import/routes'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
 import { consumeRateLimit } from '@/lib/security/rate-limit'
+import { READ_ONLY_MESSAGE, isReadOnly } from '@/lib/billing/status'
+import { relationId } from '@/lib/relations'
 
 /**
  * Reads an event source now instead of at the next scheduled pass — "Projít teď" next to it.
@@ -28,6 +30,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   if (!source.enabled) return NextResponse.json({ error: 'Zdroj je vypnutý.' }, { status: 409 })
+  // A read-only obec takes nothing new on — not even candidates from a free iCal read.
+  const obecId = relationId(source.municipality)
+  const obec = obecId
+    ? await payload.findByID({ collection: 'municipalities', id: obecId, select: { billingStatus: true }, depth: 0, overrideAccess: true }).catch(() => null)
+    : null
+  if (user.role !== 'admin' && isReadOnly(obec?.billingStatus)) {
+    return NextResponse.json({ error: READ_ONLY_MESSAGE }, { status: 403 })
+  }
 
   const limited = await aiImportRateLimited(user.id)
   if (limited) return limited

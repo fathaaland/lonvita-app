@@ -56,6 +56,7 @@ import {
 } from './normalize'
 import { markMissing, syncTakenOver, type SyncPair } from './sync'
 import { addDays, pragueToday, pragueWallTimeToIso } from './time'
+import { servicesHeld } from '@/lib/billing/status'
 
 /**
  * From an input to candidates the obec's admin approves (docs/import-akci-z-webu.md):
@@ -856,7 +857,7 @@ export async function loadImportContext(
       categoryNames: categories.docs.map((c) => c.name).sort(),
     },
     aiEnabled: municipality.importAiEnabled === true,
-    suspended: municipality.billingStatus === 'suspended',
+    suspended: servicesHeld(municipality.billingStatus),
     maxInputTokensPerRun: (await scrapingLimitsOf(payload, municipality.id)).maxInputTokensPerRun,
   }
 }

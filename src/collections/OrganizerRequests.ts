@@ -12,6 +12,7 @@ import {
   ORGANIZATION_TYPES,
   isOrganizationType,
 } from '@/lib/organizations'
+import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 const canCreateOwnRequest: Access = ({ req: { user }, data }) => {
   if (!user) return false
@@ -247,6 +248,10 @@ export const OrganizerRequests: CollectionConfig = {
     },
   ],
   hooks: {
+    // No new organizers for a read-only obec — neither asked for nor approved (lib/billing/status).
+    beforeOperation: [
+      guardReadOnlyObec({ collection: 'organizer-requests', operations: ['create', 'update'], municipalityOf: (r) => r.municipality }),
+    ],
     beforeValidate: [
       async ({ data, req, operation, originalDoc }) => {
         if (!data?.user || !data?.municipality) return data

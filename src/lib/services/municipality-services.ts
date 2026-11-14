@@ -11,6 +11,7 @@ import {
   type PackageKey,
 } from '@/lib/billing/catalog'
 import { licencePeriodOf } from '@/lib/billing/period'
+import { billingStatusOf, nextBillingStepAt, type BillingStatus } from '@/lib/billing/status'
 import { scrapingLimitsOf } from '@/lib/billing/scraping'
 import { countSmsParts, smsQuotaOf } from '@/lib/billing/sms'
 
@@ -21,7 +22,10 @@ import { countSmsParts, smsQuotaOf } from '@/lib/billing/sms'
  * the obec only its packages and use (withoutPrices) — the prices are internal for now.
  */
 export type MunicipalityServices = {
-  billingStatus: 'active' | 'suspended'
+  billingStatus: BillingStatus
+  /** When it last changed, and when it moves on by itself (suspended → read-only). */
+  billingStatusChangedAt: string | null
+  billingNextStepAt: string | null
   licence: {
     periodStart: string
     periodEnd: string
@@ -80,6 +84,7 @@ export type MunicipalityServices = {
 type BillingDoc = Pick<
   Municipality,
   | 'billingStatus'
+  | 'billingStatusChangedAt'
   | 'licencePeriodStart'
   | 'licencePeriodEnd'
   | 'licenceTier'
@@ -137,7 +142,9 @@ export async function getMunicipalityServices(
   const scrapingPrice = scrapingYearlyPriceOf(catalog, scraping.package, billedSources, frequency)
 
   return {
-    billingStatus: m.billingStatus === 'suspended' ? 'suspended' : 'active',
+    billingStatus: billingStatusOf(m.billingStatus),
+    billingStatusChangedAt: m.billingStatusChangedAt ?? null,
+    billingNextStepAt: nextBillingStepAt(m.billingStatus, m.billingStatusChangedAt)?.toISOString() ?? null,
     licence: {
       periodStart: period.start.toISOString(),
       periodEnd: period.end.toISOString(),

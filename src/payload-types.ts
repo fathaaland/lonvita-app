@@ -291,7 +291,9 @@ export interface Municipality {
   rulesForCreation: 'municipality_only' | 'approved_organizers';
   smsEnabled?: boolean | null;
   importAiEnabled?: boolean | null;
-  billingStatus?: ('active' | 'suspended') | null;
+  billingStatus?: ('active' | 'suspended' | 'read_only') | null;
+  billingStatusChangedAt?: string | null;
+  billingWarnedAt?: string | null;
   billingNote?: string | null;
   licencePeriodStart?: string | null;
   licencePeriodEnd?: string | null;
@@ -1603,6 +1605,8 @@ export interface MunicipalitiesSelect<T extends boolean = true> {
   smsEnabled?: T;
   importAiEnabled?: T;
   billingStatus?: T;
+  billingStatusChangedAt?: T;
+  billingWarnedAt?: T;
   billingNote?: T;
   licencePeriodStart?: T;
   licencePeriodEnd?: T;

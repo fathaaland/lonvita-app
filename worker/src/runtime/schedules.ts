@@ -76,6 +76,14 @@ export const WORKER_SCHEDULES: WorkerSchedule[] = [
     logMessage: 'Active user snapshot schedule registered',
   },
   {
+    // Unpaid obce (lib/billing/status) — the warning a week ahead, then read-only. Early morning, so
+    // the e-mail is there when the obec's office opens.
+    jobType: JOB_NAMES.BILLING_STATUS,
+    pattern: '0 6 * * *',
+    logEvent: 'worker.billing_status_schedule_registered',
+    logMessage: 'Billing status schedule registered',
+  },
+  {
     // The register of law (LegalRequirements) against e-Sbírka, and reviews come due — early
     // morning, so the platform's admins find any change when they start the day.
     jobType: JOB_NAMES.COMPLIANCE_CHECK,
