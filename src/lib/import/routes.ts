@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server'
 import { APIError, type Payload } from 'payload'
 
-import { canAccessMunicipality } from '@/lib/exports/access'
 import { logger, serializeError } from '@/lib/logger'
 import { servicesHeld } from '@/lib/billing/status'
 import { consumeRateLimit } from '@/lib/security/rate-limit'
 
 /** Shared by the /api/import routes. */
 
-/** AI reads (pasted text, files, running a source by hand) per admin — each one costs money. */
+/** AI reads (pasted text, files, running a source by hand) per admin or organizer — each one costs
+ * the obec's package. */
 const AI_IMPORT_LIMIT = { max: 20, windowSeconds: 60 * 60 }
 
 export async function aiImportRateLimited(userId: number | string): Promise<NextResponse | null> {
@@ -22,14 +22,6 @@ export async function aiImportRateLimited(userId: number | string): Promise<Next
     { error: 'Importů bylo za poslední hodinu moc — zkuste to prosím později.' },
     { status: 429, headers: { 'Retry-After': String(limit.retryAfter) } },
   )
-}
-
-export async function mayImportFor(
-  payload: Payload,
-  user: { id: number; role?: string | null },
-  municipalityId: string,
-): Promise<boolean> {
-  return Boolean(Number(municipalityId)) && canAccessMunicipality(payload, user, municipalityId)
 }
 
 /** Pasted text and files are read by the AI alone — refused for an obec that doesn't pay for it. */

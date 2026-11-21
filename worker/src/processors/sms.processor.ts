@@ -100,7 +100,12 @@ const sendSms = async (payload: SmsJobData, context?: QueueJobContext): Promise<
   // later — never an SMS nobody would be billed for.
   let claim: Awaited<ReturnType<typeof claimSmsParts>>
   try {
-    claim = await claimSmsParts(await getWorkerPayload(), { municipalityId, requestId: payload.requestId, parts })
+    claim = await claimSmsParts(await getWorkerPayload(), {
+      municipalityId,
+      organizationId: payload.organizationId,
+      requestId: payload.requestId,
+      parts,
+    })
   } catch (error) {
     logger.error('SMS quota not checked — retried', {
       event: 'sms.claim_failed',

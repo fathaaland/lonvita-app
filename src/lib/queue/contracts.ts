@@ -64,6 +64,9 @@ export type SmsJobData = {
   /** The obec whose SMS it is — counted against its yearly SMS quota (SmsMessages). Optional: jobs
    * queued before it existed carry none. */
   municipalityId?: number
+  /** The organization whose event it is about — kept on the ledger row (SmsMessages.organization).
+   * Optional: jobs queued before it existed carry none. */
+  organizationId?: number
   /** Only on jobs queued before 12. 11. 2026 (past the quota when queued; held no reservation). The
    * ledger decides what's overage now (lib/billing/sms-ledger). */
   overage?: boolean
@@ -212,6 +215,10 @@ export type EventCancelledJobData = {
   /** The pořadatel — told when the obec's SMS quota left some registrants without one. Optional:
    * jobs queued before it existed carry none (then the event row, if still there, says). */
   organizerId?: number | string
+  /** The organization running the event (the obec's, or an organizer's) — what its SMS are counted
+   * against on the obec's ledger, so the obec sees who used its SMS package. Optional: jobs queued
+   * before it existed carry none (then the event row, if still there, says). */
+  organizationId?: number
   /** Pending/approved registrants to tell (the organizer excluded) — approved first, then by when
    * they signed up: the order SMS go out in when the quota runs short. */
   userIds: (number | string)[]

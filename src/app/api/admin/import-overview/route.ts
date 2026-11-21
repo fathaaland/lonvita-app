@@ -10,7 +10,7 @@ import { relationNumber } from '@/lib/relations'
 /**
  * Importing events across the platform, for its admins (the superadmin panel's Import tab): the AI
  * switch, and per obec its sources with how their reads go, what its AI calls cost this month
- * against its limit, and how many found events wait for its admins.
+ * against its limit, and how many found events wait for its admins and organizers.
  *
  * GET /api/admin/import-overview
  */
@@ -35,8 +35,7 @@ export async function GET(request: Request) {
       }),
       payload.find({
         collection: 'event-sources',
-        // Organizers' sources from before import became the obec's alone aren't read any more.
-        where: { organization: { exists: false } },
+        // The obec's own and its organizers' — all on the obec's package.
         depth: 0,
         pagination: false,
         sort: 'createdAt',
@@ -48,7 +47,6 @@ export async function GET(request: Request) {
           and: [
             { status: { equals: 'pending' } },
             { startsAt: { greater_than: now.toISOString() } },
-            { organization: { exists: false } },
           ],
         },
         select: { municipality: true },

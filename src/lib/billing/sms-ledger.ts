@@ -3,6 +3,7 @@ import { commitTransaction, createLocalReq, initTransaction, killTransaction, ty
 import { lockRow } from '@/lib/db-lock'
 import { logger, serializeError } from '@/lib/logger'
 
+import { organizationOfObec } from './attribution'
 import { getBillingCatalog } from './catalog'
 import { licencePeriodOf } from './period'
 import { servicesHeld } from './status'
@@ -27,7 +28,20 @@ export type SmsClaim =
 
 export async function claimSmsParts(
   payload: Payload,
-  { municipalityId, requestId, parts, now = new Date() }: { municipalityId: number; requestId?: string; parts: number; now?: Date },
+  {
+    municipalityId,
+    organizationId,
+    requestId,
+    parts,
+    now = new Date(),
+  }: {
+    municipalityId: number
+    /** Whose event the SMS is about — kept on the row so the obec sees who used its SMS. */
+    organizationId?: number | null
+    requestId?: string
+    parts: number
+    now?: Date
+  },
 ): Promise<SmsClaim> {
   if (!isCancellationSmsRequest(requestId)) return { decision: 'skip', reason: 'not_cancellation' }
   const req = await createLocalReq({}, payload)
@@ -92,7 +106,14 @@ export async function claimSmsParts(
     }
     const created = await payload.create({
       collection: 'sms-messages',
-      data: { municipality: municipalityId, requestId, parts, overage },
+      data: {
+        municipality: municipalityId,
+        // Only an organization of this very obec — its package is the one being used.
+        organization: (await organizationOfObec(payload, organizationId, municipalityId, req)) ?? undefined,
+        requestId,
+        parts,
+        overage,
+      },
       overrideAccess: true,
       req,
     })

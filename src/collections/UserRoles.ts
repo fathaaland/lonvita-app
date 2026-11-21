@@ -16,7 +16,7 @@ import {
 } from './access/shared'
 import { writeAuditLog } from './shared/auditLog'
 import { escapeHtml, sendNotification } from './shared/notify'
-import { ensureOrganization, municipalityOrganizationIds } from './Organizations'
+import { ensureOrganization, findOrganizationId, municipalityOrganizationIds } from './Organizations'
 import { notYetEnded, obecRole, releasePlacesOfTeam } from './Events'
 import { notDeleted } from './shared/softDelete'
 import { findRunningEvents } from './shared/runningEvents'
@@ -470,6 +470,20 @@ export const UserRoles: CollectionConfig = {
     // revokeCommunityRole in superadmin-queries.ts), which previously left no audit record.
     afterDelete: [
       forgetPublicFaces,
+      // An organizer who lost the role no longer imports there — their organization's sources stop
+      // being read on the obec's package (access/import; the worker checks it again before a read).
+      async ({ doc, req }) => {
+        if (doc.role !== 'organizer') return
+        const organizationId = await findOrganizationId(req, requiredRelationNumber(doc.user), requiredRelationNumber(doc.municipality))
+        if (!organizationId) return
+        await req.payload.update({
+          collection: 'event-sources',
+          where: { and: [{ organization: { equals: organizationId } }, { enabled: { equals: true } }] },
+          data: { enabled: false },
+          overrideAccess: true,
+          req,
+        })
+      },
       // Someone else took the role away (the obec's admin, or the platform admin) — the holder hears
       // it, rather than finding out from a "Vytvořit" button that's no longer there.
       async ({ doc, req, context }) => {

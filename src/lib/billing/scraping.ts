@@ -60,7 +60,8 @@ export function sourceRefusal(limits: ScrapingLimits, enabledSources: number): s
 }
 
 /**
- * The obec's switched-on sources its package covers — the oldest first, as many as it allows. After a
+ * The obec's switched-on sources its package covers — its own and its organizers' alike, the oldest
+ * first, as many as it allows. After a
  * smaller package (or a suspension) more may still be switched on; the rest stay as they are but are
  * not read until the obec switches some off or gets a bigger package. Without scraping, or suspended,
  * none. What the worker reads is decided here, whatever the switches say.
@@ -75,11 +76,8 @@ export async function sourcesWithinPackage(
   const sources = await payload.find({
     collection: 'event-sources',
     where: {
-      and: [
-        { municipality: { equals: municipalityId } },
-        { organization: { exists: false } },
-        { enabled: { equals: true } },
-      ],
+      // The obec's and its organizers' alike — they all draw on the one package.
+      and: [{ municipality: { equals: municipalityId } }, { enabled: { equals: true } }],
     },
     select: {},
     sort: 'id',

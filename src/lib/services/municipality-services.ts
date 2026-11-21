@@ -152,7 +152,8 @@ export async function getMunicipalityServices(
     scrapingLimitsOf(payload, municipalityId, { catalog }),
     payload.find({
       collection: 'event-sources',
-      where: { and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }] },
+      // The obec's and its organizers' — all on its package.
+      where: { municipality: { equals: municipalityId } },
       select: { enabled: true },
       depth: 0,
       pagination: false,

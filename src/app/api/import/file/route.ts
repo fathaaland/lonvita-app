@@ -4,14 +4,15 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { IMPORT_LIMITS, isImportFileType } from '@/lib/import/contracts'
 import { sniffFileType } from '@/lib/import/fetch'
-import { aiImportNotSubscribed, aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
+import { importOwnerFor } from '@/collections/access/import'
+import { aiImportNotSubscribed, aiImportRateLimited } from '@/lib/import/routes'
 import { importFileKey, uploadImportFile } from '@/lib/import/storage'
 import { logger, serializeError } from '@/lib/logger'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 
 /**
  * A program as a file — a PDF of the zpravodaj, a photo of a poster. Stored for the worker (S3, until
- * it's read), which reads it with the AI; the admin is notified once its events wait in the Import tab.
+ * it's read), which reads it with the AI; whoever sent it is notified once its events wait in their Import.
  *
  * POST /api/import/file  multipart { municipalityId, file } → { queued: true, jobId }
  * (`jobId`: its ImportRuns record shows how it went — the panel watches it)
@@ -26,8 +27,9 @@ export async function POST(request: Request) {
   const file = form?.get('file')
   if (!(file instanceof File))
     return NextResponse.json({ error: 'Vyberte soubor.' }, { status: 400 })
-  if (!(await mayImportFor(payload, user, municipalityId)))
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // The obec's admin imports for the obec, an approved organizer for their organization.
+  const owner = await importOwnerFor(payload, user, municipalityId)
+  if (!owner) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const notSubscribed = await aiImportNotSubscribed(payload, municipalityId)
   if (notSubscribed) return notSubscribed
   if (file.size > IMPORT_LIMITS.fileMaxBytes) {
@@ -64,6 +66,7 @@ export async function POST(request: Request) {
     kind: 'file',
     municipalityId: Number(municipalityId),
     requestedBy: user.id,
+    organizationId: owner.organization,
     fileKey,
     fileName,
     mimeType,

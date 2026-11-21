@@ -1,4 +1,5 @@
 import type {
+  Access,
   CollectionAfterChangeHook,
   CollectionBeforeChangeHook,
   CollectionBeforeOperationHook,
@@ -10,8 +11,7 @@ import { APIError } from 'payload'
 import { scrapingLimitsOf, sourceRefusal } from '@/lib/billing/scraping'
 import { lockRowOrRefuse } from '@/lib/db-lock'
 
-import { canAccessImportRecords } from './access/import'
-import { canCreateForAdministeredMunicipality } from './access/shared'
+import { canAccessImportRecords, importOwnerFor } from './access/import'
 import { auditDeletion, writeAuditLog } from './shared/auditLog'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
 import { ImportFetchError, normalizeSourceUrl } from '@/lib/import/fetch'
@@ -22,10 +22,18 @@ import { guardReadOnlyObec } from './shared/readOnlyObec'
 
 const SOURCE_URL_MAX_LENGTH = 2000
 
+/** An obec's admin adds sources for the obec, an approved organizer for their organization
+ * (access/import importOwnerFor) — trusted internal writes (seeds, tests) for anyone. */
+const canCreateSource: Access = async ({ req, data }) => {
+  if (!req.user) return false
+  return Boolean(await importOwnerFor(req.payload, req.user, String(relationId(data?.municipality) ?? ''), req))
+}
+
 /** The client names the obec, the address, a label, and confirms the web is theirs or they may take
- * events from it — the rest is the system's. The address must be a public web address (fetch
- * normalizeSourceUrl), once per obec, and an obec keeps at most IMPORT_LIMITS.sourcesPerMunicipality
- * of them. */
+ * events from it — the rest is the system's, the owner included: the obec for its admin, their
+ * organization for an organizer (importOwnerFor). The address must be a public web address (fetch
+ * normalizeSourceUrl), once per owner, and an obec keeps at most IMPORT_LIMITS.sourcesPerMunicipality
+ * of them, its organizers' counted in. */
 const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operation }) => {
   if (operation !== 'create' || !data) return data
   const raw = typeof data.url === 'string' ? data.url : ''
@@ -47,35 +55,39 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
 
   const municipalityId = relationId(data.municipality)
   if (!municipalityId) throw new APIError('Chybí obec.', 400)
+  // Whose it is is never the client's word — the system's own writes may name an organization.
+  const owner = req.user
+    ? await importOwnerFor(req.payload, req.user, municipalityId, req)
+    : { organization: relationId(data.organization) ? Number(relationId(data.organization)) : null }
+  if (!owner) throw new APIError('Zdroje akcí tu přidává admin obce nebo její schválený organizátor.', 403)
 
   const existing = await req.payload.find({
     collection: 'event-sources',
-    where: {
-      and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }],
-    },
-    select: { url: true, enabled: true },
+    where: { municipality: { equals: municipalityId } },
+    select: { url: true, organization: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
     req,
   })
-  if (existing.docs.some((s) => s.url === url)) throw new APIError('Tenhle zdroj už máte.', 400)
+  const own = existing.docs.filter((s) => (relationId(s.organization) ?? null) === (owner.organization ? String(owner.organization) : null))
+  if (own.some((s) => s.url === url)) throw new APIError('Tenhle zdroj už máte.', 400)
   const limit = IMPORT_LIMITS.sourcesPerMunicipality
   if (existing.docs.length >= limit) {
     throw new APIError(`Obec může mít nejvýš ${limit} zdrojů akcí.`, 400)
+  }
+  if (owner.organization && own.length >= IMPORT_LIMITS.sourcesPerOrganization) {
+    throw new APIError(`Organizace může mít nejvýš ${IMPORT_LIMITS.sourcesPerOrganization} zdrojů akcí.`, 400)
   }
   // The obec's scraping package (lib/billing/scraping) — trusted internal writes (seeds, tests) aside.
   if (req.user && data.enabled !== false) {
     // Two admins (or two tabs) adding at once would each count the other's source as not there yet.
     await lockRowOrRefuse(req, 'municipalities', Number(municipalityId))
+    // The obec's package covers its organizers' sources too — one count for all of them.
     const enabledNow = await req.payload.count({
       collection: 'event-sources',
       where: {
-        and: [
-          { municipality: { equals: municipalityId } },
-          { organization: { exists: false } },
-          { enabled: { equals: true } },
-        ],
+        and: [{ municipality: { equals: municipalityId } }, { enabled: { equals: true } }],
       },
       overrideAccess: true,
       req,
@@ -90,6 +102,7 @@ const prepareSource: CollectionBeforeValidateHook = async ({ data, req, operatio
   const label = typeof data.label === 'string' ? data.label.trim().slice(0, 120) : ''
   return {
     municipality: Number(municipalityId),
+    organization: owner.organization,
     url,
     label: label || new URL(url).hostname.replace(/^www\./, ''),
     enabled: data.enabled !== false,
@@ -137,7 +150,6 @@ const recordSourceChange: CollectionBeforeChangeHook = async ({ data, originalDo
       where: {
         and: [
           { municipality: { equals: municipalityId } },
-          { organization: { exists: false } },
           { enabled: { equals: true } },
           { id: { not_equals: originalDoc?.id } },
         ],
@@ -163,7 +175,9 @@ const recordSourceChange: CollectionBeforeChangeHook = async ({ data, originalDo
 const refuseBulkUpdate: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'update') return args
   const { id, overrideAccess } = args as { id?: number | string; overrideAccess?: boolean }
-  if (overrideAccess !== false || id !== undefined || req.user?.role === 'admin') return args
+  // Over REST `overrideAccess` is undefined (Payload reads that as "enforce access"), only the Local
+  // API's own calls say `true` — so it's `true` that lets a write past, not "anything but false".
+  if (overrideAccess === true || !req.user || id !== undefined || req.user.role === 'admin') return args
   throw new APIError('Zdroje akcí se mění jen po jednom.', 403)
 }
 
@@ -174,7 +188,7 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
   const switchedOn = operation === 'update' && doc.enabled && !previousDoc?.enabled
   const waived = operation === 'update' && doc.ignoreRobots && !previousDoc?.ignoreRobots
   if (operation === 'update' && Boolean(doc.ignoreRobots) !== Boolean(previousDoc?.ignoreRobots)) {
-    // The admin's word that the obec runs the web — kept with who gave it.
+    // The owner's word that they run the web (the obec, or the organizer's organization) — kept with who gave it.
     writeAuditLog(req.payload, {
       source: req,
       action: 'event-sources.robots-waiver',
@@ -198,16 +212,19 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
     })
   }
   if ((operation === 'create' && doc.enabled) || switchedOn || (waived && doc.enabled)) {
+    // Let past robots.txt: read through now, whatever was (or wasn't) read before.
+    const trigger = operation === 'create' ? 'new_source' : waived ? 'manual' : 'daily'
     // A moment's delay: this still runs inside the request's transaction.
     await enqueueImportEvents(
       {
         kind: 'source',
         sourceId: doc.id,
-        // Let past robots.txt: read through now, whatever was (or wasn't) read before.
-        trigger: operation === 'create' ? 'new_source' : waived ? 'manual' : 'daily',
+        trigger,
         requestedBy: req.user?.id ?? null,
       },
-      { delay: 3_000 },
+      // A source switched off and on again over and over is one read, not one per click — each kind
+      // of read on its own, so a waiver given right after adding the source still gets its read.
+      { delay: 3_000, deduplication: { id: `import-source-read-${doc.id}-${trigger}`, ttl: 60_000 } },
     ).catch((error) =>
       logger.warn('New import source not queued', {
         event: 'import.source_enqueue_failed',
@@ -220,9 +237,6 @@ const readNewSource: CollectionAfterChangeHook = async ({ doc, operation, previo
 }
 
 const systemField = { create: () => false, update: () => false }
-/** Organizers' sources from before import became the obec's alone — nothing sets it any more, and a
- * migration removes it. */
-const retiredField = { ...systemField, read: () => false }
 const hiddenSystemField = {
   read: ({ req }: { req: { user?: { role?: string } | null } }) => req.user?.role === 'admin',
   create: () => false,
@@ -231,7 +245,8 @@ const hiddenSystemField = {
 
 /**
  * A page events are read from — the obec's own web calendar, the cultural centre's program, a public
- * Google Calendar — kept by an obec, looked after by its admins (access/import). The
+ * Google Calendar — kept by an obec, looked after by its admins, or by one of its organizers for
+ * their organization (access/import); either way within the obec's scraping package. The
  * worker checks every enabled one each night and reads it through once a week (and right after it's
  * added); what it finds waits for the owner in EventImportCandidates, and events already taken over
  * from it are kept in step with it (lib/import/sync).
@@ -244,13 +259,13 @@ export const EventSources: CollectionConfig = {
   },
   admin: {
     useAsTitle: 'label',
-    defaultColumns: ['label', 'municipality', 'enabled', 'lastRunAt', 'lastError'],
+    defaultColumns: ['label', 'municipality', 'organization', 'enabled', 'lastRunAt', 'lastError'],
     description:
-      "Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).",
+      "Web pages and calendars an obec's (or its organizers') events are imported from (docs/import-akci-z-webu.md).",
   },
   access: {
     read: canAccessImportRecords,
-    create: canCreateForAdministeredMunicipality(),
+    create: canCreateSource,
     update: canAccessImportRecords,
     delete: canAccessImportRecords,
   },
@@ -268,8 +283,10 @@ export const EventSources: CollectionConfig = {
       type: 'relationship',
       relationTo: 'organizations',
       index: true,
-      access: retiredField,
-      admin: { hidden: true },
+      // An organizer's source — events go in as their organization's. Empty: the obec's own. Set
+      // by the system (prepareSource), never by the client.
+      access: systemField,
+      admin: { position: 'sidebar', readOnly: true },
     },
     // Fixed once added — a different address is a different source.
     {
@@ -297,8 +314,8 @@ export const EventSources: CollectionConfig = {
       admin: { position: 'sidebar' },
     },
     {
-      // The obec runs this web and lets the import read it although its robots.txt keeps robots
-      // out — typically a web vendor's default nobody changed. Its own site only
+      // The source's owner (the obec, or the organizer's organization) runs this web and lets the
+      // import read it although its robots.txt keeps robots out — typically a web vendor's default nobody changed. Its own site only
       // (lib/import/pipeline waiveRobotsFor); offered once a read fails on robots.txt.
       name: 'ignoreRobots',
       type: 'checkbox',

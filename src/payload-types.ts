@@ -987,7 +987,7 @@ export interface Microregion {
   createdAt: string;
 }
 /**
- * Web pages and calendars an obec's events are imported from (docs/import-akci-z-webu.md).
+ * Web pages and calendars an obec's (or its organizers') events are imported from (docs/import-akci-z-webu.md).
  *
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "event-sources".
@@ -1199,6 +1199,7 @@ export interface UsageEvent {
 export interface SmsMessage {
   id: number;
   municipality?: (number | null) | Municipality;
+  organization?: (number | null) | Organization;
   requestId?: string | null;
   providerMessageSid?: string | null;
   parts?: number | null;
@@ -2172,6 +2173,7 @@ export interface UsageEventsSelect<T extends boolean = true> {
  */
 export interface SmsMessagesSelect<T extends boolean = true> {
   municipality?: T;
+  organization?: T;
   requestId?: T;
   providerMessageSid?: T;
   parts?: T;

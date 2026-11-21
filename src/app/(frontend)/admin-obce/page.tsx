@@ -28,6 +28,7 @@ import { OrganizersTable } from "@/components/admin/OrganizersTable";
 import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { ImportPanel } from "@/components/admin/ImportPanel";
+import { PackageUsageCard } from "@/components/admin/PackageUsageCard";
 import { countPendingImportCandidates } from "@/integrations/payload/import-queries";
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
 import { cn } from "@/lib/utils";
@@ -216,6 +217,8 @@ function AdminContent() {
                 municipalityId={muniId}
                 scope={scope}
               />
+              {/* Who of the obec — it, or which organizer — used how much of its SMS and import packages. */}
+              {muniId && <PackageUsageCard key={muniId} municipalityId={muniId} />}
             </TabsContent>
 
             <TabsContent value="events" className="pt-4">

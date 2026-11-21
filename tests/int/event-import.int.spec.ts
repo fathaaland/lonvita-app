@@ -54,6 +54,7 @@ import {
 import { addDays, pragueToday, pragueWallTimeToIso } from '@/lib/import/time'
 import { UNLIMITED_CAPACITY } from '@/lib/capacity'
 import { relationNumber } from '@/lib/relations'
+import { sourcesWithinPackage } from '@/lib/billing/scraping'
 import { applySourceChanges, dismissSyncNotices } from '@/lib/import/sync'
 import { enqueueEventUpdated, enqueueImportEvents } from '@/lib/queue/queues'
 import type { User } from '@/payload-types'
@@ -1912,7 +1913,7 @@ describe('Import — candidates, approval and access', () => {
     }
   })
 
-  it("import is the obec's alone — an organizer neither adds sources nor sees or takes over candidates", async () => {
+  it("an organizer imports like the obec's admin — for their organization, on the obec's package, each seeing only their own", async () => {
     const organizer = await payload.create({
       collection: 'users',
       data: { email: `import-organizer-${STAMP}@test.local`, password: 'test1234', role: 'user' },
@@ -1926,91 +1927,152 @@ describe('Import — candidates, approval and access', () => {
     // Created with the organizer role in the obec (Organizations grantOrganizerRole).
     const cafe = await payload.create({
       collection: 'organizations',
-      data: {
-        name: `Kavárna ${STAMP}`,
-        type: 'business',
-        owner: organizer.id,
-        municipality: obec.id,
-      },
+      data: { name: `Kavárna ${STAMP}`, type: 'business', owner: organizer.id, municipality: obec.id },
       overrideAccess: true,
     })
+    const strangerOrganization = await payload.create({
+      collection: 'organizations',
+      data: { name: `Cizí spolek ${STAMP}`, type: 'business', owner: resident.id, municipality: otherObec.id },
+      overrideAccess: true,
+    })
+    const add = (user: User, url: string, extra: Record<string, unknown> = {}) =>
+      payload.create({
+        collection: 'event-sources',
+        data: { municipality: obec.id, url, ownerConsent: true, ...extra } as never,
+        user,
+        overrideAccess: false,
+      })
     try {
-      for (const data of [
-        { municipality: obec.id, url: 'https://kavarna.test/program', ownerConsent: true },
-        { organization: cafe.id, url: 'https://kavarna.test/program', ownerConsent: true },
-      ]) {
-        await expect(
-          payload.create({
-            collection: 'event-sources',
-            data: data as never,
-            user: organizer,
-            overrideAccess: false,
-          }),
-        ).rejects.toThrow()
-      }
-
-      const context = (await loadImportContext(payload, obec.id))!
-      const stored = await storeCandidates(
-        payload,
-        {
-          municipality: context.municipality,
-          events: [event({ title: 'Jazz v kavárně', start: { date: inDays(18), time: '20:00' } })],
-          origin: 'text',
-          originLabel: null,
-          sourceId: null,
-          requestedBy: null,
-        },
-        deps(),
-      )
-      expect(stored.created).toBe(1)
-      const obecs = stored.createdIds[0]
+      // Whose the source is is the system's word, never the client's.
+      const own = await add(organizer, 'https://kavarna.test/program', { organization: strangerOrganization.id })
+      expect(relationNumber(own.organization)).toBe(cafe.id)
+      // The obec may have the same web as its own source — each owner once.
+      const obecs = await add(admin, 'https://kavarna.test/program')
+      expect(relationNumber(obecs.organization)).toBeNull()
+      await expect(add(organizer, 'https://kavarna.test/program')).rejects.toThrow('už máte')
+      // Not in an obec they don't organize in.
       await expect(
-        payload.find({
-          collection: 'event-import-candidates',
-          where: { id: { equals: obecs } },
+        payload.create({
+          collection: 'event-sources',
+          data: { municipality: otherObec.id, url: 'https://kavarna.test/jinde', ownerConsent: true } as never,
           user: organizer,
           overrideAccess: false,
         }),
-      ).rejects.toMatchObject({ status: 403 })
-      await expect(approveCandidate(payload, organizer, obecs)).rejects.toMatchObject({
-        status: 403,
-      })
+      ).rejects.toThrow()
 
-      // An organizer's candidate from before is nobody's but the platform admin's.
-      const legacy = await payload.create({
-        collection: 'event-import-candidates',
-        data: {
-          municipality: obec.id,
-          organization: cafe.id,
-          origin: 'source',
-          status: 'pending',
-          externalKey: `org${cafe.id}:legacy`,
-          title: 'Starý kavárenský návrh',
-          startsAt: new Date(Date.now() + 20 * 86_400_000).toISOString(),
+      // No import records at all is a refusal (403), some but not this one an empty list — both "not seen".
+      const seen = async (user: User, id: number) =>
+        payload
+          .find({ collection: 'event-sources', where: { id: { equals: id } }, user, overrideAccess: false })
+          .then((r) => r.docs.length)
+          .catch(() => 0)
+      expect(await seen(organizer, own.id)).toBe(1)
+      expect(await seen(organizer, obecs.id)).toBe(0)
+      expect(await seen(admin, own.id)).toBe(0)
+      expect(await seen(admin, obecs.id)).toBe(1)
+
+      // One package for all of them: the organizer's source takes the obec's last place.
+      await payload.update({ collection: 'event-sources', id: obecs.id, data: { enabled: false }, overrideAccess: true })
+      const enabledNow = (
+        await payload.count({
+          collection: 'event-sources',
+          where: { and: [{ municipality: { equals: obec.id } }, { enabled: { equals: true } }] },
+          overrideAccess: true,
+        })
+      ).totalDocs
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { scrapingMaxSourcesOverride: enabledNow },
+        overrideAccess: true,
+      })
+      await expect(
+        payload.update({ collection: 'event-sources', id: obecs.id, data: { enabled: true }, user: admin, overrideAccess: false }),
+      ).rejects.toThrow('nejvýš')
+      await payload.update({
+        collection: 'municipalities',
+        id: obec.id,
+        data: { scrapingMaxSourcesOverride: 100 },
+        overrideAccess: true,
+      })
+      expect((await sourcesWithinPackage(payload, obec.id)).has(own.id)).toBe(true)
+
+      // The same event found for the obec and for the organizer: two candidates, each its owner's.
+      const context = (await loadImportContext(payload, obec.id))!
+      const jazz = [event({ title: 'Jazz v kavárně', start: { date: inDays(18), time: '20:00' } })]
+      const store = (organizationId: number | null) =>
+        storeCandidates(
+          payload,
+          {
+            municipality: context.municipality,
+            events: jazz,
+            origin: 'text',
+            originLabel: null,
+            sourceId: null,
+            requestedBy: organizationId ? organizer.id : admin.id,
+            organizationId,
+          },
+          deps(),
+        )
+      const forObec = (await store(null)).createdIds[0]
+      const forCafe = (await store(cafe.id)).createdIds[0]
+      expect(forObec).toBeTruthy()
+      expect(forCafe).toBeTruthy()
+      expect((await store(cafe.id)).created).toBe(0)
+
+      const candidateSeen = async (user: User, id: number) =>
+        (
+          await payload.find({
+            collection: 'event-import-candidates',
+            where: { id: { equals: id } },
+            user,
+            overrideAccess: false,
+          })
+        ).docs.length
+      expect(await candidateSeen(organizer, forCafe)).toBe(1)
+      expect(await candidateSeen(organizer, forObec)).toBe(0)
+      expect(await candidateSeen(admin, forCafe)).toBe(0)
+      await expect(approveCandidate(payload, organizer, forObec)).rejects.toMatchObject({ status: 403 })
+      await expect(approveCandidate(payload, admin, forCafe)).rejects.toMatchObject({ status: 403 })
+
+      // Taken over by the organizer — as their organization, through the events' own rules.
+      const { eventId } = await approveCandidate(payload, organizer, forCafe)
+      const founded = await payload.findByID({ collection: 'events', id: eventId, depth: 0, overrideAccess: true })
+      expect(relationNumber(founded.organization)).toBe(cafe.id)
+      expect(relationNumber(founded.organizer)).toBe(organizer.id)
+
+      // The role taken away, their import goes with it: the sources stop being read on the obec's
+      // package, and the records are no longer theirs to see.
+      await payload.delete({
+        collection: 'user-roles',
+        where: {
+          and: [{ user: { equals: organizer.id } }, { municipality: { equals: obec.id } }, { role: { equals: 'organizer' } }],
         },
         overrideAccess: true,
       })
-      const seenByObec = await payload.find({
-        collection: 'event-import-candidates',
-        where: { id: { equals: legacy.id } },
-        user: admin,
-        overrideAccess: false,
-      })
-      expect(seenByObec.docs).toHaveLength(0)
-      for (const user of [admin, organizer]) {
-        await expect(approveCandidate(payload, user, legacy.id)).rejects.toMatchObject({
-          status: 403,
-        })
-      }
+      const after = await payload.findByID({ collection: 'event-sources', id: own.id, depth: 0, overrideAccess: true })
+      expect(after.enabled).toBe(false)
+      expect(await seen(organizer, own.id)).toBe(0)
+      await expect(
+        add(organizer, 'https://kavarna.test/po-odebrani'),
+      ).rejects.toThrow()
     } finally {
+      await payload
+        .delete({ collection: 'events', where: { organizer: { equals: organizer.id } }, overrideAccess: true, context: { deletingMunicipality: true } })
+        .catch(() => {})
       await payload
         .delete({
           collection: 'event-import-candidates',
-          where: {
-            or: [{ organization: { equals: cafe.id } }, { title: { equals: 'Jazz v kavárně' } }],
-          },
+          where: { title: { equals: 'Jazz v kavárně' } },
           overrideAccess: true,
         })
+        .catch(() => {})
+      await payload
+        .delete({ collection: 'event-sources', where: { url: { like: 'kavarna.test' } }, overrideAccess: true })
+        .catch(() => {})
+      await payload.delete({ collection: 'users', id: organizer.id, overrideAccess: true }).catch(() => {})
+      await payload
+        .delete({ collection: 'organizations', id: strangerOrganization.id, overrideAccess: true })
         .catch(() => {})
     }
   })

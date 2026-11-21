@@ -142,9 +142,8 @@ export async function billingDetailOf(
     listActiveUserSnapshots(payload, municipalityId, 12),
     payload.find({
       collection: 'event-sources',
-      where: {
-        and: [{ municipality: { equals: municipalityId } }, { organization: { exists: false } }],
-      },
+      // The obec's and its organizers' — all on its package.
+      where: { municipality: { equals: municipalityId } },
       sort: 'createdAt',
       depth: 0,
       pagination: false,

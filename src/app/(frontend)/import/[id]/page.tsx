@@ -54,7 +54,7 @@ function prefillOf(candidate: ImportCandidateRow): EventFormPrefill {
 
 function ImportApprovalContent({ id }: { id: string }) {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, isSuperAdmin, volunteerPoolMunicipalityIds } = useAuth()
   const [candidate, setCandidate] = useState<ImportCandidateRow | null | undefined>(undefined)
   const [center, setCenter] = useState<[number, number] | null>(null)
 
@@ -125,6 +125,8 @@ function ImportApprovalContent({ id }: { id: string }) {
     )
   }
 
+  // Found for an organizer: taken over as their organization, not as the obec (lib/import/approve).
+  const asOrganization = Boolean(candidate.organization_id)
   return (
     <div className="animate-fade-in sm:mx-auto sm:max-w-3xl">
       <PageHeader title="Převzít akci" back />
@@ -143,9 +145,10 @@ function ImportApprovalContent({ id }: { id: string }) {
           ) : candidate.origin === 'text' ? (
             'vloženého textu'
           ) : (
-            (candidate.origin_label ?? 'webu obce')
+            (candidate.origin_label ?? 'webu')
           )}
-          . Zkontrolujte údaje a doplňte, co chybí — akce se založí za obec.
+          . Zkontrolujte údaje a doplňte, co chybí — akce se založí{' '}
+          {asOrganization ? 'za vaši organizaci' : 'za obec'}.
         </p>
         {candidate.warnings.map((w) => (
           <p key={w} className="text-amber-700 dark:text-amber-400">
@@ -158,9 +161,13 @@ function ImportApprovalContent({ id }: { id: string }) {
         prefill={prefillOf(candidate)}
         municipalityId={candidate.municipality_id}
         municipalityCenter={center!}
-        isObecAdmin
-        volunteering="set"
-        runsAsObec
+        isObecAdmin={!asOrganization}
+        volunteering={
+          !asOrganization || isSuperAdmin || volunteerPoolMunicipalityIds.includes(candidate.municipality_id)
+            ? 'set'
+            : 'no-pool'
+        }
+        runsAsObec={!asOrganization}
         submitLabel="Převzít akci"
         onSubmit={handleSubmit}
       />
@@ -172,8 +179,9 @@ export default function ImportApprovalPage({ params }: { params: Promise<{ id: s
   const { id } = use(params)
   return (
     <RequireAuth>
-      {/* An obec's admin — the event is taken over as the obec (lib/import/approve). */}
-      <RequireRole role="municipality_admin">
+      {/* An obec's admin (taken over as the obec), or an organizer for a candidate found for them
+          (taken over as their organization) — lib/import/approve. */}
+      <RequireRole role="organizer">
         <ImportApprovalContent id={id} />
       </RequireRole>
     </RequireAuth>

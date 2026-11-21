@@ -102,11 +102,19 @@ export type ImportInput =
       trigger?: SourceTrigger
       requestedBy?: number | string | null
     }
-  | { kind: 'text'; municipalityId: number | string; requestedBy: number | string; text: string }
+  | {
+      kind: 'text'
+      municipalityId: number | string
+      requestedBy: number | string
+      /** An organizer's import — for their organization (access/import). Empty: the obec's. */
+      organizationId?: number | null
+      text: string
+    }
   | {
       kind: 'file'
       municipalityId: number | string
       requestedBy: number | string
+      organizationId?: number | null
       fileKey: string
       fileName: string
       mimeType: string
@@ -116,6 +124,9 @@ export const IMPORT_LIMITS = {
   /** Sources one obec may keep at all, switched on or off — a technical ceiling only. How many it
    * may have switched on is its scraping package's (lib/billing/scraping). */
   sourcesPerMunicipality: 100,
+  /** Sources (switched on or off) one organizer's organization may keep — so one of them can't fill
+   * the obec's whole ceiling and leave nothing for the obec and the others. */
+  sourcesPerOrganization: 10,
   /** A pasted program. */
   textMaxChars: 50_000,
   /** An uploaded file — under Vercel's 4.5 MB request body limit. */

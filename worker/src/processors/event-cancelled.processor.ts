@@ -71,7 +71,10 @@ export const processEventCancelledJob = async (
   const sms: SmsOutcome =
     municipalityId === null || !smsAllowed
       ? { wanted: 0, queued: 0, withheld: 0 }
-      : await sendCancellationSms(payload, municipalityId, data.userIds, data.title, announcementId)
+      : await sendCancellationSms(payload, municipalityId, data.userIds, data.title, announcementId, {
+          // Whose event it was — the obec sees in its overview who used its SMS package.
+          organizationId: data.organizationId ?? relationNumber(event?.organization),
+        })
   if (municipalityId !== null) {
     await reportSmsShortfall(payload, {
       municipalityId,

@@ -70,7 +70,8 @@ export const guardReadOnlyObec =
       where?: Where
       overrideAccess?: boolean
     }
-    if (overrideAccess !== false || !req.user || req.user.role === 'admin') return args
+    // `true` is the Local API's own call; REST leaves it undefined, and Payload enforces access then.
+    if (overrideAccess === true || !req.user || req.user.role === 'admin') return args
     if (operation !== 'create' && operation !== 'update') return args
     if (!options.operations.includes(operation)) return args
     // Only an update may be let through — a create always takes something new on.

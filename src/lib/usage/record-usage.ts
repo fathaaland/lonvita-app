@@ -1,3 +1,4 @@
+import { organizationOfObec } from '@/lib/billing/attribution'
 import { logger, serializeError } from '@/lib/logger'
 import { computeUsageCost, getUsagePricing } from '@/lib/providers/usage-pricing'
 
@@ -43,7 +44,8 @@ export async function recordUsageEvent(
       data: {
         municipality: params.municipalityId,
         user: params.userId ?? undefined,
-        organization: params.organizationId ?? undefined,
+        // Only an organization of the obec it's charged to (lib/billing/attribution).
+        organization: (await organizationOfObec(payload, params.organizationId, params.municipalityId)) ?? undefined,
         eventSource: params.eventSourceId ?? undefined,
         importRun: params.importRunId ?? undefined,
         provider: params.provider,

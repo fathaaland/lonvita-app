@@ -20,6 +20,7 @@ import type { AnyOrganizationType, OrganizationType } from '@/lib/organizations'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 import type { OrganizationFeedbackSummary } from '@/lib/organization-stats'
 import type { MunicipalityServices } from '@/lib/services/municipality-services'
+import type { PackageUsage } from '@/lib/services/package-usage'
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   type AccountDeletionBlockingEvent,
@@ -86,6 +87,11 @@ export async function getMunicipality(id: string): Promise<MunicipalityRow | nul
 /** The obec's packages and how much of them it used — with the prices for a platform admin only. */
 export async function getMunicipalityServices(municipalityId: string): Promise<MunicipalityServices> {
   return get(`/municipalities/${municipalityId}/services`)
+}
+
+/** Who of the obec used how much of its packages this licence year (lib/services/package-usage). */
+export async function getPackageUsage(municipalityId: string): Promise<PackageUsage> {
+  return get(`/municipalities/${municipalityId}/package-usage`)
 }
 
 export async function setMunicipalityRulesForCreation(

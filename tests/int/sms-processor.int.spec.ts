@@ -102,8 +102,14 @@ describe('SMS go out through BulkGate', () => {
     configure(credentials)
     const fetchMock = bulkGateAnswers(200, accepted('tmp9'))
 
-    await processSmsJob({ ...job, municipalityId: 42 })
-    expect(claim).toHaveBeenCalledWith(expect.anything(), { municipalityId: 42, requestId: job.requestId, parts: 1 })
+    await processSmsJob({ ...job, municipalityId: 42, organizationId: 9 })
+    // Whose event it was goes on the row — the obec sees who used its SMS package.
+    expect(claim).toHaveBeenCalledWith(expect.anything(), {
+      municipalityId: 42,
+      organizationId: 9,
+      requestId: job.requestId,
+      parts: 1,
+    })
     expect(claim.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0])
     expect(confirm).toHaveBeenCalledWith(expect.anything(), 7, 'tmp9')
     expect(release).toHaveBeenCalledWith(42, job.requestId, 1)

@@ -3,14 +3,15 @@ import { getPayload } from 'payload'
 
 import config from '@payload-config'
 import { IMPORT_LIMITS } from '@/lib/import/contracts'
-import { aiImportNotSubscribed, aiImportRateLimited, mayImportFor } from '@/lib/import/routes'
+import { importOwnerFor } from '@/collections/access/import'
+import { aiImportNotSubscribed, aiImportRateLimited } from '@/lib/import/routes'
 import { enqueueImportEvents } from '@/lib/queue/queues'
 
 const MIN_TEXT_LENGTH = 20
 
 /**
- * A program pasted by the obec's admin — copied from an e-mail, a Facebook page, anywhere the worker
- * can't go itself. Read by the worker; the admin is notified once its events wait in the Import tab.
+ * A program pasted by the obec's admin or one of its organizers — copied from an e-mail, a Facebook page, anywhere the worker
+ * can't go itself. Read by the worker; whoever sent it is notified once its events wait in their Import.
  *
  * POST /api/import/text  { municipalityId, text } → { queued: true, jobId }
  * (`jobId`: its ImportRuns record shows how it went — the panel watches it)
@@ -36,8 +37,9 @@ export async function POST(request: Request) {
       { status: 400 },
     )
   }
-  if (!(await mayImportFor(payload, user, municipalityId)))
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // The obec's admin imports for the obec, an approved organizer for their organization.
+  const owner = await importOwnerFor(payload, user, municipalityId)
+  if (!owner) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const notSubscribed = await aiImportNotSubscribed(payload, municipalityId)
   if (notSubscribed) return notSubscribed
 
@@ -48,6 +50,7 @@ export async function POST(request: Request) {
     kind: 'text',
     municipalityId: Number(municipalityId),
     requestedBy: user.id,
+    organizationId: owner.organization,
     text,
   })
   return NextResponse.json({ queued: true, jobId: job?.id ?? null })

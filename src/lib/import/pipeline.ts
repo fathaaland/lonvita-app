@@ -344,6 +344,8 @@ export type StoreInput = {
   originLabel: string | null
   sourceId: number | null
   requestedBy: number | null
+  /** An organizer's import — the candidates are their organization's, not the obec's (access/import). */
+  organizationId?: number | null
   /** The last day events are taken up to — a source's window (IMPORT_LIMITS.sourceWindowDays).
    * Unset: IMPORT_LIMITS.horizonDays. */
   until?: string
@@ -468,8 +470,10 @@ function withinBox(area: MunicipalityArea): Where {
   }
 }
 
-/** Saves `events` as candidates of the obec (see the module comment) and keeps the ones already
- * taken over in step with the source (lib/import/sync). */
+/** Saves `events` as candidates of their owner — the obec, or the organizer the import is for (see
+ * the module comment) — and keeps the ones already taken over in step with the source
+ * (lib/import/sync). An organizer's keys carry their organization: the obec's calendar and a
+ * café's may list the same concert, and each owner decides about it on their own. */
 export async function storeCandidates(
   payload: Payload,
   input: StoreInput,
@@ -479,6 +483,8 @@ export async function storeCandidates(
   const nowIso = now.toISOString()
   const horizon = input.until ?? addDays(pragueToday(now), IMPORT_LIMITS.horizonDays)
   const { municipality } = input
+  const organizationId = input.organizationId ?? null
+  const ownKey = (key: string) => (organizationId ? `org${organizationId}:${key}` : key)
   const result: StoreResult = { created: 0, updated: 0, createdIds: [], synced: 0, needsReview: 0 }
 
   const upcoming: {
@@ -493,7 +499,7 @@ export async function storeCandidates(
     if (event.start.date > horizon) continue
     const times = timesOf(event, now)
     if (!times) continue
-    const key = externalKeyOf(event)
+    const key = ownKey(externalKeyOf(event))
     if (seenKeys.has(key)) continue
     seenKeys.add(key)
     upcoming.push({ event, key, ref: sourceRefOf(event), ...times })
@@ -509,8 +515,9 @@ export async function storeCandidates(
     new Date(upcoming[upcoming.length - 1].startsAt).getTime() + 2 * DAY_MS,
   ).toISOString()
   const ofObec = { municipality: { equals: municipality.id } }
-  // Organizers' candidates from before (access/import) aren't the obec's.
-  const ofOwner: Where = { and: [ofObec, { organization: { exists: false } }] }
+  const ofOwner: Where = organizationId
+    ? { organization: { equals: organizationId } }
+    : { and: [ofObec, { organization: { exists: false } }] }
   const select = {
     source: true,
     externalKey: true,
@@ -754,6 +761,7 @@ export async function storeCandidates(
         collection: 'event-import-candidates',
         data: {
           municipality: municipality.id,
+          organization: organizationId,
           source: input.sourceId,
           origin: input.origin,
           originLabel: input.originLabel,

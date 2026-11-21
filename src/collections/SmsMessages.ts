@@ -11,7 +11,7 @@ export const SmsMessages: CollectionConfig = {
   labels: { singular: 'SMS Message', plural: 'SMS Messages' },
   admin: {
     useAsTitle: 'requestId',
-    defaultColumns: ['createdAt', 'municipality', 'requestId'],
+    defaultColumns: ['createdAt', 'municipality', 'organization', 'requestId'],
   },
   defaultSort: '-createdAt',
   access: {
@@ -26,6 +26,15 @@ export const SmsMessages: CollectionConfig = {
       name: 'municipality',
       type: 'relationship',
       relationTo: 'municipalities',
+      index: true,
+    },
+    {
+      // Whose event the SMS was about — the obec's own organization or one of its organizers'. What
+      // the obec's overview of who used its SMS package groups by. Empty on SMS from before it was
+      // kept, and once the organization is gone; the row stays.
+      name: 'organization',
+      type: 'relationship',
+      relationTo: 'organizations',
       index: true,
     },
     { name: 'requestId', type: 'text' },

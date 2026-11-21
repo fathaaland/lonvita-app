@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AccessibilityControls } from "@/components/AccessibilityControls";
-import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Building2 } from "lucide-react";
+import { LogOut, Settings, ArrowLeft, Mail, ShieldCheck, Building2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { VolunteerCard } from "@/components/VolunteerCard";
 import { OrganizerRequestCard } from "@/components/OrganizerRequestCard";
@@ -32,7 +32,7 @@ const HOUR_MS = 60 * 60 * 1000;
 
 function ProfileContent() {
   const router = useRouter();
-  const { user, profile, isSuperAdmin, isAdmin, isOrganizer } = useAuth();
+  const { user, profile, isSuperAdmin, isAdmin, isOrganizer, organizerMunicipalityIds, administeredMunicipalityIds } = useAuth();
   const [stats, setStats] = useState({ upcoming: 0, attended: 0, volunteerHours: 0 });
   const [marketingConsent, setMarketingConsentState] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
@@ -164,6 +164,13 @@ function ProfileContent() {
         {isOrganizer && (
           <Button asChild variant="outline" className="w-full h-14 text-base">
             <Link href="/organizace"><Building2 className="h-5 w-5" /> Organizace</Link>
+          </Button>
+        )}
+
+        {/* An organizer's own import (an obec admin's is in Administrace obce) — the bottom bar has no room. */}
+        {organizerMunicipalityIds.some((id) => !administeredMunicipalityIds.includes(id)) && (
+          <Button asChild variant="outline" className="w-full h-14 text-base">
+            <Link href="/import"><Download className="h-5 w-5" /> Import akcí</Link>
           </Button>
         )}
 

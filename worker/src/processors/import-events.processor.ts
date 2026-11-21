@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 
+import { getImportingOrganizationIds } from '@/collections/access/import'
 import { getMunicipalityAdminUserIds, getPlatformDeciders, sendNotificationToMany } from '@/collections/shared/notify'
 import { ImportAiError, ImportAiUnavailableError } from '@/lib/import/ai'
 import { IMPORT_LIMITS, isFullPass, isImportFileType, type SourceTrigger } from '@/lib/import/contracts'
@@ -11,7 +12,7 @@ import { aiRefusalFor, emptyTotals, isAiHeldBack, meterAi, type UsageTotals } fr
 import { sourcesWithinPackage } from '@/lib/billing/scraping'
 import { checkScrapingCost } from '@/lib/billing/scraping-cost'
 import { logger, serializeError } from '@/lib/logger'
-import { relationId, relationNumber } from '@/lib/relations'
+import { relationNumber } from '@/lib/relations'
 
 import { getWorkerPayload } from '../runtime/payload'
 
@@ -25,6 +26,9 @@ type DispatchContext = {
 }
 
 const IMPORT_LINK = '/admin-obce?tab=import'
+/** An organizer's own import page. */
+const ORGANIZER_IMPORT_LINK = '/import'
+const importLinkFor = (organizationId: number | null) => (organizationId ? ORGANIZER_IMPORT_LINK : IMPORT_LINK)
 
 /** A failure the source or the input causes — said to the owner, not retried. */
 const isExpected = (error: unknown) =>
@@ -40,6 +44,7 @@ const countLabel = (n: number) => (n === 1 ? '1 novou akci' : n >= 2 && n <= 4 ?
 
 type RunStart = {
   municipality: number
+  organization: number | null
   source: number | null
   trigger: SourceTrigger | 'text' | 'file'
   requestedBy: number | null
@@ -121,16 +126,34 @@ async function tokensSpentByEarlierAttempts(payload: Payload, jobId: string | un
   return calls.docs.reduce((sum, call) => sum + (call.inputTokens ?? 0), 0)
 }
 
-/** Who looks after what a source brings: the obec's admins. */
-async function ownersOf(payload: Payload, source: { municipality: unknown }) {
-  return { userIds: await getMunicipalityAdminUserIds(payload, relationNumber(source.municipality)!), link: IMPORT_LINK }
+/** Who looks after what a source brings: the obec's admins, or the organizer whose organization it is. */
+async function ownersOf(payload: Payload, source: { municipality: unknown; organization?: unknown }) {
+  const organizationId = relationNumber(source.organization)
+  if (!organizationId) {
+    return { userIds: await getMunicipalityAdminUserIds(payload, relationNumber(source.municipality)!), link: IMPORT_LINK }
+  }
+  const organization = await payload
+    .findByID({ collection: 'organizations', id: organizationId, depth: 0, overrideAccess: true, select: { owner: true } })
+    .catch(() => null)
+  const ownerId = relationNumber(organization?.owner)
+  return { userIds: ownerId ? [ownerId] : [], link: ORGANIZER_IMPORT_LINK }
 }
 
-/** A source that keeps failing is told to its obec's admins — and past IMPORT_LIMITS.failuresBeforePause
+/** Whether the organization's owner still holds the organizer role where it is (access/import). */
+async function organizationStillImports(payload: Payload, organizationId: number): Promise<boolean> {
+  const organization = await payload
+    .findByID({ collection: 'organizations', id: organizationId, depth: 0, overrideAccess: true, select: { owner: true, deletedAt: true } })
+    .catch(() => null)
+  const ownerId = relationNumber(organization?.owner)
+  if (!organization || organization.deletedAt || !ownerId) return false
+  return (await getImportingOrganizationIds(payload, ownerId)).includes(String(organizationId))
+}
+
+/** A source that keeps failing is told to its owner — and past IMPORT_LIMITS.failuresBeforePause
  * switched off (processSource): a page gone for good isn't knocked on every night. */
 async function noticeFailures(
   payload: Payload,
-  source: { municipality: unknown; label?: string | null; url: string },
+  source: { municipality: unknown; organization?: unknown; label?: string | null; url: string },
   failures: number,
   message: string,
 ) {
@@ -194,13 +217,25 @@ async function processSource(
     .findByID({ collection: 'event-sources', id: data.sourceId, depth: 0, overrideAccess: true })
     .catch(() => null)
   if (!source || !source.enabled) return { found: 0, created: 0, updated: 0, skipped: 'source_gone_or_disabled' }
-  // An organizer's source from before import became the obec's alone (collections/access/import).
-  if (relationId(source.organization)) return { found: 0, created: 0, updated: 0, skipped: 'organizer_source' }
   const municipalityId = relationNumber(source.municipality)!
+  // An organizer's source: read for their organization, on the obec's package like the obec's own —
+  // while they still organize there. One whose role (or organization) is gone is switched off.
+  const organizationId = relationNumber(source.organization)
+  if (organizationId && !(await organizationStillImports(payload, organizationId))) {
+    await payload
+      .update({ collection: 'event-sources', id: source.id, data: { enabled: false, queuedAt: null }, overrideAccess: true })
+      .catch(() => {})
+    logger.info('Import source of an organizer who no longer organizes there, switched off', {
+      event: 'import.source_owner_gone',
+      sourceId: source.id,
+      municipalityId,
+    })
+    return { found: 0, created: 0, updated: 0, skipped: 'owner_gone' }
+  }
   const importContext = await loadImportContext(payload, municipalityId)
   if (!importContext) return { found: 0, created: 0, updated: 0, skipped: 'municipality_gone' }
   // Where the AI may be used (the obec pays for scraping and isn't suspended), only the sources its
-  // package covers are read — whoever asked (the weekly slot, "Projít teď", a source switched back
+  // package covers are read — its organizers' counted in — whoever asked (the weekly slot, "Projít teď", a source switched back
   // on); one left switched on past a smaller package waits (lib/billing/scraping). Without the AI
   // (not subscribed, suspended) a read costs nothing — iCal and schema.org only — and isn't capped.
   if (
@@ -221,15 +256,22 @@ async function processSource(
   const requestedBy = relationNumber(data.requestedBy)
   const runId = await startRun(
     payload,
-    { municipality: municipalityId, source: source.id, trigger, requestedBy, jobId: context.jobId },
+    { municipality: municipalityId, organization: organizationId, source: source.id, trigger, requestedBy, jobId: context.jobId },
     now,
   )
   const totals = emptyTotals()
   const metered = meterAi(
-    // The obec runs the web and let us past its robots.txt (EventSources.ignoreRobots).
+    // The source's owner runs the web and let us past its robots.txt (EventSources.ignoreRobots).
     source.ignoreRobots ? waiveRobotsFor(deps, source.url) : deps,
     payload,
-    { municipality: municipalityId, user: requestedBy, eventSource: source.id, importRun: runId },
+    // A scheduled pass has nobody asking — it's the one who added the source whose usage it is.
+    {
+      municipality: municipalityId,
+      organization: organizationId,
+      user: requestedBy ?? relationNumber(source.createdBy),
+      eventSource: source.id,
+      importRun: runId,
+    },
     {
       refusal: await aiRefusalFor(payload, importContext),
       totals,
@@ -278,6 +320,7 @@ async function processSource(
             originLabel: source.url,
             sourceId: source.id,
             requestedBy: null,
+            organizationId,
             until,
             fullPass: isFullPass(trigger),
             format: read.format,
@@ -420,6 +463,8 @@ async function processManual(
   isLastAttempt: boolean,
 ): Promise<ImportEventsJobResult> {
   const what = data.kind === 'text' ? 've vloženém textu' : `v souboru „${data.fileName}“`
+  const organizationId = relationNumber(data.organizationId)
+  const importLink = importLinkFor(organizationId)
   const notify = (title: string, message: string, link?: string) =>
     sendNotificationToMany(payload, [data.requestedBy], { category: 'obec_requests', title, message, link })
 
@@ -431,14 +476,14 @@ async function processManual(
   const requestedBy = Number(data.requestedBy)
   const runId = await startRun(
     payload,
-    { municipality: municipalityId, source: null, trigger: data.kind, requestedBy, jobId: context.jobId },
+    { municipality: municipalityId, organization: organizationId, source: null, trigger: data.kind, requestedBy, jobId: context.jobId },
     now,
   )
   const totals = emptyTotals()
   const metered = meterAi(
     deps,
     payload,
-    { municipality: municipalityId, user: requestedBy, importRun: runId },
+    { municipality: municipalityId, organization: organizationId, user: requestedBy, importRun: runId },
     {
       refusal: await aiRefusalFor(payload, importContext),
       totals,
@@ -468,14 +513,15 @@ async function processManual(
         originLabel: data.kind === 'file' ? data.fileName : null,
         sourceId: null,
         requestedBy,
+        organizationId,
       },
       metered,
     )
     succeeded = true
     if (stored.created > 0) {
-      await notify('Nové akce k převzetí', `${what[0].toUpperCase()}${what.slice(1)} jsme našli ${countLabel(stored.created)}. Zkontrolujte je a převezměte v sekci Import.`, IMPORT_LINK)
+      await notify('Nové akce k převzetí', `${what[0].toUpperCase()}${what.slice(1)} jsme našli ${countLabel(stored.created)}. Zkontrolujte je a převezměte v sekci Import.`, importLink)
     } else {
-      await notify('Import nenašel nové akce', `${what[0].toUpperCase()}${what.slice(1)} jsme nenašli žádné nové nadcházející akce.`, IMPORT_LINK)
+      await notify('Import nenašel nové akce', `${what[0].toUpperCase()}${what.slice(1)} jsme nenašli žádné nové nadcházející akce.`, importLink)
     }
     await finishRun(payload, runId, { status: 'success', found: events.length, created: stored.created, updated: stored.updated }, totals, deps.now())
     return { found: events.length, created: stored.created, updated: stored.updated }
@@ -483,7 +529,7 @@ async function processManual(
     await finishRun(payload, runId, { status: 'failed', error: messageOf(error), errorCode: codeOf(error) }, totals, deps.now())
     if (!isExpected(error) && !isLastAttempt) throw error
     logger.warn('Manual import failed', { event: 'import.manual_failed', kind: data.kind, ...serializeError(error) })
-    await notify('Import se nepodařil', `Akce ${what} se nepodařilo načíst: ${messageOf(error)}`, IMPORT_LINK)
+    await notify('Import se nepodařil', `Akce ${what} se nepodařilo načíst: ${messageOf(error)}`, importLink)
     return { found: 0, created: 0, updated: 0, skipped: 'read_failed' }
   } finally {
     if (data.kind === 'file' && (succeeded || isLastAttempt)) {
@@ -496,8 +542,8 @@ async function processManual(
 
 /**
  * Reads one input into EventImportCandidates (lib/import/pipeline). Every run is on the record
- * (ImportRuns) and every AI call on the usage-events ledger, counted against the obec
- * (lib/import/usage). A source's outcome is also written on the source (its owner sees it next to
+ * (ImportRuns) and every AI call on the usage-events ledger, counted against the obec — an
+ * organizer's with their organization too, so the obec sees who used its package (lib/import/usage). A source's outcome is also written on the source (its owner sees it next to
  * it), and its owners hear about new events; a pasted program or file is answered to whoever sent
  * it. What the source or the input causes — unreachable, forbidden by robots.txt, unreadable, over
  * the obec's AI budget — isn't retried; anything else is, by the queue.

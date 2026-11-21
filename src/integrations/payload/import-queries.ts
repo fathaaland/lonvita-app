@@ -4,14 +4,16 @@ import { IMPORT_LIMITS, type ImportWarning, type SyncNotice } from '@/lib/import
 import { relationId } from '@/lib/relations'
 
 /** Importing events from obce's websites, files and pasted programs (docs/import-akci-z-webu.md).
- * Everything belongs to an obec (collections/access/import). */
+ * Everything belongs to an obec — or, with `organizationId`, to one of its organizers' organizations
+ * (collections/access/import). Both draw on the obec's package. */
 
 type WhereClause = Parameters<typeof buildWhereParams>[0]
 
-/** The obec's records. */
-const ownerWhere = (municipalityId: string): WhereClause => ({
-  municipality: { equals: municipalityId },
-})
+/** The obec's own records, or the organization's. */
+const ownerWhere = (municipalityId: string, organizationId?: string | null): WhereClause =>
+  organizationId
+    ? { organization: { equals: organizationId } }
+    : { municipality: { equals: municipalityId }, organization: { exists: false } }
 
 export type ImportSourceRow = {
   id: string
@@ -89,8 +91,11 @@ export function sourceActivity(
   return queuedAfterLastRun && isFresh(source.queued_at, now) ? 'queued' : null
 }
 
-export async function listImportSources(municipalityId: string): Promise<ImportSourceRow[]> {
-  const where = buildWhereParams(ownerWhere(municipalityId))
+export async function listImportSources(
+  municipalityId: string,
+  organizationId?: string | null,
+): Promise<ImportSourceRow[]> {
+  const where = buildWhereParams(ownerWhere(municipalityId, organizationId))
   const result = await get<PayloadListResponse<PayloadSource>>(
     `/event-sources?${where}&${buildQuery({ depth: 0, limit: 50, sort: 'createdAt' })}`,
   )
@@ -205,12 +210,15 @@ export const getImportRunByJob = (jobId: string) => latestRun({ jobId: { equals:
 export const getLatestSourceRun = (sourceId: string) =>
   latestRun({ source: { equals: sourceId } })
 
-/** Pasted programs and files of the obec being read right now — still shown after a reload. */
-export async function listRunningManualImports(municipalityId: string): Promise<ImportRunRow[]> {
+/** Pasted programs and files of the owner being read right now — still shown after a reload. */
+export async function listRunningManualImports(
+  municipalityId: string,
+  organizationId?: string | null,
+): Promise<ImportRunRow[]> {
   const since = new Date(Date.now() - IMPORT_LIMITS.runStaleMinutes * 60_000).toISOString()
   const result = await get<PayloadListResponse<PayloadRun>>(
     `/import-runs?${buildWhereParams({
-      municipality: { equals: municipalityId },
+      ...ownerWhere(municipalityId, organizationId),
       source: { exists: false },
       status: { equals: 'running' },
       startedAt: { greater_than: since },
@@ -238,6 +246,8 @@ export type ImportCandidateRow = {
   origin_label: string | null
   duplicate_of: string | null
   municipality_id: string
+  /** Found for an organizer — taken over as their organization. Null: the obec's. */
+  organization_id: string | null
 }
 
 type PayloadCandidate = {
@@ -259,6 +269,7 @@ type PayloadCandidate = {
   originLabel?: string | null
   duplicateOf?: number | { id: number } | null
   municipality: number | { id: number }
+  organization?: number | { id: number } | null
 }
 
 const mapCandidate = (c: PayloadCandidate): ImportCandidateRow => ({
@@ -280,21 +291,23 @@ const mapCandidate = (c: PayloadCandidate): ImportCandidateRow => ({
   origin_label: c.originLabel ?? null,
   duplicate_of: relationId(c.duplicateOf),
   municipality_id: relationId(c.municipality)!,
+  organization_id: relationId(c.organization),
 })
 
-const pendingWhere = (municipalityId: string) =>
+const pendingWhere = (municipalityId: string, organizationId?: string | null) =>
   buildWhereParams({
-    ...ownerWhere(municipalityId),
+    ...ownerWhere(municipalityId, organizationId),
     status: { equals: 'pending' },
     startsAt: { greater_than: new Date().toISOString() },
   })
 
-/** The obec's candidates still waiting for a decision whose start is ahead, soonest first. */
+/** The owner's candidates still waiting for a decision whose start is ahead, soonest first. */
 export async function listPendingImportCandidates(
   municipalityId: string,
+  organizationId?: string | null,
 ): Promise<ImportCandidateRow[]> {
   const result = await get<PayloadListResponse<PayloadCandidate>>(
-    `/event-import-candidates?${pendingWhere(municipalityId)}&${buildQuery({ depth: 0, limit: 300, sort: 'startsAt' })}`,
+    `/event-import-candidates?${pendingWhere(municipalityId, organizationId)}&${buildQuery({ depth: 0, limit: 300, sort: 'startsAt' })}`,
   )
   return result.docs.map(mapCandidate)
 }
@@ -391,9 +404,12 @@ type PayloadSyncCandidate = {
   noticedAt?: string | null
 }
 
-export async function listSyncNotices(municipalityId: string): Promise<ImportSyncRow[]> {
+export async function listSyncNotices(
+  municipalityId: string,
+  organizationId?: string | null,
+): Promise<ImportSyncRow[]> {
   const where = buildWhereParams({
-    ...ownerWhere(municipalityId),
+    ...ownerWhere(municipalityId, organizationId),
     status: { equals: 'approved' },
     syncNeedsReview: { equals: true },
   })

@@ -19,7 +19,8 @@ import type { EventImportCandidate, User } from '@/payload-types'
 import { IMPORT_WARNINGS, isReadyToApprove, type ImportWarning } from './contracts'
 
 /**
- * Approving an imported candidate is founding the event — as the obec, by its admin — through the
+ * Approving an imported candidate is founding the event — as the obec, by its admin, or for a
+ * candidate found for an organizer, as their organization, by them — through the
  * Events collection with access control on (`overrideAccess: false`): every rule a hand-made event
  * meets (a future start, a place inside the obec's area, a category, the organizer role) holds for an
  * imported one too, and nothing here opens a way around them. The candidate is marked approved in
@@ -65,7 +66,7 @@ async function loadForDecision(
     .catch(() => null)
   if (!candidate) throw new APIError('Akce k převzetí neexistuje.', 404)
   if (!(await mayManageImport(payload, user, candidate))) {
-    throw new APIError('O akcích k převzetí rozhoduje admin obce.', 403)
+    throw new APIError('O akcích k převzetí rozhoduje ten, pro koho je import našel.', 403)
   }
   if (candidate.status !== 'pending') throw new APIError('O téhle akci už bylo rozhodnuto.', 409)
   return candidate
@@ -155,12 +156,15 @@ export async function approveCandidate(
 ): Promise<{ eventId: number }> {
   const candidate = await loadForDecision(payload, user, candidateId)
   const municipalityId = Number(relationId(candidate.municipality))
+  // The organizer's own candidate: loadForDecision checked it's theirs, and the event is founded as
+  // their organization (Events resolveOrganizations). The obec's: founded as the obec — by one of
+  // its admins, who hold the role there (Events requireOrganizerRole).
   if (
+    !relationId(candidate.organization) &&
     !(await getAdministeredMunicipalityIds(payload, Number(user.id))).includes(
       String(municipalityId),
     )
   ) {
-    // The event is founded as the obec — by one of its admins, who hold the role there (Events requireOrganizerRole).
     throw new APIError('Akci za obec převezme její admin.', 403)
   }
   const input = edits ?? approvalFromCandidate(candidate)

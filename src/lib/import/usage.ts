@@ -20,9 +20,11 @@ import { pragueToday, pragueWallTimeToIso } from './time'
  * cost us. The only cap is technical — the input tokens of one run (meterAi).
  */
 
-/** Whose import a call was made for. */
+/** Whose import a call was made for — always against the obec's package; an organizer's import also
+ * names their organization, so the obec sees who used how much of it. */
 export type UsageAttribution = {
   municipality: number
+  organization?: number | null
   user?: number | null
   eventSource?: number | null
   importRun?: number | null
@@ -145,6 +147,7 @@ export function meterAi<D extends MeteredAi>(
       computeUsageCost(usage, getUsagePricing('anthropic', call.model))?.costUsd ?? 0
     await recordUsageEvent(payload, {
       municipalityId: attribution.municipality,
+      organizationId: attribution.organization,
       userId: attribution.user,
       eventSourceId: attribution.eventSource,
       importRunId: attribution.importRun,

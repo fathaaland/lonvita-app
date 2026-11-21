@@ -3,6 +3,12 @@ import type { CollectionConfig } from 'payload'
 import { canAccessImportRecords } from './access/import'
 
 const systemOnly = () => false
+/** The platform's own view of a run — its cost to us and its review notes — never the obec's or an organizer's. */
+const platformOnlyRead = {
+  read: ({ req }: { req: { user?: { role?: string } | null } }) => req.user?.role === 'admin',
+  create: systemOnly,
+  update: systemOnly,
+}
 
 /**
  * One pass over an event source, or one pasted program or uploaded file read — why it ran, how it
@@ -45,14 +51,13 @@ export const ImportRuns: CollectionConfig = {
       index: true,
     },
     {
-      // Runs of organizers' sources from before import became the obec's alone — a migration
-      // removes it.
+      // An organizer's run (their source, their pasted program or file) — empty: the obec's own.
       name: 'organization',
       type: 'relationship',
       relationTo: 'organizations',
       index: true,
-      access: { read: systemOnly, create: systemOnly, update: systemOnly },
-      admin: { hidden: true },
+      access: { create: systemOnly, update: systemOnly },
+      admin: { position: 'sidebar' },
     },
     { name: 'source', type: 'relationship', relationTo: 'event-sources', index: true },
     {
@@ -115,6 +120,7 @@ export const ImportRuns: CollectionConfig = {
       name: 'costUsd',
       type: 'number',
       defaultValue: 0,
+      access: platformOnlyRead,
       admin: { description: 'USD, from usage-events at the price of the day.' },
     },
     { name: 'jobId', type: 'text' },
@@ -123,14 +129,15 @@ export const ImportRuns: CollectionConfig = {
       // /api/superadmin/import-runs/:id; empty until someone looked at it.
       name: 'reviewStatus',
       type: 'select',
+      access: platformOnlyRead,
       options: [
         { label: 'Zkontrolováno', value: 'ok' },
         { label: 'Problém', value: 'problem' },
       ],
     },
-    { name: 'reviewNote', type: 'text' },
-    { name: 'reviewedBy', type: 'relationship', relationTo: 'users' },
-    { name: 'reviewedAt', type: 'date' },
+    { name: 'reviewNote', type: 'text', access: platformOnlyRead },
+    { name: 'reviewedBy', type: 'relationship', relationTo: 'users', access: platformOnlyRead },
+    { name: 'reviewedAt', type: 'date', access: platformOnlyRead },
   ],
   timestamps: true,
 }

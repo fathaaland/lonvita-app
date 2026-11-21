@@ -217,6 +217,22 @@ const cleanupOrganization: CollectionBeforeDeleteHook = async ({ id, req }) => {
     req,
   })
 
+  // Its import goes with it — left behind, the database would hand its sources and waiting candidates
+  // to the obec (organization set to null), still read on the obec's package, and the obec's admins
+  // would find its taken-over events among their own. The events stay; the ledger rows too (platform-only delete).
+  await payload.delete({
+    collection: 'event-import-candidates',
+    where: { organization: { equals: id } },
+    overrideAccess: true,
+    req,
+  })
+  await payload.delete({
+    collection: 'event-sources',
+    where: { organization: { equals: id } },
+    overrideAccess: true,
+    req,
+  })
+
   if (owner === null) return
   await payload.delete({
     collection: 'user-roles',

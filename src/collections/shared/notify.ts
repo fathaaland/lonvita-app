@@ -380,6 +380,7 @@ export async function sendCancellationSms(
   userIds: (number | string)[],
   eventTitle: string,
   announcementId: string,
+  { organizationId }: { organizationId?: number | null } = {},
 ): Promise<SmsOutcome> {
   if (userIds.length === 0) return NO_SMS
   if (!announcementId.startsWith(CANCELLATION_SMS_PREFIX)) {
@@ -432,7 +433,10 @@ export async function sendCancellationSms(
           // A cancellation notice must not be missed — parked in the outbox while the queue is down
           // (lib/outbox).
           await enqueueOrPark(payload, {
-            job: { jobType: JOB_NAMES.SEND_SMS, payload: { to, message: text, requestId, municipalityId } },
+            job: {
+              jobType: JOB_NAMES.SEND_SMS,
+              payload: { to, message: text, requestId, municipalityId, organizationId: organizationId ?? undefined },
+            },
             jobId: `sms-${requestId}`,
           })
           return true

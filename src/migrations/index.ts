@@ -60,6 +60,7 @@ import * as migration_20261114_105958_sms_overage_cap from './20261114_105958_sm
 import * as migration_20261114_160720_pricing_2027 from './20261114_160720_pricing_2027';
 import * as migration_20261121_061600_volunteer_pool_access from './20261121_061600_volunteer_pool_access';
 import * as migration_20261121_073931_email_notification_categories from './20261121_073931_email_notification_categories';
+import * as migration_20261121_081033_sms_organization from './20261121_081033_sms_organization';
 
 export const migrations = [
   {
@@ -370,6 +371,11 @@ export const migrations = [
   {
     up: migration_20261121_073931_email_notification_categories.up,
     down: migration_20261121_073931_email_notification_categories.down,
-    name: '20261121_073931_email_notification_categories'
+    name: '20261121_073931_email_notification_categories',
+  },
+  {
+    up: migration_20261121_081033_sms_organization.up,
+    down: migration_20261121_081033_sms_organization.down,
+    name: '20261121_081033_sms_organization'
   },
 ];

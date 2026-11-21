@@ -143,10 +143,13 @@ Děkujeme.`
  */
 function RobotsBlocked({
   source,
+  asOrganization,
   onChanged,
   onQueued,
 }: {
   source: ImportSourceRow
+  /** An organizer's source — the web is theirs, not the obec's. */
+  asOrganization: boolean
   onChanged: () => void
   onQueued: () => void
 }) {
@@ -183,14 +186,18 @@ function RobotsBlocked({
         dodavatele webu, které nikdo nezměnil.
       </p>
       <div className="space-y-2">
-        <p className="font-semibold">Je to web vaší obce?</p>
+        <p className="font-semibold">{asOrganization ? 'Je to váš vlastní web?' : 'Je to web vaší obce?'}</p>
         <label className="flex items-start gap-2">
           <Checkbox
             checked={ours}
             onCheckedChange={(v) => setOurs(v === true)}
             className="mt-0.5"
           />
-          <span>Web provozuje naše obec a souhlasíme, aby ho Lonvita četla i přes robots.txt.</span>
+          <span>
+            {asOrganization
+              ? 'Web provozujeme my (naše organizace) a souhlasíme, aby ho Lonvita četla i přes robots.txt.'
+              : 'Web provozuje naše obec a souhlasíme, aby ho Lonvita četla i přes robots.txt.'}
+          </span>
         </label>
         <Button size="sm" onClick={waive} disabled={!ours || busy}>
           Povolit a projít
@@ -198,7 +205,7 @@ function RobotsBlocked({
       </div>
       <div className="space-y-2">
         <p className="text-muted-foreground">
-          Trvalé řešení (i pro weby, které obec neprovozuje): požádejte správce webu, ať do
+          Trvalé řešení (i pro weby, které neprovozujete): požádejte správce webu, ať do
           robots.txt přidá:
         </p>
         <pre className="rounded bg-background px-2 py-1 text-xs">{ROBOTS_ALLOW_LINES}</pre>
@@ -213,10 +220,12 @@ function RobotsBlocked({
 function SourceRow({
   source,
   activity,
+  asOrganization,
   onChanged,
   onQueued,
 }: {
   source: ImportSourceRow
+  asOrganization: boolean
   /** Being read now, or waiting for the worker (sourceActivity). */
   activity: 'running' | 'queued' | null
   onChanged: () => void
@@ -294,7 +303,7 @@ function SourceRow({
         )}
         {source.ignore_robots && (
           <p className="text-xs text-muted-foreground mt-0.5">
-            Čte se i přes robots.txt — web provozuje obec
+            Čte se i přes robots.txt — {asOrganization ? 'web provozujete vy' : 'web provozuje obec'}
             {source.ignore_robots_at
               ? ` (povoleno ${formatEventDate(source.ignore_robots_at)})`
               : ''}
@@ -310,7 +319,7 @@ function SourceRow({
           </p>
         )}
         {source.last_error_code === 'robots_disallowed' && !source.ignore_robots && !activity && (
-          <RobotsBlocked source={source} onChanged={onChanged} onQueued={onQueued} />
+          <RobotsBlocked source={source} asOrganization={asOrganization} onChanged={onChanged} onQueued={onQueued} />
         )}
       </div>
       <Button
@@ -535,18 +544,23 @@ function SyncRow({ row, onDecided }: { row: ImportSyncRow; onDecided: () => void
 }
 
 /**
- * "Import akcí" (docs/import-akci-z-webu.md) of an obec, in its dashboard: the web pages and
- * calendars its events are read from each night, the events found — none of which reaches Lonvita
- * until an admin takes it over — and the taken-over ones whose source changed in a way the import
- * left to the admins. The obec also imports from pasted text or a file.
+ * "Import akcí" (docs/import-akci-z-webu.md) of an obec, in its dashboard — or, with
+ * `organizationId`, of one of its organizers, on their Import page (the same tools, on the same
+ * package of the obec): the web pages and calendars its events are read from each night, the events
+ * found — none of which reaches Lonvita until its owner takes it over — and the taken-over ones whose
+ * source changed in a way the import left to the owner. Pasted text or a file can be imported too.
  */
 export function ImportPanel({
   municipalityId,
+  organizationId,
   onPendingCountChange,
 }: {
   municipalityId: string
+  /** An organizer's import, for their organization — empty: the obec's. */
+  organizationId?: string | null
   onPendingCountChange?: (n: number) => void
 }) {
+  const asOrganization = Boolean(organizationId)
   const [sources, setSources] = useState<ImportSourceRow[]>([])
   const [candidates, setCandidates] = useState<ImportCandidateRow[]>([])
   const [syncRows, setSyncRows] = useState<ImportSyncRow[]>([])
@@ -567,10 +581,10 @@ export function ImportPanel({
 
   const load = useCallback(async () => {
     const [s, c, r, m] = await Promise.all([
-      listImportSources(municipalityId),
-      listPendingImportCandidates(municipalityId),
-      listSyncNotices(municipalityId),
-      listRunningManualImports(municipalityId).catch(() => []),
+      listImportSources(municipalityId, organizationId),
+      listPendingImportCandidates(municipalityId, organizationId),
+      listSyncNotices(municipalityId, organizationId),
+      listRunningManualImports(municipalityId, organizationId).catch(() => []),
     ])
     for (const source of s) {
       const now = sourceActivity(source)
@@ -583,7 +597,7 @@ export function ImportPanel({
     setRunningManual(m)
     onPendingCountChange?.(c.length + r.length)
     setLoading(false)
-  }, [municipalityId, onPendingCountChange])
+  }, [municipalityId, organizationId, onPendingCountChange])
 
   useEffect(() => {
     load().catch(() => setLoading(false))
@@ -706,9 +720,13 @@ export function ImportPanel({
             <p className="font-bold">Zdroje akcí</p>
           </div>
           <p className="text-sm text-muted-foreground">
-            {importAi
-              ? 'Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář.'
-              : 'Vložte odkaz na kalendář, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — veřejný Google Kalendář, kalendář iCal, nebo stránku webu, která akce nabízí v kalendářovém formátu.'}{' '}
+            {asOrganization
+              ? importAi
+                ? 'Vložte odkaz na stránku, kde zveřejňujete program svých akcí — třeba „Program“ na vašem webu nebo veřejný Google Kalendář.'
+                : 'Vložte odkaz na kalendář s vašimi akcemi — veřejný Google Kalendář, kalendář iCal, nebo stránku webu, která akce nabízí v kalendářovém formátu.'
+              : importAi
+                ? 'Vložte odkaz na stránku, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — třeba „Kalendář akcí“ na webu obce nebo veřejný Google Kalendář.'
+                : 'Vložte odkaz na kalendář, kde obec (nebo kulturní dům, spolek…) zveřejňuje program akcí — veřejný Google Kalendář, kalendář iCal, nebo stránku webu, která akce nabízí v kalendářovém formátu.'}{' '}
             Lonvita ji každou noc zkontroluje, jednou týdně projde celou a nové akce vám nabídne k
             převzetí. Akce, které už jste převzali, upraví podle webu, pokud jste je v Lonvitě
             neměnili. Facebook projít nejde.
@@ -718,7 +736,7 @@ export function ImportPanel({
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://www.obec.cz/kalendar-akci"
+                placeholder={asOrganization ? 'https://www.vas-web.cz/program' : 'https://www.obec.cz/kalendar-akci'}
                 className="h-11"
                 aria-label="Adresa stránky s akcemi"
               />
@@ -746,6 +764,7 @@ export function ImportPanel({
                   key={s.id}
                   source={s}
                   activity={sourceActivity(s)}
+                  asOrganization={asOrganization}
                   onChanged={() => load()}
                   onQueued={startPolling}
                 />
@@ -846,7 +865,7 @@ export function ImportPanel({
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Převzatá akce se založí za obec, s neomezenou kapacitou a přihlašováním bez
+                Převzatá akce se založí za {asOrganization ? 'vaši organizaci' : 'obec'}, s neomezenou kapacitou a přihlašováním bez
                 schvalování — před převzetím to můžete změnit v „Upravit a převzít“.
               </p>
               <ul className="divide-y divide-border">

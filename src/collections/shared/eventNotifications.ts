@@ -2,7 +2,7 @@ import type { Payload, PayloadRequest } from 'payload'
 
 import { enqueueOrPark, enqueueThroughOutbox } from '@/lib/outbox'
 import { JOB_NAMES } from '@/lib/queue/contracts'
-import { requiredRelationNumber } from '@/lib/relations'
+import { relationNumber, requiredRelationNumber } from '@/lib/relations'
 
 /** Brief §7 "Úprava existující akce → všichni přihlášení účastníci" — every field a participant
  * can see on the event, with the (Czech) label used to tell them what changed. Routine internal
@@ -131,6 +131,8 @@ export async function notifyEventCancelled(
     title: string
     capacity: number
     organizer: number | { id: number }
+    /** Who runs it — the obec's organization or an organizer's; its SMS are counted against it. */
+    organization?: number | { id: number } | null
     municipality: number | { id: number }
   },
   options?: {
@@ -151,6 +153,7 @@ export async function notifyEventCancelled(
         capacity: event.capacity,
         municipalityId: requiredRelationNumber(event.municipality),
         organizerId,
+        organizationId: relationNumber(event.organization) ?? undefined,
         ...registrants,
       },
     },
