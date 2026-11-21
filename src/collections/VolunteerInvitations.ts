@@ -12,12 +12,13 @@ import { APIError } from 'payload'
 import { isRegistrationOpen, REGISTRATION_CUTOFF_HOURS } from '@/lib/registrationCutoff'
 
 import { getAdministeredMunicipalityIds } from './access/shared'
-import { eventCreatorUserIds, isEventCreator } from './Events'
+import { eventCreatorUserIds, eventHasPoolAccess, isEventCreator } from './Events'
 import { escapeHtml, getEventTeamUserIds, sendNotification, sendNotificationToMany } from './shared/notify'
 import { scheduleParticipantReminder } from './shared/reminders'
 import { notDeleted } from './shared/softDelete'
 import { relationId } from '@/lib/relations'
 import { inSameRegion } from '@/lib/microregions'
+import { hasPoolAccessIn } from '@/lib/volunteers/pool'
 import { guardReadOnlyObec, municipalityOfEvent } from './shared/readOnlyObec'
 
 /** How long a note between the organizer and the volunteer may be. */
@@ -204,6 +205,15 @@ const prepareInvitation: CollectionBeforeValidateHook = async ({ data, req, oper
     }
   } else if (!(await isEventCreator(req, user, event))) {
     throw new APIError('Dobrovolníky na akci může zvát jen ten, kdo ji založil.', 403)
+  }
+  // The pool is reached only by whoever the obec let in (lib/volunteers/pool) — an organizer without
+  // access neither invites from it nor takes offers on new events. What's already waiting stays.
+  if (application) {
+    if (!(await eventHasPoolAccess(req, event))) {
+      throw new APIError('Na tuhle akci pořadatel dobrovolníky nehledá.', 400)
+    }
+  } else if (!(await hasPoolAccessIn(req, user, relationId(event.municipality)))) {
+    throw new APIError('Zvát dobrovolníky může jen organizátor s přístupem k poolu dobrovolníků — požádejte o něj obec.', 403)
   }
 
   // An application is always the signed-in person's own offer.

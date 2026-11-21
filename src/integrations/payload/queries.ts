@@ -3,6 +3,7 @@
  * already expect — snake_case field names, same nesting — so pages mostly only need their
  * data-fetching `useEffect` rewritten, not their JSX.
  */
+import { ORGANIZER_ROLE_KIND, VOLUNTEER_ACCESS_KIND, type OrganizerRequestKind } from '@/lib/organizer-request-kinds'
 import {
   buildQuery,
   buildWhereParams,
@@ -1538,13 +1539,14 @@ type PayloadOrganizerRequest = {
   id: number
   status: RequestStatus
   municipality: number | { id: number }
+  kind?: OrganizerRequestKind | null
 }
 
 /** The organizer-role request(s) this user has made — for showing pending/approved/rejected
  * status on their profile (brief §3 "Upozornění jde uživateli v obou případech"). */
 export async function getMyOrganizerRequests(
   userId: string,
-): Promise<{ id: string; status: RequestStatus; municipality_id: string }[]> {
+): Promise<{ id: string; status: RequestStatus; municipality_id: string; kind: OrganizerRequestKind }[]> {
   const where = buildWhereParams({ user: { equals: userId } })
   const query = buildQuery({ sort: '-createdAt', depth: 0, limit: 50 })
   const result = await get<PayloadListResponse<PayloadOrganizerRequest>>(
@@ -1554,6 +1556,7 @@ export async function getMyOrganizerRequests(
     id: String(r.id),
     status: r.status,
     municipality_id: relationId(r.municipality)!,
+    kind: r.kind ?? ORGANIZER_ROLE_KIND,
   }))
 }
 
@@ -1577,6 +1580,8 @@ export async function requestOrganizerRole(
   municipalityId: string,
   reason: string,
   organization: { name: string; type: OrganizationType },
+  /** Ask for the obec's (and its mikroregion's) volunteer pool too — the obec decides separately. */
+  volunteerAccess = false,
 ): Promise<string> {
   const created = await post<{ id: number }>('/organizer-requests', {
     user: Number(userId),
@@ -1584,8 +1589,28 @@ export async function requestOrganizerRole(
     reason,
     organizationName: organization.name,
     organizationType: organization.type,
+    volunteerAccessRequested: volunteerAccess,
   })
   return String(created.id)
+}
+
+/** An organizer asks the obec for its volunteer pool — they already hold the role there. */
+export async function requestVolunteerAccess(userId: string, municipalityId: string, reason: string): Promise<string> {
+  const created = await post<{ id: number }>('/organizer-requests', {
+    user: Number(userId),
+    municipality: Number(municipalityId),
+    kind: VOLUNTEER_ACCESS_KIND,
+    reason: reason || undefined,
+  })
+  return String(created.id)
+}
+
+/** Obce whose volunteer pool this user reaches as an organizer (UserRoles.volunteerAccess). The
+ * obce they administer always reach theirs. */
+export async function getMyVolunteerAccessMunicipalityIds(userId: string): Promise<string[]> {
+  const where = buildWhereParams({ user: { equals: userId }, role: { equals: 'organizer' }, volunteerAccess: { equals: true } })
+  const result = await get<PayloadListResponse<PayloadUserRole>>(`/user-roles?${where}&limit=100&depth=0`)
+  return result.docs.map((r) => String(typeof r.municipality === 'object' ? r.municipality.id : r.municipality))
 }
 
 // --- Consented deletion of a co-organized event ---------------------------------------------

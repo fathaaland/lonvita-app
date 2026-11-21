@@ -120,7 +120,7 @@ describe('Co-organized events: who edits, and deleting only with consent', () =>
       if (role) {
         await payload.create({
           collection: 'user-roles',
-          data: { user: user.id, municipality: muni.id, role: role as 'organizer' },
+          data: { user: user.id, municipality: muni.id, role: role as 'organizer', volunteerAccess: true },
           overrideAccess: true,
         })
       }

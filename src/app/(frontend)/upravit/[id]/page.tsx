@@ -30,12 +30,12 @@ function EditEventContent() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
-  const { user, isSuperAdmin } = useAuth();
+  const { user, isSuperAdmin, volunteerPoolMunicipalityIds } = useAuth();
   const [event, setEvent] = useState<EventRow | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [isAdminHere, setIsAdminHere] = useState(false);
   const [isNeighbourObecAdmin, setIsNeighbourObecAdmin] = useState(false);
-  const [volunteering, setVolunteering] = useState<"set" | "none">("none");
+  const [volunteering, setVolunteering] = useState<"set" | "none" | "no-pool">("none");
   const [pendingCoOrganizations, setPendingCoOrganizations] = useState<OrganizationRef[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -56,7 +56,9 @@ function EditEventContent() {
         setIsAdminHere(isAdminHere);
         // The volunteering flag is the creator's alone — not a spolupořadatel's, not the obec's unless
         // it runs the event (Events guardIsVolunteering). Set straight away, no obec approval.
-        setVolunteering(isSuperAdmin || ev.creator_for_viewer ? "set" : "none");
+        // Putting it on also takes access to the obec's volunteer pool (lib/volunteers/pool).
+        const reachesPool = isSuperAdmin || isAdminHere || (!!ev.municipality_id && volunteerPoolMunicipalityIds.includes(ev.municipality_id));
+        setVolunteering(isSuperAdmin || ev.creator_for_viewer ? (reachesPool ? "set" : "no-pool") : "none");
         // Everyone organizing it edits it. Once it has taken place, nobody does (Events canUpdateEvent).
         // An admin of a neighbouring obec (mikroregion) that co-organizes the event as the obec.
         const coOrganizingObec = ev.co_organizations.some(
@@ -78,7 +80,7 @@ function EditEventContent() {
     return () => {
       active = false;
     };
-  }, [user?.id, id, isSuperAdmin]);
+  }, [user?.id, id, isSuperAdmin, volunteerPoolMunicipalityIds]);
 
   // Whether it's a draft is the creator's call alone (Events isDraft) — and a platform admin's.
   const mayDraft = !!event && !!user && (isSuperAdmin || event.organizer_id === String(user.id));
@@ -104,7 +106,7 @@ function EditEventContent() {
         imagePositionY: values.imagePosition.y,
         isPaid: values.isPaid,
         priceCents: values.isPaid ? values.priceCents : null,
-        ...(volunteering === "set" ? { isVolunteering: values.isVolunteering } : {}),
+        ...(volunteering !== "none" ? { isVolunteering: values.isVolunteering } : {}),
         ...(mayDraft ? { isDraft: values.isDraft } : {}),
       });
 

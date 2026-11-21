@@ -116,7 +116,7 @@ describe('Inviting a volunteer from the pool to help on an event (VolunteerInvit
       if (role) {
         await payload.create({
           collection: 'user-roles',
-          data: { user: user.id, municipality: muni.id, role },
+          data: { user: user.id, municipality: muni.id, role, volunteerAccess: true },
           overrideAccess: true,
         })
       }

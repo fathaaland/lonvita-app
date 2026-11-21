@@ -109,7 +109,7 @@ describe('Complaints about reviews (ReviewComplaints) — reported by the review
         overrideAccess: true,
       })
       if (role) {
-        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role, volunteerAccess: true }, overrideAccess: true })
       }
       return user as TestUser
     }

@@ -14,6 +14,7 @@ import {
   listAllEventsForSuperAdmin,
   grantCommunityRole,
   revokeCommunityRole,
+  setVolunteerAccessAsSuperAdmin,
   getAllOrganizerRequestsForSuperAdmin,
   getMunicipalityComparison,
   listOrganizationsForSuperAdmin,
@@ -45,6 +46,9 @@ import { CancelEventButton } from '@/components/CancelEventButton'
 import {
   CoOrganizingRequestCard,
   OrganizerRequestReason,
+  OrganizerRequestDecisionButtons,
+  organizerDecisionToast,
+  type OrganizerDecision,
   RequestsTable,
 } from '@/components/admin/RequestsTable'
 import { OrganizationsTab } from '@/components/admin/OrganizationsTab'
@@ -69,7 +73,6 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { ConfirmDeleteButton } from '@/components/ConfirmDeleteButton'
-import { ConfirmActionButton } from '@/components/ConfirmActionButton'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,7 +102,6 @@ import {
   MapPin,
   Pencil,
   ClipboardList,
-  Check,
   Handshake,
   BarChart3,
   Store,
@@ -109,6 +111,7 @@ import {
   Map as MapIcon,
   Wallet,
   MapPinned,
+  HandHeart,
 } from 'lucide-react'
 import { pct } from '@/lib/report'
 import { toast } from 'sonner'
@@ -529,6 +532,22 @@ function SuperAdminContent() {
     }
   }
 
+  const [volunteerAccessBusyId, setVolunteerAccessBusyId] = useState<string | null>(null)
+  const handleVolunteerAccess = async (userRoleId: string, volunteerAccess: boolean) => {
+    setVolunteerAccessBusyId(userRoleId)
+    try {
+      await setVolunteerAccessAsSuperAdmin(userRoleId, volunteerAccess)
+      toast.success(volunteerAccess ? 'Přístup k dobrovolníkům povolen.' : 'Přístup k dobrovolníkům odebrán.')
+      await load()
+    } catch (error) {
+      toast.error(
+        error instanceof PayloadApiError && error.status < 500 ? error.message : 'Nepodařilo se změnit přístup.',
+      )
+    } finally {
+      setVolunteerAccessBusyId(null)
+    }
+  }
+
   const handleRevoke = async (userRoleId: string) => {
     try {
       await revokeCommunityRole(userRoleId)
@@ -580,14 +599,14 @@ function SuperAdminContent() {
     }
   }
 
-  const handleOrganizerRequestDecision = async (id: string, approve: boolean) => {
-    setRequestBusyId(id)
+  const handleOrganizerRequestDecision = async (request: SuperAdminOrganizerRequestRow, decision: OrganizerDecision) => {
+    setRequestBusyId(request.id)
     try {
-      await decideOrganizerRequest(id, approve)
-      toast.success(approve ? 'Role organizátora schválena.' : 'Žádost zamítnuta.')
+      await decideOrganizerRequest(request.id, decision !== 'reject', decision === 'approve-all')
+      toast.success(organizerDecisionToast(request, decision))
       await load()
-    } catch {
-      toast.error('Nepodařilo se vyřídit žádost.')
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : 'Nepodařilo se vyřídit žádost.')
     } finally {
       setRequestBusyId(null)
     }
@@ -1451,6 +1470,30 @@ function SuperAdminContent() {
                         {u.communityRoles.map((r) => (
                           <Badge key={r.userRoleId} variant="secondary" className="gap-1 pr-1">
                             {ROLE_LABEL[r.role] ?? r.role} · {r.municipalityName}
+                            {r.role === 'organizer' && (
+                              <button
+                                type="button"
+                                disabled={volunteerAccessBusyId === r.userRoleId}
+                                onClick={() => handleVolunteerAccess(r.userRoleId, !r.volunteerAccess)}
+                                className={cn(
+                                  'ml-0.5 inline-flex items-center rounded-full p-0.5 hover:bg-foreground/10 disabled:opacity-50',
+                                  r.volunteerAccess ? 'text-primary' : 'text-muted-foreground/50',
+                                )}
+                                aria-pressed={r.volunteerAccess}
+                                aria-label={
+                                  r.volunteerAccess
+                                    ? 'Má přístup k dobrovolníkům — odebrat'
+                                    : 'Nemá přístup k dobrovolníkům — povolit'
+                                }
+                                title={
+                                  r.volunteerAccess
+                                    ? 'Přístup k dobrovolníkům: ano (kliknutím odebrat)'
+                                    : 'Přístup k dobrovolníkům: ne (kliknutím povolit)'
+                                }
+                              >
+                                <HandHeart className="h-3 w-3" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() =>
@@ -1582,7 +1625,7 @@ function SuperAdminContent() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 px-1">
                       <UserPlus className="h-4 w-4 text-primary" />
-                      <p className="font-bold text-sm">Žádosti o roli organizátora</p>
+                      <p className="font-bold text-sm">Žádosti organizátorů</p>
                     </div>
                     {orgRequests.map((r) => (
                       <Card key={r.id}>
@@ -1595,36 +1638,19 @@ function SuperAdminContent() {
                                 {new Date(r.created_at).toLocaleDateString('cs-CZ', { timeZone: APP_TIME_ZONE })}
                               </p>
                             </div>
-                            <ConfirmActionButton
-                              size="sm"
-                              variant="outline"
-                              className="h-9 text-success border-success/40"
-                              disabled={requestBusyId === r.id}
-                              title={`Schválit žádost – ${r.full_name}?`}
-                              description={`${r.full_name} dostane v obci ${r.municipality_name} roli organizátora${r.organization_name ? ` za „${r.organization_name}“` : ''} a bude moct zakládat akce.`}
-                              confirmLabel="Schválit"
-                              onConfirm={() => handleOrganizerRequestDecision(r.id, true)}
-                            >
-                              <Check className="h-4 w-4" /> Schválit
-                            </ConfirmActionButton>
-                            <ConfirmActionButton
-                              size="sm"
-                              variant="outline"
-                              className="h-9 text-destructive border-destructive/40"
-                              disabled={requestBusyId === r.id}
-                              title={`Zamítnout žádost – ${r.full_name}?`}
-                              description="Žadatel se dozví, že jeho žádost o roli organizátora byla zamítnuta. Rozhodnutí nejde vrátit."
-                              confirmLabel="Zamítnout"
-                              destructive
-                              onConfirm={() => handleOrganizerRequestDecision(r.id, false)}
-                            >
-                              <X className="h-4 w-4" /> Zamítnout
-                            </ConfirmActionButton>
                           </div>
                           <OrganizerRequestReason
                             reason={r.reason}
                             organizationName={r.organization_name}
                             organizationType={r.organization_type}
+                            kind={r.kind}
+                            volunteerAccessRequested={r.volunteer_access_requested}
+                          />
+                          <OrganizerRequestDecisionButtons
+                            request={r}
+                            busy={requestBusyId === r.id}
+                            place={` v obci ${r.municipality_name}`}
+                            onDecide={(decision) => handleOrganizerRequestDecision(r, decision)}
                           />
                         </CardContent>
                       </Card>

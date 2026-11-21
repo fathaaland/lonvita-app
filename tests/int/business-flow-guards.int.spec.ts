@@ -47,7 +47,7 @@ describe('Business flow guards — roles, requests, cancelled events, handovers'
     return user as TestUser
   }
   const grant = (user: TestUser, municipality: { id: number }, role: 'organizer' | 'municipality_admin') =>
-    payload.create({ collection: 'user-roles', data: { user: user.id, municipality: municipality.id, role }, overrideAccess: true })
+    payload.create({ collection: 'user-roles', data: { user: user.id, municipality: municipality.id, role, volunteerAccess: true }, overrideAccess: true })
 
   const eventData = (organizer: TestUser, extra: Record<string, unknown> = {}) => ({
     title: `Guards Event ${STAMP}`,
@@ -165,7 +165,7 @@ describe('Business flow guards — roles, requests, cancelled events, handovers'
       ).rejects.toThrow()
       const organizer = await payload.create({
         collection: 'user-roles',
-        data: { user: resident.id, municipality: muni.id, role: 'organizer' },
+        data: { user: resident.id, municipality: muni.id, role: 'organizer', volunteerAccess: true },
         user: admin,
         overrideAccess: false,
       })

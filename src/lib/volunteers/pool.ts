@@ -1,4 +1,4 @@
-import type { Payload } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
 
 import { getAdministeredMunicipalityIds } from '@/collections/access/shared'
 import { notDeleted } from '@/collections/shared/softDelete'
@@ -36,34 +36,70 @@ export type VolunteerCard = {
   can_remove: boolean
 }
 
-/** Whoever organizes anywhere — a platform admin, or a "municipality_admin"/"organizer" role in any obec. */
-export async function organizesSomewhere(payload: Payload, viewer: Viewer): Promise<boolean> {
-  if (viewer.role === 'admin') return true
-  const roles = await payload.count({
-    collection: 'user-roles',
-    where: { and: [{ user: { equals: viewer.id } }, { role: { in: ['municipality_admin', 'organizer'] } }] },
-    overrideAccess: true,
-  })
-  return roles.totalDocs > 0
-}
-
-/** Where the viewer may reach volunteers: the obce they organize in and the rest of those obce's
- * mikroregions (lib/microregions) — null for a platform admin, who sees the whole pool. A volunteer
- * helps where their volunteer card says, and nowhere else. */
-export async function volunteerReachOf(payload: Payload, viewer: Viewer): Promise<number[] | null> {
-  if (viewer.role === 'admin') return null
+/**
+ * The obce whose volunteer pool the viewer may reach as their own: every obec they administer
+ * (an obec and its admins always reach its pool), and those where they organize with
+ * `volunteerAccess` — the obec allowed it (OrganizerRequests, api/user-roles/[id]/volunteer-access).
+ * An organizer without it doesn't reach the pool at all: neither lists it, nor invites from it, nor
+ * marks events as volunteering ones (Events guardIsVolunteering).
+ */
+export async function poolMunicipalityIdsOf(payload: Payload, viewer: Viewer, req?: PayloadRequest): Promise<string[]> {
   const roles = await payload.find({
     collection: 'user-roles',
-    where: { and: [{ user: { equals: viewer.id } }, { role: { in: ['municipality_admin', 'organizer'] } }] },
+    where: {
+      and: [
+        { user: { equals: viewer.id } },
+        {
+          or: [
+            { role: { equals: 'municipality_admin' } },
+            { and: [{ role: { equals: 'organizer' } }, { volunteerAccess: { equals: true } }] },
+          ],
+        },
+      ],
+    },
     select: { municipality: true },
     depth: 0,
     pagination: false,
     overrideAccess: true,
+    req,
   })
-  const own = [...new Set(roles.docs.map((r) => relationId(r.municipality)).filter((id): id is string => id !== null))]
+  return [...new Set(roles.docs.map((r) => relationId(r.municipality)).filter((id): id is string => id !== null))]
+}
+
+/** Whoever may look into the pool at all — a platform admin, an obec's admin, or an organizer the
+ * obec let in (poolMunicipalityIdsOf). */
+export async function organizesSomewhere(payload: Payload, viewer: Viewer): Promise<boolean> {
+  if (viewer.role === 'admin') return true
+  return (await poolMunicipalityIdsOf(payload, viewer)).length > 0
+}
+
+/** Where the viewer may reach volunteers: the obce whose pool they may reach (poolMunicipalityIdsOf)
+ * and the rest of those obce's mikroregions (lib/microregions) — null for a platform admin, who sees
+ * the whole pool. A volunteer helps where their volunteer card says, and nowhere else. */
+export async function volunteerReachOf(payload: Payload, viewer: Viewer): Promise<number[] | null> {
+  if (viewer.role === 'admin') return null
+  const own = await poolMunicipalityIdsOf(payload, viewer)
   const reach = new Set<string>()
   for (const id of own) for (const m of await regionMunicipalityIds(payload, id)) reach.add(m)
   return [...reach].map(Number)
+}
+
+/** Whether `user` may reach the pool for an event in `municipalityId` — the obec's own pool, by
+ * administering it or organizing there with `volunteerAccess`. */
+export async function hasPoolAccessIn(
+  req: PayloadRequest,
+  user: Viewer,
+  municipalityId: number | string | null | undefined,
+): Promise<boolean> {
+  if (user.role === 'admin') return true
+  if (municipalityId == null) return false
+  const key = `poolMunicipalityIds:${user.id}`
+  let ids = req.context?.[key] as string[] | undefined
+  if (!ids) {
+    ids = await poolMunicipalityIdsOf(req.payload, user, req)
+    if (req.context) req.context[key] = ids
+  }
+  return ids.includes(String(municipalityId))
 }
 
 /** Average rating and count per volunteer (user id). */

@@ -14,6 +14,7 @@ import {
   getReviewComplaintsForAdmin,
   getRunningEventsOfOrganizer,
   revokeOrganizerRole,
+  setOrganizerVolunteerAccess,
   OrganizerRequestAdminRow,
   CoOrganizingRequestAdminRow,
   OrganizerRoleRow,
@@ -25,7 +26,9 @@ import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Check, X, UserPlus, Handshake, Users, Flag, UserMinus } from "lucide-react";
+import { Check, X, UserPlus, Handshake, Users, Flag, UserMinus, HandHeart } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { VOLUNTEER_ACCESS_KIND } from "@/lib/organizer-request-kinds";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,16 +89,29 @@ export function RequestsTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [muniId]);
 
-  const handleOrganizerDecision = async (id: string, approve: boolean) => {
-    setBusyId(id);
+  const handleOrganizerDecision = async (request: OrganizerRequestAdminRow, decision: OrganizerDecision) => {
+    setBusyId(request.id);
     try {
-      await decideOrganizerRequest(id, approve);
-      toast.success(approve ? "Role organizátora schválena." : "Žádost zamítnuta.");
+      await decideOrganizerRequest(request.id, decision !== "reject", decision === "approve-all");
+      toast.success(organizerDecisionToast(request, decision));
       await load();
-    } catch {
-      toast.error("Nepodařilo se vyřídit žádost.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se vyřídit žádost.");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const handleVolunteerAccess = async (userRoleId: string, volunteerAccess: boolean) => {
+    setBusyId(userRoleId);
+    try {
+      await setOrganizerVolunteerAccess(userRoleId, volunteerAccess);
+      toast.success(volunteerAccess ? "Přístup k dobrovolníkům povolen." : "Přístup k dobrovolníkům odebrán.");
+    } catch (error) {
+      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se změnit přístup.");
+    } finally {
+      setBusyId(null);
+      await load();
     }
   };
 
@@ -159,7 +175,7 @@ export function RequestsTable({
         <div className="space-y-2">
           <div className="flex items-center gap-2 px-1">
             <UserPlus className="h-4 w-4 text-primary" />
-            <p className="font-bold text-sm">Žádosti o roli organizátora</p>
+            <p className="font-bold text-sm">Žádosti organizátorů</p>
           </div>
           {organizerRequests.map((r) => (
             <Card key={r.id}>
@@ -169,36 +185,18 @@ export function RequestsTable({
                     <p className="font-semibold text-sm truncate">{r.full_name}</p>
                     <p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}</p>
                   </div>
-                  <ConfirmActionButton
-                    size="sm"
-                    variant="outline"
-                    className="h-9 text-success border-success/40"
-                    disabled={busyId === r.id}
-                    title={`Schválit žádost – ${r.full_name}?`}
-                    description={`${r.full_name} dostane v obci roli organizátora${r.organization_name ? ` za „${r.organization_name}“` : ""} a bude moct zakládat akce.`}
-                    confirmLabel="Schválit"
-                    onConfirm={() => handleOrganizerDecision(r.id, true)}
-                  >
-                    <Check className="h-4 w-4" /> Schválit
-                  </ConfirmActionButton>
-                  <ConfirmActionButton
-                    size="sm"
-                    variant="outline"
-                    className="h-9 text-destructive border-destructive/40"
-                    disabled={busyId === r.id}
-                    title={`Zamítnout žádost – ${r.full_name}?`}
-                    description="Žadatel se dozví, že jeho žádost o roli organizátora byla zamítnuta. Rozhodnutí nejde vrátit."
-                    confirmLabel="Zamítnout"
-                    destructive
-                    onConfirm={() => handleOrganizerDecision(r.id, false)}
-                  >
-                    <X className="h-4 w-4" /> Zamítnout
-                  </ConfirmActionButton>
                 </div>
                 <OrganizerRequestReason
                   reason={r.reason}
                   organizationName={r.organization_name}
                   organizationType={r.organization_type}
+                  kind={r.kind}
+                  volunteerAccessRequested={r.volunteer_access_requested}
+                />
+                <OrganizerRequestDecisionButtons
+                  request={r}
+                  busy={busyId === r.id}
+                  onDecide={(decision) => handleOrganizerDecision(r, decision)}
                 />
               </CardContent>
             </Card>
@@ -276,6 +274,16 @@ export function RequestsTable({
                     <p className="font-semibold text-sm break-words">{o.full_name}</p>
                   )}
                 </div>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0" title="Přístup k poolu dobrovolníků">
+                  <HandHeart className="h-4 w-4" aria-hidden />
+                  <span className="hidden sm:inline">Dobrovolníci</span>
+                  <Switch
+                    aria-label={`Přístup k dobrovolníkům – ${o.full_name}`}
+                    checked={o.volunteer_access}
+                    disabled={busyId === o.id}
+                    onCheckedChange={(v) => handleVolunteerAccess(o.id, v)}
+                  />
+                </label>
                 <RevokeOrganizerButton
                   organizer={o}
                   busy={busyId === o.id}
@@ -503,20 +511,129 @@ function RevokeOrganizerButton({
   );
 }
 
+export type OrganizerDecision = "approve-all" | "approve-role" | "reject";
+
+export function organizerDecisionToast(request: OrganizerRequestAdminRow, decision: OrganizerDecision): string {
+  if (decision === "reject") return "Žádost zamítnuta.";
+  if (request.kind === VOLUNTEER_ACCESS_KIND) return "Přístup k dobrovolníkům schválen.";
+  return decision === "approve-all" ? "Role organizátora i přístup k dobrovolníkům schváleny." : "Role organizátora schválena.";
+}
+
+/**
+ * The obec's answer to a request. A role request that asks for the volunteer pool too may be approved
+ * whole, as the role alone, or turned down; one for the pool alone is approved or turned down.
+ * `place` — e.g. " v obci X" in the superadmin hub.
+ */
+export function OrganizerRequestDecisionButtons({
+  request: r,
+  busy,
+  onDecide,
+  place = "",
+}: {
+  request: OrganizerRequestAdminRow;
+  busy: boolean;
+  onDecide: (decision: OrganizerDecision) => void;
+  place?: string;
+}) {
+  const accessOnly = r.kind === VOLUNTEER_ACCESS_KIND;
+  const as = r.organization_name ? ` za „${r.organization_name}“` : "";
+  return (
+    <div className="flex flex-wrap gap-2">
+      {accessOnly ? (
+        <ConfirmActionButton
+          size="sm"
+          variant="outline"
+          className="h-9 text-success border-success/40"
+          disabled={busy}
+          title={`Povolit přístup k dobrovolníkům – ${r.full_name}?`}
+          description={`${r.full_name} uvidí pool dobrovolníků${place || " obce"} a jejího mikroregionu, bude je moct zvát a hledat je na svých akcích. Přístup můžete později odebrat v seznamu organizátorů.`}
+          confirmLabel="Povolit"
+          onConfirm={() => onDecide("approve-all")}
+        >
+          <Check className="h-4 w-4" /> Povolit přístup
+        </ConfirmActionButton>
+      ) : (
+        <>
+          {r.volunteer_access_requested && (
+            <ConfirmActionButton
+              size="sm"
+              variant="outline"
+              className="h-9 text-success border-success/40"
+              disabled={busy}
+              title={`Schválit vše – ${r.full_name}?`}
+              description={`${r.full_name} dostane${place || " v obci"} roli organizátora${as} a přístup k poolu dobrovolníků obce a jejího mikroregionu. Přístup můžete později odebrat v seznamu organizátorů.`}
+              confirmLabel="Schválit vše"
+              onConfirm={() => onDecide("approve-all")}
+            >
+              <Check className="h-4 w-4" /> Schválit vše
+            </ConfirmActionButton>
+          )}
+          <ConfirmActionButton
+            size="sm"
+            variant="outline"
+            className="h-9 text-success border-success/40"
+            disabled={busy}
+            title={`${r.volunteer_access_requested ? "Schválit jen roli organizátora" : "Schválit žádost"} – ${r.full_name}?`}
+            description={`${r.full_name} dostane${place || " v obci"} roli organizátora${as} a bude moct zakládat akce${r.volunteer_access_requested ? " — bez přístupu k dobrovolníkům; ten mu můžete povolit později" : ""}.`}
+            confirmLabel="Schválit"
+            onConfirm={() => onDecide("approve-role")}
+          >
+            <Check className="h-4 w-4" /> {r.volunteer_access_requested ? "Jen pořádání akcí" : "Schválit"}
+          </ConfirmActionButton>
+        </>
+      )}
+      <ConfirmActionButton
+        size="sm"
+        variant="outline"
+        className="h-9 text-destructive border-destructive/40"
+        disabled={busy}
+        title={`Zamítnout žádost – ${r.full_name}?`}
+        description={
+          accessOnly
+            ? "Organizátor se dozví, že jeho žádost o přístup k dobrovolníkům byla zamítnuta. Roli organizátora si ponechá."
+            : "Žadatel se dozví, že jeho žádost o roli organizátora byla zamítnuta. Rozhodnutí nejde vrátit."
+        }
+        confirmLabel="Zamítnout"
+        destructive
+        onConfirm={() => onDecide("reject")}
+      >
+        <X className="h-4 w-4" /> Zamítnout
+      </ConfirmActionButton>
+    </div>
+  );
+}
+
 /** The applicant's "why me" text — what the admin decides on. Requests filed before the reason
  * was asked for have none. */
 export function OrganizerRequestReason({
   reason,
   organizationName,
   organizationType,
+  kind,
+  volunteerAccessRequested,
 }: {
   reason: string | null;
   /** Who the applicant will organize as — approving creates this organization. */
   organizationName?: string | null;
   organizationType?: string | null;
+  kind?: string;
+  volunteerAccessRequested?: boolean;
 }) {
   return (
     <>
+      {kind === VOLUNTEER_ACCESS_KIND ? (
+        <p className="text-sm flex items-center gap-1.5">
+          <HandHeart className="h-4 w-4 text-primary" aria-hidden />
+          Organizátor žádá o přístup k poolu dobrovolníků.
+        </p>
+      ) : (
+        volunteerAccessRequested && (
+          <p className="text-sm flex items-center gap-1.5">
+            <HandHeart className="h-4 w-4 text-primary" aria-hidden />
+            Žádá i o přístup k poolu dobrovolníků.
+          </p>
+        )
+      )}
       {organizationName && (
         <p className="text-sm">
           Za <span className="font-semibold">{organizationName}</span>
@@ -526,7 +643,7 @@ export function OrganizerRequestReason({
       {reason ? (
         <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm whitespace-pre-line break-words">{reason}</p>
       ) : (
-        <p className="text-xs italic text-muted-foreground">Žádost je bez zdůvodnění.</p>
+        kind !== VOLUNTEER_ACCESS_KIND && <p className="text-xs italic text-muted-foreground">Žádost je bez zdůvodnění.</p>
       )}
     </>
   );

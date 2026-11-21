@@ -108,8 +108,9 @@ interface Props {
   isNeighbourObecAdmin?: boolean;
   /** The volunteering flag is the event creator's alone: "set" (the creator — the obec's admins when
    * the obec runs it — or a platform admin; no obec approval), "none" (everyone else, the obec
-   * co-organizing it included). */
-  volunteering: "set" | "none";
+   * co-organizing it included), "no-pool" (the creator, but an organizer the obec hasn't let into its
+   * volunteer pool — they may take the mark off, never put it on; lib/volunteers/pool). */
+  volunteering: "set" | "none" | "no-pool";
   /** The event is (or, created by the obec's admin, will be) the obec's own. */
   runsAsObec?: boolean;
   /** Organizations invited to co-organize the event that haven't answered yet. */
@@ -187,7 +188,7 @@ export function EventForm({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const volunteeringLocked = volunteering === "none";
+  const volunteeringLocked = volunteering === "none" || (volunteering === "no-pool" && !initial?.is_volunteering);
   // A volunteer has signed up — the mark stays (Events guardIsVolunteering), so there's nothing to untick.
   const volunteeringKept = Boolean(initial?.volunteering_locked);
   const savedCoOrganizationIds = new Set((initial?.co_organizations ?? []).map((o) => o.id));
@@ -540,7 +541,11 @@ export function EventForm({
           <span>
             {volunteering === "set"
               ? "Tohle je dobrovolnická aktivita."
-              : isVolunteering
+              : volunteering === "no-pool"
+                ? volunteeringLocked
+                  ? "Dobrovolníky může hledat jen organizátor s přístupem k poolu dobrovolníků — požádejte o něj obec v sekci Organizace."
+                  : "Dobrovolnická aktivita — k poolu dobrovolníků už přístup nemáte, příznak můžete jen odebrat."
+                : isVolunteering
                 ? "Dobrovolnická aktivita — příznak spravuje ten, kdo akci založil."
                 : "Příznak Dobrovolnictví může přidat jen ten, kdo akci založil."}
           </span>

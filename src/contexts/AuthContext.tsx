@@ -7,6 +7,7 @@ import {
   getMyRoles,
   getMyAdministeredMunicipalityIds,
   getMyOrganizerMunicipalityIds,
+  getMyVolunteerAccessMunicipalityIds,
   getMunicipalityIdsOpenToOrganizers,
   ProfileRow,
   AppRole,
@@ -31,6 +32,10 @@ interface AuthContextValue {
   /** Obce this account may found events in: every one it administers, and those where it organizes
    * unless the obec founds its events itself ("municipality_only", Events canCreateEvent). */
   creatableMunicipalityIds: string[];
+  /** Obce whose volunteer pool this account reaches — every one it administers, and those where it
+   * organizes with the obec's permission (UserRoles.volunteerAccess). Elsewhere it neither sees the
+   * pool nor marks events as volunteering ones (lib/volunteers/pool). */
+  volunteerPoolMunicipalityIds: string[];
   /** The obec the home page's switcher is currently browsing (brief §2 "uživatel není vázaný
    * lokací"), kept here (not just local to "/") so nav chrome elsewhere can tell whether the
    * signed-in admin/organizer is looking at an obec they actually hold that role in — e.g. an
@@ -51,15 +56,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [administeredMunicipalityIds, setAdministeredMunicipalityIds] = useState<string[]>([]);
   const [organizerMunicipalityIds, setOrganizerMunicipalityIds] = useState<string[]>([]);
   const [creatableMunicipalityIds, setCreatableMunicipalityIds] = useState<string[]>([]);
+  const [volunteerPoolMunicipalityIds, setVolunteerPoolMunicipalityIds] = useState<string[]>([]);
   const [viewingMunicipalityId, setViewingMunicipalityId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadProfileAndRoles = useCallback(async (userId: string) => {
-    const [prof, roleRows, administeredIds, organizerIds] = await Promise.all([
+    const [prof, roleRows, administeredIds, organizerIds, poolIds] = await Promise.all([
       getMyProfile(userId),
       getMyRoles(userId),
       getMyAdministeredMunicipalityIds(userId),
       getMyOrganizerMunicipalityIds(userId),
+      getMyVolunteerAccessMunicipalityIds(userId).catch(() => [] as string[]),
     ]);
     const openIds = await getMunicipalityIdsOpenToOrganizers(organizerIds).catch(() => organizerIds);
     setProfile(prof);
@@ -67,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAdministeredMunicipalityIds(administeredIds);
     setOrganizerMunicipalityIds(organizerIds);
     setCreatableMunicipalityIds([...new Set([...administeredIds, ...openIds])]);
+    setVolunteerPoolMunicipalityIds([...new Set([...administeredIds, ...poolIds])]);
   }, []);
 
   useEffect(() => {
@@ -89,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAdministeredMunicipalityIds([]);
         setOrganizerMunicipalityIds([]);
         setCreatableMunicipalityIds([]);
+        setVolunteerPoolMunicipalityIds([]);
         setViewingMunicipalityId(null);
       }
 
@@ -128,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         administeredMunicipalityIds,
         organizerMunicipalityIds,
         creatableMunicipalityIds,
+        volunteerPoolMunicipalityIds,
         viewingMunicipalityId,
         setViewingMunicipalityId,
         signOut,

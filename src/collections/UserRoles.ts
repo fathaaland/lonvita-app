@@ -242,6 +242,21 @@ export const UserRoles: CollectionConfig = {
           'What someone may do in an obec — where they live is Profiles.municipality, not a role. Enum follows ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren\'t tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).',
       },
     },
+    {
+      // An organizer reaches the obec's (and its mikroregion's) volunteer pool only once the obec
+      // allows it — on approving their request (OrganizerRequests), or later from its list of
+      // organizers (api/user-roles/[id]/volunteer-access). An obec's admins always reach it
+      // (lib/volunteers/pool). Never written over REST by anyone but a platform admin — the
+      // collection's `update` is closed, and creating a role can't carry it either.
+      name: 'volunteerAccess',
+      type: 'checkbox',
+      defaultValue: false,
+      access: {
+        create: ({ req: { user } }) => user?.role === 'admin',
+        update: ({ req: { user } }) => user?.role === 'admin',
+      },
+      admin: { description: 'Organizer only: may reach the volunteer pool of this obec and its mikroregion.' },
+    },
   ],
   hooks: {
     beforeOperation: [
@@ -251,6 +266,7 @@ export const UserRoles: CollectionConfig = {
     ],
     beforeValidate: [
       async ({ data, req, operation, originalDoc }) => {
+        if (data && data.role && data.role !== 'organizer') data.volunteerAccess = false
         if (!data?.user || !data?.role || !data?.municipality) return data
 
         const userId = data.user

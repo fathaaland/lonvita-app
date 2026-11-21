@@ -38,6 +38,7 @@ import { hasEventEnded } from '@/lib/eventEnded'
 import { deferredUntilCommit } from '@/lib/after-commit'
 import { alertIfOutsideArea, needsAreaCheck } from '@/lib/events/area'
 import { inSameRegion, regionMunicipalityIds } from '@/lib/microregions'
+import { hasPoolAccessIn } from '@/lib/volunteers/pool'
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
 
 import type { Event } from '@/payload-types'
@@ -205,6 +206,20 @@ export async function isEventCreator(
   const municipalityId = relationId(event.municipality)
   if (!municipalityId || !(await administeredIdsFor(req, user.id)).includes(municipalityId)) return false
   return (await obecRole(req, { id: 0, ...event })).runs
+}
+
+/** Whether the event's creator side may reach the volunteer pool — always when the obec runs it,
+ * otherwise only when its pořadatel organizes in the obec with access to the pool
+ * (lib/volunteers/pool). Volunteers offer help only where that holds. */
+export async function eventHasPoolAccess(
+  req: PayloadRequest,
+  event: Pick<EventOwnership, 'organizer' | 'organization' | 'municipality'>,
+): Promise<boolean> {
+  const municipalityId = relationId(event.municipality)
+  if (!municipalityId) return false
+  if ((await obecRole(req, { id: 0, ...event })).runs) return true
+  const organizerId = relationId(event.organizer)
+  return organizerId ? hasPoolAccessIn(req, { id: Number(organizerId) }, municipalityId) : false
 }
 
 /** Who the event's creator is, as people to notify: the obec's admins when the obec runs it, its
@@ -581,6 +596,14 @@ const guardIsVolunteering: CollectionBeforeChangeHook = async ({ data, req, orig
   if (!(await isEventCreator(req, user, event))) {
     data.isVolunteering = originalDoc?.isVolunteering ?? false
     return data
+  }
+  // Only whoever may reach the obec's volunteer pool looks for volunteers — an organizer the obec
+  // hasn't let in doesn't (lib/volunteers/pool). Taking the mark off is always fine.
+  if (data.isVolunteering && !(await hasPoolAccessIn(req, user, relationId(event.municipality)))) {
+    throw new APIError(
+      'Dobrovolníky na akci může hledat jen organizátor s přístupem k poolu dobrovolníků — požádejte o něj obec.',
+      403,
+    )
   }
 
   if (!data.isVolunteering && originalDoc?.id && (await hasVolunteersSignedUp(req, originalDoc.id))) {

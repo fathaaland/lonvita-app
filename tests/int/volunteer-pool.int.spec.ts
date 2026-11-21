@@ -103,7 +103,7 @@ describe('The volunteer pool (GET/POST /api/admin/volunteers)', () => {
       [adminA, muniA, 'municipality_admin'],
       [organizerB, muniB, 'organizer'],
     ] as const) {
-      await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: municipality.id, role }, overrideAccess: true })
+      await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: municipality.id, role, volunteerAccess: true }, overrideAccess: true })
     }
   })
 

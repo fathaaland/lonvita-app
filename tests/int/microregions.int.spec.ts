@@ -87,7 +87,7 @@ describe('Mikroregiony', () => {
   ) =>
     payload.create({
       collection: 'user-roles',
-      data: { user: user.id, municipality: municipality.id, role },
+      data: { user: user.id, municipality: municipality.id, role, volunteerAccess: true },
       overrideAccess: true,
     })
 

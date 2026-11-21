@@ -146,7 +146,7 @@ describe('Volunteering on an event is its creator’s alone', () => {
     for (const user of [creator, coOrganizer]) {
       await payload.create({
         collection: 'user-roles',
-        data: { user: user.id, municipality: municipality.id, role: 'organizer' },
+        data: { user: user.id, municipality: municipality.id, role: 'organizer', volunteerAccess: true },
         overrideAccess: true,
       })
     }

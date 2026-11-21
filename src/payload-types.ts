@@ -432,6 +432,10 @@ export interface UserRole {
    * What someone may do in an obec — where they live is Profiles.municipality, not a role. Enum follows ERD §0.2 pilot roles, plus "organizer" (brief §4). A user can hold the same role in several municipalities at once — organizers and volunteers aren't tied to one town (brief §8 "Působení jednoho člověka napříč víc obcemi"). "prescriber" is a reserved slot for the intervention layer — not wired to any workflow yet (see brief §B).
    */
   role: 'municipality_admin' | 'organizer' | 'prescriber';
+  /**
+   * Organizer only: may reach the volunteer pool of this obec and its mikroregion.
+   */
+  volunteerAccess?: boolean | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -755,6 +759,9 @@ export interface Notification {
  */
 export interface OrganizerRequest {
   id: number;
+  kind?: ('role' | 'volunteer_access') | null;
+  volunteerAccessRequested?: boolean | null;
+  volunteerAccessGranted?: boolean | null;
   user: number | User;
   municipality: number | Municipality;
   /**
@@ -1713,6 +1720,7 @@ export interface UserRolesSelect<T extends boolean = true> {
   user?: T;
   municipality?: T;
   role?: T;
+  volunteerAccess?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1856,6 +1864,9 @@ export interface NotificationsSelect<T extends boolean = true> {
  * via the `definition` "organizer-requests_select".
  */
 export interface OrganizerRequestsSelect<T extends boolean = true> {
+  kind?: T;
+  volunteerAccessRequested?: T;
+  volunteerAccessGranted?: T;
   user?: T;
   municipality?: T;
   reason?: T;

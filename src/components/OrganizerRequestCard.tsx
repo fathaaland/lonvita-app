@@ -24,6 +24,8 @@ import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { ORGANIZER_ROLE_KIND } from "@/lib/organizer-request-kinds";
 import { Megaphone, Clock, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -49,13 +51,15 @@ export function OrganizerRequestCard() {
   // without a business or club is just an "individual".
   const [organizationType, setOrganizationType] = useState<OrganizationType>("business");
   const [organizationName, setOrganizationName] = useState("");
+  // Ask for the obec's (and its mikroregion's) volunteer pool too — the obec may approve the role alone.
+  const [volunteerAccess, setVolunteerAccess] = useState(false);
   const nameLength = organizationName.trim().length;
   const canSubmit = reasonLength >= ORGANIZER_REASON_MIN_LENGTH && nameLength >= ORGANIZATION_NAME_MIN_LENGTH;
 
   useEffect(() => {
     if (!user || !profile?.municipality_id) return;
     Promise.all([getMyOrganizerRequests(String(user.id)), getMunicipality(profile.municipality_id)]).then(([reqs, home]) => {
-      const forHome = reqs.find((r) => r.municipality_id === profile.municipality_id);
+      const forHome = reqs.find((r) => r.municipality_id === profile.municipality_id && r.kind === ORGANIZER_ROLE_KIND);
       setStatus(forHome?.status ?? null);
       setPendingId(forHome?.status === "pending" ? forHome.id : null);
       setObecOnly(home?.rules_for_creation === "municipality_only");
@@ -88,16 +92,20 @@ export function OrganizerRequestCard() {
     if (!user || !profile?.municipality_id || !canSubmit) return;
     setSubmitting(true);
     try {
-      const id = await requestOrganizerRole(String(user.id), profile.municipality_id, reason.trim(), {
-        name: organizationName.trim(),
-        type: organizationType,
-      });
+      const id = await requestOrganizerRole(
+        String(user.id),
+        profile.municipality_id,
+        reason.trim(),
+        { name: organizationName.trim(), type: organizationType },
+        volunteerAccess,
+      );
       setStatus("pending");
       // So "Stáhnout žádost" is there straight away, not only after a reload.
       setPendingId(id);
       setFormOpen(false);
       setReason("");
       setOrganizationName("");
+      setVolunteerAccess(false);
       toast.success("Žádost odeslána, obec ji vyřídí.");
     } catch (error) {
       toast.error(
@@ -197,6 +205,23 @@ export function OrganizerRequestCard() {
                     ? `Napište aspoň ${ORGANIZER_REASON_MIN_LENGTH} znaků (zatím ${reasonLength}).`
                     : `${reason.length}/${ORGANIZER_REASON_MAX_LENGTH}`}
                 </p>
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <div>
+                    <Label htmlFor="organizer-volunteer-access" className="text-sm font-semibold">
+                      Požádat i o přístup k dobrovolníkům
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Abyste mohli zvát dobrovolníky z poolu obce a jejího mikroregionu a hledat je na svých akcích. Obec
+                      může schválit jen roli organizátora.
+                    </p>
+                  </div>
+                  <Switch
+                    id="organizer-volunteer-access"
+                    checked={volunteerAccess}
+                    onCheckedChange={setVolunteerAccess}
+                    disabled={submitting}
+                  />
+                </div>
                 <div className="flex flex-col gap-2 pt-1">
                   <Button
                     onClick={handleRequest}

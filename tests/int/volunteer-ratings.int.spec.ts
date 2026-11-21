@@ -74,7 +74,7 @@ describe("Rating volunteers, and the volunteer's card (VolunteerRatings, GET /ap
         overrideAccess: true,
       })
       if (role) {
-        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role, volunteerAccess: true }, overrideAccess: true })
       }
       return { user, profileId: created.id }
     }

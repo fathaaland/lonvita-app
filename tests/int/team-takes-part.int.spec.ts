@@ -104,7 +104,7 @@ describe('Whoever runs an event is counted automatically — anywhere else they 
 
     await payload.create({
       collection: 'user-roles',
-      data: { user: club.id, municipality: municipality.id, role: 'organizer' },
+      data: { user: club.id, municipality: municipality.id, role: 'organizer', volunteerAccess: true },
       overrideAccess: true,
     })
     for (const admin of [jana, otherAdmin]) {

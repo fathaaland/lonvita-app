@@ -58,6 +58,7 @@ import * as migration_20261114_100345_erasure_confirmation from './20261114_1003
 import * as migration_20261114_102057_licence_paid_until from './20261114_102057_licence_paid_until';
 import * as migration_20261114_105958_sms_overage_cap from './20261114_105958_sms_overage_cap';
 import * as migration_20261114_160720_pricing_2027 from './20261114_160720_pricing_2027';
+import * as migration_20261121_061600_volunteer_pool_access from './20261121_061600_volunteer_pool_access';
 
 export const migrations = [
   {
@@ -358,6 +359,11 @@ export const migrations = [
   {
     up: migration_20261114_160720_pricing_2027.up,
     down: migration_20261114_160720_pricing_2027.down,
-    name: '20261114_160720_pricing_2027'
+    name: '20261114_160720_pricing_2027',
+  },
+  {
+    up: migration_20261121_061600_volunteer_pool_access.up,
+    down: migration_20261121_061600_volunteer_pool_access.down,
+    name: '20261121_061600_volunteer_pool_access',
   },
 ];

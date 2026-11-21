@@ -39,7 +39,7 @@ export function InviteVolunteerDialog({
   volunteer: { user_id: string; full_name: string } | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { user, administeredMunicipalityIds } = useAuth();
+  const { user, administeredMunicipalityIds, volunteerPoolMunicipalityIds, isSuperAdmin } = useAuth();
   const [events, setEvents] = useState<EventRow[] | null>(null);
   const [alreadyInvited, setAlreadyInvited] = useState<Set<string>>(new Set());
   const [eventId, setEventId] = useState("");
@@ -57,7 +57,11 @@ export function InviteVolunteerDialog({
       const upcoming = all
         .filter(
           (e) =>
-            e.creator_for_viewer && e.status !== "cancelled" && new Date(e.date_time).getTime() > Date.now(),
+            e.creator_for_viewer &&
+            e.status !== "cancelled" &&
+            new Date(e.date_time).getTime() > Date.now() &&
+            // Only from the pool of an obec that let them in (lib/volunteers/pool).
+            (isSuperAdmin || (!!e.municipality_id && volunteerPoolMunicipalityIds.includes(e.municipality_id))),
         )
         .sort((a, b) => a.date_time.localeCompare(b.date_time));
       const ids = upcoming.map((e) => e.id);

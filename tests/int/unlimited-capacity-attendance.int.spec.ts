@@ -91,7 +91,7 @@ describe('An event with unlimited capacity keeps no attendance — the volunteer
         overrideAccess: true,
       })
       if (role) {
-        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role }, overrideAccess: true })
+        await payload.create({ collection: 'user-roles', data: { user: user.id, municipality: muni.id, role, volunteerAccess: true }, overrideAccess: true })
       }
       return user
     }

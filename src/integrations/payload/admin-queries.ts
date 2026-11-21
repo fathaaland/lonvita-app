@@ -3,6 +3,7 @@
  * statistics come worked out from the server (getMunicipalityDashboard); the rows still loaded here
  * are shaped to match src/lib/analytics.ts's interfaces, which the pure functions expect.
  */
+import { ORGANIZER_ROLE_KIND, type OrganizerRequestKind } from "@/lib/organizer-request-kinds";
 import { buildQuery, buildWhereParams, del, get, patch, post } from "./client";
 
 import type { PayloadListResponse } from "./client";
@@ -91,6 +92,10 @@ export type OrganizerRequestAdminRow = {
   /** Who they'll organize as once approved — null on requests filed before it was asked for. */
   organization_name: string | null;
   organization_type: OrganizationType | null;
+  /** The organizer role, or — for an organizer already — access to the volunteer pool alone. */
+  kind: OrganizerRequestKind;
+  /** They asked for the volunteer pool too (always on a "volunteer_access" request). */
+  volunteer_access_requested: boolean;
   created_at: string;
 };
 
@@ -101,6 +106,8 @@ type PayloadOrganizerRequestAdmin = {
   reason?: string | null;
   organizationName?: string | null;
   organizationType?: OrganizationType | null;
+  kind?: OrganizerRequestKind | null;
+  volunteerAccessRequested?: boolean | null;
   createdAt: string;
 };
 
@@ -120,12 +127,19 @@ export async function getOrganizerRequestsForAdmin(municipalityId: string): Prom
     reason: r.reason ?? null,
     organization_name: r.organizationName ?? null,
     organization_type: r.organizationType ?? null,
+    kind: r.kind ?? ORGANIZER_ROLE_KIND,
+    volunteer_access_requested: Boolean(r.volunteerAccessRequested),
     created_at: r.createdAt,
   }));
 }
 
-export async function decideOrganizerRequest(requestId: string, approve: boolean): Promise<void> {
-  await patch(`/organizer-requests/${requestId}`, { status: approve ? "approved" : "rejected" });
+/** `volunteerAccess` — approving a role request, the obec opens its volunteer pool to them too (only
+ * when they asked for it). A request for the pool alone grants it by being approved. */
+export async function decideOrganizerRequest(requestId: string, approve: boolean, volunteerAccess = false): Promise<void> {
+  await patch(`/organizer-requests/${requestId}`, {
+    status: approve ? "approved" : "rejected",
+    ...(approve && volunteerAccess ? { volunteerAccessGranted: true } : {}),
+  });
 }
 
 // --- Stížnosti na recenze ------------------------------------------------------------------
@@ -333,9 +347,11 @@ export type OrganizerRoleRow = {
   /** The organization they organize as in this obec — tells apart two people of the same name. */
   organization_id: string | null;
   organization_name: string | null;
+  /** The obec let them reach its volunteer pool (UserRoles.volunteerAccess). */
+  volunteer_access: boolean;
 };
 
-type PayloadUserRoleAdmin = { id: number; user: number | { id: number }; role: string };
+type PayloadUserRoleAdmin = { id: number; user: number | { id: number }; role: string; volunteerAccess?: boolean | null };
 
 /** Users currently holding the "organizer" role in this municipality — mirrors the
  * superadmin panel's grant/revoke UI, but scoped to the admin's own obec. */
@@ -370,8 +386,14 @@ export async function getOrganizersForAdmin(municipalityId: string): Promise<Org
       full_name: nameById.get(relationId(r.user) ?? "") ?? "Organizátor",
       organization_id: organization?.id ?? null,
       organization_name: organization?.name ?? null,
+      volunteer_access: Boolean(r.volunteerAccess),
     };
   });
+}
+
+/** The obec opens its volunteer pool to one of its organizers, or closes it again. */
+export async function setOrganizerVolunteerAccess(userRoleId: string, volunteerAccess: boolean): Promise<void> {
+  await post(`/user-roles/${userRoleId}/volunteer-access`, { volunteerAccess });
 }
 
 /** An event the organizer still runs in the obec — while there's any, their role can't be revoked. */

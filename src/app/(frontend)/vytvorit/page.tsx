@@ -17,7 +17,7 @@ const CZECHIA_CENTER: [number, number] = [49.8175, 15.473];
 
 function CreateEventContent() {
   const router = useRouter();
-  const { user, profile, administeredMunicipalityIds, creatableMunicipalityIds } = useAuth();
+  const { user, profile, administeredMunicipalityIds, creatableMunicipalityIds, volunteerPoolMunicipalityIds, isSuperAdmin } = useAuth();
   // The obec the event is filed under: one where this user may found events — they administer it,
   // or organize there and it takes events from its organizers (their home obec when it's one of
   // those). Their home municipality alone isn't enough — a "bez obce" admin has none, and a
@@ -122,7 +122,7 @@ function CreateEventContent() {
         municipalityId={municipalityId}
         municipalityCenter={center}
         isObecAdmin={adminHere}
-        volunteering="set"
+        volunteering={adminHere || isSuperAdmin || volunteerPoolMunicipalityIds.includes(municipalityId) ? "set" : "no-pool"}
         runsAsObec={adminHere}
         submitLabel="Zveřejnit akci"
         draftLabel="Uložit jako koncept"

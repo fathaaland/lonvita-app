@@ -66,3 +66,6 @@ node_modules/
 
 # k6 load test: generated users (holds a password)
 /loadtest/users.json
+
+# graphify
+graphify-out/

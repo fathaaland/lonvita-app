@@ -1,4 +1,4 @@
-import type { Access, CollectionAfterChangeHook, CollectionConfig, FieldAccess, Where } from 'payload'
+import type { Access, CollectionAfterChangeHook, CollectionConfig, FieldAccess, PayloadRequest, Where } from 'payload'
 import { APIError } from 'payload'
 
 import { canReadOwnOrAdministered, isPlatformOrMunicipalityAdmin } from './access/shared'
@@ -13,6 +13,7 @@ import {
   isOrganizationType,
 } from '@/lib/organizations'
 import { guardReadOnlyObec } from './shared/readOnlyObec'
+import { ORGANIZER_ROLE_KIND, VOLUNTEER_ACCESS_KIND } from '@/lib/organizer-request-kinds'
 
 const canCreateOwnRequest: Access = ({ req: { user }, data }) => {
   if (!user) return false
@@ -26,6 +27,8 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
   const userId = typeof doc.user === 'object' ? doc.user.id : doc.user
   const municipalityId = typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality
 
+  const accessOnly = doc.kind === VOLUNTEER_ACCESS_KIND
+
   if (operation === 'create') {
     const { userIds: adminIds, requestsLink } = await getObecDeciders(req.payload, municipalityId)
     const profile = await req.payload.find({
@@ -38,16 +41,35 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     })
     const who = profile.docs[0]?.fullName || 'Někdo v obci'
     const reason = doc.reason ?? ''
+    if (accessOnly) {
+      for (const adminId of adminIds) {
+        sendNotification(req.payload, {
+          userId: adminId,
+          title: 'Žádost o přístup k dobrovolníkům',
+          link: requestsLink,
+          message: `Organizátor ${who} žádá o přístup k poolu dobrovolníků${reason ? `: „${reason}“` : ''} — vyřiďte to v sekci Žádosti.`,
+          email: {
+            subject: 'Žádost o přístup k dobrovolníkům',
+            body:
+              `<p>Organizátor <strong>${escapeHtml(who)}</strong> žádá o přístup k poolu dobrovolníků vaší obce a mikroregionu.</p>` +
+              (reason ? `<p><strong>Zdůvodnění:</strong><br/>${escapeHtml(reason).replace(/\n/g, '<br/>')}</p>` : '') +
+              '<p>Schválit nebo zamítnout ji můžete v sekci Žádosti.</p>',
+          },
+        })
+      }
+      return
+    }
+    const alsoPool = doc.volunteerAccessRequested ? ' a o přístup k dobrovolníkům' : ''
     for (const adminId of adminIds) {
       sendNotification(req.payload, {
         userId: adminId,
         title: 'Nová žádost o roli organizátora',
         link: requestsLink,
-        message: `${who} žádá o roli organizátora za „${doc.organizationName}“: „${reason}“ — vyřiďte to v sekci Žádosti.`,
+        message: `${who} žádá o roli organizátora za „${doc.organizationName}“${alsoPool}: „${reason}“ — vyřiďte to v sekci Žádosti.`,
         email: {
           subject: 'Nová žádost o roli organizátora',
           body:
-            `<p><strong>${escapeHtml(who)}</strong> ve vaší obci požádal(a) o roli organizátora za <strong>${escapeHtml(doc.organizationName ?? '')}</strong>.</p>` +
+            `<p><strong>${escapeHtml(who)}</strong> ve vaší obci požádal(a) o roli organizátora za <strong>${escapeHtml(doc.organizationName ?? '')}</strong>${alsoPool}.</p>` +
             `<p><strong>Zdůvodnění:</strong><br/>${escapeHtml(reason).replace(/\n/g, '<br/>')}</p>` +
             '<p>Schválit nebo zamítnout ji můžete v sekci Žádosti.</p>',
         },
@@ -56,8 +78,70 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     return
   }
 
+  if (operation === 'update' && doc.status !== previousDoc?.status && accessOnly) {
+    if (doc.status === 'approved') {
+      // The trusted path that opens the pool to an organizer — in the approval's own transaction: an
+      // organizer who has lost the role meanwhile fails the approval instead of leaving it "approved".
+      const role = (
+        await req.payload.find({
+          collection: 'user-roles',
+          where: {
+            and: [{ user: { equals: userId } }, { municipality: { equals: municipalityId } }, { role: { equals: 'organizer' } }],
+          },
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          req,
+        })
+      ).docs[0]
+      if (!role) throw new APIError('Žadatel už v obci není organizátorem — přístup k dobrovolníkům mu dát nejde.', 409)
+      if (!role.volunteerAccess) {
+        await req.payload.update({
+          collection: 'user-roles',
+          id: role.id,
+          data: { volunteerAccess: true },
+          overrideAccess: true,
+          context: { volunteerAccessByRequest: true },
+          req,
+        })
+      }
+      sendNotification(req.payload, {
+        userId,
+        title: 'Přístup k dobrovolníkům schválen',
+        link: '/organizace',
+        message: 'Obec vám schválila přístup k poolu dobrovolníků — teď můžete dobrovolníky zvát a hledat je na svých akcích.',
+        email: {
+          subject: 'Přístup k dobrovolníkům schválen',
+          body: '<p>Obec vám schválila přístup k poolu dobrovolníků — teď můžete dobrovolníky zvát a hledat je na svých akcích.</p>',
+        },
+      })
+    } else if (doc.status === 'rejected') {
+      sendNotification(req.payload, {
+        userId,
+        title: 'Žádost o přístup k dobrovolníkům zamítnuta',
+        link: '/organizace',
+        message: 'Obec vaši žádost o přístup k poolu dobrovolníků zamítla.',
+        email: {
+          subject: 'Žádost o přístup k dobrovolníkům zamítnuta',
+          body: '<p>Obec vaši žádost o přístup k poolu dobrovolníků bohužel zamítla.</p>',
+        },
+      })
+    }
+    writeAuditLog(req.payload, {
+      source: req,
+      action: doc.status === 'approved' ? 'organizer-requests.approve-volunteer-access' : 'organizer-requests.reject-volunteer-access',
+      actor: req.user?.id ?? null,
+      targetCollection: 'organizer-requests',
+      targetId: doc.id,
+      municipality: municipalityId,
+      metadata: { requestedBy: userId },
+    })
+    return
+  }
+
   if (operation === 'update' && doc.status !== previousDoc?.status) {
     if (doc.status === 'approved') {
+      const poolGranted = Boolean(doc.volunteerAccessGranted)
       // The one trusted path allowed to grant the role — in the approval's own transaction (`req`):
       // a role that can't be granted fails the approval too, instead of leaving a request marked
       // approved for someone who still can't organize. One granted meanwhile some other way stays.
@@ -72,7 +156,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       if (granted.totalDocs === 0) {
         await req.payload.create({
           collection: 'user-roles',
-          data: { user: userId, municipality: municipalityId, role: 'organizer' },
+          data: { user: userId, municipality: municipalityId, role: 'organizer', volunteerAccess: poolGranted },
           overrideAccess: true,
           // UserRoles creates the organization the obec just approved along with the role.
           // The applicant's reason becomes the organization's description on its profile.
@@ -81,6 +165,29 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
           },
           req,
         })
+      } else if (poolGranted) {
+        // A role granted meanwhile some other way stays — it only gets the pool the obec opened here.
+        const existing = await req.payload.find({
+          collection: 'user-roles',
+          where: {
+            and: [{ user: { equals: userId } }, { municipality: { equals: municipalityId } }, { role: { equals: 'organizer' } }],
+          },
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          req,
+        })
+        const role = existing.docs[0]
+        if (role && !role.volunteerAccess) {
+          await req.payload.update({
+            collection: 'user-roles',
+            id: role.id,
+            data: { volunteerAccess: true },
+            overrideAccess: true,
+            context: { volunteerAccessByRequest: true },
+            req,
+          })
+        }
       }
       // Straight to the organization the obec just approved — they may run several, one per obec.
       const organization = await req.payload
@@ -104,16 +211,22 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       const what = canCreate
         ? 'teď můžete zakládat akce'
         : 'můžete spolupořádat akce, ke kterým vás obec pozve — nové akce v obci teď zakládá jen obec sama'
+      // What they asked for about the pool, and what the obec decided on it.
+      const pool = poolGranted
+        ? ' Obec vám dala i přístup k poolu dobrovolníků.'
+        : doc.volunteerAccessRequested
+          ? ' Přístup k poolu dobrovolníků vám obec zatím neschválila — požádat o něj můžete později znovu.'
+          : ''
       sendNotification(req.payload, {
         userId,
         title: 'Role organizátora schválena',
         link: organizationId ? `/organizace?organizace=${organizationId}` : '/organizace',
         message: doc.organizationName
-          ? `Vaše žádost o roli organizátora byla schválena — za „${doc.organizationName}“ ${what}.`
-          : `Vaše žádost o roli organizátora byla schválena — ${what}.`,
+          ? `Vaše žádost o roli organizátora byla schválena — za „${doc.organizationName}“ ${what}.${pool}`
+          : `Vaše žádost o roli organizátora byla schválena — ${what}.${pool}`,
         email: {
           subject: 'Role organizátora schválena',
-          body: `<p>Vaše žádost o roli organizátora byla schválena — ${escapeHtml(what)}.</p>`,
+          body: `<p>Vaše žádost o roli organizátora byla schválena — ${escapeHtml(what)}.</p>${pool ? `<p>${escapeHtml(pool.trim())}</p>` : ''}`,
         },
       })
       writeAuditLog(req.payload, {
@@ -123,7 +236,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
         targetCollection: 'organizer-requests',
         targetId: doc.id,
         municipality: municipalityId,
-        metadata: { requestedBy: userId },
+        metadata: { requestedBy: userId, volunteerAccessRequested: Boolean(doc.volunteerAccessRequested), volunteerAccessGranted: poolGranted },
       })
     } else if (doc.status === 'rejected') {
       sendNotification(req.payload, {
@@ -147,6 +260,52 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       })
     }
   }
+}
+
+/**
+ * A request for the volunteer pool alone — by someone who already organizes in the obec without it.
+ * The reason is optional here: the obec already knows them.
+ */
+async function validateVolunteerAccessRequest(
+  data: Record<string, unknown>,
+  req: PayloadRequest,
+): Promise<Record<string, unknown>> {
+  data.volunteerAccessRequested = true
+  data.organizationName = null
+  data.organizationType = null
+  const reason = typeof data.reason === 'string' ? data.reason.trim() : ''
+  data.reason = reason || null
+
+  const role = (
+    await req.payload.find({
+      collection: 'user-roles',
+      where: {
+        and: [{ user: { equals: data.user } }, { municipality: { equals: data.municipality } }, { role: { equals: 'organizer' } }],
+      },
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      req,
+    })
+  ).docs[0]
+  if (!role) throw new APIError('O přístup k dobrovolníkům žádá jen organizátor obce.', 400)
+  if (role.volunteerAccess) throw new APIError('Přístup k dobrovolníkům v téhle obci už máte.', 400)
+
+  const pending = await req.payload.count({
+    collection: 'organizer-requests',
+    where: {
+      and: [
+        { user: { equals: data.user } },
+        { municipality: { equals: data.municipality } },
+        { status: { equals: 'pending' } },
+        { kind: { equals: VOLUNTEER_ACCESS_KIND } },
+      ],
+    },
+    overrideAccess: true,
+    req,
+  })
+  if (pending.totalDocs > 0) throw new APIError('Vaše žádost o přístup k dobrovolníkům už čeká na vyřízení.', 400)
+  return data
 }
 
 export const OrganizerRequests: CollectionConfig = {
@@ -175,6 +334,34 @@ export const OrganizerRequests: CollectionConfig = {
     },
   },
   fields: [
+    {
+      // What the obec is asked for — the organizer role, or (for an organizer already) access to the
+      // volunteer pool alone. Fixed once asked.
+      name: 'kind',
+      type: 'select',
+      defaultValue: ORGANIZER_ROLE_KIND,
+      access: { update: () => false },
+      options: [
+        { label: 'Organizer role', value: ORGANIZER_ROLE_KIND },
+        { label: 'Volunteer pool access', value: VOLUNTEER_ACCESS_KIND },
+      ],
+    },
+    {
+      // The applicant asks for the obec's (and its mikroregion's) volunteer pool too. Fixed once asked.
+      name: 'volunteerAccessRequested',
+      type: 'checkbox',
+      defaultValue: false,
+      access: { update: () => false },
+    },
+    {
+      // The obec's decision on the pool — set only along with approving a request that asked for it
+      // (beforeValidate below). Never by the applicant: they can't update a request at all, and the
+      // field can't be filed with a new one.
+      name: 'volunteerAccessGranted',
+      type: 'checkbox',
+      defaultValue: false,
+      access: { create: platformAdminField },
+    },
     {
       // Fixed once asked — the obec decides on this person and this obec, not on whatever a PATCH
       // makes of the request afterwards.
@@ -257,6 +444,12 @@ export const OrganizerRequests: CollectionConfig = {
         if (!data?.user || !data?.municipality) return data
         if (operation !== 'create') return data
 
+        // Whatever a client sends, a new request starts undecided on the pool too.
+        data.volunteerAccessGranted = false
+        if (data.kind === VOLUNTEER_ACCESS_KIND) return validateVolunteerAccessRequest(data, req)
+        data.kind = ORGANIZER_ROLE_KIND
+        data.volunteerAccessRequested = data.volunteerAccessRequested === true
+
         const reason = typeof data.reason === 'string' ? data.reason.trim() : ''
         if (reason.length < ORGANIZER_REASON_MIN_LENGTH) {
           throw new APIError(
@@ -285,6 +478,7 @@ export const OrganizerRequests: CollectionConfig = {
               { user: { equals: data.user } },
               { municipality: { equals: data.municipality } },
               { status: { equals: 'pending' } },
+              { kind: { not_equals: VOLUNTEER_ACCESS_KIND } },
             ],
           },
           limit: 1,
@@ -358,13 +552,32 @@ export const OrganizerRequests: CollectionConfig = {
       // role nobody asked about now.
       ({ data, req, operation, originalDoc }) => {
         if (operation !== 'update' || !data) return data
-        if (data.status && data.status !== originalDoc?.status) {
+        const deciding = Boolean(data.status && data.status !== originalDoc?.status)
+        if (deciding) {
           if (originalDoc?.status !== 'pending') {
             throw new APIError('O žádosti už bylo rozhodnuto.', 409)
           }
           data.reviewedBy = req.user?.id
           data.reviewedAt = new Date().toISOString()
         }
+        // The pool is decided once, together with the request — only by approving it, and only when
+        // it was asked for. A request for the pool alone grants it by being approved.
+        if (originalDoc?.kind === VOLUNTEER_ACCESS_KIND) {
+          if (deciding) data.volunteerAccessGranted = data.status === 'approved'
+          else delete data.volunteerAccessGranted
+          return data
+        }
+        const granting = data.volunteerAccessGranted
+        if (granting !== undefined && Boolean(granting) !== Boolean(originalDoc?.volunteerAccessGranted)) {
+          if (!deciding || data.status !== 'approved') {
+            throw new APIError('O přístupu k dobrovolníkům se rozhoduje jen spolu se schválením žádosti.', 400)
+          }
+          if (granting && !originalDoc?.volunteerAccessRequested) {
+            throw new APIError('Žadatel o přístup k dobrovolníkům nežádal.', 400)
+          }
+        }
+        if (deciding && data.status !== 'approved') data.volunteerAccessGranted = false
+        else if (deciding) data.volunteerAccessGranted = Boolean(granting) && Boolean(originalDoc?.volunteerAccessRequested)
         return data
       },
     ],

@@ -3,6 +3,7 @@
  * /superadmin — creating municipalities and managing users/roles across all of them. Distinct
  * from admin-queries.ts, which is scoped to a single municipality's admin dashboard.
  */
+import { ORGANIZER_ROLE_KIND, type OrganizerRequestKind } from '@/lib/organizer-request-kinds'
 import { buildQuery, buildWhereParams, del, get, patch, post } from './client'
 
 import type { PayloadListResponse } from './client'
@@ -86,6 +87,8 @@ export type CommunityRoleEntry = {
   role: 'municipality_admin' | 'organizer' | 'prescriber'
   municipalityId: string
   municipalityName: string
+  /** Organizer only — the obec's volunteer pool is open to them (UserRoles.volunteerAccess). */
+  volunteerAccess: boolean
 }
 
 export type PlatformUserRow = {
@@ -120,6 +123,7 @@ type PayloadUserRoleRaw = {
   user: number | { id: number }
   municipality: number | { id: number }
   role: CommunityRoleEntry['role']
+  volunteerAccess?: boolean | null
 }
 
 export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
@@ -167,6 +171,7 @@ export async function listAllUsersForSuperAdmin(): Promise<PlatformUserRow[]> {
           role: r.role,
           municipalityId,
           municipalityName: muniNameById.get(municipalityId) ?? 'Neznámá obec',
+          volunteerAccess: Boolean(r.volunteerAccess),
         }
       }),
     }
@@ -282,6 +287,12 @@ export async function revokeCommunityRole(userRoleId: string): Promise<void> {
   await del(`/user-roles/${userRoleId}`)
 }
 
+/** Opens or closes an organizer's access to the obec's volunteer pool — the same endpoint the obec's
+ * admins use (api/user-roles/[id]/volunteer-access), which lets a platform admin through anywhere. */
+export async function setVolunteerAccessAsSuperAdmin(userRoleId: string, volunteerAccess: boolean): Promise<void> {
+  await post(`/user-roles/${userRoleId}/volunteer-access`, { volunteerAccess })
+}
+
 // --- Organizations ----------------------------------------------------------------------
 // What organizers run and co-organize events as (Organizations.ts). Owner and obec are fixed once
 // created; creating one grants its owner the organizer role, deleting it takes the role away.
@@ -362,6 +373,8 @@ type PayloadOrganizerRequestSuper = {
   reason?: string | null
   organizationName?: string | null
   organizationType?: OrganizationType | null
+  kind?: OrganizerRequestKind | null
+  volunteerAccessRequested?: boolean | null
   createdAt: string
 }
 
@@ -389,6 +402,8 @@ export async function getAllOrganizerRequestsForSuperAdmin(): Promise<
       reason: r.reason ?? null,
       organization_name: r.organizationName ?? null,
       organization_type: r.organizationType ?? null,
+      kind: r.kind ?? ORGANIZER_ROLE_KIND,
+      volunteer_access_requested: Boolean(r.volunteerAccessRequested),
       created_at: r.createdAt,
       municipality_id: municipalityId,
       municipality_name: muniNameById.get(municipalityId) ?? 'Neznámá obec',

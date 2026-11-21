@@ -31,6 +31,7 @@ import { OrganizationReviews } from "@/components/OrganizationReviews";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { toEventTableRows } from "@/lib/dashboard";
 import { VolunteersTable } from "@/components/admin/VolunteersTable";
+import { VolunteerAccessRequestCard } from "@/components/VolunteerAccessRequestCard";
 import { OrganizersDirectoryCard } from "@/components/OrganizersDirectoryCard";
 import { RegionNotice } from "@/components/RegionNotice";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
@@ -113,7 +114,7 @@ function Meter({ label, share, value }: { label: string; share: number; value: s
 }
 
 function OrganizationContent() {
-  const { user, administeredMunicipalityIds } = useAuth();
+  const { user, administeredMunicipalityIds, volunteerPoolMunicipalityIds, isSuperAdmin } = useAuth();
   const administeredKey = administeredMunicipalityIds.join(",");
   const requestedId = useSearchParams().get("organizace");
 
@@ -441,11 +442,20 @@ function OrganizationContent() {
             </section>
 
             <section aria-label="Pool dobrovolníků">
-              <VolunteersTable
-                municipalityId={organization.municipality_id}
-                municipalityName={organization.municipality_name}
-                region={region}
-              />
+              {/* The pool is the obec's to open — an organizer without access asks for it (lib/volunteers/pool). */}
+              {isSuperAdmin || volunteerPoolMunicipalityIds.includes(organization.municipality_id) ? (
+                <VolunteersTable
+                  municipalityId={organization.municipality_id}
+                  municipalityName={organization.municipality_name}
+                  region={region}
+                />
+              ) : (
+                <VolunteerAccessRequestCard
+                  municipalityId={organization.municipality_id}
+                  municipalityName={organization.municipality_name}
+                  region={region}
+                />
+              )}
             </section>
           </>
         )}
