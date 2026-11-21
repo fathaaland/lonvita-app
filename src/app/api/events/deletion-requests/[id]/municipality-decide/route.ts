@@ -83,11 +83,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const askers = askingObec ? (await getMunicipalityAdminUserIds(payload, askingObec)).map(String) : [requesterId]
     const team = await getEventTeamUserIds(payload, event, { exclude: [uid, ...askers] })
     sendNotificationToMany(payload, askers, {
+      category: 'my_events',
       title: 'Obec žádost zamítla',
       link: `/akce/${event.id}`,
       message: `Obec nevyhověla vaší žádosti o zrušení spolupořadatelství akce „${event.title}“ — akci pořádáte dál.`,
     })
     sendNotificationToMany(payload, team, {
+      category: 'my_events',
       title: 'Obec žádost zamítla',
       link: `/akce/${event.id}`,
       message: `Obec rozhodla, že pořadatelé akce „${event.title}“ zůstávají, jak jsou.`,

@@ -59,6 +59,7 @@ export const processFeedbackRequestJob = async (data: FeedbackRequestJobData): P
   const appUrl = process.env.NEXT_PUBLIC_APP_URL
   await sendNotification(payload, {
     userId,
+    category: 'my_registrations',
     title: 'Jak se vám akce líbila?',
     message: `Ohodnoťte akci „${event.title}“ — pořadateli to pomůže připravit další.`,
     link,

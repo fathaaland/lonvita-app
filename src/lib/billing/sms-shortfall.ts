@@ -45,6 +45,7 @@ export async function reportSmsShortfall(
       payload,
       userIds,
       {
+        category: 'obec_billing',
         title: 'SMS nedošla všem',
         message,
         email: { subject: `Lonvita: SMS ${what} nedošla všem`, body: `<p>${escapeHtml(message)}</p>` },

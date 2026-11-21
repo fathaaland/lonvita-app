@@ -52,6 +52,7 @@ export const processEventCancelledJob = async (
     payload,
     data.userIds,
     {
+      category: 'event_changes',
       title: 'Akce byla zrušena',
       message: `Akce „${data.title}“, na kterou jste byli přihlášeni, byla zrušena.`,
       email: {
@@ -89,6 +90,7 @@ export const processEventCancelledJob = async (
       payload,
       volunteerUserIds,
       {
+        category: 'event_changes',
         title: 'Akce byla zrušena',
         message: `Akce „${data.title}“, na kterou jste měli pomáhat jako dobrovolník (pozvánka nebo vaše nabídka ještě čekala), byla zrušena.`,
         email: {

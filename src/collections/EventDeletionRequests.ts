@@ -178,6 +178,7 @@ export async function askForDeletionConsent(
     for (const userId of userIds) {
       await sendNotification(payload, {
         userId,
+        category: 'my_events',
         title: 'Žádost o smazání akce',
         link: `/akce/${eventId}`,
         message: `${lead} chce smazat akci „${doc.eventTitle}“, ${whose}. Bez ${consent} se nesmaže — odpovězte do ${until}.`,

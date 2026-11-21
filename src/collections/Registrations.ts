@@ -132,6 +132,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
           : ''
         await sendNotification(req.payload, {
           userId,
+          category: 'my_registrations',
           title: pending ? 'Přihláška odeslána' : 'Přihláška potvrzena',
           message: pending
             ? `Vaše přihláška na akci „${event.title}“ čeká na schválení organizátorem.${heldReason}`
@@ -160,6 +161,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
         // In-app at once; the e-mail in the window's digest (lib/notifications/registration-digest)
         // — one every ten minutes during a rush, not one per sign-up. Without Redis, at once as before.
         await sendNotificationToMany(req.payload, recipients, {
+          category: 'my_events',
           title: 'Nová přihláška na akci',
           message: `${who} se přihlásil(a) na vaši akci „${event.title}“.${awaiting}`,
           link: `/spravovat/${eventId}`,
@@ -173,7 +175,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
           await sendNotificationToMany(
             req.payload,
             recipients,
-            { title: 'Nová přihláška na akci', message: '', email: digestEmail(event.title, [{ registrationId: doc.id, who, awaiting }]) },
+            { category: 'my_events', title: 'Nová přihláška na akci', message: '', email: digestEmail(event.title, [{ registrationId: doc.id, who, awaiting }]) },
             { inApp: false },
           )
         }
@@ -191,6 +193,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       await sendNotification(req.payload, {
         userId,
         link: `/akce/${eventId}`,
+        category: 'my_registrations',
         title: doc.role === 'volunteer' ? 'Můžete znovu nabídnout pomoc' : 'Můžete se znovu přihlásit',
         message: `Pořadatel akce „${event.title}“ změnil své rozhodnutí — můžete se na ni ${again}.`,
         email: {
@@ -211,6 +214,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       if (recipients.length > 0 && context?.accountDeleted) {
         const message = `${doc.role === 'volunteer' ? 'Dobrovolník' : 'Účastník'} si smazal(a) účet — na akci „${event.title}“ nepřijde.`
         await sendNotificationToMany(req.payload, recipients, {
+          category: 'my_events',
           title: 'Přihláška zrušena',
           message,
           link: `/spravovat/${eventId}`,
@@ -231,6 +235,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
             : `${who} už na akci „${event.title}“ nepřijde — přihláška byla zrušena.`
         const message = `${base}${excuse ? ` Omluvenka: „${excuse}“` : ''}`
         await sendNotificationToMany(req.payload, recipients, {
+          category: 'my_events',
           title: excuse ? 'Omluvenka z akce' : volunteer ? 'Dobrovolník nepřijde' : 'Přihláška zrušena',
           message,
           link: `/spravovat/${eventId}`,
@@ -249,6 +254,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
       await sendNotification(req.payload, {
         userId,
         link: `/akce/${eventId}`,
+        category: 'my_registrations',
         title: 'Pořadatel vás z akce odhlásil',
         message: `Pořadatel vás odhlásil z akce „${event.title}“ — už s vámi na ní nepočítá. Znovu se přihlásit nejde.`,
         email: {
@@ -265,6 +271,7 @@ const notifyOnRegistrationChange: CollectionAfterChangeHook = async ({
     await sendNotification(req.payload, {
       userId,
       link: `/akce/${eventId}`,
+      category: 'my_registrations',
       title: REGISTRATION_STATUS_SUBJECT[doc.status],
       message: approved
         ? `Vaše přihláška na akci „${event.title}“ byla schválena.`
@@ -365,6 +372,7 @@ const notifyOnNoShow: CollectionAfterChangeHook = async ({ doc, previousDoc, ope
     const title = record.restrictedUntil ? 'Přihlášky vám teď potvrzuje pořadatel' : 'Nedorazil(a) jste na akci'
     await sendNotification(req.payload, {
       userId,
+      category: 'my_registrations',
       title,
       message: `${base}${limit}`,
       link: '/profil',

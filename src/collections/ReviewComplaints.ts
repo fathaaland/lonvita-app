@@ -89,6 +89,7 @@ const notifyObecOfComplaint: CollectionAfterChangeHook = async ({ doc, operation
       ? await getPlatformDeciders(req.payload)
       : await getObecDeciders(req.payload, relationId(doc.municipality)!)
     sendNotificationToMany(req.payload, adminIds, {
+      category: 'obec_requests',
       title: 'Nová stížnost na recenzi',
       link: requestsLink,
       message: `Někdo nahlásil ${what} „${title}“. Posuďte, jestli recenzi odstranit.`,

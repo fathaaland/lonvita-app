@@ -102,6 +102,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     payload,
     await getEventTeamUserIds(payload, updated, { exclude: [uid] }),
     {
+      category: 'my_events',
       title: 'Spolupořadatel akci opustil',
       link,
       message: `${who} ukončil(a) spolupořádání akce „${event.title}“. Akce pokračuje bez něj/ní.`,

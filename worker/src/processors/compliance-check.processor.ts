@@ -26,6 +26,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const tellPlatform = async (payload: Payload, title: string, message: string) => {
   const { userIds } = await getPlatformDeciders(payload)
   await sendNotificationToMany(payload, userIds, {
+    category: 'obec_billing',
     title,
     message,
     link: COMPLIANCE_LINK,

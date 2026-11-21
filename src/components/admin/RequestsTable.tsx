@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   getOrganizerRequestsForAdmin,
   decideOrganizerRequest,
@@ -10,24 +9,20 @@ import {
   getEscalatedDeletionRequestsForAdmin,
   decideEscalatedDeletionRequest,
   EscalatedDeletionRequestRow,
-  getOrganizersForAdmin,
   getReviewComplaintsForAdmin,
   getRunningEventsOfOrganizer,
-  revokeOrganizerRole,
-  setOrganizerVolunteerAccess,
   OrganizerRequestAdminRow,
   CoOrganizingRequestAdminRow,
-  OrganizerRoleRow,
   ReviewComplaintAdminRow,
   RunningOrganizerEvent,
+  OrganizerRoleRow,
 } from "@/integrations/payload/admin-queries";
 import { ReviewComplaintCard } from "@/components/admin/ReviewComplaintCard";
 import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Check, X, UserPlus, Handshake, Users, Flag, UserMinus, HandHeart } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
+import { Check, X, UserPlus, Handshake, Flag, UserMinus, HandHeart } from "lucide-react";
 import { VOLUNTEER_ACCESS_KIND } from "@/lib/organizer-request-kinds";
 import {
   AlertDialog,
@@ -52,7 +47,7 @@ export function RequestsTable({
   onPendingCountChange,
 }: {
   municipalityId?: string;
-  /** What still waits on a decision (active organizers aside) — keeps the tab's badge current. */
+  /** What still waits on a decision — keeps the tab's badge current. */
   onPendingCountChange?: (count: number) => void;
 }) {
   const { profile } = useAuth();
@@ -61,25 +56,22 @@ export function RequestsTable({
   const [coOrganizingRequests, setCoOrganizingRequests] = useState<CoOrganizingRequestAdminRow[]>([]);
   const [reviewComplaints, setReviewComplaints] = useState<ReviewComplaintAdminRow[]>([]);
   const [escalated, setEscalated] = useState<EscalatedDeletionRequestRow[]>([]);
-  const [organizers, setOrganizers] = useState<OrganizerRoleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = async () => {
     if (!muniId) return;
     setLoading(true);
-    const [org, coOrg, leaving, complaints, activeOrganizers] = await Promise.all([
+    const [org, coOrg, leaving, complaints] = await Promise.all([
       getOrganizerRequestsForAdmin(muniId),
       getCoOrganizingRequestsForAdmin(muniId),
       getEscalatedDeletionRequestsForAdmin(muniId).catch(() => [] as EscalatedDeletionRequestRow[]),
       getReviewComplaintsForAdmin(muniId).catch(() => [] as ReviewComplaintAdminRow[]),
-      getOrganizersForAdmin(muniId),
     ]);
     setOrganizerRequests(org);
     setCoOrganizingRequests(coOrg);
     setEscalated(leaving);
     setReviewComplaints(complaints);
-    setOrganizers(activeOrganizers);
     setLoading(false);
     onPendingCountChange?.(org.length + coOrg.length + leaving.length + complaints.length);
   };
@@ -99,19 +91,6 @@ export function RequestsTable({
       toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se vyřídit žádost.");
     } finally {
       setBusyId(null);
-    }
-  };
-
-  const handleVolunteerAccess = async (userRoleId: string, volunteerAccess: boolean) => {
-    setBusyId(userRoleId);
-    try {
-      await setOrganizerVolunteerAccess(userRoleId, volunteerAccess);
-      toast.success(volunteerAccess ? "Přístup k dobrovolníkům povolen." : "Přístup k dobrovolníkům odebrán.");
-    } catch (error) {
-      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se změnit přístup.");
-    } finally {
-      setBusyId(null);
-      await load();
     }
   };
 
@@ -142,26 +121,11 @@ export function RequestsTable({
     }
   };
 
-  const handleRevokeOrganizer = async (userRoleId: string) => {
-    setBusyId(userRoleId);
-    try {
-      await revokeOrganizerRole(userRoleId);
-      toast.success("Role organizátora odebrána.");
-    } catch (error) {
-      // E.g. they've started running an event meanwhile — the server says so.
-      toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se odebrat roli.");
-    } finally {
-      setBusyId(null);
-      await load();
-    }
-  };
-
   const totalCount =
     organizerRequests.length +
     coOrganizingRequests.length +
     escalated.length +
-    reviewComplaints.length +
-    organizers.length;
+    reviewComplaints.length;
 
   if (loading) return <p className="text-center text-muted-foreground py-8">Načítám…</p>;
 
@@ -246,51 +210,6 @@ export function RequestsTable({
           </div>
           {reviewComplaints.map((c) => (
             <ReviewComplaintCard key={c.id} complaint={c} onDecided={load} />
-          ))}
-        </div>
-      )}
-
-      {organizers.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-1">
-            <Users className="h-4 w-4 text-primary" />
-            <p className="font-bold text-sm">Aktivní organizátoři</p>
-          </div>
-          {organizers.map((o) => (
-            <Card key={o.id}>
-              <CardContent className="p-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  {o.organization_id ? (
-                    <Link
-                      href={`/organizace/organizatori?obec=${muniId}&organizace=${o.organization_id}`}
-                      className="block font-semibold text-sm break-words hover:underline"
-                    >
-                      {o.full_name}
-                      {o.organization_name && o.organization_name !== o.full_name && (
-                        <span className="font-normal text-muted-foreground"> ({o.organization_name})</span>
-                      )}
-                    </Link>
-                  ) : (
-                    <p className="font-semibold text-sm break-words">{o.full_name}</p>
-                  )}
-                </div>
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0" title="Přístup k poolu dobrovolníků">
-                  <HandHeart className="h-4 w-4" aria-hidden />
-                  <span className="hidden sm:inline">Dobrovolníci</span>
-                  <Switch
-                    aria-label={`Přístup k dobrovolníkům – ${o.full_name}`}
-                    checked={o.volunteer_access}
-                    disabled={busyId === o.id}
-                    onCheckedChange={(v) => handleVolunteerAccess(o.id, v)}
-                  />
-                </label>
-                <RevokeOrganizerButton
-                  organizer={o}
-                  busy={busyId === o.id}
-                  onConfirm={() => handleRevokeOrganizer(o.id)}
-                />
-              </CardContent>
-            </Card>
           ))}
         </div>
       )}
@@ -432,7 +351,7 @@ function EscalatedDeletionRequestCard({
  * there's any, the role can't go (the server refuses it too, UserRoles keepRunningEventsOrganized):
  * the dialog lists the events and offers no revoke.
  */
-function RevokeOrganizerButton({
+export function RevokeOrganizerButton({
   organizer,
   busy,
   onConfirm,

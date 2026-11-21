@@ -112,6 +112,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const reasoning = note ? ` Zdůvodnění ${who.of}: ${note}` : ''
   sendNotification(payload, {
     userId: complainantId,
+    category: 'my_requests',
     title: body.uphold ? 'Recenze odstraněna' : 'Stížnost na recenzi zamítnuta',
     link: isRating ? `/dobrovolnik/${complainantId}` : '/organizace',
     message: body.uphold

@@ -408,6 +408,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
       const rating = await ratingSummary(req, volunteerId)
       const note = doc.message ? ` Vzkaz: „${doc.message}“` : ''
       sendNotificationToMany(payload, await creatorIds(), {
+        category: 'volunteering',
         title: 'Dobrovolník nabízí pomoc',
         link: `/spravovat/${eventId}`,
         message: `${volunteer} (${rating}) se nabízí jako dobrovolník na akci „${doc.eventTitle}“.${note}`,
@@ -426,6 +427,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
     const note = doc.message ? ` Vzkaz: „${doc.message}“` : ''
     sendNotification(payload, {
       userId: volunteerId,
+      category: 'volunteering',
       title: 'Pozvánka k dobrovolnické pomoci',
       link: `/akce/${eventId}`,
       message: `${inviter} vás zve, abyste pomohli na akci „${doc.eventTitle}“.${note}`,
@@ -453,6 +455,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
   if (application) {
     if (doc.status === 'withdrawn') {
       sendNotificationToMany(payload, await creatorIds(), {
+        category: 'volunteering',
         title: 'Dobrovolník stáhl nabídku',
         link: `/spravovat/${eventId}`,
         message: `${volunteer} už na akci „${doc.eventTitle}“ pomoc nenabízí.`,
@@ -461,6 +464,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
     }
     sendNotification(payload, {
       userId: volunteerId,
+      category: 'volunteering',
       title: accepted ? 'Pořadatel přijal vaši pomoc' : 'Pořadatel vaši pomoc nepřijal',
       link: `/akce/${eventId}`,
       message: accepted
@@ -476,6 +480,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
     if (accepted && event) {
       const team = await getEventTeamUserIds(payload, event, { exclude: [volunteerId, req.user?.id], req })
       sendNotificationToMany(payload, team, {
+        category: 'volunteering',
         title: 'Nový dobrovolník na akci',
         link: `/spravovat/${eventId}`,
         message: `${volunteer} pomůže na akci „${doc.eventTitle}“.`,
@@ -486,6 +491,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
     if (doc.status === 'withdrawn') {
       sendNotification(payload, {
         userId: volunteerId,
+        category: 'volunteering',
         title: 'Pořadatel pozvánku stáhl',
         link: `/akce/${eventId}`,
         message: `Pořadatel stáhl pozvánku k pomoci na akci „${doc.eventTitle}“ — nemusíte na ni odpovídat.`,
@@ -495,6 +501,7 @@ const notifyOnInvitationChange: CollectionAfterChangeHook = async ({ doc, previo
     // Whoever invited them and everyone running the event.
     const team = event ? await getEventTeamUserIds(payload, event, { exclude: [volunteerId], req }) : []
     sendNotificationToMany(payload, [...new Set([inviterId, ...team])], {
+      category: 'volunteering',
       title: accepted ? 'Dobrovolník přijal pozvánku' : 'Dobrovolník pozvánku odmítl',
       link: accepted ? `/spravovat/${eventId}` : `/akce/${eventId}`,
       message: accepted

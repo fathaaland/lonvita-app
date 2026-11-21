@@ -1,6 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { MUNICIPALITY_ORGANIZATION_TYPE } from '@/lib/organizations'
+import { isMutableCategory, type NotificationCategory } from '@/lib/notifications/categories'
 import { toE164 } from '@/lib/phone'
 import { enqueueOrPark } from '@/lib/outbox'
 import { JOB_NAMES } from '@/lib/queue/contracts'
@@ -174,6 +175,8 @@ export async function describeUser(payload: Payload, userId: number | string): P
 }
 
 type NotificationContent = {
+  /** The circle it belongs to — what the recipient can switch off by e-mail (lib/notifications/categories). */
+  category: NotificationCategory
   title: string
   message: string
   /** In-app route the notification opens when clicked (e.g. the event detail). */
@@ -191,9 +194,8 @@ type NotificationContent = {
 type SendNotificationInput = NotificationContent & { userId: number | string }
 
 /**
- * Brief §7 "Preferovaný kanál notifikací (e-mail vs. v aplikaci), nastavitelný uživatelem" —
- * the one place that should send a user-facing notification, so every trigger respects the
- * same two independent preferences (Profiles.notifyEmail / notifyInApp, both default true).
+ * The one place that sends a user-facing notification. Everything reaches the app; the e-mail follows
+ * Profiles.notifyEmail (all of it) and Profiles.emailMuted (a circle switched off).
  * Fire-and-forget throughout: a failed send must never block the write that triggered it.
  */
 export async function sendNotification(
@@ -210,6 +212,15 @@ const isUniqueViolation = (error: unknown): boolean => {
   const e = error as { name?: string; code?: string; cause?: { code?: string }; data?: { errors?: { path?: string }[] } }
   if (e?.code === '23505' || e?.cause?.code === '23505') return true
   return e?.name === 'ValidationError' && Boolean(e.data?.errors?.some((err) => err.path === 'dedupKey'))
+}
+
+/** No profile yet (mid-onboarding) — e-mail on, like the defaults. A locked circle ignores what was muted. */
+const wantsEmail = (
+  profile: { notifyEmail?: boolean | null; emailMuted?: string[] | null } | undefined,
+  category: NotificationCategory,
+): boolean => {
+  if (!(profile?.notifyEmail ?? true)) return false
+  return !isMutableCategory(category) || !(profile?.emailMuted ?? []).includes(category)
 }
 
 /** In-app writes in flight at once — enough to be quick, few enough not to hog the DB pool. */
@@ -254,13 +265,9 @@ export async function sendNotificationToMany(
     )
     const emailByUser = new Map(users.docs.map((u) => [String(u.id), u.email]))
 
-    // No profile yet (mid-onboarding) — fall back to both channels' defaults (true) rather
-    // than silently dropping the notification.
+    // Everything reaches the app — only the e-mail is the user's choice, per circle (Profiles.emailMuted).
     // `inApp: false` — the in-app copy already went out on its own (e.g. registration digests).
-    const inAppIds =
-      options?.inApp === false
-        ? []
-        : ids.filter((id) => content.critical || (profileByUser.get(id)?.notifyInApp ?? true))
+    const inAppIds = options?.inApp === false ? [] : ids
     for (let i = 0; i < inAppIds.length; i += NOTIFICATION_WRITE_CONCURRENCY) {
       await Promise.all(
         inAppIds.slice(i, i + NOTIFICATION_WRITE_CONCURRENCY).map(async (id) => {
@@ -292,7 +299,7 @@ export async function sendNotificationToMany(
       await Promise.all(
         ids.map(async (id) => {
           const to = emailByUser.get(id)
-          if (!to || !(content.critical || (profileByUser.get(id)?.notifyEmail ?? true))) return
+          if (!to || !(content.critical || wantsEmail(profileByUser.get(id), content.category))) return
           const jobId = options?.jobIdPrefix ? `${options.jobIdPrefix}-email-${id}` : undefined
           try {
             // One that must not be missed waits in the outbox while the queue is down (lib/outbox).

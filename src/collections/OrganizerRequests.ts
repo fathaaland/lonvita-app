@@ -45,6 +45,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       for (const adminId of adminIds) {
         sendNotification(req.payload, {
           userId: adminId,
+          category: 'obec_requests',
           title: 'Žádost o přístup k dobrovolníkům',
           link: requestsLink,
           message: `Organizátor ${who} žádá o přístup k poolu dobrovolníků${reason ? `: „${reason}“` : ''} — vyřiďte to v sekci Žádosti.`,
@@ -63,6 +64,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     for (const adminId of adminIds) {
       sendNotification(req.payload, {
         userId: adminId,
+        category: 'obec_requests',
         title: 'Nová žádost o roli organizátora',
         link: requestsLink,
         message: `${who} žádá o roli organizátora za „${doc.organizationName}“${alsoPool}: „${reason}“ — vyřiďte to v sekci Žádosti.`,
@@ -107,6 +109,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
       }
       sendNotification(req.payload, {
         userId,
+        category: 'my_requests',
         title: 'Přístup k dobrovolníkům schválen',
         link: '/organizace',
         message: 'Obec vám schválila přístup k poolu dobrovolníků — teď můžete dobrovolníky zvát a hledat je na svých akcích.',
@@ -118,6 +121,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     } else if (doc.status === 'rejected') {
       sendNotification(req.payload, {
         userId,
+        category: 'my_requests',
         title: 'Žádost o přístup k dobrovolníkům zamítnuta',
         link: '/organizace',
         message: 'Obec vaši žádost o přístup k poolu dobrovolníků zamítla.',
@@ -219,6 +223,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
           : ''
       sendNotification(req.payload, {
         userId,
+        category: 'my_requests',
         title: 'Role organizátora schválena',
         link: organizationId ? `/organizace?organizace=${organizationId}` : '/organizace',
         message: doc.organizationName
@@ -241,6 +246,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     } else if (doc.status === 'rejected') {
       sendNotification(req.payload, {
         userId,
+        category: 'my_requests',
         title: 'Žádost o roli organizátora zamítnuta',
         link: '/profil',
         message: 'Vaše žádost o roli organizátora byla zamítnuta.',

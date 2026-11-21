@@ -139,6 +139,7 @@ async function noticeFailures(
   const { userIds, link } = await ownersOf(payload, source)
   const web = source.label || source.url
   await sendNotificationToMany(payload, userIds, {
+    category: 'obec_billing',
     title: paused ? 'Zdroj akcí je pozastavený' : 'Zdroj akcí nejde načíst',
     link,
     message: paused
@@ -168,6 +169,7 @@ async function reportTokenCap(
   try {
     const { userIds } = await getPlatformDeciders(payload)
     await sendNotificationToMany(payload, userIds, {
+      category: 'obec_billing',
       title: 'Scraping: běh zastaven limitem tokenů',
       link: `/superadmin/obce/${municipalityId}`,
       message:
@@ -303,6 +305,7 @@ async function processSource(
     const owners = stored.created + stored.synced + stored.needsReview > 0 ? await ownersOf(payload, source) : null
     if (owners && stored.created > 0) {
       await sendNotificationToMany(payload, owners.userIds, {
+        category: 'obec_requests',
         title: 'Nové akce k převzetí',
         link: owners.link,
         message: `Na webu ${source.label || source.url} jsme našli ${countLabel(stored.created)}. Zkontrolujte je a převezměte v sekci Import akcí.`,
@@ -314,6 +317,7 @@ async function processSource(
         stored.needsReview > 0 ? `ke kontrole: ${stored.needsReview}` : null,
       ].filter(Boolean)
       await sendNotificationToMany(payload, owners.userIds, {
+        category: 'obec_requests',
         title: 'Změny u převzatých akcí',
         link: owners.link,
         message: `Na webu ${source.label || source.url} se změnily akce, které už jsou v Lonvitě (${parts.join(', ')}). Přihlášené o úpravách informujeme sami.`,
@@ -417,7 +421,7 @@ async function processManual(
 ): Promise<ImportEventsJobResult> {
   const what = data.kind === 'text' ? 've vloženém textu' : `v souboru „${data.fileName}“`
   const notify = (title: string, message: string, link?: string) =>
-    sendNotificationToMany(payload, [data.requestedBy], { title, message, link })
+    sendNotificationToMany(payload, [data.requestedBy], { category: 'obec_requests', title, message, link })
 
   const importContext = await loadImportContext(payload, data.municipalityId)
   if (!importContext) return { found: 0, created: 0, updated: 0, skipped: 'municipality_gone' }

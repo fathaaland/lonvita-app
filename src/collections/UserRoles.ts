@@ -64,6 +64,7 @@ const notifyNewAdminOfWaitingRequests: CollectionAfterChangeHook = async ({ doc,
   const obec = municipality ? `Obec ${municipality.name}` : 'Obec'
   sendNotification(req.payload, {
     userId: requiredRelationNumber(doc.user),
+    category: 'obec_requests',
     title: 'Na vyřízení čekají žádosti',
     link: '/admin-obce?tab=requests',
     message: `${obec} má na vyřízení — ${parts.join(', ')}. Najdete je v Přehledu obce v sekci Žádosti.`,
@@ -485,6 +486,7 @@ export const UserRoles: CollectionConfig = {
             : 'Administraci obce už neuvidíte.'
         sendNotification(req.payload, {
           userId: requiredRelationNumber(doc.user),
+          category: 'my_requests',
           title: doc.role === 'organizer' ? 'Role organizátora odebrána' : 'Role admina obce odebrána',
           link: '/profil',
           message: `V ${obec} vám byla odebrána ${what}. ${after}`,

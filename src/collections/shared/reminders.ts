@@ -80,7 +80,7 @@ export async function scheduleParticipantReminder(
 
   // E-mail only: SMS go out on a cancellation alone (lib/billing/sms).
   const profile = profiles.docs[0]
-  if (!user?.email || !(profile?.notifyEmail ?? true)) return 0
+  if (!user?.email || !(profile?.notifyEmail ?? true) || (profile?.emailMuted ?? []).includes('my_registrations')) return 0
 
   await enqueueEmail(
     {

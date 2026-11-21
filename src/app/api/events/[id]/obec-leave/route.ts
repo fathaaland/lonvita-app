@@ -99,6 +99,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       payload,
       eventOrganizerIds(updated).filter((uid) => !obecAdminIds.includes(uid)),
       {
+        category: 'my_events',
         title: 'Obec akci už nespolupořádá',
         link,
         message: `${obec} ukončila spolupořádání akce „${event.title}“. Akci pořádáte dál bez obce.`,
@@ -114,6 +115,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       payload,
       obecAdminIds.filter((uid) => uid !== String(user.id)),
       {
+        category: 'my_events',
         title: 'Obec akci už nespolupořádá',
         link,
         message: `Spolupořádání akce „${event.title}“ za obec ukončil jiný admin obce. Obec se k akci už vrátit nemůže.`,
@@ -153,6 +155,7 @@ async function leaveAsNeighbour(
 
   await Promise.all([
     sendNotificationToMany(payload, await getEventTeamUserIds(payload, updated, { exclude: [user!.id, ...obecAdminIds] }), {
+      category: 'my_events',
       title: 'Obec akci už nespolupořádá',
       link,
       message: `${obec} ukončila spolupořádání akce „${event.title}“. Akci pořádáte dál bez ní.`,
@@ -164,6 +167,7 @@ async function leaveAsNeighbour(
       },
     }),
     sendNotificationToMany(payload, obecAdminIds.filter((uid) => uid !== String(user!.id)), {
+      category: 'my_events',
       title: 'Obec akci už nespolupořádá',
       link,
       message: `Spolupořádání akce „${event.title}“ za obec ukončil jiný admin obce.`,

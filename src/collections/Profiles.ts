@@ -17,6 +17,7 @@ import {
 } from './access/shared'
 import { deletedAtField, adminOnlyDelete, notDeleted } from './shared/softDelete'
 import { getEventTeamUserIds, sendNotificationToMany } from './shared/notify'
+import { MUTABLE_NOTIFICATION_CATEGORIES } from '@/lib/notifications/categories'
 import { PARTICIPANTS_ONLY } from './Registrations'
 import { INVALID_PHONE_MESSAGE, PHONE_TAKEN_MESSAGE, toE164 } from '@/lib/phone'
 import { requiredRelationNumber } from '@/lib/relations'
@@ -206,6 +207,7 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
       .catch(() => null)
     const team = invitedFor ? await getEventTeamUserIds(payload, invitedFor, { exclude: [userId], req }) : []
     sendNotificationToMany(payload, [...new Set([String(requiredRelationNumber(invitation.invitedBy)), ...team])], {
+      category: 'volunteering',
       title: invitation.kind === 'application' ? 'Nabídka dobrovolníka zrušena' : 'Pozvánka dobrovolníka zrušena',
       link: `/akce/${requiredRelationNumber(invitation.event)}`,
       message:
@@ -265,6 +267,7 @@ const handleLeavingPool: CollectionAfterChangeHook = async ({ doc, previousDoc, 
     })
 
     sendNotificationToMany(payload, await getEventTeamUserIds(payload, event, { exclude: [userId], req }), {
+      category: 'volunteering',
       title: 'Dobrovolník odešel z poolu',
       link: `/spravovat/${event.id}`,
       message: staysAsParticipant
@@ -348,18 +351,25 @@ export const Profiles: CollectionConfig = {
       },
     },
     {
+      // The circles of notifications (lib/notifications/categories) the user doesn't want by e-mail.
+      // Empty = all of them; a circle added later is on for everyone. Locked circles ignore it.
+      name: 'emailMuted',
+      type: 'select',
+      hasMany: true,
+      options: MUTABLE_NOTIFICATION_CATEGORIES.map((c) => ({ label: c.label, value: c.key })),
+    },
+    {
       // Balíčky služeb: "SMS dostane jen uživatel, který si je v profilu zvolil" — off by default.
       name: 'notifySms',
       type: 'checkbox',
       defaultValue: false,
     },
     {
+      // No longer read — everything reaches the app. Awaits the second step of dropping it.
       name: 'notifyInApp',
       type: 'checkbox',
       defaultValue: true,
-      admin: {
-        description: 'Brief §7 "...aplikace volitelně."',
-      },
+      admin: { hidden: true },
     },
     {
       name: 'dateOfBirth',

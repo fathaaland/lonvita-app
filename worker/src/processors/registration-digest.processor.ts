@@ -60,7 +60,7 @@ export const processRegistrationDigestJob = async ({
       const sent = await sendNotificationToMany(
         payload,
         [recipientId],
-        { title: 'Nové přihlášky na akci', message: '', email: digestEmail(event.title, still) },
+        { category: 'my_events', title: 'Nové přihlášky na akci', message: '', email: digestEmail(event.title, still) },
         { inApp: false, jobIdPrefix: registrationDigestJobId(eventId, windowStart) },
       )
       result.emails += sent.emails

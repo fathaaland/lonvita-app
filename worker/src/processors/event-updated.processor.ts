@@ -69,6 +69,7 @@ export const processEventUpdatedJob = async (
     payload,
     userIds,
     {
+      category: 'event_changes',
       title: 'Akce byla upravena',
       message: `Akce „${event.title}“, na kterou jste přihlášeni, byla upravena (změna: ${changedLabels}). Nově: ${when}, ${event.locationText}.`,
       link: `/akce/${event.id}`,

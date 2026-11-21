@@ -82,6 +82,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       })
       sendNotification(payload, {
         userId: organizerId,
+        category: 'my_requests',
         title: grant ? 'Přístup k dobrovolníkům povolen' : 'Přístup k dobrovolníkům odebrán',
         link: '/organizace',
         message: grant

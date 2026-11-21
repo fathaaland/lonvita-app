@@ -233,6 +233,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
     for (const userId of recipients) {
       sendNotification(req.payload, {
         userId,
+        category: 'obec_requests',
         title: 'Pozvánka ke spolupořádání akce',
         link: ownerId ? '/organizace' : obec!.requestsLink,
         message: `${who} zve ${invited} ke spolupořádání akce „${doc.eventTitle}“.`,
@@ -258,6 +259,7 @@ const notifyOnRequestChange: CollectionAfterChangeHook = async ({ doc, previousD
   const team = event ? await getEventTeamUserIds(req.payload, event, { req }) : []
   const recipients = [...new Set([requesterId, ...team])].filter((id) => id !== String(req.user?.id))
   sendNotificationToMany(req.payload, recipients, {
+    category: 'my_events',
     title: approved ? `${who} akci spolupořádá` : `${who} spolupořádání odmítla`,
     link: `/akce/${eventId}`,
     message: approved

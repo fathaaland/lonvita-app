@@ -204,6 +204,7 @@ async function checkLicences(payload: Payload, now: Date, result: BillingStatusJ
                 'Prodloužení vyřídí provozovatel Lonvity.',
             }
       await sendNotificationToMany(payload, await getMunicipalityAdminUserIds(payload, m.id), {
+        category: 'obec_billing',
         title,
         message,
         link: '/admin-obce?tab=settings',
@@ -263,6 +264,7 @@ async function checkTrials(payload: Payload, now: Date, result: BillingStatusJob
         `Zkušební provoz obce končí ${pragueDate(new Date(end.getTime() - 1))}. Pokud nechcete pokračovat, dejte provozovateli ` +
         `Lonvity vědět nejpozději ${pragueDate(deadline)}. Jinak smlouva pokračuje jako placená a všechno v aplikaci zůstává, jak je.`
       await sendNotificationToMany(payload, await getMunicipalityAdminUserIds(payload, m.id), {
+        category: 'obec_billing',
         title,
         message,
         link: '/admin-obce?tab=settings',
@@ -353,6 +355,7 @@ export async function advanceBillingStatuses(payload: Payload, now: Date = new D
         }
         const { title, message } = WARNINGS[stage](stepAt)
         await sendNotificationToMany(payload, await getMunicipalityAdminUserIds(payload, m.id), {
+          category: 'obec_billing',
           title,
           message,
           link: '/admin-obce?tab=settings',

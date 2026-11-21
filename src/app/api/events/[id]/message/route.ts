@@ -81,6 +81,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     payload,
     recipients,
     {
+      category: 'organizer_message',
       title,
       message,
       link: `/akce/${event.id}`,

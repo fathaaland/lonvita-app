@@ -590,6 +590,7 @@ const notifyBillingStatusChange: CollectionAfterChangeHook = deferredUntilCommit
   const adminIds = await getMunicipalityAdminUserIds(req.payload, doc.id)
   const { title, message } = STATUS_NOTICES[to](doc)
   await sendNotificationToMany(req.payload, adminIds, {
+    category: 'obec_billing',
     title,
     message,
     link: '/admin-obce?tab=settings',
@@ -602,7 +603,7 @@ const notifyBillingStatusChange: CollectionAfterChangeHook = deferredUntilCommit
   await sendNotificationToMany(
     req.payload,
     residents,
-    { ...notice, link: '/profil', email: { subject: `Lonvita: ${notice.title}`, body: `<p>${escapeHtml(notice.message)}</p>` } },
+    { category: 'account', ...notice, link: '/profil', email: { subject: `Lonvita: ${notice.title}`, body: `<p>${escapeHtml(notice.message)}</p>` } },
     // The same contract end told once, even if the hook runs again.
     { jobIdPrefix: `obec-terminated-${doc.id}-${Date.parse(doc.billingStatusChangedAt ?? '') || 0}` },
   )

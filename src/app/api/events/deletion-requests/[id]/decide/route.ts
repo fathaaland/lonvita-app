@@ -274,6 +274,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         : 'Obec nesouhlasila'
     const team = await getEventTeamUserIds(payload, event, { exclude: [uid, requesterId] })
     sendNotificationToMany(payload, [requesterId], {
+      category: 'my_events',
       title: 'Smazání akce zamítnuto',
       link: `/akce/${event.id}`,
       message: asSpolupořadatel
@@ -281,6 +282,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         : `${who} se smazáním akce „${event.title}“ — akce zůstává.`,
     })
     sendNotificationToMany(payload, team, {
+      category: 'my_events',
       title: 'Smazání akce zamítnuto',
       link: `/akce/${event.id}`,
       message: `${who} se smazáním akce „${event.title}“ — akce zůstává.`,
@@ -467,6 +469,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
 
   sendNotificationToMany(payload, team, {
+    category: 'my_events',
     title: 'Akce smazána',
     message: `Akce „${event.title}“ byla se souhlasem všech spolupořadatelů${obecStillTakesPart ? ' i obce' : ''} smazána.`,
   })

@@ -32,6 +32,7 @@ export const processExportReadyJob = async (data: ExportReadyJobData): Promise<E
 
   await sendNotification(payload, {
     userId: requiredRelationNumber(record.owner),
+    category: 'account',
     title: 'Report je připraven',
     message: `${label} je připraven ke stažení. Odkaz platí ${EXPORT_RETENTION_DAYS} dní.`,
     link,

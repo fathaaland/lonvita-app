@@ -376,10 +376,8 @@ export interface Profile {
    * Brief §7 "Preferovaný kanál notifikací... e-mail defaultně."
    */
   notifyEmail?: boolean | null;
+  emailMuted?: ('my_registrations' | 'volunteering' | 'my_events' | 'my_requests' | 'obec_requests')[] | null;
   notifySms?: boolean | null;
-  /**
-   * Brief §7 "...aplikace volitelně."
-   */
   notifyInApp?: boolean | null;
   dateOfBirth?: string | null;
   over50?: boolean | null;
@@ -1692,6 +1690,7 @@ export interface ProfilesSelect<T extends boolean = true> {
   municipality?: T;
   phone?: T;
   notifyEmail?: T;
+  emailMuted?: T;
   notifySms?: T;
   notifyInApp?: T;
   dateOfBirth?: T;

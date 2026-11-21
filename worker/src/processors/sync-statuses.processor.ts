@@ -133,6 +133,7 @@ async function tellRequestersOfLapse(
     try {
       await sendNotification(payload, {
         userId: requesterId,
+        category: 'my_events',
         title: 'Na žádost o smazání nikdo neodpověděl',
         link: `/akce/${eventId}`,
         message: `Na vaši žádost o smazání akce „${request.eventTitle}“ nikdo včas neodpověděl — akce zůstává.${next}`,

@@ -110,6 +110,7 @@ export async function POST(request: Request) {
   // Otherwise they'd simply stop being asked, and never know why.
   await sendNotification(payload, {
     userId,
+    category: 'volunteering',
     title: 'Už nejste v poolu dobrovolníků',
     message:
       'Správce vás odebral z poolu dobrovolníků, pořadatelé vás teď nemohou oslovit. Jestli jde o omyl, ozvěte se své obci — znovu se můžete přihlásit v profilu.',

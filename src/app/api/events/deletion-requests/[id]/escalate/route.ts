@@ -116,6 +116,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   for (const adminId of obec.userIds) {
     sendNotification(payload, {
       userId: adminId,
+      category: 'obec_requests',
       title: 'Žádost o zrušení spolupořadatelství',
       link: obec.requestsLink,
       message: `${who} chce přestat pořádat akci „${event.title}“, ${refused ? 'ale spolupořadatel nesouhlasí' : 'a na jeho žádost nikdo neodpověděl'}. Rozhodněte do ${until}.`,
@@ -140,6 +141,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     for (const adminId of await getMunicipalityAdminUserIds(payload, m)) if (String(adminId) !== uid) silent.push(String(adminId))
   }
   sendNotificationToMany(payload, refused ? [rejectedById!] : silent, {
+    category: 'my_events',
     title: 'Spolupořadatel požádal obec',
     link: `/akce/${event.id}`,
     message: requesterMunicipality

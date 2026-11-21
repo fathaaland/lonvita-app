@@ -159,6 +159,7 @@ async function reviewOne(payload: Payload, catalog: BillingCatalog, m: TierDoc, 
     : `Počet aktivních uživatelů obce (${average}) je opět v ceně licence (${included}). ` +
       `Od ${from} bude obec v pásmu podle své velikosti (${tierRangeLabel(tiers, nextTier)} obyvatel).`
   await sendNotificationToMany(payload, await getMunicipalityAdminUserIds(payload, m.id), {
+    category: 'obec_billing',
     title,
     message,
     link: '/admin-obce?tab=settings',

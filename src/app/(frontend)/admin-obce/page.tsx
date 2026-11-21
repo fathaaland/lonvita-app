@@ -15,7 +15,7 @@ import { Loading } from "@/components/Loading";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { BarChart3, CalendarRange, HandHeart, ClipboardList, Download, Settings } from "lucide-react";
+import { BarChart3, CalendarRange, HandHeart, ClipboardList, Users, Download, Settings } from "lucide-react";
 import dynamic from "next/dynamic";
 import { EventsTable } from "@/components/admin/EventsTable";
 import { CommunityReport } from "@/components/admin/CommunityReport";
@@ -24,6 +24,7 @@ import { RegionNotice } from "@/components/RegionNotice";
 import { BillingStatusNotice } from "@/components/admin/BillingStatusNotice";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 import { PoolInvitationsCard } from "@/components/admin/PoolInvitationsCard";
+import { OrganizersTable } from "@/components/admin/OrganizersTable";
 import { RequestsTable } from "@/components/admin/RequestsTable";
 import { SettingsPanel } from "@/components/admin/SettingsPanel";
 import { ImportPanel } from "@/components/admin/ImportPanel";
@@ -146,7 +147,7 @@ function AdminContent() {
             <RegionNotice region={region} municipalityId={muniId} municipalityName={muniName} className="mb-4" />
           )}
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="w-full h-12 grid grid-cols-6 md:hidden">
+            <TabsList className="w-full h-12 grid grid-cols-7 md:hidden">
               <TabsTrigger value="overview" className="gap-1" aria-label="Přehled">
                 <BarChart3 className="h-4 w-4" />
               </TabsTrigger>
@@ -155,6 +156,9 @@ function AdminContent() {
               </TabsTrigger>
               <TabsTrigger value="volunteers" className="gap-1" aria-label="Dobrovolníci">
                 <HandHeart className="h-4 w-4" />
+              </TabsTrigger>
+              <TabsTrigger value="organizers" className="gap-1" aria-label="Organizátoři">
+                <Users className="h-4 w-4" />
               </TabsTrigger>
               <TabsTrigger
                 value="requests"
@@ -226,6 +230,10 @@ function AdminContent() {
             <TabsContent value="volunteers" className="pt-4 space-y-4">
               <VolunteersTable municipalityId={muniId} municipalityName={muniName} region={region} />
               <PoolInvitationsCard key={muniId} municipalityId={muniId} />
+            </TabsContent>
+
+            <TabsContent value="organizers" className="pt-4">
+              <OrganizersTable key={muniId} municipalityId={muniId} />
             </TabsContent>
 
             <TabsContent value="requests" className="pt-4">

@@ -203,6 +203,7 @@ export async function announceRequesterRemoved(
   if (requesterId !== deciderId) {
     sendNotification(payload, {
       userId: requesterId,
+      category: 'my_events',
       title: 'Akci už nepořádáte',
       message: `${reason} — akci „${event.title}“ už nepořádáte, pokračuje beze vás.`,
       email: {
@@ -214,6 +215,7 @@ export async function announceRequesterRemoved(
   if (successorId && successorId !== deciderId) {
     sendNotification(payload, {
       userId: successorId,
+      category: 'my_events',
       title: 'Akci teď vedete vy',
       link,
       message: `${who} akci „${event.title}“ opustil(a) a vy jste teď její hlavní pořadatel — i s dobrovolnictvím a hodnocením dobrovolníků.`,
@@ -221,6 +223,7 @@ export async function announceRequesterRemoved(
   }
   const team = await getEventTeamUserIds(payload, event, { exclude: [deciderId, requesterId, successorId] })
   sendNotificationToMany(payload, team, {
+    category: 'my_events',
     title: 'Změna pořadatelů akce',
     link,
     message: `${who} akci „${event.title}“ už nepořádá${byObec ? ' — rozhodla tak obec' : ''}.${successorId ? ' Hlavním pořadatelem je teď její dosavadní spolupořadatel.' : ''}`,
@@ -287,6 +290,7 @@ export async function announceObecRemoved(
     : 'Spolupořadatel nechce akci smazat, ale souhlasil, že ji vaše obec opustí'
   const admins = (await getMunicipalityAdminUserIds(payload, municipalityId)).filter((id) => String(id) !== deciderId)
   await sendNotificationToMany(payload, admins, {
+    category: 'my_events',
     title: 'Obec akci už nespolupořádá',
     link,
     message: `${reason} — obec ${name} akci „${event.title}“ už nespolupořádá, pokračuje bez ní.`,
@@ -297,6 +301,7 @@ export async function announceObecRemoved(
   })
   const team = await getEventTeamUserIds(payload, event, { exclude: [deciderId, ...admins] })
   await sendNotificationToMany(payload, team, {
+    category: 'my_events',
     title: 'Změna pořadatelů akce',
     link,
     message: `Obec ${name} akci „${event.title}“ už nespolupořádá${byObec ? ' — rozhodla tak obec' : ''}.`,

@@ -1021,6 +1021,7 @@ async function notifyOrganizersOfObecAction(
     const who = neighbour ? `${name} (obec ${neighbour.name})` : name
     const change = changedLabels.length > 0 ? ` (změna: ${changedLabels.join(', ')})` : ''
     await sendNotificationToMany(payload, recipients, {
+      category: 'my_events',
       title: 'Společná akce byla upravena',
       message: `${who} upravil(a) akci „${event.title}“, kterou spolu pořádáte${change}.`,
       link: `/akce/${event.id}`,
@@ -1029,6 +1030,7 @@ async function notifyOrganizersOfObecAction(
     if (neighbour && removedIds.length > 0) {
       const what = `Obec ${neighbour.name} vás odebrala ze spolupořádání akce „${event.title}“. Akce pokračuje bez vás.`
       await sendNotificationToMany(payload, removedIds, {
+        category: 'my_events',
         title: 'Už akci nespolupořádáte',
         message: what,
         link: `/akce/${event.id}`,
@@ -1074,6 +1076,7 @@ async function notifyOrganizersOfObecAction(
     recipients.map((userId) =>
       sendNotification(payload, {
         userId,
+        category: 'my_events',
         title: `${who} ${did} vaši akci`,
         message: `Vaši akci „${event.title}“ ${did} ${actor}${change}.`,
         link,

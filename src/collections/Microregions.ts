@@ -97,6 +97,7 @@ async function notifyMembership(
     const link = forPlatform ? '/superadmin' : '/admin-obce'
     const text = forPlatform ? `${message} (Obec ${nameOf.get(municipalityId) ?? ''} zatím nemá admina.)` : message
     await sendNotificationToMany(payload, userIds, {
+      category: 'obec_requests',
       title,
       message: text,
       link,
@@ -242,6 +243,7 @@ async function lapseInvitationsAcross(payload: Payload, pairs: [string, string][
       overrideAccess: true,
     })
     await sendNotificationToMany(payload, [relationId(request.requestedBy)!], {
+      category: 'obec_requests',
       title: 'Pozvánka ke spolupořádání zrušena',
       link: event ? `/akce/${event.id}` : undefined,
       message: `Pozvánka pro ${request.organizationName} ke spolupořádání akce „${request.eventTitle}“ je zrušená — obce už nejsou spolu v mikroregionu ${regionName}.`,

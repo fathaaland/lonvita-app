@@ -88,6 +88,7 @@ export async function checkSmsUsageAlerts(
     const adminIds = await getMunicipalityAdminUserIds(payload, municipalityId)
     const { title, message } = smsAlertMessage(level, usage)
     await sendNotificationToMany(payload, adminIds, {
+      category: 'obec_billing',
       title,
       message,
       link: '/admin-obce?tab=settings',

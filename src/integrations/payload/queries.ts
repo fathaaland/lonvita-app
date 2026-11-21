@@ -850,6 +850,8 @@ export type ProfileRow = {
   phone: string | null
   notify_email: boolean
   notify_in_app: boolean
+  /** Circles of notifications switched off by e-mail (Profiles.emailMuted) — the app gets them all. */
+  email_muted: string[]
   /** Chose SMS (Profiles.notifySms) — off unless they did. */
   notify_sms: boolean
   municipality_id: string | null
@@ -878,6 +880,7 @@ type PayloadProfile = {
   notifyEmail?: boolean
   notifyInApp?: boolean
   notifySms?: boolean
+  emailMuted?: string[] | null
   municipality?: number | { id: number } | null
   onboardingCompleted?: boolean
   dateOfBirth?: string | null
@@ -924,6 +927,7 @@ const mapProfile = (p: PayloadProfile): ProfileRow => ({
   phone: p.phone ?? null,
   notify_email: p.notifyEmail ?? true,
   notify_in_app: p.notifyInApp ?? true,
+  email_muted: p.emailMuted ?? [],
   notify_sms: p.notifySms === true,
   municipality_id: relationId(p.municipality),
   onboarding_completed: Boolean(p.onboardingCompleted),

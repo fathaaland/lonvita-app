@@ -78,6 +78,7 @@ export async function checkScrapingCost(payload: Payload, municipalityId: number
     })
     const { userIds } = await getPlatformDeciders(payload)
     await sendNotificationToMany(payload, userIds, {
+      category: 'obec_billing',
       title: 'Scraping: neobvykle vysoké náklady',
       link: `/superadmin/obce/${municipalityId}`,
       message:

@@ -137,6 +137,7 @@ const notifyOnInvitation: CollectionAfterChangeHook = async ({ doc, previousDoc,
       const note = doc.message ? ` Vzkaz: „${doc.message}“` : ''
       await sendNotification(req.payload, {
         userId: relationNumber(doc.user)!,
+        category: 'volunteering',
         title: 'Pozvánka do poolu dobrovolníků',
         link: '/profil',
         message: `Obec ${obec} vás zve do poolu dobrovolníků — pořadatelé by vás pak mohli oslovit, když budou potřebovat pomoc.${note} Přijmout nebo odmítnout ji můžete v profilu.`,
@@ -157,6 +158,7 @@ const notifyOnInvitation: CollectionAfterChangeHook = async ({ doc, previousDoc,
       if (inviterId) {
         await sendNotification(req.payload, {
           userId: inviterId,
+          category: 'volunteering',
           title: doc.status === 'accepted' ? 'Nový dobrovolník v poolu' : 'Pozvánka do poolu odmítnuta',
           link: '/admin-obce?tab=volunteers',
           message:
