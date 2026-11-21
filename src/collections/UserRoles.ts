@@ -90,7 +90,7 @@ const notifyNewAdminOfWaitingRequests: CollectionAfterChangeHook = async ({ doc,
 const keepLastMunicipalityAdmin: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'delete') return args
   const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
-  if (overrideAccess !== false || !req.user || req.user.role === 'admin') return args
+  if (overrideAccess === true || !req.user || req.user.role === 'admin') return args
 
   const removing = await req.payload.find({
     collection: 'user-roles',
@@ -135,7 +135,7 @@ const keepLastMunicipalityAdmin: CollectionBeforeOperationHook = async ({ args, 
 const keepRunningEventsOrganized: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'delete') return args
   const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
-  if (overrideAccess !== false || !req.user) return args
+  if (overrideAccess === true || !req.user) return args
 
   const removing = await req.payload.find({
     collection: 'user-roles',

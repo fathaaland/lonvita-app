@@ -84,7 +84,7 @@ const lockPlatformRole: CollectionBeforeOperationHook = async ({ args, operation
   }
   // No id = a bulk update by `where`; field access still strips `role` there, there's just no
   // single document to compare against for the error message.
-  if (overrideAccess !== false || data?.role === undefined || id === undefined) return args
+  if (overrideAccess === true || data?.role === undefined || id === undefined) return args
 
   const current = await req.payload.findByID({
     collection: 'users',

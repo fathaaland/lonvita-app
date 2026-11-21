@@ -420,7 +420,7 @@ const guardCoOrganizedChanges: CollectionBeforeChangeHook = async ({ data, req, 
 const guardUpcomingDelete: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'delete') return args
   const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
-  if (overrideAccess !== false || !req.user) return args
+  if (overrideAccess === true || !req.user) return args
 
   const upcoming = await req.payload.count({
     collection: 'events',

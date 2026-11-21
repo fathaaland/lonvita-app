@@ -7,7 +7,7 @@ import { recordAuditLog } from './shared/auditLog'
  * (overrideAccess) are the app's own and aren't. Awaited, but a failed write doesn't lock the
  * platform admin out of the log. */
 const recordRead: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
-  if (operation !== 'read' || args.overrideAccess !== false || !req.user) return args
+  if (operation !== 'read' || args.overrideAccess === true || !req.user) return args
   const { id } = args as { id?: number | string }
   await recordAuditLog(req.payload, {
     action: 'audit-log.read',

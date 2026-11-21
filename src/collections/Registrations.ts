@@ -436,7 +436,7 @@ const isMarked = (status: unknown) => typeof status === 'string' && status !== '
 const refuseBulkUpdate: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'update') return args
   const { id, overrideAccess } = args as { id?: number | string; overrideAccess?: boolean }
-  if (overrideAccess !== false || id !== undefined || req.user?.role === 'admin') return args
+  if (overrideAccess === true || id !== undefined || req.user?.role === 'admin') return args
   throw new APIError('Přihlášky se mění jen po jedné.', 403)
 }
 
@@ -457,7 +457,7 @@ const lockAttendanceOnceMarked: CollectionBeforeOperationHook = async ({ args, o
     overrideAccess?: boolean
   }
   // No id = a bulk update by `where` — refused before this runs (refuseBulkUpdate).
-  if (overrideAccess !== false || data?.attendanceStatus === undefined || id === undefined) return args
+  if (overrideAccess === true || data?.attendanceStatus === undefined || id === undefined) return args
   if (!req.user) return args
 
   const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
@@ -513,7 +513,7 @@ const guardStatusChange: CollectionBeforeOperationHook = async ({ args, operatio
     id?: number | string
     overrideAccess?: boolean
   }
-  if (overrideAccess !== false || data?.status === undefined || id === undefined) return args
+  if (overrideAccess === true || data?.status === undefined || id === undefined) return args
   if (!req.user || req.user.role === 'admin') return args
 
   const current = await req.payload.findByID({ collection: 'registrations', id, depth: 0, overrideAccess: true, req })
@@ -591,7 +591,7 @@ const guardOwnCancellation: CollectionBeforeOperationHook = async ({ args, opera
     id?: number | string
     overrideAccess?: boolean
   }
-  if (overrideAccess !== false || id === undefined || !req.user) return args
+  if (overrideAccess === true || id === undefined || !req.user) return args
   const excuse = typeof data?.excuseMessage === 'string' ? data.excuseMessage.trim() : ''
   if (data?.status !== 'cancelled' && !excuse) return args
 
@@ -629,7 +629,7 @@ const selfCancellationKey = (id: number | string) => `selfCancellation:${id}`
 const guardRegistrationWindow: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'create') return args
   const { data, overrideAccess } = args as { data?: { event?: unknown }; overrideAccess?: boolean }
-  if (overrideAccess !== false || !data?.event || !req.user || req.user.role === 'admin') return args
+  if (overrideAccess === true || !data?.event || !req.user || req.user.role === 'admin') return args
 
   const event = await req.payload
     .findByID({ collection: 'events', id: requiredRelationNumber(data.event), depth: 0, overrideAccess: true, req })
@@ -674,7 +674,7 @@ const stampCancellation: CollectionBeforeChangeHook = ({ data, originalDoc, oper
 const guardVolunteerDelete: CollectionBeforeOperationHook = async ({ args, operation, req }) => {
   if (operation !== 'delete') return args
   const { id, where, overrideAccess } = args as { id?: number | string; where?: Where; overrideAccess?: boolean }
-  if (overrideAccess !== false || !req.user || req.user.role === 'admin') return args
+  if (overrideAccess === true || !req.user || req.user.role === 'admin') return args
 
   const volunteers = await req.payload.find({
     collection: 'registrations',
