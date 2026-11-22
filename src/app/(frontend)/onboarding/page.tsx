@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   acceptPlatformTerms,
   declareAge15Plus,
+  getEmailVerificationState,
   getEventCategories,
   hasAgeDeclaration,
   hasPlatformTermsConsent,
+  type EmailVerificationState,
   listMunicipalities,
   MunicipalityRow,
   needsOnboardingMunicipality,
@@ -33,6 +35,7 @@ import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { latestBirthDateInputValue } from "@/lib/date";
 import { PayloadApiError } from "@/integrations/payload/client";
 import { useMunicipalityFeatures } from "@/hooks/useMunicipalityFeatures";
+import { EmailVerificationStep } from "@/components/onboarding/EmailVerificationStep";
 
 /** The obec is picked on the map during registration — except for a Google sign-up, which
  * skips that form, so onboarding asks for it first (see /api/auth/onboarding-municipality). */
@@ -70,10 +73,24 @@ function OnboardingContent() {
   // Same for the "15+" declaration (Consents age_15_plus). null until known; true = none on record.
   const [needsAge, setNeedsAge] = useState<boolean | null>(null);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
+  // A password sign-up proves its address with the e-mailed code before anything else.
+  // null until known; "error" = couldn't tell — asked again, never guessed, since finishing
+  // onboarding is refused without it and the code screen would be out of reach.
+  const [emailVerification, setEmailVerification] = useState<EmailVerificationState | "error" | null>(null);
+
+  const loadEmailVerification = () =>
+    getEmailVerificationState()
+      .then(setEmailVerification)
+      .catch(() => setEmailVerification("error"));
 
   useEffect(() => {
     getEventCategories().then(setCats);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    loadEmailVerification();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) return;
@@ -146,12 +163,41 @@ function OnboardingContent() {
     } catch (error) {
       // E.g. the phone number already belongs to another account — the server says so.
       toast.error(error instanceof PayloadApiError && error.status < 500 ? error.message : "Nepodařilo se uložit profil.");
+      // Refused for an unproven e-mail? Then this brings the code screen back.
+      if (error instanceof PayloadApiError && error.status === 400) loadEmailVerification();
     } finally {
       setSaving(false);
     }
   };
 
-  if (authLoading || needsMunicipality === null || needsTerms === null || needsAge === null) return <Loading />;
+  if (authLoading || needsMunicipality === null || needsTerms === null || needsAge === null || emailVerification === null)
+    return <Loading />;
+
+  if (emailVerification === "error") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-muted-foreground">Nepodařilo se načíst stav ověření e-mailu.</p>
+        <Button
+          onClick={() => {
+            setEmailVerification(null);
+            loadEmailVerification();
+          }}
+        >
+          Zkusit znovu
+        </Button>
+      </div>
+    );
+  }
+
+  if (emailVerification.needed) {
+    return (
+      <EmailVerificationStep
+        email={emailVerification.email}
+        codeSentAt={emailVerification.codeSentAt}
+        onVerified={() => setEmailVerification({ ...emailVerification, needed: false })}
+      />
+    );
+  }
 
   const current: StepKey = steps[step];
   const maxDob = latestBirthDateInputValue();

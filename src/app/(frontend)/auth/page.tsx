@@ -145,7 +145,9 @@ function AuthPageContent() {
           marketingConsent,
           turnstileToken,
         })
-        toast.success('Účet vytvořen. Můžete se přihlásit.')
+        // Doesn't say whether the code left: the response is the same for an address already
+        // registered (no enumeration). After signing in, onboarding knows and offers one at once.
+        toast.success('Účet vytvořen. Přihlaste se a ověřte e-mail kódem — když nedorazí, pošlete si nový.')
         setMode('signin')
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Registrace se nezdařila.')

@@ -1459,6 +1459,22 @@ export async function needsOnboardingMunicipality(): Promise<boolean> {
   return result.needed
 }
 
+/** Whether onboarding opens with the e-mail code step (a password sign-up that hasn't entered it). */
+export type EmailVerificationState = { needed: boolean; email: string; codeSentAt: string | null }
+
+export async function getEmailVerificationState(): Promise<EmailVerificationState> {
+  return get<EmailVerificationState>('/auth/email-verification')
+}
+
+/** Proves the address with the code from the e-mail — throws PayloadApiError with the reason. */
+export async function verifyEmailCode(code: string): Promise<void> {
+  await post('/auth/email-verification', { code })
+}
+
+export async function resendEmailCode(): Promise<void> {
+  await post('/auth/email-verification/resend', {})
+}
+
 /** Files a Google sign-up under the obec picked in onboarding (profile + "participant" role). */
 export async function setOnboardingMunicipality(municipalityId: string): Promise<void> {
   await post('/auth/onboarding-municipality', { municipality: municipalityId })
