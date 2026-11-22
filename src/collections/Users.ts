@@ -300,7 +300,10 @@ export const Users: CollectionConfig = {
   },
   auth: {
     tokenExpiration: 7200, // 2 hours
-    verify: false, // The provider verifies the address (auth-identities.emailVerified).
+    // Payload's own verification (a link with a token, login blocked until clicked) stays off: a
+    // password sign-up proves its address with a code in onboarding instead (`emailVerifiedAt`),
+    // a Google one through the provider (auth-identities.emailVerified).
+    verify: false,
     maxLoginAttempts: 5,
     lockTime: 600 * 1000, // 10 minutes
     // The reset e-mail promises one hour; spelled out so it can't drift with Payload's default.
@@ -340,6 +343,28 @@ export const Users: CollectionConfig = {
       index: true,
       access: { read: ({ req: { user } }) => user?.role === 'admin', create: () => false, update: () => false },
       admin: { readOnly: true, position: 'sidebar' },
+    },
+    {
+      // When the account proved it owns its address: the e-mail code (lib/auth/email-verification)
+      // for a password sign-up, Google for a Google one (link-account). Onboarding can't be
+      // finished without it (Profiles hook). Nobody sets it through the API.
+      name: 'emailVerifiedAt',
+      type: 'date',
+      access: { create: () => false, update: () => false },
+      admin: {
+        readOnly: true,
+        position: 'sidebar',
+        description: 'Kdy účet ověřil svůj e-mail (kódem z e-mailu nebo přes Google).',
+      },
+    },
+    {
+      // When the last e-mail code actually left (lib/auth/email-verification). Onboarding tells
+      // "on its way" from "never sent" by it, and the unverified-accounts retention rule only
+      // removes an account that was sent one — older accounts and staff-created ones never were.
+      name: 'emailCodeSentAt',
+      type: 'date',
+      access: { read: ({ req: { user } }) => user?.role === 'admin', create: () => false, update: () => false },
+      admin: { readOnly: true, position: 'sidebar', description: 'Kdy byl naposledy odeslán ověřovací kód.' },
     },
     {
       // Set once by shared/anonymizeUser — never by a client.

@@ -199,6 +199,14 @@ export interface User {
   role: 'admin' | 'user';
   lastSeenAt?: string | null;
   /**
+   * Kdy účet ověřil svůj e-mail (kódem z e-mailu nebo přes Google).
+   */
+  emailVerifiedAt?: string | null;
+  /**
+   * Kdy byl naposledy odeslán ověřovací kód.
+   */
+  emailCodeSentAt?: string | null;
+  /**
    * When the account was deleted. Its personal data is gone; the row stays so the registrations, attendance and ratings hanging off it keep counting in the overviews.
    */
   anonymizedAt?: string | null;
@@ -1544,6 +1552,8 @@ export interface PayloadMigration {
 export interface UsersSelect<T extends boolean = true> {
   role?: T;
   lastSeenAt?: T;
+  emailVerifiedAt?: T;
+  emailCodeSentAt?: T;
   anonymizedAt?: T;
   updatedAt?: T;
   createdAt?: T;

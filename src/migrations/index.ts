@@ -61,6 +61,7 @@ import * as migration_20261114_160720_pricing_2027 from './20261114_160720_prici
 import * as migration_20261121_061600_volunteer_pool_access from './20261121_061600_volunteer_pool_access';
 import * as migration_20261121_073931_email_notification_categories from './20261121_073931_email_notification_categories';
 import * as migration_20261121_081033_sms_organization from './20261121_081033_sms_organization';
+import * as migration_20261122_213731_email_verified_at from './20261122_213731_email_verified_at';
 
 export const migrations = [
   {
@@ -376,6 +377,11 @@ export const migrations = [
   {
     up: migration_20261121_081033_sms_organization.up,
     down: migration_20261121_081033_sms_organization.down,
-    name: '20261121_081033_sms_organization'
+    name: '20261121_081033_sms_organization',
+  },
+  {
+    up: migration_20261122_213731_email_verified_at.up,
+    down: migration_20261122_213731_email_verified_at.down,
+    name: '20261122_213731_email_verified_at'
   },
 ];
