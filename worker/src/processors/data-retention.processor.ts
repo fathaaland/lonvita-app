@@ -27,6 +27,7 @@ const cutoffsFor = (now: Date, r: Retention) => ({
   organizerRequest: monthsBefore(now, r.organizerRequestMonths).toISOString(),
   staleEventData: monthsBefore(now, r.staleEventDataMonths).toISOString(),
   orphanMedia: hoursBefore(now, r.orphanMediaGraceHours).toISOString(),
+  unverifiedAccount: daysBefore(now, r.unverifiedAccountDays).toISOString(),
   // Never under the floor, whatever the policy says — the database would refuse it anyway.
   auditLog: monthsBefore(now, Math.max(r.auditLogMonths, r.auditLogMinimumMonths)).toISOString(),
 })
@@ -130,6 +131,36 @@ const deleteEvents: Step['purge'] = async (payload, step, ids) => {
       deleted++
     } catch (error) {
       logger.error('Cancelled event not purged', { event: 'retention.event_purge_failed', eventId: id, ...serializeError(error) })
+    }
+  }
+  return deleted
+}
+
+/** One account at a time, each in a transaction of its own: deleting a user runs its cleanup
+ * (Users cleanupUserRelations — profile, consents, notifications …) and a failing one must not hold
+ * the rest back. The entry says when it was made and what the rule was, never the address — the
+ * point of removing it is that nobody confirmed it was theirs. */
+const deleteUnverifiedAccounts: Step['purge'] = async (payload, step, ids) => {
+  let deleted = 0
+  for (const id of ids) {
+    try {
+      await inTransaction(payload, async (req) => {
+        const user = await payload.findByID({ collection: 'users', id, depth: 0, overrideAccess: true, req })
+        await recordAuditLog(
+          payload,
+          {
+            action: 'users.purge-unverified',
+            targetCollection: 'users',
+            targetId: id,
+            metadata: { step: step.name, rule: step.rule, createdAt: user.createdAt },
+          },
+          { req },
+        )
+        await payload.delete({ collection: 'users', id, overrideAccess: true, req })
+      })
+      deleted++
+    } catch (error) {
+      logger.error('Unverified account not purged', { event: 'retention.account_purge_failed', userId: id, ...serializeError(error) })
     }
   }
   return deleted
@@ -286,6 +317,42 @@ const stepsFor = (r: Retention): Step[] => [
         AND e.id > ${afterId}
       ORDER BY e.id LIMIT ${limit}`,
     purge: deleteEvents,
+  },
+  {
+    // Before the uploads rule below: the account's photo, if it had one, is orphaned by this.
+    // Only what could do nothing yet: sent a code (accounts from before the code existed never
+    // were) but never proved the address (no code entered, no Google), not created by staff,
+    // onboarding not finished, and nothing hanging off it that a person or an overview would miss.
+    name: 'unverified-accounts',
+    collection: 'users',
+    rule: `e-mail code sent but never entered, onboarding not finished, nothing on the account, registered ${r.unverifiedAccountDays}+ days ago`,
+    select: (c, afterId, limit) => sql`
+      SELECT u.id FROM users u
+      WHERE u.role = 'user'
+        AND u.email_verified_at IS NULL
+        AND u.email_code_sent_at IS NOT NULL
+        AND u.anonymized_at IS NULL
+        AND u.created_at < ${c.unverifiedAccount}::timestamptz
+        AND NOT EXISTS (
+          SELECT 1 FROM audit_log a WHERE a.action = 'users.create-by-admin' AND a.target_id = u.id::text
+        )
+        AND NOT EXISTS (SELECT 1 FROM profiles p WHERE p.user_id = u.id AND p.onboarding_completed = true)
+        AND NOT EXISTS (SELECT 1 FROM auth_identities i WHERE i.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM registrations g WHERE g.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM events e WHERE e.organizer_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM organizations o WHERE o.owner_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM organizer_requests q WHERE q.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM pool_invitations pi WHERE pi.user_id = u.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM volunteer_invitations vi WHERE vi.volunteer_id = u.id OR vi.invited_by_id = u.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM volunteer_ratings vr WHERE vr.volunteer_id = u.id OR vr.rated_by_id = u.id
+        )
+        AND u.id > ${afterId}
+      ORDER BY u.id LIMIT ${limit}`,
+    purge: deleteUnverifiedAccounts,
   },
   {
     // A replaced or removed photo, a cover from a form never saved. Everything that may point at an

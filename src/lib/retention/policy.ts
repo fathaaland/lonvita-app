@@ -24,6 +24,12 @@ export const RETENTION = {
   auditLogMonths: 36,
   /** The floor the database enforces on its own — keep in step with the trigger's interval. */
   auditLogMinimumMonths: 18,
+  /** A password sign-up that was sent the e-mail code (Users.emailCodeSentAt) but never entered it
+   * (Users.emailVerifiedAt) nor finished
+   * onboarding, and has nothing on it — no role, registration, event or Google identity. A week is
+   * plenty to find the e-mail ("Poslat nový kód" is there meanwhile); past it the account is most
+   * likely a typo or somebody else's address, and holds a personal e-mail nobody confirmed. */
+  unverifiedAccountDays: 7,
   /** An upload nothing points at yet may be a cover picked in a form that hasn't been saved. */
   orphanMediaGraceHours: 48,
   /** A cancelled event (with what hangs off it), and a registration that ended up cancelled or was
