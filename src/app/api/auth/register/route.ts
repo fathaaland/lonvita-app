@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
 import config from '@payload-config'
+import { sendEmailVerificationCode } from '@/lib/auth/email-verification'
 import { logger, serializeError } from '@/lib/logger'
 import { correlationIdFromHeaders } from '@/lib/logger/correlation'
 import { getClientIp } from '@/lib/security/rate-limit'
@@ -134,6 +135,18 @@ export async function POST(request: Request) {
         overrideAccess: true,
       })
     }
+
+    // The code onboarding asks for first. Not fatal: the account is complete without it, and
+    // onboarding offers "Poslat nový kód".
+    await sendEmailVerificationCode(payload, payloadUser).catch((error) => {
+      logger.error('Email verification code not sent', {
+        event: 'auth.email_verification_send_failed',
+        userId: payloadUser.id,
+        stage: 'registration',
+        ...serializeError(error),
+        correlationId: correlationIdFromHeaders(request.headers),
+      })
+    })
 
     logger.audit('Registration succeeded', {
       event: 'auth.registration_succeeded',

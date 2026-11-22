@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 
+import { markEmailVerified } from '@/lib/auth/email-verification'
 import { upsertUser } from '@/lib/auth/users'
 
 import { importGoogleAvatar } from './avatar'
@@ -18,9 +19,18 @@ import type { User } from '@/payload-types'
  *    verified. Without that check, anyone who can set an arbitrary unverified address at any
  *    provider could walk into the matching Lonvita account.
  * 3. No verified address means no account at all — neither linked nor created.
- * 4. Linking to a password account that was never proven drops that password — it may have
- *    been set by whoever registered the address first.
+ * 4. Linking to a password account that was never proven (no other identity, no e-mail code)
+ *    drops that password — it may have been set by whoever registered the address first.
+ * 5. Google's verified address counts as proven for the account (`emailVerifiedAt`) — a Google
+ *    sign-up never enters the e-mail code onboarding asks a password sign-up for.
  */
+
+/** Stamps `emailVerifiedAt` when Google vouches for the very address the account is under. */
+const markVerifiedByGoogle = async (payload: Payload, user: User, profile: GoogleProfile) => {
+  if (user.emailVerifiedAt || !profile.emailVerified || !profile.email) return
+  if (profile.email.toLowerCase() !== user.email.toLowerCase()) return
+  await markEmailVerified(payload, user.id)
+}
 
 export type GoogleSignInResult =
   | { ok: true; user: User; linked: boolean }
@@ -53,6 +63,8 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
     })
     // Identities from before photos existed get theirs on the next sign-in.
     if (!identity.avatarImportedAt) await importGoogleAvatar(payload, identity.id, user.id, profile)
+    // Identities from before e-mail verification existed get it on the next sign-in.
+    await markVerifiedByGoogle(payload, user, profile)
 
     return { ok: true, user, linked: false }
   }
@@ -71,17 +83,18 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
   })
   const linkedToExistingAccount = byEmail.docs.length > 0
 
-  // Signing up with a password proves nothing about the address (Users auth.verify is off), so
-  // anyone could have registered it first, waiting for its owner to arrive through Google. Once
+  // Signing up with a password proves nothing about the address until its e-mail code is entered,
+  // so anyone could have registered it first, waiting for its owner to arrive through Google. Once
   // Google proves the owner, a password nobody ever proved goes: it's replaced with a random one,
-  // and the owner sets their own through "zapomenuté heslo" if they want one at all.
+  // and the owner sets their own through "zapomenuté heslo" if they want one at all. A password
+  // whose account entered the code was set by the address's owner, and stays.
   if (linkedToExistingAccount) {
     const proven = await payload.count({
       collection: 'auth-identities',
       where: { user: { equals: byEmail.docs[0].id } },
       overrideAccess: true,
     })
-    if (proven.totalDocs === 0) {
+    if (proven.totalDocs === 0 && !byEmail.docs[0].emailVerifiedAt) {
       await payload.update({
         collection: 'users',
         id: byEmail.docs[0].id,
@@ -109,6 +122,7 @@ export async function resolveGoogleUser(payload: Payload, profile: GoogleProfile
     overrideAccess: true,
   })
   await importGoogleAvatar(payload, created.id, user.id, profile)
+  await markVerifiedByGoogle(payload, user, profile)
 
   return { ok: true, user, linked: linkedToExistingAccount }
 }

@@ -65,6 +65,29 @@ const requireAgeDeclarationToFinishOnboarding: CollectionBeforeChangeHook = asyn
   return data
 }
 
+/**
+ * Finishing onboarding also needs a proven address (Users.emailVerifiedAt) — the code e-mailed on
+ * registration, or Google's word for a Google sign-up. Same scope as the age rule above: only the
+ * account holder is held to it, the superadmin isn't.
+ */
+const requireVerifiedEmailToFinishOnboarding: CollectionBeforeChangeHook = async ({ data, originalDoc, req }) => {
+  if (data.onboardingCompleted !== true || originalDoc?.onboardingCompleted === true) return data
+  if (!req.user || req.user.role === 'admin') return data
+  const owner = data.user ?? originalDoc?.user
+  if (!owner) return data
+  const ownerUser = await req.payload.findByID({
+    collection: 'users',
+    id: requiredRelationNumber(owner),
+    depth: 0,
+    overrideAccess: true,
+    req,
+  })
+  if (ownerUser.role !== 'admin' && !ownerUser.emailVerifiedAt) {
+    throw new APIError('Nejdřív prosím ověřte svůj e-mail kódem, který jsme vám poslali.', 400, undefined, true)
+  }
+  return data
+}
+
 /** Whether another account already has `phone` (E.164) — the superadmin's create-user route asks
  * before it creates anything, the hook below on every write. */
 export async function isPhoneTaken(
@@ -473,7 +496,12 @@ export const Profiles: CollectionConfig = {
     deletedAtField,
   ],
   hooks: {
-    beforeChange: [validateVolunteerContact, ensureUniquePhone, requireAgeDeclarationToFinishOnboarding],
+    beforeChange: [
+      validateVolunteerContact,
+      ensureUniquePhone,
+      requireAgeDeclarationToFinishOnboarding,
+      requireVerifiedEmailToFinishOnboarding,
+    ],
     afterChange: [handleLeavingPool, acceptPoolInvitations],
   },
   timestamps: true,

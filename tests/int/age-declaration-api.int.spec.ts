@@ -24,7 +24,8 @@ describe('The 15+ rule holds over the API, not only in the forms', () => {
   const makeUser = async (name: string, role: 'user' | 'admin' = 'user') => {
     const created = await payload.create({
       collection: 'users',
-      data: { email: `age-api-${name}-${STAMP}@test.local`, password: 'test1234', role },
+      // A proven address, so only the 15+ rule is what these tests run into (email-verification.int.spec.ts).
+      data: { email: `age-api-${name}-${STAMP}@test.local`, password: 'test1234', role, emailVerifiedAt: new Date().toISOString() },
       overrideAccess: true,
     })
     const ownProfile = await payload.create({

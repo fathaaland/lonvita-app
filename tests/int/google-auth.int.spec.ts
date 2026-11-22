@@ -219,6 +219,9 @@ describe('Signing in with Google', () => {
       expect(profiles.docs[0]?.fullName).toBe('Google Uživatel')
       expect(profiles.docs[0]?.onboardingCompleted).toBeFalsy()
       expect((await identitiesFor(profile.providerSubject)).totalDocs).toBe(1)
+      // Google proved the address — onboarding asks this account for no e-mail code.
+      const user = await payload.findByID({ collection: 'users', id: result.user.id, overrideAccess: true })
+      expect(user.emailVerifiedAt).toBeTruthy()
     })
 
     it('logs the same person back in without a second identity', async () => {
@@ -265,6 +268,23 @@ describe('Signing in with Google', () => {
       expect(result.user.id).toBe(squatted.id)
 
       await expect(payload.login({ collection: 'users', data: { email, password: 'attacker-pass' } })).rejects.toThrow()
+    })
+
+    it('keeps a password whose account proved the address with the e-mail code', async () => {
+      const email = `proven-${STAMP}@test.local`
+      const proven = await payload.create({
+        collection: 'users',
+        data: { email, password: 'owner-pass', role: 'user', emailVerifiedAt: new Date().toISOString() },
+        overrideAccess: true,
+      })
+      createdUserIds.push(proven.id)
+
+      const result = await resolveGoogleUser(payload, googleProfile({ email }))
+      if (!result.ok) throw new Error(`expected success, got ${result.reason}`)
+      expect(result.user.id).toBe(proven.id)
+
+      const login = await payload.login({ collection: 'users', data: { email, password: 'owner-pass' } })
+      expect(login.user?.id).toBe(proven.id)
     })
 
     it('refuses to reach an existing account on an unverified address', async () => {
