@@ -104,7 +104,9 @@ key="postgres/$(date -u +%Y/%m)/lonvita-$(date -u +%Y%m%dT%H%M%SZ).dump.gpg"
 log "Dumping to s3://$BUCKET/$key"
 # Custom format (pg_restore can pick tables out of it), no owners/grants — restorable into any
 # database. Streamed: the plain dump never touches the disk.
-pg_dump --format=custom --no-owner --no-acl "$BACKUP_DATABASE_URL" \
+# neon_auth is the schema Neon's Auth integration creates itself; the app does not use it (users live
+# in Payload) and the connecting role may not read it — dumping it would fail the whole backup.
+pg_dump --format=custom --no-owner --no-acl --exclude-schema=neon_auth "$BACKUP_DATABASE_URL" \
   | gpg --batch --yes --symmetric --cipher-algo AES256 --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" \
   | aws s3 cp - "s3://$BUCKET/$key" "${ENDPOINT[@]}" --expected-size 10000000000 --only-show-errors
 size=$(aws s3api head-object --bucket "$BUCKET" --key "$key" "${ENDPOINT[@]}" --query ContentLength --output text)
