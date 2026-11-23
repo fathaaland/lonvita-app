@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 
+import { UnrecoverableError } from 'bullmq'
 import { Resend } from 'resend'
 
 import { logger } from '@/lib/logger'
@@ -121,6 +122,9 @@ export const processEmailJob = async (
       providerError: error.message,
       providerErrorName: error.name,
     })
+    // A rejected address (a reserved test domain like example.com, a malformed one) says the same
+    // thing on every try — the queue gives the job up at once instead of repeating it.
+    if (error.name === 'validation_error') throw new UnrecoverableError(`Resend error: ${error.message}`)
     throw new Error(`Resend error: ${error.message}`)
   }
 
