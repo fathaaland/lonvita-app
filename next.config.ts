@@ -38,7 +38,8 @@ const contentSecurityPolicy = [
   `img-src 'self' data: blob: ${tileOrigin}`,
   "font-src 'self' data:",
   "connect-src 'self' https://challenges.cloudflare.com",
-  'frame-src https://challenges.cloudflare.com',
+  // Turnstile, and the Google Maps embed on an event's detail (EventDetail.tsx).
+  'frame-src https://challenges.cloudflare.com https://www.google.com',
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self' https://accounts.google.com",
