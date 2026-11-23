@@ -8,7 +8,7 @@
 -- used only to run migrations.
 --
 --   lonvita_app     the web app (Vercel) and the worker (Railway): rows, never the schema
---   lonvita_backup  the nightly dump (.github/workflows/backup.yml): read-only
+--   lonvita_backup  the nightly dump (backup/run.sh): read-only
 --   neondb_owner    migrations only (DATABASE_URI_MIGRATE at the Vercel build) — and you
 --
 -- Run as the owner, with psql, against a Neon BRANCH of production first (a copy), point a preview at

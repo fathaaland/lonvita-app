@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+    # labeled/unlabeled: adding `destructive-ok` re-runs the check that asked for it.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -33,6 +35,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
+      # A migration that deletes data (DROP TABLE/COLUMN, TRUNCATE, DELETE FROM in up()) needs the
+      # `destructive-ok` label on the pull request — see the script for the two-step rule behind it.
+      - name: Migrations that delete data are labelled
+        if: github.event_name == 'pull_request'
+        env:
+          DESTRUCTIVE_OK: ${{ contains(github.event.pull_request.labels.*.name, 'destructive-ok') && '1' || '0' }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          node scripts/check-destructive-migrations.mjs "$BASE_REF"
       # Blocks on critical advisories only — the high ones (48 when this was added) are being worked off;
       # tighten to --audit-level high once they're gone.
       - name: Audit production dependencies

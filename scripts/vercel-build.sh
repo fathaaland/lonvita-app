@@ -9,7 +9,9 @@ if [ "${VERCEL_ENV:-}" = "production" ] || [ "${MIGRATE_ON_BUILD:-}" = "true" ];
   echo "vercel-build: running migrations (VERCEL_ENV=${VERCEL_ENV:-unset})"
   # Migrations change the schema, which the app's own role (lonvita_app, scripts/neon-roles.sql) may not
   # — they run as the owner, through a direct (not -pooler) connection string when one is given.
-  node scripts/db-url-shape.mjs || true
+  # Prints the shape and warns about a missing pooler or TLS; DB_URL_STRICT=1 turns the warnings into a
+  # failed build (before any migration ran). A crash of the script itself never blocks the deploy.
+  node scripts/db-url-shape.mjs || [ "${DB_URL_STRICT:-}" != "1" ]
   DATABASE_URI="${DATABASE_URI_MIGRATE:-$DATABASE_URI}" pnpm payload migrate
 else
   echo "vercel-build: skipping migrations (VERCEL_ENV=${VERCEL_ENV:-unset}, MIGRATE_ON_BUILD not set)"
