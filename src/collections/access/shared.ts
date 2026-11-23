@@ -3,25 +3,53 @@ import { relationKey } from '@/lib/relations'
 
 export const isLoggedIn: Access = ({ req }) => Boolean(req.user)
 
+const ROLE_CACHE_PREFIX = 'userRoles:municipalities:'
+
+const municipalityIdsOfRole = (
+  payload: import('payload').Payload,
+  userId: number,
+  role: 'municipality_admin' | 'organizer',
+  req?: PayloadRequest,
+): Promise<string[]> => {
+  const load = async () => {
+    const result = await payload.find({
+      collection: 'user-roles',
+      where: { and: [{ user: { equals: userId } }, { role: { equals: role } }] },
+      depth: 0,
+      limit: 200,
+      pagination: false,
+      overrideAccess: true,
+      req,
+    })
+    return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
+  }
+  if (!req) return load()
+  const cached = perRequest(req, `${ROLE_CACHE_PREFIX}${role}:${userId}`, load)
+  // A failed lookup isn't kept for the rest of the request.
+  cached.catch(() => {
+    delete (req.context as Record<string, unknown>)[`${ROLE_CACHE_PREFIX}${role}:${userId}`]
+  })
+  return cached
+}
+
+/** Drops what the request remembers about who holds which role — a role was just granted, changed or revoked in it. */
+const forgetRolesOf = (req?: PayloadRequest) => {
+  const context = req?.context as Record<string, unknown> | undefined
+  if (!context) return
+  for (const key of Object.keys(context)) if (key.startsWith(ROLE_CACHE_PREFIX)) delete context[key]
+}
+
 /** IDs of municipalities where this user holds a "municipality_admin" UserRole (municipality-level, not platform Users.role). */
-export const getAdministeredMunicipalityIds = async (
+export const getAdministeredMunicipalityIds = (
   payload: import('payload').Payload,
   userId: number,
   /** The caller's request — inside a transaction the lookup must run on its connection: a second one
-   * per request is what runs the pool dry under a rush (and a timeout there rolls the caller back). */
+   * per request is what runs the pool dry under a rush (and a timeout there rolls the caller back).
+   * It also holds the answer for the rest of the request: every collection's access and every
+   * relationship Payload populates asks again, which showed up in production as one identical
+   * "user_roles" query repeated up to eleven times per request. */
   req?: PayloadRequest,
-): Promise<string[]> => {
-  const result = await payload.find({
-    collection: 'user-roles',
-    where: { and: [{ user: { equals: userId } }, { role: { equals: 'municipality_admin' } }] },
-    depth: 0,
-    limit: 200,
-    pagination: false,
-    overrideAccess: true,
-    req,
-  })
-  return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
-}
+): Promise<string[]> => municipalityIdsOfRole(payload, userId, 'municipality_admin', req)
 
 /**
  * Allows platform admins (Users.role === 'admin') everywhere, plus municipality admins
@@ -94,24 +122,12 @@ export const canReadOwnOrAdministered =
   }
 
 /** IDs of municipalities where this user holds an "organizer" UserRole. */
-export const getOrganizerMunicipalityIds = async (
+export const getOrganizerMunicipalityIds = (
   payload: import('payload').Payload,
   userId: number,
-  /** The caller's request — inside a transaction the lookup must run on its connection: a second one
-   * per request is what runs the pool dry under a rush (and a timeout there rolls the caller back). */
+  /** The caller's request — see getAdministeredMunicipalityIds: same connection, same answer for the whole request. */
   req?: PayloadRequest,
-): Promise<string[]> => {
-  const result = await payload.find({
-    collection: 'user-roles',
-    where: { and: [{ user: { equals: userId } }, { role: { equals: 'organizer' } }] },
-    depth: 0,
-    limit: 200,
-    pagination: false,
-    overrideAccess: true,
-    req,
-  })
-  return result.docs.map((doc) => String(typeof doc.municipality === 'object' ? doc.municipality.id : doc.municipality))
-}
+): Promise<string[]> => municipalityIdsOfRole(payload, userId, 'organizer', req)
 
 /**
  * Field-level read access for a profile's volunteer-pool fields: only the person themselves and a
@@ -143,7 +159,7 @@ export const perRequest = <T>(req: PayloadRequest, key: string, load: () => Prom
 }
 
 const administeredIdsOf = (req: PayloadRequest, userId: number) =>
-  perRequest(req, `profileAccess:administered:${userId}`, () => getAdministeredMunicipalityIds(req.payload, userId, req))
+  getAdministeredMunicipalityIds(req.payload, userId, req)
 
 /** Events `userId` runs or co-organizes, or that are in an obec they administer — their Spravovat pages. */
 const eventsManagedBy = (req: PayloadRequest, userId: number) =>
@@ -241,8 +257,9 @@ const publicFacesOf = (payload: import('payload').Payload): Promise<Set<string>>
 
 /** This instance forgets the cached set at once when an event or an organizer role changes (other
  * instances within the minute). */
-export const forgetPublicFaces = <T extends { doc?: unknown }>({ doc }: T) => {
+export const forgetPublicFaces = <T extends { doc?: unknown; req?: PayloadRequest }>({ doc, req }: T) => {
   publicFaces = undefined
+  forgetRolesOf(req)
   return doc
 }
 
