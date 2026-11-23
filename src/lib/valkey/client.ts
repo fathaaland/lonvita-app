@@ -24,5 +24,8 @@ export const queueConnectionOptions = {
   ...(useTls ? { tls: {} } : {}),
   // Required by BullMQ so it can manage retries itself instead of ioredis retrying underneath it.
   maxRetriesPerRequest: null,
+  // ioredis otherwise runs INFO on every connect to learn the server is loaded; an ACL user without
+  // the right to run it (managed Redis) failed there with NOPERM and took the connection down with it.
+  enableReadyCheck: false,
   lazyConnect: true,
 }
