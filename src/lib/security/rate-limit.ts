@@ -32,8 +32,11 @@ type RateLimitStore = Pick<Redis, 'eval'>
  * the cap on one address trying many accounts.
  */
 export const PROXY_RATE_LIMITS: Record<string, RateLimitConfig & { message: string }> = {
+  // A whole club or obec office behind one address signs in together (a course, a meeting) — 20
+  // locked them out. Guessing isn't what this stops: after a few failures from one address the form
+  // needs Turnstile (lib/security/turnstile), and each account locks itself (maxLoginAttempts).
   '/api/users/login': {
-    max: 20,
+    max: 150,
     windowSeconds: 15 * 60,
     message: 'Příliš mnoho pokusů o přihlášení. Zkuste to znovu za 15 minut.',
   },
@@ -105,6 +108,12 @@ const getRedis = (): RateLimitStore | null => {
   if (process.env.REDIS_URL) {
     const client = new Redis(process.env.REDIS_URL, {
       retryStrategy: (times: number) => Math.min(times * 50, 2000),
+      // Every sign-in waits on this. With ioredis's defaults a Redis that stops answering held each
+      // login for 20 retries; now it gives up within a second and the limit fails open (failureMode).
+      commandTimeout: 1_000,
+      maxRetriesPerRequest: 1,
+      // A managed Redis's ACL user may not run INFO (see lib/valkey/client).
+      enableReadyCheck: false,
     })
 
     client.on('error', () => undefined)
