@@ -3,6 +3,7 @@ import type { Payload } from 'payload'
 import { isUnlimitedCapacity } from '@/lib/capacity'
 
 import {
+  BULK_PRIORITY,
   enqueueAttendanceReminder,
   enqueueEmail,
   enqueueFeedbackRequest,
@@ -88,7 +89,8 @@ export async function scheduleParticipantReminder(
       subject: `Připomínka: ${event.title} zítra`,
       body: `<p>Připomínáme, že zítra vás čeká akce <strong>${escapeHtml(event.title)}</strong> — ${escapeHtml(event.locationText ?? '')}.</p>`,
     },
-    { jobId: participantJobId(registrationId), delay },
+    // A full event's reminders all fall due together — behind anyone's own confirmation (BULK_PRIORITY).
+    { jobId: participantJobId(registrationId), delay, priority: BULK_PRIORITY },
   )
   return 1
 }

@@ -65,7 +65,17 @@ export type EnqueueOptions = {
   delay?: number
   correlationId?: string
   deduplication?: DeduplicationOptions
+  /** BullMQ priority — see BULK_PRIORITY. Unset is the most urgent. */
+  priority?: number
 }
+
+/**
+ * For e-mails that go to many at once — an announcement to every follower of a circle, the 24h
+ * reminders of a full event. The e-mail queue runs at the provider's rate, so 10 000 of them take over
+ * an hour; a job without a priority (BullMQ takes those first) — someone's own sign-up confirmation,
+ * an approval — is sent next instead of after all of them.
+ */
+export const BULK_PRIORITY = 10
 
 const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions, queue: AppQueue = getQueue()) => {
   const traced = { ...job, correlationId: options?.correlationId ?? getCorrelationId() }
@@ -75,6 +85,7 @@ const enqueueJob = (job: QueueJobEnvelope, options?: EnqueueOptions, queue: AppQ
       ...(options?.jobId ? { jobId: options.jobId } : {}),
       ...(options?.delay ? { delay: options.delay } : {}),
       ...(options?.deduplication ? { deduplication: options.deduplication } : {}),
+      ...(options?.priority ? { priority: options.priority } : {}),
     }),
     ENQUEUE_TIMEOUT_MS,
   )
