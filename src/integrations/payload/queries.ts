@@ -346,16 +346,16 @@ export async function getMunicipalityRegion(
 
 /** Upcoming (not cancelled) events for some municipalities — an obec and its mikroregion — or, with
  * `null`, across every municipality ("bez obce" users, the "Všechny obce" view) — ordered by date,
- * category populated. */
+ * category populated. Read through /api/events/upcoming, which the CDN caches for everyone. */
 export async function getUpcomingEvents(municipalityIds: string[] | null): Promise<EventRow[]> {
-  const where = buildWhereParams({
-    ...(municipalityIds ? { municipality: { in: municipalityIds } } : {}),
-    status: { not_equals: 'cancelled' },
-    isDraft: { not_equals: true },
-    dateTime: { greater_than: new Date().toISOString() },
-  })
-  const query = buildQuery({ sort: 'dateTime', depth: 1, limit: 200 })
-  const result = await get<PayloadListResponse<PayloadEvent>>(`/events?${where}&${query}`)
+  if (municipalityIds && municipalityIds.length === 0) return []
+  const params = new URLSearchParams()
+  // Sorted, so one mikroregion asked from any of its obce is the same cache entry.
+  for (const id of [...new Set(municipalityIds ?? [])].sort((a, b) => Number(a) - Number(b))) {
+    params.append('municipality', id)
+  }
+  const query = params.toString()
+  const result = await get<{ docs: PayloadEvent[] }>(`/events/upcoming${query ? `?${query}` : ''}`)
   return result.docs.map(mapEvent)
 }
 
