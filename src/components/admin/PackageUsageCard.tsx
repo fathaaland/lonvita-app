@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { PieChart } from 'lucide-react'
 
 import { Card, CardContent } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import { getMunicipalityServices, getPackageUsage } from '@/integrations/payload/queries'
 import type { MunicipalityServices } from '@/lib/services/municipality-services'
 import type { PackageUsage, PackageUsageRow } from '@/lib/services/package-usage'
@@ -16,11 +17,7 @@ const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part 
 /** A share bar — of the package where it has a limit, of everyone's use where it hasn't. */
 function Bar({ part, whole }: { part: number; whole: number }) {
   const width = whole > 0 ? Math.min(100, (part / whole) * 100) : 0
-  return (
-    <div className="h-1.5 rounded-full bg-muted overflow-hidden" aria-hidden>
-      <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
-    </div>
-  )
+  return <Progress value={width} className="h-1.5" aria-hidden />
 }
 
 function Metric({
@@ -93,7 +90,9 @@ function UsageRow({
         <Metric
           label="Zapnuté zdroje"
           value={num(row.enabledSources)}
-          detail={maxSources > 0 && row.enabledSources > 0 ? `${share(row.enabledSources, maxSources)} balíčku` : undefined}
+          detail={
+            maxSources > 0 && row.enabledSources > 0 ? `${share(row.enabledSources, maxSources)} balíčku` : undefined
+          }
           part={row.enabledSources}
           whole={maxSources > 0 ? maxSources : usage.totals.enabledSources}
         />
@@ -142,8 +141,8 @@ export function PackageUsageCard({ municipalityId }: { municipalityId: string })
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Licenční období {date(usage.periodStart)} – {lastDay(usage.periodEnd)}. SMS a import akcí mohou
-              používat admini obce i schválení organizátoři — všichni čerpají ze stejného balíčku obce.
+              Licenční období {date(usage.periodStart)} – {lastDay(usage.periodEnd)}. SMS a import akcí mohou používat
+              admini obce i schválení organizátoři — všichni čerpají ze stejného balíčku obce.
             </p>
             {usage.rows.length === 0 ? (
               <p className="text-sm text-muted-foreground">Zatím nikdo nic nečerpal.</p>
@@ -165,7 +164,12 @@ export function PackageUsageCard({ municipalityId }: { municipalityId: string })
                 </p>
                 <ul className="divide-y divide-border">
                   {usage.rows.map((row) => (
-                    <UsageRow key={`${row.kind}-${row.organizationId ?? ''}`} row={row} usage={usage} services={services} />
+                    <UsageRow
+                      key={`${row.kind}-${row.organizationId ?? ''}`}
+                      row={row}
+                      usage={usage}
+                      services={services}
+                    />
                   ))}
                 </ul>
               </>

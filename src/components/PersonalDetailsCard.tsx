@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Toggle } from "@/components/ui/toggle";
 import { getCategoryIcon } from "@/lib/icons";
 import { INVALID_PHONE_MESSAGE, isValidPhone } from "@/lib/phone";
 import { PayloadApiError } from "@/integrations/payload/client";
@@ -217,18 +218,16 @@ export function PersonalDetailsCard() {
                   const Icon = getCategoryIcon(c.icon);
                   const active = interests.includes(c.id);
                   return (
-                    <button
+                    <Toggle
                       key={c.id}
-                      type="button"
-                      onClick={() => toggleInterest(c.id)}
-                      className={`rounded-xl border p-3 flex items-center gap-2 h-12 transition ${
-                        active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"
-                      }`}
+                      pressed={active}
+                      onPressedChange={() => toggleInterest(c.id)}
+                      className="h-12 justify-start rounded-xl border border-border bg-transparent p-3 font-normal data-[state=off]:hover:bg-muted data-[state=off]:hover:text-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground [&_svg]:size-5"
                     >
-                      <Icon className="h-5 w-5" />
+                      <Icon />
                       <span className="font-semibold text-sm">{c.name}</span>
-                      {active && <Check className="h-4 w-4 ml-auto" />}
-                    </button>
+                      {active && <Check className="ml-auto !size-4" />}
+                    </Toggle>
                   );
                 })}
               </div>

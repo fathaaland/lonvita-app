@@ -1,10 +1,11 @@
 'use client'
 
-import { useId, useState } from 'react'
+import { useState } from 'react'
 import { ChevronDown, MapPin, Waypoints } from 'lucide-react'
 import type { MunicipalityRegion } from '@/integrations/payload/queries'
 import { joinNames } from '@/hooks/useMunicipalityRegion'
 import { cn } from '@/lib/utils'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 /**
  * Whether the obec shares with a mikroregion — always on show where its admins and organizers work,
@@ -24,7 +25,6 @@ export function RegionNotice({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  const detailsId = useId()
   if (region === undefined) return null
 
   if (region === null) {
@@ -45,12 +45,12 @@ export function RegionNotice({
       : `Akce, dobrovolníky a spolupořádání sdílíte s ${others.length === 1 ? 'obcí' : 'obcemi'} ${joinNames(others)}.`
 
   return (
-    <div className={cn('rounded-2xl border border-primary/30 bg-brand-purple-pale', className)}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-controls={detailsId}
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn('rounded-2xl border border-primary/30 bg-brand-purple-pale', className)}
+    >
+      <CollapsibleTrigger
         className="flex w-full items-start gap-3 rounded-2xl p-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Waypoints className="mt-0.5 h-5 w-5 shrink-0 text-brand-purple-dark" aria-hidden />
@@ -68,10 +68,9 @@ export function RegionNotice({
           )}
           aria-hidden
         />
-      </button>
-      {open && (
+      </CollapsibleTrigger>
+      <CollapsibleContent>
         <div
-          id={detailsId}
           className="space-y-3 border-t border-primary/20 px-3.5 pb-3.5 pt-3 text-sm sm:pl-11"
         >
           <ul className="flex flex-wrap gap-1.5" aria-label="Obce mikroregionu">
@@ -112,7 +111,7 @@ export function RegionNotice({
           </div>
           <p className="text-xs text-muted-foreground">Mikroregiony nastavuje správce Lonvity.</p>
         </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }

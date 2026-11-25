@@ -5,6 +5,7 @@ import { saveAs } from "file-saver";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { FileText, Download, Copy, Sparkles, Image as ImageIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -112,26 +113,26 @@ ${methodologyParagraph(metrics)}
 
           <Card ref={reportCardRef}>
             <CardContent className="p-3 overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left font-bold py-1.5 pr-2">Metrika</th>
-                    <th className="text-right font-bold py-1.5 px-2">Toto</th>
-                    <th className="text-right font-bold py-1.5 px-2">Minulé</th>
-                    <th className="text-right font-bold py-1.5 pl-2">Změna</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="w-full text-xs">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="h-auto text-left font-bold py-1.5 pr-2">Metrika</TableHead>
+                    <TableHead className="h-auto text-right font-bold py-1.5 px-2">Toto</TableHead>
+                    <TableHead className="h-auto text-right font-bold py-1.5 px-2">Minulé</TableHead>
+                    <TableHead className="h-auto text-right font-bold py-1.5 pl-2">Změna</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {rows.map((r) => (
-                    <tr key={r.metric} className="border-b last:border-0">
-                      <td className="py-1.5 pr-2">{r.metric}</td>
-                      <td className="text-right tabular-nums py-1.5 px-2 font-semibold">{r.current}</td>
-                      <td className="text-right tabular-nums py-1.5 px-2 text-muted-foreground">{r.previous}</td>
-                      <td className="text-right tabular-nums py-1.5 pl-2">{r.change}</td>
-                    </tr>
+                    <TableRow key={r.metric}>
+                      <TableCell className="py-1.5 pr-2">{r.metric}</TableCell>
+                      <TableCell className="text-right tabular-nums py-1.5 px-2 font-semibold">{r.current}</TableCell>
+                      <TableCell className="text-right tabular-nums py-1.5 px-2 text-muted-foreground">{r.previous}</TableCell>
+                      <TableCell className="text-right tabular-nums py-1.5 pl-2">{r.change}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
 

@@ -16,11 +16,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { focusLabel } from "@/components/VolunteerCard";
 import { InviteVolunteerDialog } from "@/components/InviteVolunteerDialog";
 import { VolunteerMapDialog } from "@/components/VolunteerMapDialog";
 import { RatingBadge } from "@/components/RatingStars";
-import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/UserAvatar";
 import {
   AlertDialog,
@@ -121,25 +121,12 @@ export function VolunteersTable({
   return (
     <div className="space-y-4">
       {shared && (
-        <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-sm" role="group" aria-label="Odkud dobrovolníci">
-          {[
-            { own: false, label: "Celý mikroregion" },
-            { own: true, label: `Jen ${municipalityName}` },
-          ].map((opt) => (
-            <button
-              key={opt.label}
-              type="button"
-              aria-pressed={onlyOwn === opt.own}
-              onClick={() => setOnlyOwn(opt.own)}
-              className={cn(
-                "flex-1 h-9 truncate rounded-md px-2 text-sm font-semibold transition-colors",
-                onlyOwn === opt.own ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={onlyOwn ? "own" : "all"} onValueChange={(v) => setOnlyOwn(v === "own")}>
+          <TabsList className="h-11 w-full rounded-lg max-w-sm" aria-label="Odkud dobrovolníci">
+            <TabsTrigger value="all" className="h-9 flex-1 truncate font-semibold">Celý mikroregion</TabsTrigger>
+            <TabsTrigger value="own" className="h-9 flex-1 truncate font-semibold">Jen {municipalityName}</TabsTrigger>
+          </TabsList>
+        </Tabs>
       )}
 
       <div className="relative">
@@ -179,9 +166,9 @@ export function VolunteersTable({
                           </Link>
                           <p className="text-xs text-muted-foreground">
                             {shared && r.location && r.location.id !== municipalityId && (
-                              <span className="mr-1.5 inline-block rounded-full bg-brand-purple-pale px-2 py-0.5 font-semibold text-brand-purple-dark">
+                              <Badge variant="purple" className="mr-1.5 px-2 text-xs">
                                 Ze sousední obce
-                              </span>
+                              </Badge>
                             )}
                             {r.location ? `Pomáhá v obci ${r.location.name}` : "Zatím bez obce"}
                             {r.volunteer_since && ` · od ${new Date(r.volunteer_since).toLocaleDateString("cs-CZ", { timeZone: APP_TIME_ZONE })}`}

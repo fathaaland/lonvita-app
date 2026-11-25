@@ -88,14 +88,20 @@ export function TopNav() {
             )
           })}
         </nav>
-        <Link
-          href="/oznameni"
-          className="relative h-9 w-9 rounded-md inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          aria-label={unreadCount > 0 ? `Oznámení, ${unreadLabel(unreadCount)}` : 'Oznámení'}
+        <Button
+          asChild
+          variant="ghost"
+          size="icon"
+          className="relative h-9 w-9 text-muted-foreground hover:bg-muted hover:text-foreground [&_svg]:size-5"
         >
-          <Bell className="h-5 w-5" />
-          <UnreadBadge count={unreadCount} className="-top-1 -right-1.5" />
-        </Link>
+          <Link
+            href="/oznameni"
+            aria-label={unreadCount > 0 ? `Oznámení, ${unreadLabel(unreadCount)}` : 'Oznámení'}
+          >
+            <Bell />
+            <UnreadBadge count={unreadCount} className="-top-1 -right-1.5" />
+          </Link>
+        </Button>
         <SignOutButton>
           <Button variant="ghost" size="sm" className="gap-2">
             <LogOut className="h-4 w-4" />

@@ -15,6 +15,7 @@ import { EventCard, EventCardData } from "@/components/EventCard";
 import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MunicipalitiesMap } from "@/components/map/MunicipalitiesMapClient";
 import { LonvitaIntro } from "@/components/LonvitaIntro";
@@ -34,6 +35,8 @@ const viewingKey = (userId: number | undefined) => `lonvita_viewing_municipality
 
 /** "Events from every municipality" — the default for a "bez obce" user. */
 const ALL = "all";
+// ToggleGroup value for the "Vše" chip — categories are stored as null when none is picked.
+const ALL_CATEGORIES = "__all__";
 
 type Filter = "all" | "today" | "week";
 
@@ -300,14 +303,15 @@ function IndexContent() {
       {switcherDialog}
       {/* Header */}
       <header className="px-4 pt-6 pb-4">
-        <button
+        <Button
+          variant="ghost"
           onClick={() => setSwitcherOpen(true)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground mb-1 hover:text-foreground transition-colors"
+          className="mb-1 h-auto gap-1.5 p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
         >
-          {showAll ? <Globe2 className="h-4 w-4" /> : <MapPin className="h-4 w-4" />}
+          {showAll ? <Globe2 /> : <MapPin />}
           <span className="font-semibold">{viewingName}</span>
-          <ChevronDown className="h-3.5 w-3.5" />
-        </button>
+          <ChevronDown className="!size-3.5" />
+        </Button>
         <h1 className="text-3xl font-extrabold leading-tight">{showAll ? "Akce ze všech obcí" : "Akce v obci"}</h1>
         <p className="text-muted-foreground mt-1">
           {user ? "Vyberte si akci a přihlaste se." : "Registrace na akci vyžaduje přihlášení."}
@@ -342,62 +346,51 @@ function IndexContent() {
 
           {/* Filtry */}
           <div className="px-4 mb-3">
-            <div className="flex gap-2">
+            <ToggleGroup
+              type="single"
+              variant="chip"
+              size="chip"
+              value={filter}
+              onValueChange={(v) => v && setFilter(v as Filter)}
+              className="flex-nowrap"
+              aria-label="Kdy"
+            >
               {([
                 { key: "all", label: "Všechny" },
                 { key: "today", label: "Dnes" },
                 { key: "week", label: "Tento týden" },
               ] as { key: Filter; label: string }[]).map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFilter(f.key)}
-                  className={cn(
-                    "px-4 py-2 rounded-full text-sm font-semibold transition-colors border-[1.5px]",
-                    filter === f.key
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-card text-foreground border-border hover:border-brand-purple",
-                  )}
-                >
+                <ToggleGroupItem key={f.key} value={f.key} className="px-4">
                   {f.label}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           </div>
 
           {/* Kategorie */}
           <div className="mb-4">
-            <div className="flex gap-2 overflow-x-auto px-4 pb-2">
-              <button
-                onClick={() => updateCategory(null)}
-                className={cn(
-                  "shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border-[1.5px] transition-colors",
-                  !categoryId
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-card text-foreground border-border hover:border-brand-purple",
-                )}
-              >
+            <ToggleGroup
+              type="single"
+              variant="chip"
+              size="chip-sm"
+              value={categoryId ?? ALL_CATEGORIES}
+              onValueChange={(v) => updateCategory(!v || v === ALL_CATEGORIES ? null : v)}
+              className="flex-nowrap overflow-x-auto px-4 pb-2"
+              aria-label="Kategorie"
+            >
+              <ToggleGroupItem value={ALL_CATEGORIES} className="shrink-0">
                 Vše
-              </button>
+              </ToggleGroupItem>
               {categories.map((c) => {
                 const Icon = getCategoryIcon(c.icon);
-                const active = categoryId === c.id;
                 return (
-                  <button
-                    key={c.id}
-                    onClick={() => updateCategory(active ? null : c.id)}
-                    className={cn(
-                      "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border-[1.5px] transition-colors",
-                      active
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-card text-foreground border-border hover:border-brand-purple",
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
+                  <ToggleGroupItem key={c.id} value={c.id} className="shrink-0">
+                    <Icon />
                     {c.name}
-                  </button>
+                  </ToggleGroupItem>
                 );
               })}
-            </div>
+            </ToggleGroup>
           </div>
 
           {/* Seznam */}

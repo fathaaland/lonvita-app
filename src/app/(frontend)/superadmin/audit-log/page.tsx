@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -184,61 +185,61 @@ function AuditLogContent() {
                   {data.totalPages}
                 </p>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="text-left text-xs text-muted-foreground">
-                      <tr>
-                        <th className="py-1.5 pr-2 w-6" />
-                        <th className="py-1.5 pr-3 font-medium">Kdy</th>
-                        <th className="py-1.5 pr-3 font-medium">Akce</th>
-                        <th className="py-1.5 pr-3 font-medium">Kdo</th>
-                        <th className="py-1.5 pr-3 font-medium">Obec</th>
-                        <th className="py-1.5 font-medium">Výsledek</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
+                  <Table className="w-full text-sm">
+                    <TableHeader className="text-left text-xs text-muted-foreground">
+                      <TableRow>
+                        <TableHead className="h-auto py-1.5 pr-2 w-6" />
+                        <TableHead className="h-auto py-1.5 pr-3 font-medium">Kdy</TableHead>
+                        <TableHead className="h-auto py-1.5 pr-3 font-medium">Akce</TableHead>
+                        <TableHead className="h-auto py-1.5 pr-3 font-medium">Kdo</TableHead>
+                        <TableHead className="h-auto py-1.5 pr-3 font-medium">Obec</TableHead>
+                        <TableHead className="h-auto py-1.5 font-medium">Výsledek</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {data.rows.map((r) => (
                         <Fragment key={r.id}>
-                          <tr
+                          <TableRow
                             className="cursor-pointer hover:bg-muted/40"
                             onClick={() => setOpen(open === r.id ? null : r.id)}
                           >
-                            <td className="py-2 pr-2">
+                            <TableCell className="py-2 pr-2">
                               {open === r.id ? (
                                 <ChevronDown className="h-4 w-4" />
                               ) : (
                                 <ChevronRight className="h-4 w-4" />
                               )}
-                            </td>
-                            <td className="py-2 pr-3 whitespace-nowrap tabular-nums">
+                            </TableCell>
+                            <TableCell className="py-2 pr-3 whitespace-nowrap tabular-nums">
                               {dateTime(r.at)}
-                            </td>
-                            <td className="py-2 pr-3 font-mono text-xs">{r.action}</td>
-                            <td className="py-2 pr-3 max-w-[14rem] truncate">
+                            </TableCell>
+                            <TableCell className="py-2 pr-3 font-mono text-xs">{r.action}</TableCell>
+                            <TableCell className="py-2 pr-3 max-w-[14rem] truncate">
                               {r.actor ?? 'systém'}
-                            </td>
-                            <td className="py-2 pr-3 max-w-[10rem] truncate">
+                            </TableCell>
+                            <TableCell className="py-2 pr-3 max-w-[10rem] truncate">
                               {r.municipality ?? '—'}
-                            </td>
-                            <td className="py-2">
+                            </TableCell>
+                            <TableCell className="py-2">
                               {r.outcome === 'failure' ? (
                                 <Badge variant="destructive">Odmítnuto</Badge>
                               ) : (
                                 <Badge variant="outline">Úspěch</Badge>
                               )}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                           {open === r.id && (
-                            <tr>
-                              <td />
-                              <td colSpan={5} className="pb-3">
+                            <TableRow>
+                              <TableCell />
+                              <TableCell colSpan={5} className="pb-3">
                                 <Detail row={r} />
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           )}
                         </Fragment>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
                 <div className="flex justify-between mt-3">
                   <Button

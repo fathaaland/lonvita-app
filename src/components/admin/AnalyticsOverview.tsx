@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResponsiveContainer,
   BarChart,
@@ -105,21 +107,15 @@ export function AnalyticsOverview({
     <div className="space-y-5">
       {/* Filtr období + export */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-1 gap-1 bg-muted rounded-lg p-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.v}
-              onClick={() => setPeriod(p.v)}
-              className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
-                period === p.v
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={period} onValueChange={(v) => setPeriod(v as Period)} className="flex-1">
+          <TabsList className="h-11 w-full rounded-lg">
+            {PERIODS.map((p) => (
+              <TabsTrigger key={p.v} value={p.v} className="h-9 flex-1 truncate font-semibold">
+                {p.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         <Button variant="outline" size="sm" onClick={handleExport} disabled={exporter.pending !== null} className="h-11">
           {exporter.pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
         </Button>
@@ -287,12 +283,7 @@ export function AnalyticsOverview({
                         {Math.round(c.fillRate * 100)} %
                       </span>
                     </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${w}%`, backgroundColor: c.color }}
-                      />
-                    </div>
+                    <Progress value={w} indicatorStyle={{ backgroundColor: c.color }} />
                   </div>
                 );
               })}
@@ -387,12 +378,10 @@ export function AnalyticsOverview({
                         {Math.round((row.value / attendance.total) * 100)} %
                       </span>
                     </div>
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${(row.value / attendance.total) * 100}%`, backgroundColor: row.color }}
-                      />
-                    </div>
+                    <Progress
+                      value={(row.value / attendance.total) * 100}
+                      indicatorStyle={{ backgroundColor: row.color }}
+                    />
                   </div>
                 ))}
               </div>

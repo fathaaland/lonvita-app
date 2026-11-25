@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { UnreadBadge } from "@/components/UnreadBadge";
 import {
   BarChart3,
@@ -39,17 +40,19 @@ export function AdminSideNav({ value, onChange, badges = {} }: Props) {
           const Icon = item.icon;
           const active = value === item.value;
           return (
-            <button
+            <Button
               key={item.value}
+              variant="ghost"
               onClick={() => onChange(item.value)}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors relative",
+                "relative h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 font-semibold",
                 active
-                  ? "bg-brand-purple-pale text-brand-purple-dark"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                  ? "bg-brand-purple-pale text-brand-purple-dark hover:bg-brand-purple-pale hover:text-brand-purple-dark"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon />
               <span className="flex-1 text-left">{item.label}</span>
               {(badges[item.value] ?? 0) > 0 && (
                 <>
@@ -57,7 +60,7 @@ export function AdminSideNav({ value, onChange, badges = {} }: Props) {
                   <span className="sr-only">{`, čeká na vyřízení: ${badges[item.value]}`}</span>
                 </>
               )}
-            </button>
+            </Button>
           );
         })}
       </div>

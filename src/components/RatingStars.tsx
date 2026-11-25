@@ -2,6 +2,7 @@
 
 import { Star } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const STARS = [1, 2, 3, 4, 5];
 
@@ -56,26 +57,31 @@ export function RatingStars({
     );
   }
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex gap-1">
+    <ToggleGroup
+      type="single"
+      value={value ? String(value) : ""}
+      onValueChange={(v) => v && onChange(Number(v))}
+      aria-label={label}
+      className="inline-flex justify-start gap-1"
+    >
       {STARS.map((n) => (
-        <button
+        <ToggleGroupItem
           key={n}
-          type="button"
-          role="radio"
-          aria-checked={value === n}
+          value={String(n)}
           aria-label={`${n} z 5`}
-          onClick={() => onChange(n)}
-          className="rounded-md p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "h-auto p-0.5 hover:bg-transparent data-[state=on]:bg-transparent",
+            size === "sm" ? "[&_svg]:size-4" : "[&_svg]:size-7",
+          )}
         >
           <Star
             className={cn(
-              iconClass,
               "transition-colors",
               n <= value ? "fill-rating text-rating" : "text-muted-foreground/40 hover:text-rating/70",
             )}
           />
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }

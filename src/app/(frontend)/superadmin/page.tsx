@@ -61,6 +61,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Toggle } from '@/components/ui/toggle'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
@@ -72,6 +75,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { ConfirmDeleteButton } from '@/components/ConfirmDeleteButton'
 import {
   AlertDialog,
@@ -112,6 +116,7 @@ import {
   Wallet,
   MapPinned,
   HandHeart,
+  ChevronRight,
 } from 'lucide-react'
 import { pct } from '@/lib/report'
 import { toast } from 'sonner'
@@ -147,14 +152,6 @@ const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: 'jine', label: 'Jiné' },
   { value: 'neuvedeno', label: 'Neuvedeno' },
 ]
-
-const chipClass = (active: boolean) =>
-  cn(
-    'px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors',
-    active
-      ? 'bg-primary text-primary-foreground border-primary'
-      : 'bg-card text-foreground border-border hover:border-brand-purple',
-  )
 
 const SUPERADMIN_TABS = [
   'municipalities',
@@ -782,28 +779,19 @@ function SuperAdminContent() {
               </CardContent>
             </Card>
 
-            <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-xs">
-              <button
-                onClick={() => setMuniView('list')}
-                className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
-                  muniView === 'list'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Seznam
-              </button>
-              <button
-                onClick={handleShowComparison}
-                className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
-                  muniView === 'comparison'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Porovnání
-              </button>
-            </div>
+            <Tabs
+              value={muniView}
+              onValueChange={(v) => (v === 'list' ? setMuniView('list') : handleShowComparison())}
+            >
+              <TabsList className="h-11 w-full rounded-lg max-w-xs">
+                <TabsTrigger value="list" className="h-9 flex-1 truncate font-semibold">
+                  Seznam
+                </TabsTrigger>
+                <TabsTrigger value="comparison" className="h-9 flex-1 truncate font-semibold">
+                  Porovnání
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
             {muniView === 'comparison' ? (
               loadingComparison || comparison === null ? (
@@ -813,18 +801,18 @@ function SuperAdminContent() {
               ) : (
                 <Card>
                   <CardContent className="p-0 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/50 text-left">
-                        <tr>
-                          <th className="p-3 font-semibold sticky left-0 bg-muted/50">Obec</th>
-                          <th className="p-3 font-semibold text-right">Akcí (90 dní)</th>
-                          <th className="p-3 font-semibold text-right">Účastníků</th>
-                          <th className="p-3 font-semibold text-right">Naplněnost</th>
-                          <th className="p-3 font-semibold text-right">Organizátorů</th>
-                          <th className="p-3 font-semibold text-right">Datavita</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <Table className="w-full text-sm">
+                      <TableHeader className="bg-muted/50 text-left">
+                        <TableRow>
+                          <TableHead className="p-3 font-semibold sticky left-0 bg-muted/50">Obec</TableHead>
+                          <TableHead className="p-3 font-semibold text-right">Akcí (90 dní)</TableHead>
+                          <TableHead className="p-3 font-semibold text-right">Účastníků</TableHead>
+                          <TableHead className="p-3 font-semibold text-right">Naplněnost</TableHead>
+                          <TableHead className="p-3 font-semibold text-right">Organizátorů</TableHead>
+                          <TableHead className="p-3 font-semibold text-right">Datavita</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {comparison
                           .slice()
                           // Datavita first; without it (too little data, typical early on) the busier obec
@@ -838,29 +826,29 @@ function SuperAdminContent() {
                                 a.metrics.current.participantsUnique,
                           )
                           .map((c) => (
-                            <tr key={c.municipality_id} className="border-t border-border">
-                              <td className="p-3 font-medium whitespace-nowrap sticky left-0 bg-background">
+                            <TableRow key={c.municipality_id}>
+                              <TableCell className="p-3 font-medium whitespace-nowrap sticky left-0 bg-background">
                                 {c.municipality_name}
-                              </td>
-                              <td className="p-3 text-right tabular-nums">
+                              </TableCell>
+                              <TableCell className="p-3 text-right tabular-nums">
                                 {c.metrics.current.eventsCount}
-                              </td>
-                              <td className="p-3 text-right tabular-nums">
+                              </TableCell>
+                              <TableCell className="p-3 text-right tabular-nums">
                                 {c.metrics.current.participantsUnique}
-                              </td>
-                              <td className="p-3 text-right tabular-nums">
+                              </TableCell>
+                              <TableCell className="p-3 text-right tabular-nums">
                                 {pct(c.metrics.current.avgFillRate)}
-                              </td>
-                              <td className="p-3 text-right tabular-nums">
+                              </TableCell>
+                              <TableCell className="p-3 text-right tabular-nums">
                                 {c.metrics.current.activeOrganizers}
-                              </td>
-                              <td className="p-3 text-right tabular-nums font-bold">
+                              </TableCell>
+                              <TableCell className="p-3 text-right tabular-nums font-bold">
                                 {c.metrics.datavita.current ?? '—'}
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
               )
@@ -1071,41 +1059,38 @@ function SuperAdminContent() {
 
                   <div>
                     <Label>Pohlaví</Label>
-                    <div className="flex flex-wrap gap-2 mt-1.5">
+                    <ToggleGroup
+                      type="single"
+                      variant="chip"
+                      size="chip"
+                      value={newGender}
+                      onValueChange={(v) => v && setNewGender(v as Gender)}
+                      className="mt-1.5"
+                    >
                       {GENDER_OPTIONS.map((g) => (
-                        <button
-                          key={g.value}
-                          type="button"
-                          onClick={() => setNewGender(g.value)}
-                          className={chipClass(newGender === g.value)}
-                        >
+                        <ToggleGroupItem key={g.value} value={g.value}>
                           {g.label}
-                        </button>
+                        </ToggleGroupItem>
                       ))}
-                    </div>
+                    </ToggleGroup>
                   </div>
 
                   <div>
                     <Label>Zájmy</Label>
-                    <div className="flex flex-wrap gap-2 mt-1.5">
-                      {categories.map((c) => {
-                        const active = newInterests.includes(c.id)
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() =>
-                              setNewInterests((prev) =>
-                                active ? prev.filter((id) => id !== c.id) : [...prev, c.id],
-                              )
-                            }
-                            className={chipClass(active)}
-                          >
-                            {c.name}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <ToggleGroup
+                      type="multiple"
+                      variant="chip"
+                      size="chip"
+                      value={newInterests}
+                      onValueChange={setNewInterests}
+                      className="mt-1.5"
+                    >
+                      {categories.map((c) => (
+                        <ToggleGroupItem key={c.id} value={c.id}>
+                          {c.name}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
                   </div>
 
                   <p className="text-xs text-muted-foreground">
@@ -1240,40 +1225,37 @@ function SuperAdminContent() {
                   </div>
                   <div>
                     <Label>Pohlaví</Label>
-                    <div className="flex flex-wrap gap-2 mt-1.5">
+                    <ToggleGroup
+                      type="single"
+                      variant="chip"
+                      size="chip"
+                      value={editGender}
+                      onValueChange={(v) => v && setEditGender(v as Gender)}
+                      className="mt-1.5"
+                    >
                       {GENDER_OPTIONS.map((g) => (
-                        <button
-                          key={g.value}
-                          type="button"
-                          onClick={() => setEditGender(g.value)}
-                          className={chipClass(editGender === g.value)}
-                        >
+                        <ToggleGroupItem key={g.value} value={g.value}>
                           {g.label}
-                        </button>
+                        </ToggleGroupItem>
                       ))}
-                    </div>
+                    </ToggleGroup>
                   </div>
                   <div>
                     <Label>Zájmy</Label>
-                    <div className="flex flex-wrap gap-2 mt-1.5">
-                      {categories.map((c) => {
-                        const active = editInterests.includes(c.id)
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() =>
-                              setEditInterests((prev) =>
-                                active ? prev.filter((id) => id !== c.id) : [...prev, c.id],
-                              )
-                            }
-                            className={chipClass(active)}
-                          >
-                            {c.name}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <ToggleGroup
+                      type="multiple"
+                      variant="chip"
+                      size="chip"
+                      value={editInterests}
+                      onValueChange={setEditInterests}
+                      className="mt-1.5"
+                    >
+                      {categories.map((c) => (
+                        <ToggleGroupItem key={c.id} value={c.id}>
+                          {c.name}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
                   </div>
                   <DialogFooter className="gap-2">
                     <Button
@@ -1471,15 +1453,16 @@ function SuperAdminContent() {
                           <Badge key={r.userRoleId} variant="secondary" className="gap-1 pr-1">
                             {ROLE_LABEL[r.role] ?? r.role} · {r.municipalityName}
                             {r.role === 'organizer' && (
-                              <button
-                                type="button"
+                              <Toggle
                                 disabled={volunteerAccessBusyId === r.userRoleId}
-                                onClick={() => handleVolunteerAccess(r.userRoleId, !r.volunteerAccess)}
+                                pressed={r.volunteerAccess}
+                                onPressedChange={(pressed) => handleVolunteerAccess(r.userRoleId, pressed)}
                                 className={cn(
-                                  'ml-0.5 inline-flex items-center rounded-full p-0.5 hover:bg-foreground/10 disabled:opacity-50',
-                                  r.volunteerAccess ? 'text-primary' : 'text-muted-foreground/50',
+                                  'ml-0.5 h-auto rounded-full p-0.5 hover:bg-foreground/10 data-[state=on]:bg-transparent [&_svg]:size-3',
+                                  r.volunteerAccess
+                                    ? 'text-primary data-[state=on]:text-primary'
+                                    : 'text-muted-foreground/50',
                                 )}
-                                aria-pressed={r.volunteerAccess}
                                 aria-label={
                                   r.volunteerAccess
                                     ? 'Má přístup k dobrovolníkům — odebrat'
@@ -1491,11 +1474,13 @@ function SuperAdminContent() {
                                     : 'Přístup k dobrovolníkům: ne (kliknutím povolit)'
                                 }
                               >
-                                <HandHeart className="h-3 w-3" />
-                              </button>
+                                <HandHeart />
+                              </Toggle>
                             )}
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon"
                               onClick={() =>
                                 u.communityRoles.length === 1
                                   ? setLastRoleRevoke(u)
@@ -1505,11 +1490,11 @@ function SuperAdminContent() {
                                       what: `${ROLE_LABEL[r.role] ?? r.role} · ${r.municipalityName}`,
                                     })
                               }
-                              className="ml-0.5 hover:text-destructive"
+                              className="ml-0.5 h-auto w-auto rounded-full p-0 hover:bg-transparent hover:text-destructive [&_svg]:size-3"
                               aria-label="Odebrat roli"
                             >
-                              <X className="h-3 w-3" />
-                            </button>
+                              <X />
+                            </Button>
                           </Badge>
                         ))}
                       </div>
@@ -1608,12 +1593,15 @@ function SuperAdminContent() {
                   dokud obci admina neurčíte (záložka Role), rozhodujete za ni vy.
                 </p>
                 {obceWithoutAdmin.map((m) => (
-                  <details key={m.id} className="rounded-xl border border-border">
-                    <summary className="cursor-pointer px-4 py-3 font-semibold">{m.name}</summary>
-                    <div className="px-3 pb-3">
+                  <Collapsible key={m.id} className="group rounded-xl border border-border">
+                    <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-xl px-4 py-3 text-left font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+                      {m.name}
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="px-3 pb-3">
                       <RequestsTable municipalityId={m.id} />
-                    </div>
-                  </details>
+                    </CollapsibleContent>
+                  </Collapsible>
                 ))}
               </div>
             )}

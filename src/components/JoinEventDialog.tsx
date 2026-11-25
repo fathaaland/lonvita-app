@@ -5,6 +5,7 @@ import { HandHeart, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Dialog,
   DialogContent,
@@ -82,33 +83,36 @@ export function JoinEventDialog({
           <DialogDescription>Pořadatel na tuhle akci hledá i dobrovolníky.</DialogDescription>
         </DialogHeader>
 
-        <div role="radiogroup" aria-label="Způsob přihlášení" className="space-y-2">
+        <ToggleGroup
+          type="single"
+          value={choice}
+          onValueChange={(v) => v && setChoice(v as Choice)}
+          aria-label="Způsob přihlášení"
+          className="flex-col items-stretch gap-2"
+        >
           {options.map(({ value, icon: Icon, title, text, disabled }) => {
             const selected = choice === value;
             return (
-              <button
+              <ToggleGroupItem
                 key={value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
+                value={value}
                 disabled={disabled}
-                onClick={() => setChoice(value)}
                 className={cn(
-                  "w-full flex items-start gap-3 rounded-xl border-[1.5px] p-4 text-left transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  selected ? "border-primary bg-brand-purple-pale" : "border-border bg-card hover:border-brand-purple",
-                  disabled && "opacity-60 cursor-not-allowed hover:border-border",
+                  "h-auto w-full items-start justify-start gap-3 whitespace-normal rounded-xl border-[1.5px] border-border bg-card p-4 text-left text-base font-normal [&_svg]:size-5",
+                  "data-[state=off]:hover:border-brand-purple data-[state=off]:hover:bg-card data-[state=off]:hover:text-foreground",
+                  "data-[state=on]:border-primary data-[state=on]:bg-brand-purple-pale data-[state=on]:text-foreground",
+                  "disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-60 data-[state=off]:disabled:hover:border-border",
                 )}
               >
-                <Icon className={cn("h-5 w-5 mt-0.5 shrink-0", selected ? "text-primary" : "text-muted-foreground")} aria-hidden />
+                <Icon className={cn("mt-0.5 shrink-0", selected ? "text-primary" : "text-muted-foreground")} aria-hidden />
                 <span className="space-y-0.5">
                   <span className="block font-bold">{title}</span>
                   <span className="block text-sm text-muted-foreground">{text}</span>
                 </span>
-              </button>
+              </ToggleGroupItem>
             );
           })}
-        </div>
+        </ToggleGroup>
 
         {choice === "volunteer" && (
           <div className="space-y-2">

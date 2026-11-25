@@ -6,6 +6,7 @@ import { MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "
 
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Search, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -138,15 +139,16 @@ export function LocationPicker({ value, onChange, initialCenter, existingPoints 
           <Card className="absolute z-[1000] mt-1 w-full shadow-lg">
             <CardContent className="p-1">
               {results.map((r, i) => (
-                <button
+                <Button
                   key={i}
                   type="button"
+                  variant="ghost"
                   onClick={() => pickResult(r)}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-muted transition-colors flex items-start gap-2"
+                  className="h-auto w-full items-start justify-start whitespace-normal rounded-lg px-3 py-2 text-left font-normal hover:bg-muted hover:text-foreground"
                 >
-                  <MapPin className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                  <MapPin className="mt-0.5 text-muted-foreground" />
                   <span>{r.label}</span>
-                </button>
+                </Button>
               ))}
             </CardContent>
           </Card>

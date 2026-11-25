@@ -144,13 +144,14 @@ function ResetPasswordContent() {
           </Button>
         </form>
         <div className="text-center">
-          <button
+          <Button
             type="button"
+            variant="link"
             onClick={() => router.push("/auth")}
-            className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+            className="h-auto p-0 font-normal text-muted-foreground"
           >
             Zpět na přihlášení
-          </button>
+          </Button>
         </div>
       </div>
     </div>

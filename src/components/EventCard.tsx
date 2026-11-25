@@ -8,6 +8,7 @@ import { formatCzk } from "@/lib/money";
 import { isUnlimitedCapacity } from "@/lib/capacity";
 import { isMunicipalityOrganization } from "@/lib/organizations";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 type CardOrganization = { id: string; name: string; type: string; avatar_url?: string | null };
 
@@ -189,9 +190,9 @@ export function EventCard({ event, className, ended }: { event: EventCardData; c
               </p>
             )}
             {event.is_volunteering && (
-              <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-primary">
+              <Badge variant="purple" className="ml-auto shrink-0 gap-1 bg-primary-soft px-2 font-normal text-primary">
                 <HandHeart className="h-3.5 w-3.5" aria-hidden /> Dobrovolnictví
-              </span>
+              </Badge>
             )}
           </div>
         )}

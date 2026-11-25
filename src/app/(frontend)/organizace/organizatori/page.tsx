@@ -16,6 +16,8 @@ import { Loading } from "@/components/Loading";
 import { EmptyState } from "@/components/EmptyState";
 import { OrganizationMark } from "@/components/EventCard";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ORGANIZATION_TYPES, organizationTypeLabel } from "@/lib/organizations";
@@ -113,12 +115,15 @@ function Byline({ organizer, homeId }: { organizer: OrganizerProfileRow; homeId:
 
 function EditOwnLink({ organizer }: { organizer: OrganizerProfileRow }) {
   return (
-    <Link
-      href={`/organizace?organizace=${organizer.id}`}
-      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-brand-purple-pale px-3 text-sm font-semibold text-brand-purple-dark hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <Button
+      asChild
+      size="sm"
+      className="shrink-0 gap-1.5 rounded-full bg-brand-purple-pale px-3 font-semibold text-brand-purple-dark hover:bg-primary-soft"
     >
-      <Pencil className="h-3.5 w-3.5" aria-hidden /> Upravit profil
-    </Link>
+      <Link href={`/organizace?organizace=${organizer.id}`}>
+        <Pencil className="!size-3.5" aria-hidden /> Upravit profil
+      </Link>
+    </Button>
   );
 }
 
@@ -140,13 +145,13 @@ function OrganizerProfile({
           <OrganizationMark organization={organizer} className="h-14 w-14 text-base ring-0" />
           <div className="min-w-0 flex-1">
             <h2 className="text-xl font-extrabold leading-tight break-words">
-              <button
-                type="button"
+              <Button
+                variant="link"
                 onClick={onOpen}
-                className="rounded text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-auto whitespace-normal p-0 text-left text-xl font-extrabold leading-tight text-foreground"
               >
                 {organizer.name}
-              </button>
+              </Button>
             </h2>
             <Byline organizer={organizer} homeId={homeId} />
           </div>
@@ -328,51 +333,44 @@ function OrganizersContent() {
       />
       <div className="space-y-5 px-4 py-5">
         {municipalities.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1" role="tablist" aria-label="Obec">
+          <ToggleGroup
+            type="single"
+            variant="chip"
+            size="chip"
+            value={municipalityId ?? ""}
+            onValueChange={(v) => v && setMunicipalityId(v)}
+            className="-mx-4 flex-nowrap overflow-x-auto px-4 pb-1"
+            aria-label="Obec"
+          >
             {municipalities.map((m) => (
-              <button
+              <ToggleGroupItem
                 key={m.id}
-                type="button"
-                role="tab"
-                aria-selected={m.id === municipalityId}
-                onClick={() => setMunicipalityId(m.id)}
-                className={cn(
-                  "shrink-0 rounded-full border-[1.5px] px-4 py-2 text-sm font-semibold transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  m.id === municipalityId
-                    ? "border-primary bg-brand-purple-pale text-brand-purple-dark"
-                    : "border-border bg-card hover:border-brand-purple",
-                )}
+                value={m.id}
+                className="shrink-0 px-4 data-[state=on]:border-primary data-[state=on]:bg-brand-purple-pale data-[state=on]:text-brand-purple-dark"
               >
                 {m.name}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         )}
 
         {shared && organizers && organizers.length > 0 && (
-          <div className="flex gap-1 bg-muted rounded-lg p-1 max-w-sm" role="group" aria-label="Odkud pořadatelé">
-            {[
-              { own: false, label: "Celý mikroregion" },
-              { own: true, label: `Jen ${municipalityName}` },
-            ].map((opt) => (
-              <button
-                key={opt.label}
-                type="button"
-                aria-pressed={onlyOwn === opt.own}
-                onClick={() => {
-                  setOnlyOwn(opt.own);
-                  setType(ALL);
-                }}
-                className={cn(
-                  "flex-1 h-9 truncate rounded-md px-2 text-sm font-semibold transition-colors",
-                  onlyOwn === opt.own ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={onlyOwn ? "own" : "all"}
+            onValueChange={(v) => {
+              setOnlyOwn(v === "own");
+              setType(ALL);
+            }}
+          >
+            <TabsList className="h-11 w-full max-w-sm rounded-lg" aria-label="Odkud pořadatelé">
+              <TabsTrigger value="all" className="h-9 flex-1 truncate font-semibold">
+                Celý mikroregion
+              </TabsTrigger>
+              <TabsTrigger value="own" className="h-9 flex-1 truncate font-semibold">
+                Jen {municipalityName}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         )}
         {error ? (
           <EmptyState icon={Store} title="Pořadatele se nepodařilo načíst" description="Obnovte stránku, nebo to zkuste za chvíli." />
@@ -387,29 +385,23 @@ function OrganizersContent() {
         ) : (
           <>
             {typeOptions.length > 1 && (
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Typ pořadatele">
+              <ToggleGroup
+                type="single"
+                variant="chip"
+                value={type}
+                onValueChange={(v) => v && setType(v)}
+                aria-label="Typ pořadatele"
+              >
                 {[{ value: ALL, label: "Všichni" }, ...typeOptions].map((t) => {
                   const active = type === t.value;
                   const count = t.value === ALL ? inScope.length : typeCounts.get(t.value) ?? 0;
                   return (
-                    <button
-                      key={t.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => setType(t.value)}
-                      className={cn(
-                        "rounded-full border-[1.5px] px-3 py-1.5 text-sm font-semibold transition-colors",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        active
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-card hover:border-brand-purple",
-                      )}
-                    >
+                    <ToggleGroupItem key={t.value} value={t.value} className="gap-1 px-3 py-1.5">
                       {t.label} <span className={cn("tabular-nums", !active && "text-muted-foreground")}>{count}</span>
-                    </button>
+                    </ToggleGroupItem>
                   );
                 })}
-              </div>
+              </ToggleGroup>
             )}
             {inScope.length === 0 && (
               <p className="py-6 text-center text-muted-foreground">V obci {municipalityName} zatím nikdo další akce nepořádá.</p>

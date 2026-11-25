@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -987,51 +988,51 @@ function MunicipalityBillingContent({ municipalityId }: { municipalityId: string
               <p className="text-sm text-muted-foreground">Zatím žádný běh.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="py-1.5 pr-3 font-medium">Kdy</th>
-                      <th className="py-1.5 pr-3 font-medium">Zdroj</th>
-                      <th className="py-1.5 pr-3 font-medium">Stav</th>
-                      <th className="py-1.5 pr-3 font-medium text-right">Nalezeno / nových</th>
-                      <th className="py-1.5 pr-3 font-medium text-right">Tokeny in / out</th>
-                      <th className="py-1.5 font-medium">Kontrola</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
+                <Table className="w-full text-sm">
+                  <TableHeader className="text-left text-xs text-muted-foreground">
+                    <TableRow>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Kdy</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Zdroj</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Stav</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">Nalezeno / nových</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">Tokeny in / out</TableHead>
+                      <TableHead className="h-auto py-1.5 font-medium">Kontrola</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {detail.runs.map((r) => (
-                      <tr key={r.id} className="align-top">
-                        <td className="py-2 pr-3 whitespace-nowrap">{dateTime(r.startedAt)}</td>
-                        <td className="py-2 pr-3 max-w-[14rem] truncate">
+                      <TableRow key={r.id} className="align-top">
+                        <TableCell className="py-2 pr-3 whitespace-nowrap">{dateTime(r.startedAt)}</TableCell>
+                        <TableCell className="py-2 pr-3 max-w-[14rem] truncate">
                           {r.source ??
                             (r.trigger === 'text'
                               ? 'Vložený text'
                               : r.trigger === 'file'
                                 ? 'Soubor'
                                 : '—')}
-                        </td>
-                        <td className="py-2 pr-3">
+                        </TableCell>
+                        <TableCell className="py-2 pr-3">
                           <span className={r.status === 'failed' ? 'text-destructive' : undefined}>
                             {RUN_STATUS[r.status] ?? r.status}
                           </span>
                           {r.error && (
                             <p className="text-xs text-muted-foreground max-w-[16rem]">{r.error}</p>
                           )}
-                        </td>
-                        <td className="py-2 pr-3 text-right tabular-nums">
+                        </TableCell>
+                        <TableCell className="py-2 pr-3 text-right tabular-nums">
                           {r.found} / {r.created}
-                        </td>
-                        <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                        </TableCell>
+                        <TableCell className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
                           {r.inputTokens.toLocaleString('cs-CZ')} /{' '}
                           {r.outputTokens.toLocaleString('cs-CZ')}
-                        </td>
-                        <td className="py-2">
+                        </TableCell>
+                        <TableCell className="py-2">
                           <RunReview run={r} onSaved={() => load(false)} />
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
           </Section>

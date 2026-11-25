@@ -380,25 +380,27 @@ function AuthPageContent() {
 
         <div className="space-y-2.5 text-center">
           {mode === 'signin' && (
-            <button
+            <Button
               type="button"
+              variant="link"
               onClick={handleForgot}
-              className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+              className="h-auto p-0 font-normal text-muted-foreground"
             >
               Zapomněli jste heslo?
-            </button>
+            </Button>
           )}
           {/* The question is text and only the action is a link — the whole sentence as one
                 link made the target vague about what clicking it actually does. */}
           <p className="text-sm text-muted-foreground">
             {isSignUp ? 'Už máte účet? ' : 'Nemáte účet? '}
-            <button
+            <Button
               type="button"
+              variant="link"
               onClick={() => setMode(isSignUp ? 'signin' : 'signup')}
-              className="font-semibold text-primary underline-offset-4 hover:underline"
+              className="h-auto p-0 text-base font-semibold"
             >
               {isSignUp ? 'Přihlaste se' : 'Zaregistrujte se'}
-            </button>
+            </Button>
           </p>
         </div>
 

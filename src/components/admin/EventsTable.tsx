@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from "next/navigation";
 import { formatEventDate } from "@/lib/date";
 import { ChevronRight, Pencil, HandHeart, X } from "lucide-react";
@@ -82,21 +83,15 @@ export function EventsTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 bg-muted rounded-lg p-1">
-        {FILTERS.map((f) => (
-          <button
-            key={f.v}
-            onClick={() => setFilter(f.v)}
-            className={`flex-1 h-9 rounded-md text-sm font-semibold transition-colors ${
-              filter === f.v
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
+        <TabsList className="h-11 w-full rounded-lg">
+          {FILTERS.map((f) => (
+            <TabsTrigger key={f.v} value={f.v} className="h-9 flex-1 truncate font-semibold">
+              {f.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {filtered.length === 0 ? (
         <p className="text-center text-muted-foreground py-8">Žádné akce v této kategorii.</p>

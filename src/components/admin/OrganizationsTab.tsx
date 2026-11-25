@@ -35,17 +35,9 @@ import {
 } from "@/components/ui/dialog";
 import { Store, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const ALL_MUNICIPALITIES = "__all__";
-
-const chipClass = (active: boolean) =>
-  cn(
-    "px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors",
-    active
-      ? "bg-primary text-primary-foreground border-primary"
-      : "bg-card text-foreground border-border hover:border-brand-purple",
-  );
 
 interface Props {
   organizations: SuperAdminOrganizationRow[];
@@ -57,13 +49,20 @@ interface Props {
 
 export function TypeChips({ value, onChange }: { value: OrganizationType; onChange: (type: OrganizationType) => void }) {
   return (
-    <div className="flex flex-wrap gap-2 mt-1.5">
+    <ToggleGroup
+      type="single"
+      variant="chip"
+      size="chip"
+      value={value}
+      onValueChange={(v) => v && onChange(v as OrganizationType)}
+      className="mt-1.5"
+    >
       {ORGANIZATION_TYPES.map((t) => (
-        <button key={t.value} type="button" onClick={() => onChange(t.value)} className={chipClass(value === t.value)}>
+        <ToggleGroupItem key={t.value} value={t.value}>
           {t.label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 

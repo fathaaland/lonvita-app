@@ -10,6 +10,7 @@ import {
   type ReliabilityRecord,
 } from "@/lib/reliability";
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const LABELS = {
   reliable: { text: () => "Spolehlivý/á", icon: ShieldCheck, className: "bg-success-soft text-success" },
@@ -30,24 +31,24 @@ export function ReliabilityBadge({ record }: { record: ReliabilityRecord }) {
   const { text, icon: Icon, className } = LABELS[label];
 
   return (
-    <div className="space-y-1">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold", className)}
+    <Collapsible open={open} onOpenChange={setOpen} className="space-y-1">
+      <CollapsibleTrigger
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          className,
+        )}
       >
         <Icon className="h-4 w-4" aria-hidden />
         {text(record)}
         <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} aria-hidden />
-      </button>
-      {open && (
+      </CollapsibleTrigger>
+      <CollapsibleContent asChild>
         <p className="text-sm text-muted-foreground">
           Za posledních {RELIABILITY_WINDOW_MONTHS} měsíců: {describeReliability(record)}.
           {record.restrictedUntil &&
             ` Přihlášky mu/jí do ${formatRestrictedUntil(record.restrictedUntil)} potvrzuje pořadatel — i na akce bez schvalování.`}
         </p>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

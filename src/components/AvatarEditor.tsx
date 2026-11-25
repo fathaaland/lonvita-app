@@ -106,14 +106,15 @@ export function AvatarEditor({
     <>
       <div className="relative shrink-0">
         {renderAvatar(current, "header")}
-        <button
+        <Button
           type="button"
+          size="icon"
           onClick={() => setOpen(true)}
-          className="absolute -bottom-1 -right-3 h-9 w-9 rounded-full inline-flex items-center justify-center bg-primary text-primary-foreground ring-4 ring-[hsl(var(--brand-purple-pale))] hover:bg-primary/90 transition-colors focus-visible:outline-none focus-visible:ring-ring"
+          className="absolute -bottom-1 -right-3 h-9 w-9 rounded-full ring-4 ring-[hsl(var(--brand-purple-pale))] ring-offset-0 focus-visible:ring-4 focus-visible:ring-ring focus-visible:ring-offset-0"
           aria-label={editLabel}
         >
-          <Pencil className="h-4 w-4" />
-        </button>
+          <Pencil />
+        </Button>
       </div>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>

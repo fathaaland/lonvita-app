@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import { Toggle } from "@/components/ui/toggle";
 import { LonvitaLogo } from "@/components/LonvitaLogo";
 import { toast } from "sonner";
 import { Loading } from "@/components/Loading";
@@ -229,12 +231,12 @@ function OnboardingContent() {
       </div>
 
       <div className="px-2 pb-2">
-        <div className="h-1.5 bg-muted rounded-full overflow-hidden mx-4">
-          <div
-            className="h-full bg-primary transition-all"
-            style={{ width: `${((step + 1) / steps.length) * 100}%` }}
-          />
-        </div>
+        <Progress
+          value={((step + 1) / steps.length) * 100}
+          aria-label={`Krok ${step + 1} z ${steps.length}`}
+          className="mx-4 h-1.5 w-auto"
+          indicatorClassName="rounded-none"
+        />
       </div>
 
       <div className="flex-1 px-4 py-4">
@@ -335,18 +337,16 @@ function OnboardingContent() {
                     const Icon = getCategoryIcon(c.icon);
                     const active = interests.includes(c.id);
                     return (
-                      <button
+                      <Toggle
                         key={c.id}
-                        type="button"
-                        onClick={() => toggleInterest(c.id)}
-                        className={`rounded-xl border p-3 flex items-center gap-2 h-14 transition ${
-                          active ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"
-                        }`}
+                        pressed={active}
+                        onPressedChange={() => toggleInterest(c.id)}
+                        className="h-14 justify-start rounded-xl border border-border bg-transparent p-3 font-normal data-[state=off]:hover:bg-muted data-[state=off]:hover:text-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground [&_svg]:size-5"
                       >
-                        <Icon className="h-5 w-5" />
+                        <Icon />
                         <span className="font-semibold">{c.name}</span>
-                        {active && <Check className="h-4 w-4 ml-auto" />}
-                      </button>
+                        {active && <Check className="ml-auto !size-4" />}
+                      </Toggle>
                     );
                   })}
                 </div>

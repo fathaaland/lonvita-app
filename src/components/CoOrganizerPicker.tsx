@@ -1,12 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import * as SelectPrimitive from "@radix-ui/react-select";
-import { ChevronDown, UserPlus, X } from "lucide-react";
+import { UserPlus, X } from "lucide-react";
 import { listCoOrganizerCandidates, CoOrganizerCandidate, OrganizationRef } from "@/integrations/payload/queries";
 import { MUNICIPALITY_ORGANIZATION_TYPE, organizationTypeLabel } from "@/lib/organizations";
 import { OrganizationMark } from "@/components/EventCard";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Props {
   municipalityId: string;
@@ -109,14 +119,16 @@ export function CoOrganizerPicker({
                 <span>{v.name}</span>
                 {pending && <span className="font-normal text-muted-foreground">čeká na souhlas</span>}
                 {!fixedIds.includes(v.id) && (
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => remove(v.id)}
                     aria-label={`Odebrat ${v.name}`}
-                    className="-mr-1 rounded-full p-1 text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="-mr-1 h-6 w-6 rounded-full text-muted-foreground hover:bg-transparent hover:text-destructive [&_svg]:size-3.5"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                    <X />
+                  </Button>
                 )}
               </li>
             );
@@ -125,83 +137,70 @@ export function CoOrganizerPicker({
       )}
 
       {/* An "add" control rather than a value: picking an option adds it above and resets to the prompt. */}
-      <SelectPrimitive.Root value="" onValueChange={add} disabled={options.length === 0}>
-        <SelectPrimitive.Trigger
+      <Select value="" onValueChange={add} disabled={options.length === 0}>
+        <SelectTrigger
           className={cn(
-            "flex h-12 w-full items-center gap-2.5 rounded-lg border-[1.5px] border-border bg-card px-3.5 text-left text-sm font-semibold",
-            "transition-colors hover:border-brand-purple data-[state=open]:border-brand-purple",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "disabled:cursor-not-allowed disabled:font-normal disabled:text-muted-foreground disabled:hover:border-border",
+            "h-12 gap-2.5 rounded-lg border-[1.5px] border-border bg-card px-3.5 text-left font-semibold ring-offset-0",
+            "transition-colors hover:border-brand-purple focus:ring-offset-0 data-[state=open]:border-brand-purple",
+            "disabled:font-normal disabled:text-muted-foreground disabled:opacity-100 disabled:hover:border-border",
           )}
         >
           <UserPlus className="h-4 w-4 shrink-0 text-primary" aria-hidden />
           <span className="flex-1 truncate">
-            <SelectPrimitive.Value placeholder={placeholder} />
+            <SelectValue placeholder={placeholder} />
           </span>
-          <SelectPrimitive.Icon asChild>
-            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </SelectPrimitive.Icon>
-        </SelectPrimitive.Trigger>
+        </SelectTrigger>
 
-        <SelectPrimitive.Portal>
-          <SelectPrimitive.Content
-            position="popper"
-            sideOffset={6}
-            className={cn(
-              "relative z-50 max-h-[min(24rem,var(--radix-select-content-available-height))] w-[var(--radix-select-trigger-width)] overflow-hidden",
-              "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
-              "data-[state=open]:animate-in data-[state=open]:fade-in-0 motion-reduce:animate-none",
-            )}
-          >
-            <SelectPrimitive.Viewport className="p-1.5">
-              {obecOptions.map((obec) => (
-                <SelectPrimitive.Item
-                  key={obec.id}
-                  value={obec.id}
-                  className="mb-1 flex cursor-pointer select-none items-center gap-3 rounded-md bg-primary-soft px-2.5 py-2.5 outline-none last-of-type:mb-0 data-[highlighted]:ring-2 data-[highlighted]:ring-inset data-[highlighted]:ring-primary"
+        <SelectContent
+          sideOffset={6}
+          className="max-h-[min(24rem,var(--radix-select-content-available-height))] w-[var(--radix-select-trigger-width)] rounded-lg border-border p-0.5 shadow-lg motion-reduce:animate-none"
+        >
+          {obecOptions.map((obec) => (
+            <SelectItem
+              key={obec.id}
+              value={obec.id}
+              className="mb-1 cursor-pointer gap-3 rounded-md bg-primary-soft px-2.5 py-2.5 last-of-type:mb-0 focus:bg-primary-soft focus:text-foreground data-[highlighted]:ring-2 data-[highlighted]:ring-inset data-[highlighted]:ring-primary"
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <OrganizationMark organization={obec} className="h-10 w-10 ring-0 text-xs" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold">{obec.name}</span>
+
+                  <span className="block text-xs text-muted-foreground">
+                    {obec.municipality_id === municipalityId
+                      ? "Obec — po přijetí akci upravuje a ruší už jen obec"
+                      : "Sousední obec z mikroregionu — po přijetí může akci upravovat"}
+                  </span>
+                </span>
+              </span>
+            </SelectItem>
+          ))}
+          {obecOptions.length > 0 && otherOptions.length > 0 && <SelectSeparator className="mx-1 my-1.5 bg-border" />}
+          {otherOptions.length > 0 && (
+            <SelectGroup>
+              <SelectLabel className="px-2.5 pb-1 pt-0.5 text-xs font-semibold text-muted-foreground">
+                Pořadatelé
+              </SelectLabel>
+              {otherOptions.map((o) => (
+                <SelectItem
+                  key={o.id}
+                  value={o.id}
+                  className="cursor-pointer gap-3 rounded-md px-2.5 py-2 focus:bg-muted focus:text-foreground"
                 >
-                  <OrganizationMark organization={obec} className="h-10 w-10 ring-0 text-xs" />
-                  <span className="min-w-0">
-                    <SelectPrimitive.ItemText>
-                      <span className="block truncate text-sm font-semibold">{obec.name}</span>
-                    </SelectPrimitive.ItemText>
-                    <span className="block text-xs text-muted-foreground">
-                      {obec.municipality_id === municipalityId
-                        ? "Obec — po přijetí akci upravuje a ruší už jen obec"
-                        : "Sousední obec z mikroregionu — po přijetí může akci upravovat"}
+                  <span className="flex min-w-0 items-center gap-3">
+                    <OrganizationMark organization={o} className="h-9 w-9 ring-0 text-xs" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{o.name}</span>
+
+                      <span className="block text-xs text-muted-foreground">{organizationTypeLabel(o.type)}</span>
                     </span>
                   </span>
-                </SelectPrimitive.Item>
+                </SelectItem>
               ))}
-              {obecOptions.length > 0 && otherOptions.length > 0 && (
-                <SelectPrimitive.Separator className="mx-1 my-1.5 h-px bg-border" />
-              )}
-              {otherOptions.length > 0 && (
-                <SelectPrimitive.Group>
-                  <SelectPrimitive.Label className="px-2.5 pb-1 pt-0.5 text-xs font-semibold text-muted-foreground">
-                    Pořadatelé
-                  </SelectPrimitive.Label>
-                  {otherOptions.map((o) => (
-                    <SelectPrimitive.Item
-                      key={o.id}
-                      value={o.id}
-                      className="flex cursor-pointer select-none items-center gap-3 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted"
-                    >
-                      <OrganizationMark organization={o} className="h-9 w-9 ring-0 text-xs" />
-                      <span className="min-w-0">
-                        <SelectPrimitive.ItemText>
-                          <span className="block truncate text-sm font-semibold">{o.name}</span>
-                        </SelectPrimitive.ItemText>
-                        <span className="block text-xs text-muted-foreground">{organizationTypeLabel(o.type)}</span>
-                      </span>
-                    </SelectPrimitive.Item>
-                  ))}
-                </SelectPrimitive.Group>
-              )}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      </SelectPrimitive.Root>
+            </SelectGroup>
+          )}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

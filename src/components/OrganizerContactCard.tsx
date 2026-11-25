@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, Mail, Phone } from "lucide-react";
 import { getOrganizerContact, OrganizerContact } from "@/integrations/payload/queries";
 import { initialsOf } from "@/components/UserAvatar";
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 /**
  * The event's pořadatel to call or e-mail — once it's too late to sign up for the event or cancel
@@ -15,7 +16,6 @@ import { cn } from "@/lib/utils";
 export function OrganizerContactCard({ eventId }: { eventId: string }) {
   const [contact, setContact] = useState<OrganizerContact | null>(null);
   const [open, setOpen] = useState(false);
-  const panelId = useId();
 
   useEffect(() => {
     getOrganizerContact(eventId)
@@ -28,58 +28,50 @@ export function OrganizerContactCard({ eventId }: { eventId: string }) {
   const name = contact?.name ?? "Pořadatel";
 
   return (
-    <section aria-label="Kontakt na pořadatele" className="overflow-hidden rounded-2xl border border-border bg-card">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={loading || unavailable}
-        aria-expanded={open}
-        aria-controls={panelId}
-        className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent"
-      >
-        <span
-          aria-hidden
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-brand-purple-dark"
-        >
-          {loading ? "" : initialsOf(name)}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block font-bold leading-tight">Kontaktovat pořadatele</span>
-          <span className="block truncate text-sm text-muted-foreground">
-            {loading ? "Načítám kontakt…" : unavailable ? "Kontakt se nepodařilo načíst" : name}
-          </span>
-        </span>
-        {!loading && !unavailable && (
-          <ChevronDown
+    <Collapsible asChild open={open} onOpenChange={setOpen} disabled={loading || unavailable}>
+      <section aria-label="Kontakt na pořadatele" className="overflow-hidden rounded-2xl border border-border bg-card">
+        <CollapsibleTrigger className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent">
+          <span
             aria-hidden
-            className={cn(
-              "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
-              open && "rotate-180",
-            )}
-          />
-        )}
-      </button>
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-bold text-brand-purple-dark"
+          >
+            {loading ? "" : initialsOf(name)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-bold leading-tight">Kontaktovat pořadatele</span>
+            <span className="block truncate text-sm text-muted-foreground">
+              {loading ? "Načítám kontakt…" : unavailable ? "Kontakt se nepodařilo načíst" : name}
+            </span>
+          </span>
+          {!loading && !unavailable && (
+            <ChevronDown
+              aria-hidden
+              className={cn(
+                "h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none",
+                open && "rotate-180",
+              )}
+            />
+          )}
+        </CollapsibleTrigger>
 
-      <div
-        id={panelId}
-        inert={!open}
-        className={cn(
-          "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
-          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
+        <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down motion-reduce:animate-none">
           <div className="space-y-1 border-t border-border p-2">
             {contact?.phone && (
-              <ContactRow href={`tel:${contact.phone.replace(/\s/g, "")}`} icon={Phone} label="Zavolat" value={contact.phone} primary />
+              <ContactRow
+                href={`tel:${contact.phone.replace(/\s/g, "")}`}
+                icon={Phone}
+                label="Zavolat"
+                value={contact.phone}
+                primary
+              />
             )}
             {contact?.email && (
               <ContactRow href={`mailto:${contact.email}`} icon={Mail} label="Napsat e-mail" value={contact.email} />
             )}
           </div>
-        </div>
-      </div>
-    </section>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   );
 }
 

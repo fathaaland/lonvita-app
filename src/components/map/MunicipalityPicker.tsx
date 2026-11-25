@@ -68,19 +68,19 @@ export function MunicipalityPicker({ points, value, onChange, id, copy = DEFAULT
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
         id={id}
         onClick={() => setOpen(true)}
         className={cn(
-          "flex h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left transition-colors",
-          "ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          "h-14 w-full justify-start gap-3 rounded-2xl px-4 text-left font-normal [&_svg]:size-5",
           resolved
-            ? "border-success/40 bg-success-soft text-foreground"
-            : "border-input bg-background hover:border-primary",
+            ? "border-success/40 bg-success-soft text-foreground hover:bg-success-soft hover:text-foreground"
+            : "border-input bg-background hover:border-primary hover:bg-background hover:text-foreground",
         )}
       >
-        <MapPin className={cn("h-5 w-5 shrink-0", resolved ? "text-foreground" : "text-muted-foreground")} />
+        <MapPin className={cn(resolved ? "text-foreground" : "text-muted-foreground")} />
         <span className="min-w-0 flex-1 truncate text-base">
           {chosenName ? (
             <span className="font-semibold">{chosenName}</span>
@@ -93,9 +93,9 @@ export function MunicipalityPicker({ points, value, onChange, id, copy = DEFAULT
         {resolved ? (
           <span className="shrink-0 text-sm font-semibold text-primary">Změnit</span>
         ) : (
-          <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground" />
+          <ChevronDown className="text-muted-foreground" />
         )}
-      </button>
+      </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-[min(56rem,calc(100vw-2rem))] gap-5 overflow-y-auto">

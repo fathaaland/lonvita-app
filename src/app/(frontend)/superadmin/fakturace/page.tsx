@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import {
   billingCsvUrl,
   getBillingOverview,
@@ -370,25 +371,25 @@ function Overview() {
           <p className="text-sm text-muted-foreground">Žádné obce.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="py-1.5 pr-3 font-medium">Obec</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">Obyvatel</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">Aktivní / v ceně</th>
-                  <th className="py-1.5 pr-3 font-medium">Pásmo</th>
-                  <th className="py-1.5 pr-3 font-medium">SMS</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">SMS měsíc / rok</th>
-                  <th className="py-1.5 pr-3 font-medium">Scraping</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">Běhy / náklad AI</th>
-                  <th className="py-1.5 pr-3 font-medium text-right">Účtovat za měsíc</th>
-                  <th className="py-1.5 font-medium text-right">Kč/rok</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table className="w-full text-sm">
+              <TableHeader className="text-left text-xs text-muted-foreground">
+                <TableRow>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium">Obec</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">Obyvatel</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">Aktivní / v ceně</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium">Pásmo</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium">SMS</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">SMS měsíc / rok</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium">Scraping</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">Běhy / náklad AI</TableHead>
+                  <TableHead className="h-auto py-1.5 pr-3 font-medium text-right">Účtovat za měsíc</TableHead>
+                  <TableHead className="h-auto py-1.5 font-medium text-right">Kč/rok</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {rows.map((r) => (
-                  <tr key={r.municipalityId}>
-                    <td className="py-2 pr-3">
+                  <TableRow key={r.municipalityId}>
+                    <TableCell className="py-2 pr-3">
                       <Link
                         href={`/superadmin/obce/${r.municipalityId}`}
                         className="font-semibold hover:underline"
@@ -400,19 +401,19 @@ function Overview() {
                           {BILLING_STATUS_LABELS[r.billingStatus]}
                         </Badge>
                       )}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3 text-right tabular-nums">
                       {r.population != null ? num(r.population) : <span className="text-destructive">chybí</span>}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
                       {num(r.snapshotUsers ?? r.activeUsers)}
                       {r.includedUsers != null && (
                         <span className={r.activeUsers > r.includedUsers ? 'text-warning' : 'text-muted-foreground'}>
                           {' '}/ {num(r.includedUsers)}
                         </span>
                       )}
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3 whitespace-nowrap">
                       {r.tier != null ? r.tier + 1 : '—'}
                       {r.tierManual && <span className="text-muted-foreground"> (ručně)</span>}
                       {r.nextTier != null && r.nextTier !== r.tier && (
@@ -420,9 +421,9 @@ function Overview() {
                       )}
                       {r.inTrial && <Badge variant="outline" className="ml-1">zkouška</Badge>}
                       {r.belowFloor && <Badge variant="destructive" className="ml-1">pod hranicí</Badge>}
-                    </td>
-                    <td className="py-2 pr-3">{r.smsPackage ?? '—'}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3">{r.smsPackage ?? '—'}</TableCell>
+                    <TableCell className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
                       {num(r.smsPartsMonth)} / {num(r.smsPartsPeriod)}
                       {r.smsQuota != null && (
                         <span className="text-muted-foreground"> z {num(r.smsQuota)}</span>
@@ -432,8 +433,8 @@ function Overview() {
                           přečerpání {num(r.smsOveragePartsMonth)}
                         </span>
                       )}
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3 whitespace-nowrap">
                       {r.scrapingPackage ? (
                         <>
                           {r.scrapingPackage} · {r.enabledSources}/{r.maxSources}
@@ -445,11 +446,11 @@ function Overview() {
                       ) : (
                         '—'
                       )}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
                       {num(r.runsMonth)} / ${r.aiCostUsdMonth.toFixed(2)}
-                    </td>
-                    <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
+                    </TableCell>
+                    <TableCell className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
                       {(r.smsOverageCzkMonth ?? 0) > 0 && (
                         <span className="block">přečerpání SMS {num(r.smsOverageCzkMonth)} Kč</span>
                       )}
@@ -459,12 +460,12 @@ function Overview() {
                         </span>
                       )}
                       {!(r.smsOverageCzkMonth ?? 0) && r.sourcesSetUpMonth === 0 && '—'}
-                    </td>
-                    <td className="py-2 text-right tabular-nums">{num(r.yearlyTotalCzk)}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="py-2 text-right tabular-nums">{num(r.yearlyTotalCzk)}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </CardContent>

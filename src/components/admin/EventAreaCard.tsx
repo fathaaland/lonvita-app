@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MapPinned } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Loading } from "@/components/Loading";
 import { EVENT_AREA_COLOURS } from "@/components/map/eventAreaColours";
 import { EventAreaMap } from "@/components/map/EventAreaMapClient";
@@ -79,42 +80,42 @@ export function EventAreaCard(props: { municipalityId: string } | { microregionI
 
             {outside.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="py-1.5 pr-3 font-medium">Akce</th>
-                      <th className="py-1.5 pr-3 font-medium">Kdy</th>
-                      <th className="py-1.5 pr-3 font-medium">Pořádá</th>
-                      <th className="py-1.5 pr-3 font-medium">Druh</th>
-                      <th className="py-1.5 pr-3 font-medium">Místo</th>
-                      <th className="py-1.5 font-medium text-right">Od obce</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
+                <Table className="w-full text-sm">
+                  <TableHeader className="text-left text-xs text-muted-foreground">
+                    <TableRow>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Akce</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Kdy</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Pořádá</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Druh</TableHead>
+                      <TableHead className="h-auto py-1.5 pr-3 font-medium">Místo</TableHead>
+                      <TableHead className="h-auto py-1.5 font-medium text-right">Od obce</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {outside
                       .slice()
                       .sort((a, b) => b.distanceKm - a.distanceKm)
                       .map((e) => (
-                        <tr key={e.id} className="align-top">
-                          <td className="py-2 pr-3">
+                        <TableRow key={e.id} className="align-top">
+                          <TableCell className="py-2 pr-3">
                             <Link href={`/akce/${e.id}`} className="underline">
                               {e.title}
                             </Link>
-                          </td>
-                          <td className="py-2 pr-3 whitespace-nowrap">{when(e.dateTime)}</td>
-                          <td className="py-2 pr-3">{e.runBy === "obec" ? "Obec" : (e.organizationName ?? "Pořadatel")}</td>
-                          <td className="py-2 pr-3">
+                          </TableCell>
+                          <TableCell className="py-2 pr-3 whitespace-nowrap">{when(e.dateTime)}</TableCell>
+                          <TableCell className="py-2 pr-3">{e.runBy === "obec" ? "Obec" : (e.organizationName ?? "Pořadatel")}</TableCell>
+                          <TableCell className="py-2 pr-3">
                             {e.kind === "regional" ? `Mikroregionální (${[e.homeObec, ...e.partners].join(", ")})` : `Samostatná (${e.homeObec})`}
-                          </td>
-                          <td className="py-2 pr-3 max-w-[16rem]">{e.locationText ?? "—"}</td>
-                          <td className="py-2 text-right tabular-nums whitespace-nowrap text-destructive">
+                          </TableCell>
+                          <TableCell className="py-2 pr-3 max-w-[16rem]">{e.locationText ?? "—"}</TableCell>
+                          <TableCell className="py-2 text-right tabular-nums whitespace-nowrap text-destructive">
                             {e.distanceKm.toLocaleString("cs-CZ")} km
                             <span className="block text-xs text-muted-foreground">{e.nearestObec}</span>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
           </>

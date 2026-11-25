@@ -24,11 +24,13 @@ import type { MunicipalityMapPoint } from "@/components/map/MunicipalitiesMap";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Toggle } from "@/components/ui/toggle";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -261,12 +263,9 @@ export function VolunteerCard() {
         <Link href={`/dobrovolnik/${user.id}`}>
           <HandHeart className="h-5 w-5" /> Moje karta dobrovolníka
           {waiting > 0 && (
-            <span
-              className="ml-1 rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground"
-              aria-label={`Pozvánky k pomoci: ${waiting}`}
-            >
+            <Badge className="ml-1 px-2 font-bold hover:bg-primary" aria-label={`Pozvánky k pomoci: ${waiting}`}>
               {waiting}
-            </span>
+            </Badge>
           )}
         </Link>
       </Button>
@@ -536,21 +535,15 @@ function VolunteerForm({
           {VOLUNTEER_FOCUS_OPTIONS.map((o) => {
             const active = draft.focus.includes(o.value);
             return (
-              <button
+              <Toggle
                 key={o.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggleFocus(o.value)}
-                className={cn(
-                  "h-10 rounded-full border-[1.5px] px-4 text-sm font-semibold transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-foreground hover:border-brand-purple",
-                )}
+                variant="chip"
+                pressed={active}
+                onPressedChange={() => toggleFocus(o.value)}
+                className="h-10 px-4"
               >
                 {o.label}
-              </button>
+              </Toggle>
             );
           })}
         </div>

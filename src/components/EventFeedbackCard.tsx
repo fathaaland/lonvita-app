@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MessageSquareHeart, Star } from "lucide-react";
 import { toast } from "sonner";
 import { PayloadApiError } from "@/integrations/payload/client";
@@ -23,19 +24,24 @@ function StarPicker({ value, onChange, label }: { value: number; onChange: (v: n
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <div className="flex gap-1">
+      <ToggleGroup
+        type="single"
+        value={value ? String(value) : ""}
+        onValueChange={(v) => v && onChange(Number(v))}
+        aria-label={label}
+        className="justify-start gap-1"
+      >
         {[1, 2, 3, 4, 5].map((n) => (
-          <button
+          <ToggleGroupItem
             key={n}
-            type="button"
-            onClick={() => onChange(n)}
+            value={String(n)}
             aria-label={`${n} z 5`}
-            className="h-9 w-9 flex items-center justify-center"
+            className="h-9 w-9 p-0 hover:bg-transparent data-[state=on]:bg-transparent [&_svg]:size-6"
           >
-            <Star className={n <= value ? "h-6 w-6 fill-[hsl(var(--warning))] text-[hsl(var(--warning))]" : "h-6 w-6 text-muted-foreground"} />
-          </button>
+            <Star className={n <= value ? "fill-[hsl(var(--warning))] text-[hsl(var(--warning))]" : "text-muted-foreground"} />
+          </ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
     </div>
   );
 }

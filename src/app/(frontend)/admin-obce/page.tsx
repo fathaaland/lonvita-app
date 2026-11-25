@@ -31,7 +31,6 @@ import { ImportPanel } from "@/components/admin/ImportPanel";
 import { PackageUsageCard } from "@/components/admin/PackageUsageCard";
 import { countPendingImportCandidates } from "@/integrations/payload/import-queries";
 import { ADMIN_NAV, AdminSideNav } from "@/components/admin/AdminSideNav";
-import { cn } from "@/lib/utils";
 import { UnreadBadge } from "@/components/UnreadBadge";
 
 // The charts (recharts) are the heaviest part of the obec's page — loaded on their own, once the
@@ -183,23 +182,12 @@ function AdminContent() {
             </TabsList>
 
             {(tab === "overview" || tab === "events") && (
-              <div className="flex gap-1 bg-muted rounded-lg p-1 mt-4 max-w-xs">
-                {([
-                  { v: "all" as const, label: "Celá obec" },
-                  { v: "mine" as const, label: "Jen moje akce" },
-                ]).map((opt) => (
-                  <button
-                    key={opt.v}
-                    onClick={() => setScope(opt.v)}
-                    className={cn(
-                      "flex-1 h-9 rounded-md text-sm font-semibold transition-colors",
-                      scope === opt.v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              <Tabs value={scope} onValueChange={(v) => setScope(v as "all" | "mine")} className="mt-4">
+                <TabsList className="h-11 w-full rounded-lg max-w-xs">
+                  <TabsTrigger value="all" className="h-9 flex-1 truncate font-semibold">Celá obec</TabsTrigger>
+                  <TabsTrigger value="mine" className="h-9 flex-1 truncate font-semibold">Jen moje akce</TabsTrigger>
+                </TabsList>
+              </Tabs>
             )}
 
             <TabsContent value="overview" className="pt-4 space-y-4">

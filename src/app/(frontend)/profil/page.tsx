@@ -91,13 +91,15 @@ function ProfileContent() {
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-20 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[hsl(var(--brand-purple-light)/0.35)] ring-[24px] ring-[hsl(var(--brand-purple-light)/0.15)]"
         />
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => router.back()}
-          className="absolute top-4 left-4 z-10 h-9 w-9 rounded-full inline-flex items-center justify-center bg-card/70 hover:bg-card transition-colors"
+          className="absolute top-4 left-4 z-10 h-9 w-9 rounded-full bg-card/70 hover:bg-card hover:text-foreground"
           aria-label="Zpět"
         >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
+          <ArrowLeft />
+        </Button>
         <div className="relative flex flex-col items-center text-center">
           <ProfileAvatarEditor />
           <h1 className="mt-4 text-2xl font-extrabold tracking-tight">{profile?.full_name}</h1>

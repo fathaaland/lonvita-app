@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { HandHeart, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -84,14 +85,6 @@ export type EventFormPrefill = {
 
 // The time as the obec reads it (Prague), whichever time zone this browser is set to.
 const toLocalTime = toTimeInputValue;
-
-const chipClass = (active: boolean) =>
-  cn(
-    "px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors",
-    active
-      ? "bg-primary text-primary-foreground border-primary"
-      : "bg-card text-foreground border-border hover:border-brand-purple",
-  );
 
 interface Props {
   userId: string;
@@ -344,13 +337,13 @@ export function EventForm({
       </div>
       <div>
         <Label className="text-base">Kategorie * <span className="font-normal text-muted-foreground">(vyberte jednu nebo víc)</span></Label>
-        <div className="flex flex-wrap gap-2 mt-1.5">
+        <ToggleGroup type="multiple" variant="chip" size="chip" value={categoryIds} onValueChange={setCategoryIds} className="mt-1.5">
           {categories.map((c) => (
-            <button key={c.id} type="button" onClick={() => toggleInArray(categoryIds, setCategoryIds, c.id)} className={chipClass(categoryIds.includes(c.id))}>
+            <ToggleGroupItem key={c.id} value={c.id}>
               {c.name}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
       <div>
         <Label htmlFor="desc" className="text-base">Popis *</Label>
@@ -447,26 +440,22 @@ export function EventForm({
 
       <div>
         <Label className="text-base">Přihlašování účastníků</Label>
-        <div className="flex gap-2 mt-1.5">
+        <ToggleGroup
+          type="single"
+          variant="chip"
+          value={approvalMode}
+          onValueChange={(v) => v && setApprovalMode(v as "manual" | "auto")}
+          className="mt-1.5 flex-nowrap"
+        >
           {([
             { v: "manual" as const, label: "S potvrzením organizátora" },
             { v: "auto" as const, label: "Bez schvalování" },
           ]).map((opt) => (
-            <button
-              key={opt.v}
-              type="button"
-              onClick={() => setApprovalMode(opt.v)}
-              className={cn(
-                "flex-1 h-11 rounded-lg text-sm font-semibold border-[1.5px] transition-colors",
-                approvalMode === opt.v
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card text-foreground border-border hover:border-brand-purple",
-              )}
-            >
+            <ToggleGroupItem key={opt.v} value={opt.v} className="h-11 flex-1 rounded-lg whitespace-normal">
               {opt.label}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
 
       <div>

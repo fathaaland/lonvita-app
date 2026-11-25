@@ -37,6 +37,8 @@ import { RegionNotice } from "@/components/RegionNotice";
 import { useMunicipalityRegion } from "@/hooks/useMunicipalityRegion";
 import { TypeChips } from "@/components/admin/OrganizationsTab";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,7 +62,6 @@ import {
   organizationTypeLabel,
   type OrganizationType,
 } from "@/lib/organizations";
-import { cn } from "@/lib/utils";
 
 function toAnalyticsEvent(e: QueryEventRow): EventRow {
   return {
@@ -106,9 +107,7 @@ function Meter({ label, share, value }: { label: string; share: number; value: s
         <span className="font-semibold">{label}</span>
         <span className="font-bold tabular-nums">{value}</span>
       </div>
-      <div className="h-2 rounded-full bg-brand-sand-pale overflow-hidden">
-        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.round(share * 100)}%` }} />
-      </div>
+      <Progress value={Math.round(share * 100)} aria-label={label} className="bg-brand-sand-pale" />
     </div>
   );
 }
@@ -241,27 +240,25 @@ function OrganizationContent() {
         <CoOrganizingInvitations userId={String(user!.id)} onAccepted={() => loadData(organization.id)} />
 
         {organizations.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto -mx-4 px-4 pb-1" role="tablist" aria-label="Vaše organizace">
+          <ToggleGroup
+            type="single"
+            variant="chip"
+            value={selectedId ?? ""}
+            onValueChange={(v) => v && setSelectedId(v)}
+            className="-mx-4 flex-nowrap overflow-x-auto px-4 pb-1"
+            aria-label="Vaše organizace"
+          >
             {organizations.map((o) => (
-              <button
+              <ToggleGroupItem
                 key={o.id}
-                type="button"
-                role="tab"
-                aria-selected={o.id === selectedId}
-                onClick={() => setSelectedId(o.id)}
-                className={cn(
-                  "shrink-0 flex items-center gap-2 rounded-full border-[1.5px] py-1.5 pl-1.5 pr-4 text-sm font-semibold transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  o.id === selectedId
-                    ? "border-primary bg-brand-purple-pale text-brand-purple-dark"
-                    : "border-border bg-card hover:border-brand-purple",
-                )}
+                value={o.id}
+                className="shrink-0 py-1.5 pl-1.5 pr-4 data-[state=on]:border-primary data-[state=on]:bg-brand-purple-pale data-[state=on]:text-brand-purple-dark"
               >
                 <OrganizationMark organization={o} className="ring-0" />
                 {o.name}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         )}
 
         <section className="flex items-center gap-4">
@@ -312,13 +309,9 @@ function OrganizationContent() {
             <p className="-mt-2 max-w-prose whitespace-pre-line text-foreground/85">{organization.description}</p>
           ) : (
             organization.is_own && (
-              <button
-                type="button"
-                onClick={openEdit}
-                className="-mt-2 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-              >
+              <Button variant="link" onClick={openEdit} className="-mt-2 h-auto self-start p-0 font-semibold">
                 Přidat popis organizace
-              </button>
+              </Button>
             )
           ))}
 

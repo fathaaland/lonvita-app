@@ -16,13 +16,13 @@ import {
   ORGANIZATION_TYPES,
   OrganizationType,
 } from "@/lib/organizations";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConfirmActionButton } from "@/components/ConfirmActionButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { ORGANIZER_ROLE_KIND } from "@/lib/organizer-request-kinds";
@@ -162,23 +162,19 @@ export function OrganizerRequestCard() {
             {obecOnly ? null : formOpen ? (
               <div className="space-y-2">
                 <Label>Za koho budete akce pořádat?</Label>
-                <div className="flex flex-wrap gap-2">
+                <ToggleGroup
+                  type="single"
+                  variant="chip"
+                  size="chip"
+                  value={organizationType}
+                  onValueChange={(v) => v && setOrganizationType(v as OrganizationType)}
+                >
                   {ORGANIZATION_TYPES.map((t) => (
-                    <button
-                      key={t.value}
-                      type="button"
-                      onClick={() => setOrganizationType(t.value)}
-                      className={cn(
-                        "px-3 py-2 rounded-full text-sm font-semibold border-[1.5px] transition-colors",
-                        organizationType === t.value
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-card text-foreground border-border hover:border-brand-purple",
-                      )}
-                    >
+                    <ToggleGroupItem key={t.value} value={t.value}>
                       {t.label}
-                    </button>
+                    </ToggleGroupItem>
                   ))}
-                </div>
+                </ToggleGroup>
                 <Input
                   aria-label="Název"
                   value={organizationName}

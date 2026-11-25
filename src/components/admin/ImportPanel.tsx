@@ -308,14 +308,15 @@ function SourceRow({
               ? ` (povoleno ${formatEventDate(source.ignore_robots_at)})`
               : ''}
             .{' '}
-            <button
+            <Button
               type="button"
-              className="underline hover:text-foreground"
+              variant="link"
+              className="h-auto p-0 text-sm font-normal text-inherit underline hover:text-foreground"
               onClick={stopIgnoringRobots}
               disabled={busy}
             >
               Zrušit
-            </button>
+            </Button>
           </p>
         )}
         {source.last_error_code === 'robots_disallowed' && !source.ignore_robots && !activity && (

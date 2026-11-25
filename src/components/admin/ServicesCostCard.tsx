@@ -5,6 +5,7 @@ import { Bot, Mail, MessageSquare, ShieldCheck, Wallet } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
 import { getMunicipalityServices } from '@/integrations/payload/queries'
 import { PACKAGE_LABELS } from '@/lib/billing/catalog'
 import { BILLING_STATUS_LABELS, READ_ONLY_MESSAGE, TERMINATED_MESSAGE } from '@/lib/billing/status'
@@ -22,12 +23,10 @@ export const WEEKDAY_NAMES = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'p�
 function Meter({ used, limit }: { used: number; limit: number }) {
   const share = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 100
   return (
-    <div className="h-2 rounded-full bg-muted overflow-hidden">
-      <div
-        className={`h-full rounded-full ${share >= 100 ? 'bg-destructive' : share >= 80 ? 'bg-warning' : 'bg-primary'}`}
-        style={{ width: `${share}%` }}
-      />
-    </div>
+    <Progress
+      value={share}
+      indicatorClassName={share >= 100 ? 'bg-destructive' : share >= 80 ? 'bg-warning' : 'bg-primary'}
+    />
   )
 }
 

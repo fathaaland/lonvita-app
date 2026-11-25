@@ -46,17 +46,18 @@ function WaveProgress({ step, onSelect }: { step: number; onSelect: (i: number) 
       <ol className="mt-2 grid grid-cols-3">
         {STEPS.map((label, i) => (
           <li key={label} className="text-right">
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={() => onSelect(i)}
               aria-current={i === step ? "step" : undefined}
               className={cn(
-                "text-sm transition-colors",
+                "h-auto gap-1 p-0 font-normal hover:bg-transparent",
                 i === step ? "font-semibold text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               <span className="tabular-nums">{i + 1}</span> {label}
-            </button>
+            </Button>
           </li>
         ))}
       </ol>
