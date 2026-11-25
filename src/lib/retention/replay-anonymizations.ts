@@ -13,7 +13,7 @@ import { getS3Client } from '@/lib/s3/client'
 import { eraseObecLeftovers } from '@/lib/billing/status-step'
 
 /**
- * After a restore from backup (.github/workflows/backup.yml), every account deleted since the dump is
+ * After a restore from backup (backup/run.sh), every account deleted since the dump is
  * back with its personal data — GDPR čl. 17 says it has to go again. The deletions are on the record
  * twice: the `users.anonymize` entries of the audit log, and their nightly write-once copy in the audit
  * bucket (audit-trail/YYYY/MM/YYYY-MM-DD.jsonl), which survives whatever happened to the database.
