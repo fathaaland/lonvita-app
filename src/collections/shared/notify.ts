@@ -5,7 +5,7 @@ import { isMutableCategory, type NotificationCategory } from '@/lib/notification
 import { toE164 } from '@/lib/phone'
 import { enqueueOrPark } from '@/lib/outbox'
 import { JOB_NAMES } from '@/lib/queue/contracts'
-import { enqueueEmail } from '@/lib/queue/queues'
+import { BULK_PRIORITY, enqueueEmail } from '@/lib/queue/queues'
 import {
   CANCELLATION_SMS_PREFIX,
   cancellationSmsText,
@@ -306,7 +306,8 @@ export async function sendNotificationToMany(
             if (content.critical) {
               await enqueueOrPark(payload, { job: { jobType: JOB_NAMES.SEND_EMAIL, payload: { to, subject, body } }, jobId })
             } else {
-              await enqueueEmail({ to, subject, body }, jobId ? { jobId } : undefined)
+              // To a whole circle at once: behind the e-mails meant for one person (BULK_PRIORITY).
+              await enqueueEmail({ to, subject, body }, { ...(jobId ? { jobId } : {}), priority: BULK_PRIORITY })
             }
             sent.emails++
           } catch (error) {
