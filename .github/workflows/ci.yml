@@ -50,6 +50,36 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level critical
 
+  # The production build (scripts/vercel-build.sh) waits for this job by name (scripts/wait-for-ci.mjs):
+  # a release that doesn't build never gets as far as migrating the database. No database here — what
+  # the build prerenders (the sitemap) copes without one.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAYLOAD_MIGRATING: 'true'
+      DATABASE_URI: postgresql://payload:payload@127.0.0.1:5432/none
+      PAYLOAD_SECRET: ci-only-secret-not-used-anywhere-else
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      REDIS_URL: redis://127.0.0.1:6379
+      RESEND_API_KEY: re_ci_not_a_real_key
+      RESEND_FROM_EMAIL: noreply@lonvita.test
+      S3_BUCKET: lonvita-media
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: ci
+      S3_SECRET_ACCESS_KEY: ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The version comes from package.json's packageManager — giving it here too fails the action.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
   migrations:
     name: Migrations apply from scratch, schema has no drift
     runs-on: ubuntu-latest
