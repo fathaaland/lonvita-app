@@ -21,7 +21,8 @@ export const geocodeWithNominatim: GeocodeFn = async (query, area) => {
     'search',
     {
       q: query,
-      format: 'jsonv2',
+      // Plain json: what every provider with Nominatim's API answers (jsonv2 is Nominatim's own).
+      format: 'json',
       limit: '1',
       countrycodes: 'cz',
       viewbox: `${area.lng - lngDelta},${area.lat + latDelta},${area.lng + lngDelta},${area.lat - latDelta}`,

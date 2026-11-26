@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import { fetchNominatim, nominatimProxyRetryAfter } from '@/lib/geo/nominatim'
+import { fetchNominatim, geocodeAttribution, nominatimProxyRetryAfter } from '@/lib/geo/nominatim'
 
 /**
  * Server-side proxy for OpenStreetMap Nominatim search (brief §12 "ROZHODNĚ NE NAPSAT
@@ -20,14 +20,17 @@ type NominatimResult = {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const q = searchParams.get('q')?.trim()
+  // The provider's credit rides along with every answer — the picker shows it from the moment it opens
+  // (it asks with an empty query, which never reaches the provider).
+  const attribution = geocodeAttribution()
   // No address is longer than this; anything that is isn't a search worth forwarding.
   if (!q || q.length < 3 || q.length > 200) {
-    return NextResponse.json({ results: [] })
+    return NextResponse.json({ results: [], attribution })
   }
 
   const retryAfter = await nominatimProxyRetryAfter(request)
   if (retryAfter !== null) {
-    return NextResponse.json({ results: [] }, { status: 429, headers: { 'Retry-After': String(retryAfter) } })
+    return NextResponse.json({ results: [], attribution }, { status: 429, headers: { 'Retry-After': String(retryAfter) } })
   }
 
   const data = await fetchNominatim<NominatimResult[]>(
@@ -43,9 +46,10 @@ export async function GET(request: Request) {
     // keystrokes for the same query don't all hit it.
     { revalidateSeconds: 60 },
   )
-  if (!data) return NextResponse.json({ results: [] })
+  if (!data) return NextResponse.json({ results: [], attribution })
 
   return NextResponse.json({
     results: data.map((r) => ({ lat: Number(r.lat), lng: Number(r.lon), label: r.display_name })),
+    attribution,
   })
 }
