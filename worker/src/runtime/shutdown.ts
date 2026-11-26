@@ -5,9 +5,14 @@ import { flushSentry } from './sentry'
 import type { QueueWorker } from './spawn-worker'
 
 /** What the running jobs get to finish before the process goes anyway — under the platform's own
- * grace period (Railway: RAILWAY_DEPLOYMENT_DRAINING_SECONDS, set it to 30 or more), so the exit is
- * ours. A job cut off here stalls and is picked up again by the next worker. */
-const SHUTDOWN_TIMEOUT_MS = 25_000
+ * grace period (Railway: RAILWAY_DEPLOYMENT_DRAINING_SECONDS), so the exit is ours. A job cut off
+ * here stalls and is picked up again by the next worker. 25 s fits the 30 s drain of the e-mail
+ * worker; the heavy service (imports, exports — minutes each) sets WORKER_SHUTDOWN_TIMEOUT_MS a little
+ * under its own, longer drain, so a deploy doesn't throw away an AI import half done. */
+const SHUTDOWN_TIMEOUT_MS = (() => {
+  const parsed = Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 25_000
+})()
 
 export const registerShutdown = (
   label: string,

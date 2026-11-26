@@ -7,18 +7,25 @@ import type { QueueWorker } from './spawn-worker'
 
 /**
  * Two ways of telling the outside the worker is alive:
- *  - a heartbeat in Redis every HEARTBEAT_INTERVAL_MS, which the app's /api/health reads — the
- *    worker has no public address, so that is what an uptime monitor ends up watching;
+ *  - a heartbeat in Redis every HEARTBEAT_INTERVAL_MS for each of `queues`, which the app's
+ *    /api/health reads — the worker has no public address, so that is what an uptime monitor ends
+ *    up watching. Written only once the queue workers run (`workers` filled), so a replica still
+ *    waiting for migrations doesn't cover for one that is down;
  *  - GET /health on $PORT for the platform's own deploy check (railway.json healthcheckPath): 200
  *    while every queue worker is running, 503 otherwise.
- * Returns a stop function for the shutdown.
+ * Returns `beat` (call it once the workers run, so the heartbeat doesn't wait for the first tick) and
+ * a stop function for the shutdown.
  */
-export function startHealthReporting(workers: QueueWorker[]): () => Promise<void> {
-  const beat = () =>
-    writeWorkerHeartbeat().catch((error) =>
+export function startHealthReporting(
+  workers: QueueWorker[],
+  queues: readonly string[],
+): { beat: () => Promise<void>; stop: () => Promise<void> } {
+  const beat = async () => {
+    if (workers.length === 0 || !workers.every((worker) => worker.isRunning())) return
+    await writeWorkerHeartbeat(queues).catch((error) =>
       logger.warn('Worker heartbeat not written', { event: 'worker.heartbeat_failed', ...serializeError(error) }),
     )
-  void beat()
+  }
   const timer = setInterval(beat, HEARTBEAT_INTERVAL_MS)
   timer.unref()
 
@@ -42,8 +49,11 @@ export function startHealthReporting(workers: QueueWorker[]): () => Promise<void
     server.listen(port, () => logger.info('Worker health endpoint listening', { event: 'worker.health_listening', port }))
   }
 
-  return async () => {
-    clearInterval(timer)
-    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()))
+  return {
+    beat,
+    stop: async () => {
+      clearInterval(timer)
+      await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()))
+    },
   }
 }

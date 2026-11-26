@@ -3,11 +3,15 @@ import config from '@payload-config'
 import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 
-import { HEARTBEAT_STALE_MS, pingRedis, readWorkerHeartbeat } from '@/lib/health/heartbeat'
+import { HEARTBEAT_STALE_MS, pingRedis, readWorkerHeartbeats } from '@/lib/health/heartbeat'
 import { logger, serializeError } from '@/lib/logger'
 import { OUTBOX_GIVE_UP_AFTER_MS, OUTBOX_STUCK_AFTER_MS } from '@/lib/outbox'
+import { EMAIL_QUEUE_NAME, HEAVY_QUEUE_NAME, QUEUE_NAME, SMS_QUEUE_NAME } from '@/lib/queue/contracts'
 import { emailBacklogAlertThreshold } from '@/lib/queue/options'
 import { getEmailQueue } from '@/lib/queue/queues'
+
+/** Every queue some worker must be consuming. */
+const WORKER_QUEUES = [QUEUE_NAME, EMAIL_QUEUE_NAME, SMS_QUEUE_NAME, HEAVY_QUEUE_NAME]
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,12 +47,20 @@ export async function GET() {
     await (payload.db as unknown as PostgresAdapter).drizzle.execute(sql`SELECT 1`)
   })
 
-  let heartbeatAt: number | null = null
+  // One heartbeat per queue — the queues may be consumed by different worker services (WORKER_QUEUES).
+  let heartbeats: Record<string, number | null> = {}
   const redis = await check('redis', async () => {
     await pingRedis()
-    heartbeatAt = await readWorkerHeartbeat()
+    heartbeats = await readWorkerHeartbeats(WORKER_QUEUES)
   })
-  const worker = heartbeatAt !== null && Date.now() - heartbeatAt < HEARTBEAT_STALE_MS
+  const now = Date.now()
+  const workerQueues = Object.fromEntries(
+    WORKER_QUEUES.map((queue) => {
+      const at = heartbeats[queue]
+      return [queue, at != null && now - at < HEARTBEAT_STALE_MS]
+    }),
+  )
+  const worker = redis && Object.values(workerQueues).every(Boolean)
 
   let emailsWaiting: number | null = null
   if (redis) {
@@ -64,7 +76,6 @@ export async function GET() {
   if (database) {
     await check('outbox', async () => {
       const payload = await getPayload({ config })
-      const now = Date.now()
       const { rows } = await (payload.db as unknown as PostgresAdapter).drizzle.execute(sql`
         SELECT count(*)::int AS stuck FROM outbox
         WHERE dispatched_at IS NULL
@@ -76,7 +87,7 @@ export async function GET() {
 
   const ok = database && redis && worker && !emailBacklog && !outboxStuck
   return NextResponse.json(
-    { status: ok ? 'ok' : 'degraded', database, redis, worker, emailsWaiting, emailBacklog, outboxStuck },
+    { status: ok ? 'ok' : 'degraded', database, redis, worker, workerQueues, emailsWaiting, emailBacklog, outboxStuck },
     { status: ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } },
   )
 }
