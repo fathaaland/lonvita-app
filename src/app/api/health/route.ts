@@ -31,13 +31,34 @@ const check = async (name: string, run: () => Promise<unknown>): Promise<boolean
   }
 }
 
+async function coreHealth() {
+  const [database, redis] = await Promise.all([
+    check('database', async () => {
+      const payload = await getPayload({ config })
+      await (payload.db as unknown as PostgresAdapter).drizzle.execute(sql`SELECT 1`)
+    }),
+    check('redis', pingRedis),
+  ])
+  const ok = database && redis
+  return NextResponse.json(
+    { status: ok ? 'ok' : 'down', database, redis },
+    { status: ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } },
+  )
+}
+
 /**
  * For an uptime monitor (Sentry Uptime, BetterStack…), polled every minute: 200 when the database,
  * Redis and the worker are all there, the e-mails aren't piling up (EMAIL_BACKLOG_ALERT) and no
  * announcement is stuck in the outbox; 503 otherwise — the worker by its heartbeat, since it has no
  * public address of its own. Says which part is down and how many e-mails wait, nothing else.
+ *
+ * `?scope=core` answers only "can people use the app": the database and Redis, nothing the worker
+ * does. For the monitor that wakes someone up — the full check also turns 503 while a big
+ * announcement drains (e-mail backlog) or the worker redeploys, which is worth a message, not a call.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  if (new URL(request.url).searchParams.get('scope') === 'core') return coreHealth()
+
   const database = await check('database', async () => {
     const payload = await getPayload({ config })
     await (payload.db as unknown as PostgresAdapter).drizzle.execute(sql`SELECT 1`)
