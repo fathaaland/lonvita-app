@@ -16,6 +16,9 @@ export type PickedLocation = { lat: number; lng: number; label: string };
 
 type GeocodeResult = { lat: number; lng: number; label: string };
 
+/** The address search provider's credit (/api/geocode) — LocationIQ's free plan requires the link. */
+type GeocodeAttribution = { label: string; href: string };
+
 const pinIcon = L.divIcon({
   html: `<div class="location-pin"></div>`,
   className: "location-pin-icon",
@@ -72,7 +75,17 @@ export function LocationPicker({ value, onChange, initialCenter, existingPoints 
   const [results, setResults] = useState<GeocodeResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [attribution, setAttribution] = useState<GeocodeAttribution | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The credit is shown from the start, not only after a search — an empty query asks the proxy
+  // for it without a call to the provider.
+  useEffect(() => {
+    fetch("/api/geocode?q=")
+      .then((res) => res.json())
+      .then((data) => setAttribution(data.attribution ?? null))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -86,6 +99,7 @@ export function LocationPicker({ value, onChange, initialCenter, existingPoints 
         const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
         const data = await res.json();
         setResults(data.results ?? []);
+        if (data.attribution) setAttribution(data.attribution);
         setShowResults(true);
       } catch {
         setResults([]);
@@ -152,6 +166,13 @@ export function LocationPicker({ value, onChange, initialCenter, existingPoints 
           </Card>
         )}
       </div>
+      {attribution && (
+        <p className="text-xs text-muted-foreground text-right">
+          <a href={attribution.href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+            {attribution.label}
+          </a>
+        </p>
+      )}
 
       <div className={cn("h-[22rem] sm:h-[28rem] w-full rounded-2xl overflow-hidden border border-border relative", !value && "opacity-90")}>
         <style>{`
